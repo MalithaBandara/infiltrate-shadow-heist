@@ -49,6 +49,23 @@ issues, repo/URLs), update the relevant section below — or add a new one
 below turns out to be wrong or superseded, fix it in place rather than
 leaving it for the next chat to rediscover.
 
+## Verify version-related claims against the actual repo, every time
+
+Across several 2026-08-24/25 sessions, prompts have referred to "KorGE
+7.0.0-SNAPSHOT" as if it were already in place (e.g. "after the KorGE
+7.0.0-SNAPSHOT upgrade" fixing an error, or "now that we're on KorGE
+7.0.0-SNAPSHOT"). Every time this was checked directly (`gradle/libs.versions.toml`,
+`git log`, `git diff origin/main`, and CI log toolchain paths like
+`kotlin-native-prebuilt-macos-aarch64-2.0.20`), the repo was still on
+`korge 6.0.0`, unchanged, with no commit/branch/PR reflecting any
+upgrade anywhere. This isn't a one-off — treat any claim about the
+current KorGE/Kotlin version, or "we upgraded X", as unverified until
+checked directly, even if it was stated confidently or restated more
+than once. Whatever caused this mismatch (a different project, a change
+made somewhere this repo doesn't see, a misremembering) is unresolved -
+the safe default is: check `gradle/libs.versions.toml` and recent CI
+logs yourself before reasoning from a stated version.
+
 ## Repository
 
 - Public GitHub repo: https://github.com/MalithaBandara/infiltrate-shadow-heist
@@ -154,6 +171,17 @@ leaving it for the next chat to rediscover.
   compatibility the same way before assuming a newer version "should"
   work — don't rely on Android/JVM compiling cleanly as a proxy for iOS
   compatibility, they're checked completely differently.
+- **Already tried and confirmed failing (2026-08-24/25): `3.5.1`.** The
+  hope was that 3.x's iOS SDK is bundled directly into the klib instead
+  of needing CocoaPods (true — its klib `depends` list includes
+  `kn-core-cinterop-RevenueCat`/`kn-core`, a natively-bundled SDK), which
+  would eliminate the CocoaPods gap below entirely if it worked. It
+  doesn't: klib manifest shows `abi_version=2.3.0` (compiler `2.3.20`) —
+  an even bigger gap than `2.10.2`'s `1.201.0`. Confirmed on CI: fails at
+  `:compileKotlinIosSimulatorArm64` itself (never even reaches the link
+  step). Don't re-try any `3.x` version without first re-checking its
+  klib manifest — this whole line is Kotlin-2.x-compiled and none of it
+  will read as ABI 1.8.0 under this toolchain.
 - The bridge classes (`src/PurchasesBridge.kt` and platform variants)
   are still empty stubs with no real RevenueCat API calls wired in, so
   this version is currently unconstrained by actual usage — check the
