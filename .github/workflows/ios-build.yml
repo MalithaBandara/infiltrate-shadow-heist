@@ -60,8 +60,15 @@ jobs:
       # This is the actual gate: does the KorGE + Kotlin/Native + RevenueCat toolchain
       # produce an unsigned iOS Simulator build at all. Expected to be the first place
       # a CocoaPods-related link failure would surface, if one exists.
+      #
+      # --no-configuration-cache: KorGE's Gradle plugin isn't compatible with Gradle's
+      # configuration cache (project.gradle.properties has org.gradle.configuration-cache=true
+      # globally, which works fine for JVM/JS builds). With it enabled here, the iOS task
+      # throws NullPointerExceptions inside the plugin (getKorge/execLogger null) preceded by
+      # "cannot serialize object of type Project" warnings - the cache corrupts the plugin's
+      # internal state. Disabled for this invocation only, not project-wide.
       - name: Build unsigned iOS Simulator app (KorGE)
-        run: ./gradlew iosBuildSimulatorDebug --stacktrace
+        run: ./gradlew iosBuildSimulatorDebug --no-configuration-cache --stacktrace
 
       - name: Check for a generated Podfile and run pod install if present
         if: always()
