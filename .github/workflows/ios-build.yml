@@ -80,7 +80,7 @@ jobs:
           else
             echo "No Podfile found under build/platforms/ios."
             echo "KorGE's Xcode project generator does not appear to wire CocoaPods in automatically."
-            echo "RevenueCat purchases-kmp-core 2.10.2+17.55.1 needs PurchasesHybridCommon (17.55.1)"
+            echo "RevenueCat purchases-kmp-core 1.9.0+14.3.0 needs PurchasesHybridCommon (14.3.0)"
             echo "linked in via CocoaPods - this likely needs a Podfile authored and placed into"
             echo "build/platforms/ios (or copied in by a build step) before pod install has anything to do."
           fi

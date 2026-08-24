@@ -172,16 +172,45 @@ leaving it for the next chat to rediscover.
   CocoaPods at all.
 - There is currently NO `Podfile` anywhere in this repo, and
   `build.gradle.kts` has no `cocoapods {}` block. RevenueCat's
-  `purchases-kmp-core:2.10.2+17.55.1` needs `pod 'PurchasesHybridCommon',
-  '17.55.1'` linked into the final iOS app/framework for iOS to actually
+  `purchases-kmp-core:1.9.0+14.3.0` needs `pod 'PurchasesHybridCommon',
+  '14.3.0'` linked into the final iOS app/framework for iOS to actually
   work — this is currently unresolved. It is not yet known whether
   KorGE's generated Xcode project has any hook for injecting a Podfile,
   or whether one needs to be hand-authored and copied into
   `build/platforms/ios` post-generation.
-- The `ios-build.yml` CI run is the first real signal on where this
-  breaks (Kotlin/Native compile step, or the final native link step, or
-  it might just work). Check the latest Actions run before assuming
-  either way:
+- **Confirmed empirically (2026-08-24 CI run, commit `fd46ed6`) exactly
+  where this breaks** — it's the final native link step, not the Kotlin
+  compile step:
+  - `:compileKotlinIosSimulatorArm64` succeeds.
+  - KorGE generates the Xcode project fine (`build/platforms/ios/app.xcodeproj`
+    via XcodeGen 2.42.0).
+  - `:linkDebugFrameworkIosSimulatorArm64` FAILS with:
+    `ld: framework 'PurchasesHybridCommon' not found`
+  - This is the CocoaPods gap, now confirmed rather than theorized. Next
+    step here is almost certainly authoring a `Podfile` (pinning
+    `PurchasesHybridCommon 14.3.0`) and getting it into
+    `build/platforms/ios` before this link step runs — exact mechanism
+    (KorGE hook vs. a CI step that copies one in post-XcodeGen) still
+    unresearched.
+  - Also noted in that run: `Xcode 26.6 is higher than the maximum
+    tested by the Kotlin Gradle Plugin (15.3)` — a warning only so far,
+    not a failure, but worth remembering if something flaky shows up
+    later on Apple-toolchain-version grounds.
+- Earlier `:compileKotlinIosSimulatorArm64` failures along the way (now
+  fixed, for reference): a klib ABI mismatch (see previous section) and
+  a "Conflicting overloads: actual fun getPurchasesBridge()" error
+  caused by `src@native/PurchasesBridge.native.kt` and
+  `src@ios/PurchasesBridge.ios.kt` both providing an `actual` for the
+  same `expect`. Root cause: KorGE uses a custom source-set hierarchy
+  (`kotlin.mpp.applyDefaultHierarchyTemplate=false` in
+  `gradle.properties`) where `nativeMain` (`src@native`) is the shared
+  parent for all Kotlin/Native leaf targets and `iosMain` (`src@ios`)
+  sits below it; since iOS is the only real Kotlin/Native target enabled
+  here, both fed `iosSimulatorArm64Main` directly. Fixed by deleting
+  `src@native/PurchasesBridge.native.kt` (fully redundant, no other
+  native target exists to need it). If a genuine non-iOS native target
+  gets added later, that's when `src@native` would need to come back.
+- Check the latest Actions run before assuming any of this is stale:
   https://github.com/MalithaBandara/infiltrate-shadow-heist/actions
 - Do not assume this is solved just because CI is green on other steps —
   confirm the `iosBuildSimulatorDebug` step itself succeeded and check
