@@ -35,8 +35,13 @@ korge {
 
 dependencies {
     add("commonMainApi", project(":deps"))
-    add("androidMainApi", "com.revenuecat.purchases:purchases-kmp-core:2.10.2+17.55.1")
-    add("iosMainApi", "com.revenuecat.purchases:purchases-kmp-core:2.10.2+17.55.1")
+    // Pinned to 1.9.0+14.3.0: the newest purchases-kmp-core release whose iOS klib is
+    // still ABI-compatible with this project's Kotlin/Native toolchain. Verified by
+    // inspecting klib manifests directly - RevenueCat's build moved to a Kotlin 2.1.x
+    // compiler starting at their 2.0.0+15.0.0 release (klib abi_version 1.201.0), which
+    // this toolchain (klib abi_version 1.8.0) can't read. See .junie/guidelines.md.
+    add("androidMainApi", "com.revenuecat.purchases:purchases-kmp-core:1.9.0+14.3.0")
+    add("iosMainApi", "com.revenuecat.purchases:purchases-kmp-core:1.9.0+14.3.0")
     //add("commonMainApi", project(":korge-dragonbones"))
 }
 
