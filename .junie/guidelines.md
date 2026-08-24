@@ -96,6 +96,22 @@ leaving it for the next chat to rediscover.
   CocoaPods if missing, then runs KorGE's `iosBuildSimulatorDebug` task
   as the real build gate (unsigned iOS Simulator build only — no
   signing or TestFlight upload yet, that's intentionally deferred).
+  That task runs with `--no-configuration-cache` (see next bullet) —
+  don't remove that flag.
+
+- **KorGE's Gradle plugin is incompatible with Gradle's configuration
+  cache.** `gradle.properties` sets `org.gradle.configuration-cache=true`
+  project-wide (works fine for the JVM/JS targets), but running KorGE's
+  iOS tasks (`iosBuildSimulatorDebug` etc.) with it enabled throws
+  NullPointerExceptions inside the plugin itself (`getKorge`,
+  `execLogger` both null), preceded by "cannot serialize object of type
+  Project ... not supported with the configuration cache" warnings —
+  the cache corrupts the plugin's internal state. Fix is `--no-configuration-cache`
+  on the specific `./gradlew` invocation, not disabling the setting
+  globally (that would needlessly slow down/change behavior for the
+  targets that work fine with it). If other KorGE Gradle tasks start
+  throwing similar null-pointer errors in the plugin internals, suspect
+  this first.
   Afterward it looks for a Podfile under the generated
   `build/platforms/ios` project and runs `pod install` if one exists,
   else logs an explanation (see next section — this is expected to find
