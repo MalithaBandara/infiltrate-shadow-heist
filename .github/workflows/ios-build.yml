@@ -1,0 +1,85 @@
+# Unsigned iOS build check.
+#
+# ASSUMPTIONS / KNOWN GAPS (see .junie/guidelines.md and project notes for background):
+# - KorGE's targetIos() generates its own Xcode project under build/platforms/ios via
+#   Gradle tasks like `iosBuildSimulatorDebug` (confirmed at https://docs.korge.org/targets/ios/).
+#   This is KorGE's own pipeline, NOT the standard Kotlin Multiplatform `cocoapods {}` plugin -
+#   nothing in KorGE's docs mentions CocoaPods.
+# - RevenueCat's purchases-kmp-core:2.10.2+17.55.1 needs `pod 'PurchasesHybridCommon', '17.55.1'`
+#   linked into the final iOS app/framework. There is currently no Podfile anywhere in this repo,
+#   and it's unknown whether KorGE's generated Xcode project has a hook for injecting one.
+# - This workflow attempts the real KorGE build task (the actual signal we need), then checks
+#   whether a Podfile shows up under the generated project so `pod install` can run. If none is
+#   found, it explains that rather than failing silently or faking success.
+# - No code signing / TestFlight upload here on purpose - unsigned simulator build only, for now.
+
+name: "🍎 iOS Build"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  JAVA_DISTRIBUTION: zulu
+  JAVA_VERSION: 21
+
+concurrency:
+  group: "ios-build-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - { uses: actions/checkout@v4 }
+
+      - { name: Set up JDK, uses: actions/setup-java@v3, with: { distribution: "${{ env.JAVA_DISTRIBUTION }}", java-version: "${{ env.JAVA_VERSION }}" } }
+
+      - { name: Prepare Gradle, uses: gradle/actions/setup-gradle@417ae3ccd767c252f5661f1ace9f835f9654f2b5 } # v3.1.0
+
+      - name: Show toolchain versions
+        run: |
+          xcodebuild -version
+          ruby --version
+          pod --version || echo "CocoaPods not yet installed"
+
+      - name: Install CocoaPods (if not already present on the runner image)
+        run: |
+          if ! gem list -i cocoapods > /dev/null 2>&1; then
+            sudo gem install cocoapods
+          fi
+          pod --version
+
+      # This is the actual gate: does the KorGE + Kotlin/Native + RevenueCat toolchain
+      # produce an unsigned iOS Simulator build at all. Expected to be the first place
+      # a CocoaPods-related link failure would surface, if one exists.
+      - name: Build unsigned iOS Simulator app (KorGE)
+        run: ./gradlew iosBuildSimulatorDebug --stacktrace
+
+      - name: Check for a generated Podfile and run pod install if present
+        if: always()
+        run: |
+          PODFILE=$(find build/platforms/ios -iname "Podfile" 2>/dev/null | head -n 1)
+          if [ -n "$PODFILE" ]; then
+            echo "Found Podfile at: $PODFILE"
+            pod install --project-directory="$(dirname "$PODFILE")"
+          else
+            echo "No Podfile found under build/platforms/ios."
+            echo "KorGE's Xcode project generator does not appear to wire CocoaPods in automatically."
+            echo "RevenueCat purchases-kmp-core 2.10.2+17.55.1 needs PurchasesHybridCommon (17.55.1)"
+            echo "linked in via CocoaPods - this likely needs a Podfile authored and placed into"
+            echo "build/platforms/ios (or copied in by a build step) before pod install has anything to do."
+          fi
+
+      - name: Upload generated Xcode project for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-xcode-project
+          path: build/platforms/ios
+          if-no-files-found: warn
+          retention-days: 7
