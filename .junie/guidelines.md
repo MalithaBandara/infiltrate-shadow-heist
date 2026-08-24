@@ -118,6 +118,49 @@ leaving it for the next chat to rediscover.
   nothing right now). Always uploads `build/platforms/ios` as a build
   artifact for inspection regardless of pass/fail.
 
+## RevenueCat version is pinned by iOS klib ABI compatibility, not just Android/JVM metadata
+
+- `build.gradle.kts` currently pins `purchases-kmp-core` to `1.9.0+14.3.0`
+  for BOTH `androidMainApi` and `iosMainApi` (downgraded from
+  `2.10.2+17.55.1`, which itself was a downgrade from `3.5.1` — see the
+  Android/JVM metadata-conflict note already in this file).
+- The `2.10.2+17.55.1` downgrade fixed Android/JVM but a separate,
+  iOS-only problem showed up in `ios-build.yml` CI: `:compileKotlinIosSimulatorArm64`
+  failed with a KLIB resolver error — "Incompatible ABI version. The
+  current default is '1.8.0', found '1.201.0'".
+- Root cause, confirmed by downloading klib files from Maven Central
+  and reading their manifests directly (`unzip -p <klib> default/manifest`,
+  look for `abi_version` / `compiler_version`) rather than guessing:
+  RevenueCat's own build toolchain moved from Kotlin 1.9.23 (klib
+  `abi_version=1.8.0`) to Kotlin 2.1.x (`abi_version=1.201.0`) starting
+  exactly at their package version `2.0.0+15.0.0`. This project's
+  Kotlin/Native compiler can only read klib ABI 1.8.0. Every version
+  from `2.0.0+15.0.0` up through `2.10.2+17.55.1` is therefore permanently
+  unreadable here — this is a hard compiler wall, not something a Gradle
+  flag fixes. `1.9.0+14.3.0` is the newest release still on the
+  compatible side.
+- Android/JVM consume regular JAR/AAR artifacts, not klibs, so this
+  specific ABI check doesn't apply there — the earlier Android/JVM
+  metadata conflict (3.5.1 vs project's Kotlin metadata level) was a
+  different, unrelated check. Downgrading further should only reduce
+  that risk, not increase it.
+- Consequence for CocoaPods: once a `Podfile` exists (see next section),
+  the pod pin should be `PurchasesHybridCommon 14.3.0` (matching
+  `1.9.0+14.3.0`'s paired native SDK version), NOT `17.55.1` as earlier
+  project notes said — that was written against the since-reverted
+  `2.10.2+17.55.1` pin.
+- If `purchases-kmp-core` needs to be bumped again in the future (e.g.
+  after upgrading KorGE/Kotlin off 1.9.x), re-verify klib ABI
+  compatibility the same way before assuming a newer version "should"
+  work — don't rely on Android/JVM compiling cleanly as a proxy for iOS
+  compatibility, they're checked completely differently.
+- The bridge classes (`src/PurchasesBridge.kt` and platform variants)
+  are still empty stubs with no real RevenueCat API calls wired in, so
+  this version is currently unconstrained by actual usage — check the
+  `1.9.0+14.3.0` API surface against the current RevenueCat KMP docs
+  before writing real integration code against it, since it's several
+  major versions behind latest.
+
 ## iOS build pipeline — status and known gap
 
 - KorGE's `targetIos()` has its own iOS build pipeline, confirmed via
