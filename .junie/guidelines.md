@@ -22,6 +22,65 @@ Minor cosmetic note: the built app is named `unnamed.app` because
 `build.gradle.kts`'s `korge {}` block only sets `id`, never `name` -
 easy fix whenever it matters (`korge { name = "..." }`).
 
+## LOCKED WORKING CONFIGURATION (verified 2026-08-25, commit `0b958c3`)
+
+**These versions are load-bearing. Do not upgrade any of them without
+re-running the full iOS build in CI first** — this exact combination is
+the only one that's been proven to actually link and build on iOS,
+after a long chain of version-compatibility failures documented in the
+sections below. A version bump that looks safe (e.g. "just a patch
+release") can silently reintroduce the klib ABI wall or the source-set
+conflict this session fixed.
+
+- **KorGE: `6.0.0`** (`gradle/libs.versions.toml`). Note: prompts this
+  session repeatedly referred to "KorGE 7.0.0-SNAPSHOT" as if already in
+  place — that was never true, checked directly and repeatedly all
+  session (see "Verify version-related claims" section below). It is
+  still `6.0.0` as of this commit.
+- **Kotlin: `2.0.20`** — confirmed authoritatively via
+  `./gradlew.bat buildEnvironment` / `dependencies` (`kotlin-gradle-plugin-api`
+  and `kotlin-stdlib` both resolve to `2.0.20`), NOT `1.9.22` as earlier
+  project notes assumed. This matches everything observed in CI all
+  session: the Kotlin/Native backend is
+  `kotlin-native-prebuilt-macos-aarch64-2.0.20`, and the klib ABI
+  resolver's default is `1.8.0` (Kotlin 2.0.x's default) — this is the
+  ceiling that ruled out every `purchases-kmp-core` iOS version `2.0.0+`
+  and above.
+- **Gradle: `8.8`** (seen in CI: "Welcome to Gradle 8.8!").
+- **JDK: `21`** — `zulu` distribution in CI (both workflows). On this
+  Windows dev machine, JDK 21 (Temurin) is installed but is NOT the
+  default `JAVA_HOME` (that's JDK 19) — override explicitly
+  (`export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.12.8-hotspot"`
+  in Git Bash) for any local `gradlew` command; JDK 19 fails with
+  "Dependency requires at least JVM runtime version 21."
+- **`purchases-kmp-core`: `1.9.0+14.3.0`, Android-only.** Declared via
+  `add("androidMainApi", ...)` in `build.gradle.kts`. iOS has **no
+  dependency on it at all** — deliberately removed (commit `487a1dc`).
+  Neither platform's bridge class (`src@android/PurchasesBridge.android.kt`,
+  `src@ios/PurchasesBridge.ios.kt`) makes any real RevenueCat API call
+  yet — both are stubs, Android's despite having the real dependency
+  available to use whenever that gets built. `src@ios/PurchasesBridge.ios.kt`
+  was fixed 2026-08-25 (commit `0b958c3`) to return `onResult(false)`
+  from `purchase()` instead of a fake `onResult(true)` — a deliberate,
+  honest no-op, not a partial integration. No paywall UI exists yet
+  anywhere in the codebase to wire a real "coming soon" message into
+  (`main.kt` is still the untouched korge-hello-world demo scene) - add
+  that when the paywall UI itself gets built.
+- **What actually fixed the iOS link failure**: NOT vendoring
+  `PurchasesHybridCommon.framework` or adding any `linkerOpts` — that
+  path was investigated (see "RevenueCat on iOS is deferred" below) but
+  never implemented. The fix was entirely `build.gradle.kts`: removing
+  the `iosMainApi` dependency on `purchases-kmp-core` so the
+  ABI-incompatible/unlinkable klib is never pulled into the iOS
+  compile/link graph at all. Zero framework vendoring, zero linker
+  flags, zero CocoaPods integration exists in this repo.
+- **Build artifact verified, not just Gradle exit code**: CI log for the
+  successful run shows the real Kotlin/Native output
+  `build/bin/iosSimulatorArm64/debugFramework/GameMain.framework` being
+  copied to `unnamed.app/Frameworks/GameMain.framework`, code-signed,
+  and validated by Xcode's `builtin-validationUtility`, before
+  `** BUILD SUCCEEDED **`.
+
 ## Tech stack
 - Engine: KorGE (Kotlin Multiplatform game engine)
 - NOT using Compose Multiplatform — no Compose dependencies anywhere in this project
