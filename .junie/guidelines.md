@@ -120,11 +120,11 @@ logs yourself before reasoning from a stated version.
 
 ## CI workflows (`.github/workflows/`)
 
-**All three workflows below trigger on every push to `main` with no
-path filters** — a docs-only commit still fires `iOS Build` (burns real
-macOS runner time) alongside `Testing` and `Deploy JS`. Worth adding
-path filters (e.g. skip `iOS Build` for changes touching only `.md`
-files) if push-triggered noise/cost becomes a problem — not done yet.
+**Both workflows below trigger on every push to `main` with no path
+filters** — a docs-only commit still fires `iOS Build` (burns real
+macOS runner time) alongside `Testing`. Worth adding path filters (e.g.
+skip `iOS Build` for changes touching only `.md` files) if
+push-triggered noise/cost becomes a problem — not done yet.
 
 - `gradle.yml` — from the original korge-hello-world template. Runs
   `./gradlew jvmTest` on every push, `ubuntu-latest`, JDK 21 (zulu). Had
@@ -132,11 +132,18 @@ files) if push-triggered noise/cost becomes a problem — not done yet.
   denied" on every single run since the initial commit (same
   Windows-executable-bit issue as `ios-build.yml` below, just never
   caught here because nobody was watching this workflow specifically).
-- `deploy-js.yml` — from the template. Builds the JS/webpack bundle and
-  deploys to GitHub Pages on push to `main`, `ubuntu-latest`, JDK 21.
-  Same `chmod +x ./gradlew` fix applied 2026-08-25, same reason.
-  **This means GitHub Pages deploy has likely never succeeded** — check
-  the Pages deployment history before assuming a JS build exists there.
+- `deploy-js.yml` **removed 2026-08-25.** It built the JS/webpack bundle
+  and deployed to GitHub Pages, but JS/Wasm are template leftovers, not
+  a real target — this project ships Android + iOS only (see top of this
+  file). Got the `chmod +x ./gradlew` fix too and the JS build itself
+  went green, but the final `deploy-pages` step 404'd because GitHub
+  Pages was never enabled for this repo (`Ensure GitHub Pages has been
+  enabled: .../settings/pages`) — asked whether to enable it, decided
+  not worth it since JS was never shipping. `targetJs()`/`targetWasm()`
+  are still declared in `build.gradle.kts` (untouched, still useful for
+  local browser preview during dev) — only the deploy workflow is gone.
+  If JS/Wasm targets themselves are ever ruled fully out of scope too,
+  those can be removed from `build.gradle.kts` as a separate cleanup.
 - `ios-build.yml` — added for this project. Runs on `macos-latest`,
   JDK 21 (zulu, matching the other workflows). Does `chmod +x ./gradlew`
   right after checkout (gradlew loses its executable bit when committed
