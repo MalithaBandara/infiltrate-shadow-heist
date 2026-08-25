@@ -1,17 +1,19 @@
 package com.sample.demo.purchases
 
 class IosPurchasesBridge : PurchasesBridge {
+    // No RevenueCat SDK on iOS yet - purchases-kmp-core is deliberately not a
+    // dependency here (see build.gradle.kts / .junie/guidelines.md). This is a
+    // deliberate no-op, not an unfinished real integration: purchase() must return
+    // false, never true, so callers don't unlock content nothing was actually
+    // paid for.
     override fun initialize(apiKey: String) {
-        // iOS RevenueCat initialization logic
     }
 
     override fun purchase(packageId: String, onResult: (Boolean) -> Unit) {
-        // iOS RevenueCat purchase flow
-        onResult(true)
+        onResult(false)
     }
 
     override fun isSubscribed(onResult: (Boolean) -> Unit) {
-        // iOS RevenueCat subscription check
         onResult(false)
     }
 }
