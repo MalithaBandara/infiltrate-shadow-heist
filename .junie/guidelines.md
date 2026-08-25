@@ -15,6 +15,9 @@ and the app must work on both platforms.**
 - Payments: RevenueCat via `purchases-kmp-core` only (plain Kotlin SDK).
   Do NOT add `purchases-kmp-ui` — it requires Compose. The paywall is
   hand-built in KorGE UI instead.
+  **Android only as of 2026-08-25 — deliberately NOT wired on iOS. See
+  "RevenueCat on iOS is deferred" below before assuming otherwise or
+  before touching `iosMainApi` / `PurchasesBridge.ios.kt`.**
 
 ## Secrets and credentials — CRITICAL
 
@@ -135,12 +138,56 @@ logs yourself before reasoning from a stated version.
   nothing right now). Always uploads `build/platforms/ios` as a build
   artifact for inspection regardless of pass/fail.
 
+## RevenueCat on iOS is deferred (decision made 2026-08-25)
+
+**Current state: `purchases-kmp-core` is Android-only.** `build.gradle.kts`
+only has `add("androidMainApi", ...)` — the `iosMainApi` dependency was
+removed entirely. `src@ios/PurchasesBridge.ios.kt` is a stub (no real
+RevenueCat calls), so this doesn't break anything today, but it means
+**iOS currently has no real purchases/subscription functionality** -
+`IosPurchasesBridge.purchase()` just calls `onResult(true)` unconditionally.
+Don't assume iOS payments work; don't build UI/flows that depend on
+real iOS purchase results until this is revisited.
+
+Why: every viable version of `purchases-kmp-core` for iOS was checked
+and every path dead-ended (full detail below and in the sections that
+follow):
+- Every version's iOS klib either fails this toolchain's klib ABI check
+  (`1.201.0`+, checked `2.0.0` through `3.5.1`), or
+- (`1.9.0`/`2.10.2` line, the only ABI-compatible ones) requires linking
+  `PurchasesHybridCommon` at the native framework level, which has
+  **no prebuilt binary anywhere** — not CocoaPods, not Swift Package
+  Manager, not any GitHub release across either `purchases-hybrid-common`
+  or `purchases-ios`. It's source-only; producing a `.framework` for it
+  means compiling it from source in CI, which was judged too large/risky
+  an undertaking for the timeline and deliberately not attempted.
+- Separately, KorGE's own iOS build pipeline (XcodeGen-based) has zero
+  CocoaPods/SPM integration of any kind — confirmed via GitHub code
+  search of `korlibs/korge` (0 hits for "cocoapods", 0 for "Podfile")
+  and reading `Ios.kt`/`IosXcodegen.kt`/`IosProjectTools.kt` directly.
+  Even a manually-placed Podfile would never be consumed, since KorGE's
+  `xcodebuild` invocation is hardcoded to `-project .`, never
+  `-workspace`.
+
+To revisit this later: `RevenueCat.xcframework` (the underlying native
+SDK) IS available prebuilt — e.g. https://github.com/RevenueCat/purchases-ios/releases/tag/5.32.0
+ships `RevenueCat.xcframework.zip` (~489MB, all Apple platform slices +
+dSYMs + docs; only the `ios-arm64_x86_64-simulator` and `ios-arm64`
+slices are actually needed, each ~9.5MB). The missing piece is still
+`PurchasesHybridCommon` — would need to be built from its source
+(`Package.swift` at https://github.com/RevenueCat/purchases-hybrid-common,
+depends on `RevenueCat` pinned to an exact version — `5.32.0` for the
+`14.3.0` release) via `swift build`/`xcodebuild` in CI, then vendored
+alongside `RevenueCat.xcframework` and wired into Kotlin/Native's
+`binaries.framework { linkerOpts(...) }` for the iOS targets. Untested.
+
 ## RevenueCat version is pinned by iOS klib ABI compatibility, not just Android/JVM metadata
 
-- `build.gradle.kts` currently pins `purchases-kmp-core` to `1.9.0+14.3.0`
-  for BOTH `androidMainApi` and `iosMainApi` (downgraded from
-  `2.10.2+17.55.1`, which itself was a downgrade from `3.5.1` — see the
-  Android/JVM metadata-conflict note already in this file).
+- `build.gradle.kts` pins `purchases-kmp-core` to `1.9.0+14.3.0` for
+  `androidMainApi` only now (see "RevenueCat on iOS is deferred" above -
+  this was downgraded from `2.10.2+17.55.1`, which itself was a downgrade
+  from `3.5.1` — see the Android/JVM metadata-conflict note already in
+  this file). The version history below is kept for whoever revisits iOS.
 - The `2.10.2+17.55.1` downgrade fixed Android/JVM but a separate,
   iOS-only problem showed up in `ios-build.yml` CI: `:compileKotlinIosSimulatorArm64`
   failed with a KLIB resolver error — "Incompatible ABI version. The
@@ -190,6 +237,10 @@ logs yourself before reasoning from a stated version.
   major versions behind latest.
 
 ## iOS build pipeline — status and known gap
+
+(This CocoaPods gap is why RevenueCat-iOS is deferred — see above. Kept
+in full below since the `ios-build.yml` workflow itself is still active
+and this is still accurate background for it.)
 
 - KorGE's `targetIos()` has its own iOS build pipeline, confirmed via
   https://docs.korge.org/targets/ios/ — it generates a full Xcode
