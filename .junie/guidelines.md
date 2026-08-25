@@ -105,10 +105,23 @@ logs yourself before reasoning from a stated version.
 
 ## CI workflows (`.github/workflows/`)
 
+**All three workflows below trigger on every push to `main` with no
+path filters** — a docs-only commit still fires `iOS Build` (burns real
+macOS runner time) alongside `Testing` and `Deploy JS`. Worth adding
+path filters (e.g. skip `iOS Build` for changes touching only `.md`
+files) if push-triggered noise/cost becomes a problem — not done yet.
+
 - `gradle.yml` — from the original korge-hello-world template. Runs
-  `./gradlew jvmTest` on every push, `ubuntu-latest`, JDK 21 (zulu).
+  `./gradlew jvmTest` on every push, `ubuntu-latest`, JDK 21 (zulu). Had
+  `chmod +x ./gradlew` added 2026-08-25 — it was failing "Permission
+  denied" on every single run since the initial commit (same
+  Windows-executable-bit issue as `ios-build.yml` below, just never
+  caught here because nobody was watching this workflow specifically).
 - `deploy-js.yml` — from the template. Builds the JS/webpack bundle and
   deploys to GitHub Pages on push to `main`, `ubuntu-latest`, JDK 21.
+  Same `chmod +x ./gradlew` fix applied 2026-08-25, same reason.
+  **This means GitHub Pages deploy has likely never succeeded** — check
+  the Pages deployment history before assuming a JS build exists there.
 - `ios-build.yml` — added for this project. Runs on `macos-latest`,
   JDK 21 (zulu, matching the other workflows). Does `chmod +x ./gradlew`
   right after checkout (gradlew loses its executable bit when committed
