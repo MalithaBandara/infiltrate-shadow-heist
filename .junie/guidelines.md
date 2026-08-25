@@ -7,6 +7,21 @@ with a heist/infiltration objective similar to Robbery Bob.
 cross-platform Kotlin Multiplatform hackathon submission (Shipaton 2026),
 and the app must work on both platforms.**
 
+**iOS CI status (2026-08-25): GREEN.** `ios-build.yml` run #16 (commit
+`991a54a`) completed with `BUILD SUCCEEDED`/`BUILD SUCCESSFUL in 8m 50s`
+— a real, complete, unsigned `.app` for iOS Simulator, all the way
+through Kotlin/Native compile+link, KorGE's XcodeGen project generation,
+and `xcodebuild` with ad-hoc simulator signing. This is the first fully
+successful iOS build after a long chain of fixes (see sections below for
+the full history: gradlew executable bit, Gradle configuration cache,
+source-set conflict, RevenueCat klib ABI wall, and finally dropping
+RevenueCat from iOS entirely). Don't assume it's still broken - check
+the latest Actions run before redoing any of that investigation:
+https://github.com/MalithaBandara/infiltrate-shadow-heist/actions
+Minor cosmetic note: the built app is named `unnamed.app` because
+`build.gradle.kts`'s `korge {}` block only sets `id`, never `name` -
+easy fix whenever it matters (`korge { name = "..." }`).
+
 ## Tech stack
 - Engine: KorGE (Kotlin Multiplatform game engine)
 - NOT using Compose Multiplatform — no Compose dependencies anywhere in this project
