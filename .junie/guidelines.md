@@ -388,3 +388,15 @@ and this is still accurate background for it.)
 - Do not assume this is solved just because CI is green on other steps —
   confirm the `iosBuildSimulatorDebug` step itself succeeded and check
   whether the Podfile-search step actually found anything.
+
+## Gameplay Architecture (`commonMain`)
+
+The gameplay logic is decoupled from the rendering engine:
+- `game.model`: Engine-agnostic domain layer containing pure data models and simulation math:
+  - `Geometry.kt`: `Vec2d`, `Rect`, `Segment2d`, raycasting, angle calculations, line-of-sight checks against occluder rects.
+  - `Player.kt`: Player physics, velocity, jumping, gravity, platform snapping, sub-stepped AABB obstacle & entity collision resolution.
+  - `Guard.kt`: Waypoint patrol, constant speed movement, direction turnaround, facing angle, and eye position.
+  - `Vision.kt`: `VisionSystem` for generating FOV vision polygon meshes and detecting player visibility (distance, FOV angle, unoccluded line-of-sight, closest spotted distance).
+  - `GameWorld.kt`: Orchestrates player, guard entity collision, platforms, crates/occluders, distance-scaled detection progress (0.3s point-blank to 1.5s max range), alert decay (0.6/s), exit zone win condition, and player respawning.
+- `game.scene`: KorGE presentation layer:
+  - `GameplayScene.kt`: Renders the stealth level, platforms, crate, exit marker, player, guard, dynamic vision cone with detection color transition & pulse warning, alert/win banners, and captures keyboard/touch inputs.
