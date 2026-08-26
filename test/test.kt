@@ -1,26 +1,45 @@
-import korlibs.time.*
+import game.scene.*
+import korlibs.event.*
+import korlibs.image.color.*
+import korlibs.image.vector.*
 import korlibs.korge.input.*
+import korlibs.korge.scene.*
 import korlibs.korge.tests.*
 import korlibs.korge.tween.*
 import korlibs.korge.view.*
-import korlibs.image.color.*
+import korlibs.korge.view.vector.*
 import korlibs.math.geom.*
+import korlibs.time.*
 import kotlin.test.*
 
-class MyTest : ViewsForTesting() {
+class GameplaySceneTest : ViewsForTesting() {
+
     @Test
-    fun test() = viewsTest {
-        val log = arrayListOf<String>()
-        val rect = solidRect(100, 100, Colors.RED)
-        rect.onClick {
-            log += "clicked"
+    fun testGameplaySceneInitializes() = viewsTest {
+        val sceneContainer = sceneContainer()
+        sceneContainer.changeTo { GameplayScene() }
+        assertNotNull(sceneContainer.currentScene)
+    }
+
+    @Test
+    fun testVisionGraphicsRendering() = viewsTest {
+        val g = graphics {
+            fill(Colors.YELLOW.withAd(0.3)) {
+                moveTo(Point(0, 0))
+                lineTo(Point(100, 50))
+                lineTo(Point(100, -50))
+                close()
+            }
         }
-        assertEquals(1, views.stage.numChildren)
-        rect.simulateClick()
-        assertEquals(true, rect.isVisibleToUser())
-        tween(rect::x[-102], time = 10.seconds)
-        assertEquals(Rectangle(x=-102, y=0, width=100, height=100), rect.globalBounds)
-        assertEquals(false, rect.isVisibleToUser())
-        assertEquals(listOf("clicked"), log)
+        g.updateShape {
+            fill(Colors.RED.withAd(0.4)) {
+                moveTo(Point(10, 10))
+                lineTo(Point(50, 50))
+                lineTo(Point(50, 10))
+                close()
+            }
+        }
+        val leftPressed = views.input.keys[Key.LEFT] || views.input.keys[Key.A]
+        assertFalse(leftPressed)
     }
 }
