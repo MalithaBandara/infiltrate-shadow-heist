@@ -115,6 +115,22 @@ class GameplayScene(
         var jumpPhaseElapsed = 0.0
         var jumpStartY = world.player.y
 
+        // Crouch: entering/exiting are the down/up transition played once; holding pins the last
+        // frame. crouchFrameProgress is continuous (not just a phase flag) so re-toggling crouch
+        // mid-transition reverses smoothly from wherever the animation currently is, instead of
+        // snapping to a fixed pose first.
+        val crouchLastFrame = PlayerAnimations.CROUCH_LAST
+        val crouchDownDuration = 0.22
+        val crouchUpDuration = 0.18
+        var crouchPhase = "none"
+        var crouchFrameProgress = 0.0
+
+        // Climb: Player.isClimbing drives the actual world position (see Player.advanceClimb),
+        // and its climbProgress picks the frame here, so pose and position stay in step.
+        val climbFirstFrame = PlayerAnimations.CLIMB_START
+        val climbLastFrame = PlayerAnimations.CLIMB_END
+        val climbFrameSpan = climbLastFrame - climbFirstFrame
+
         // One gait cycle covers this much ground; measured off the plate so the feet stay planted.
         val walkCycleDistance = playerVisualHeight * PlayerAnimations.WALK_STRIDE_PER_HEIGHT
         var walkCycleProgress = 0.0
@@ -476,36 +492,84 @@ class GameplayScene(
                 .coerceIn(0.0, (world.worldWidth - 800.0).coerceAtLeast(0.0))
             worldView.x = -cameraX
 
-            // Jump animation machine
-            if (playerAnimState != "jump" && !world.player.isGrounded) {
-                playerAnimState = "jump"
-                jumpPhase = "launch"
-                jumpPhaseElapsed = 0.0
-                jumpStartY = world.player.y
-                playerSprite.playAnimationLooped(playerAnimations.jump, manualFrameTime)
-            } else if (playerAnimState == "jump") {
-                jumpPhaseElapsed += dtSec
-                when (jumpPhase) {
-                    "launch" -> if (jumpPhaseElapsed >= jumpLaunchDuration) {
-                        jumpPhase = "air"
-                        jumpPhaseElapsed = 0.0
+            // Climb animation machine: top priority. Player.isClimbing drives x/y itself (see
+            // Player.startClimb/advanceClimb) so the jump machine below - which would otherwise
+            // fire because isGrounded is false while climbing - is skipped entirely instead.
+            if (world.player.isClimbing) {
+                if (playerAnimState != "climb") {
+                    playerAnimState = "climb"
+                    playerSprite.playAnimationLooped(playerAnimations.climb, manualFrameTime)
+                }
+                val frame = climbFirstFrame + (world.player.climbPhase * climbFrameSpan).toInt()
+                playerSprite.setFrame(frame.coerceIn(climbFirstFrame, climbLastFrame))
+            } else {
+                if (playerAnimState == "climb") playerAnimState = "none"
+
+                // Jump animation machine
+                if (playerAnimState != "jump" && !world.player.isGrounded) {
+                    playerAnimState = "jump"
+                    jumpPhase = "launch"
+                    jumpPhaseElapsed = 0.0
+                    jumpStartY = world.player.y
+                    playerSprite.playAnimationLooped(playerAnimations.jump, manualFrameTime)
+                } else if (playerAnimState == "jump") {
+                    jumpPhaseElapsed += dtSec
+                    when (jumpPhase) {
+                        "launch" -> if (jumpPhaseElapsed >= jumpLaunchDuration) {
+                            jumpPhase = "air"
+                            jumpPhaseElapsed = 0.0
+                        }
+                        "air" -> if (world.player.isGrounded) {
+                            jumpPhase = "land"
+                            jumpPhaseElapsed = 0.0
+                        }
+                        else -> if (!world.player.isGrounded) {
+                            jumpPhase = "launch"
+                            jumpPhaseElapsed = 0.0
+                            jumpStartY = world.player.y
+                        } else if (jumpPhaseElapsed >= jumpLandDuration) {
+                            jumpPhase = "none"
+                            playerAnimState = "none"
+                        }
                     }
-                    "air" -> if (world.player.isGrounded) {
-                        jumpPhase = "land"
-                        jumpPhaseElapsed = 0.0
+                }
+
+                // Crouch animation machine: gated on grounded so an airborne crouch-input (edge
+                // case in the physics) still shows the jump animation rather than fighting it.
+                if (playerAnimState != "jump" && world.player.isGrounded) {
+                    if (world.player.isCrouching) {
+                        if (playerAnimState != "crouch") {
+                            playerAnimState = "crouch"
+                            crouchPhase = "entering"
+                            playerSprite.playAnimationLooped(playerAnimations.crouch, manualFrameTime)
+                        } else if (crouchPhase == "exiting") {
+                            crouchPhase = "entering"
+                        }
+                    } else if (playerAnimState == "crouch" && crouchPhase != "exiting") {
+                        crouchPhase = "exiting"
                     }
-                    else -> if (!world.player.isGrounded) {
-                        jumpPhase = "launch"
-                        jumpPhaseElapsed = 0.0
-                        jumpStartY = world.player.y
-                    } else if (jumpPhaseElapsed >= jumpLandDuration) {
-                        jumpPhase = "none"
-                        playerAnimState = "none"
+
+                    if (playerAnimState == "crouch") {
+                        when (crouchPhase) {
+                            "entering" -> {
+                                crouchFrameProgress = (crouchFrameProgress + dtSec / crouchDownDuration * crouchLastFrame)
+                                    .coerceAtMost(crouchLastFrame.toDouble())
+                                if (crouchFrameProgress >= crouchLastFrame.toDouble()) crouchPhase = "holding"
+                            }
+                            "exiting" -> {
+                                crouchFrameProgress = (crouchFrameProgress - dtSec / crouchUpDuration * crouchLastFrame)
+                                    .coerceAtLeast(0.0)
+                                if (crouchFrameProgress <= 0.0) playerAnimState = "none"
+                            }
+                            // "holding": progress stays pinned at crouchLastFrame - no crouch-walk
+                            // plate exists, so movement while crouched keeps this same held pose.
+                        }
+                        playerSprite.setFrame(crouchFrameProgress.roundToInt().coerceIn(0, crouchLastFrame))
                     }
                 }
             }
 
-            if (playerAnimState != "jump") {
+            if (playerAnimState != "jump" && playerAnimState != "crouch" && playerAnimState != "climb") {
                 val groundedState = if (world.player.isMoving) "walk" else "idle"
                 if (groundedState != playerAnimState) {
                     // Every entry into walk - from a standstill or from landing a jump while
@@ -584,7 +648,7 @@ class GameplayScene(
                 playerFacingLeft = false
             }
             playerSprite.scaleX = playerBaseScale * (if (playerFacingLeft) -1.0 else 1.0)
-            playerSprite.scaleY = playerBaseScale * (if (world.player.isCrouching) 0.8 else 1.0)
+            playerSprite.scaleY = playerBaseScale
 
             // Update guard visors and badges
             for (i in world.allGuards.indices) {

@@ -9,7 +9,9 @@ import korlibs.time.*
 class PlayerAnimationSet(
     val idle: SpriteAnimation,
     val walk: SpriteAnimation,
-    val jump: SpriteAnimation
+    val jump: SpriteAnimation,
+    val crouch: SpriteAnimation,
+    val climb: SpriteAnimation
 )
 
 /**
@@ -77,6 +79,64 @@ object PlayerAnimations {
     const val JUMP_LAND_START = 27
     const val JUMP_LAND_END = JUMP_FRAMES - 1
 
+    // ---- crouch ---------------------------------------------------------------------------
+    // The raw plate is standing lowering into a full crouch and settling - a bounding-box scan
+    // of all 96 frames shows the motion is monotonic (head height, torso lean) rather than
+    // cyclic: it never returns near its start, so unlike idle there is no seam to loop through.
+    // It also keeps drifting in tiny (~1px) increments all the way to frame 96 rather than
+    // stopping cleanly, which reads as camera/render noise rather than a deliberate hold pose.
+    // Played once on entering crouch, held on the last frame while crouched, and played in
+    // reverse when standing back up - there is no separate crouch-walk plate, so movement while
+    // crouched keeps this same held pose (see GameplayScene).
+    private const val CROUCH_FRAMES = 96
+    const val CROUCH_LAST = CROUCH_FRAMES - 1
+
+    // ---- climb ---------------------------------------------------------------------------
+    // Raw 1-224 (225 is a stray blank frame, dropped): windup, run-up, leap, ledge grab, mantle,
+    // then standing up on top.
+    //
+    // Unlike the other clips this one's camera re-frames mid-shot: a per-frame scan of the
+    // silhouette puts the feet anywhere between row 384 and row 588 with no stable ground or
+    // ledge line, and the standing silhouette is 13% taller at the end than at the start. So the
+    // footage's own pixel positions cannot be trusted to place the character. The processed
+    // frames instead pin every frame's feet to a constant row, and Player drives the actual
+    // world-space rise (see Player.advanceClimb) - which also means one clip serves boxes of any
+    // climbable height, not just one that happens to match the footage.
+    //
+    // Two more corrections are baked into these frames, both needed because the camera moves:
+    //  - Scale: the 13% growth is cancelled by a ramp over frames 93-205, so the character holds
+    //    one size and its last frame is exactly as tall as idle's - otherwise the handoff back to
+    //    idle pops.
+    //  - Contact: the wall-phase frames are nudged so the character's leading edge reaches the
+    //    player's own collision edge, i.e. the face of the box it is climbing. Left as shot it
+    //    stands ~6 units clear of the box and looks stuck to nothing. Frames past the lip blend
+    //    back to idle's centring. Overlapping into the box is harmless (both are black
+    //    silhouettes); a gap is not. This is why the frames are 200 wide when idle's are 140.
+    //
+    // Phase boundaries below were read off that same scan (feet row + silhouette height per
+    // frame) and are what Player's climb curves are tuned against, so the two must move together:
+    //   44-52   foot plants on the face, hands going up
+    //   53-69   push off and catch the lip
+    //   70-99   hanging off the lip. Measured on the plate, the fingertips sit ~96 units above
+    //           the character's own feet here, so on a 100-unit box the hands are level with the
+    //           top edge while the feet are still down at the ground - the climb must NOT lift
+    //           the body during this stretch or the character reads as levitating.
+    //   100-144 the actual pull-up, where all the height is gained
+    //   145-175 settled crouching on top
+    //   176-224 standing up
+    private const val CLIMB_FRAMES = 224
+
+    /**
+     * Raw 44. Frames 1-43 are standing time plus a run-up stride, and the stride is the problem:
+     * in game the player is already flush against the box when they press jump, so those frames
+     * play a full running gait against a wall the character cannot move through - it reads as
+     * running on the spot. Starting at the foot plant skips it and makes the move responsive.
+     */
+    const val CLIMB_START = 43
+
+    /** Raw 224: fully upright again, ready to hand back to idle. */
+    const val CLIMB_END = CLIMB_FRAMES - 1
+
     // ---- source geometry ----------------------------------------------------------------
     /** Frames are 256 tall. */
     const val SOURCE_FRAME_HEIGHT = 256.0
@@ -94,11 +154,14 @@ object PlayerAnimations {
         val atlas = MutableAtlas<Unit>(2048, 2048, growMethod = MutableAtlas.GrowMethod.NEW_IMAGES)
 
         // Only idle runs on its own timer. GameplayScene drives walk frame-by-frame from distance
-        // travelled and jump from the physics arc, so those frame times are inert fallbacks.
+        // travelled, jump from the physics arc, crouch from the stance transition, and climb from
+        // the climb move's own timer, so those frame times are inert fallbacks.
         return PlayerAnimationSet(
             idle = loadAnimation(atlas, "idle", IDLE_FRAMES, frameTimeMs = 100),
             walk = loadAnimation(atlas, "walk", WALK_FRAMES, frameTimeMs = 40),
-            jump = loadAnimation(atlas, "jump", JUMP_FRAMES, frameTimeMs = 33)
+            jump = loadAnimation(atlas, "jump", JUMP_FRAMES, frameTimeMs = 33),
+            crouch = loadAnimation(atlas, "crouch", CROUCH_FRAMES, frameTimeMs = 33),
+            climb = loadAnimation(atlas, "climb", CLIMB_FRAMES, frameTimeMs = 33)
         )
     }
 
