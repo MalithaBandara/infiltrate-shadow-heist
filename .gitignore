@@ -15,3 +15,6 @@ src/main/*
 .DS_Store
 /null.frame
 /null.socket
+# Raw sprite source material (idle/jump/walk sheets before crop) - not used at runtime,
+# the game loads the processed resources/player/ output instead. 64MB, kept local only.
+/art-source
