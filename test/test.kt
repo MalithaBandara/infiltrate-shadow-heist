@@ -4,6 +4,7 @@ import korlibs.image.color.*
 import korlibs.image.vector.*
 import korlibs.korge.input.*
 import korlibs.korge.scene.*
+import korlibs.korge.service.storage.*
 import korlibs.korge.tests.*
 import korlibs.korge.tween.*
 import korlibs.korge.view.*
@@ -18,6 +19,41 @@ class GameplaySceneTest : ViewsForTesting() {
     fun testGameplaySceneInitializes() = viewsTest {
         val sceneContainer = sceneContainer()
         sceneContainer.changeTo { GameplayScene() }
+        assertNotNull(sceneContainer.currentScene)
+    }
+
+    @Test
+    fun testSplashSceneInitializes() = viewsTest {
+        val sceneContainer = sceneContainer()
+        sceneContainer.changeTo { SplashScene() }
+        assertNotNull(sceneContainer.currentScene)
+    }
+
+    @Test
+    fun testMainMenuSceneInitializes() = viewsTest {
+        val sceneContainer = sceneContainer()
+        sceneContainer.changeTo { MainMenuScene() }
+        assertNotNull(sceneContainer.currentScene)
+    }
+
+    @Test
+    fun testLevelSelectSceneInitializes() = viewsTest {
+        val sceneContainer = sceneContainer()
+        sceneContainer.changeTo { LevelSelectScene() }
+        assertNotNull(sceneContainer.currentScene)
+    }
+
+    @Test
+    fun testStoreSceneInitializes() = viewsTest {
+        val sceneContainer = sceneContainer()
+        sceneContainer.changeTo { StoreScene() }
+        assertNotNull(sceneContainer.currentScene)
+    }
+
+    @Test
+    fun testSettingsSceneInitializes() = viewsTest {
+        val sceneContainer = sceneContainer()
+        sceneContainer.changeTo { SettingsScene() }
         assertNotNull(sceneContainer.currentScene)
     }
 
