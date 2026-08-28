@@ -132,7 +132,7 @@ data class GameWorld(
             }
         }
 
-        player.update(dt, moveInput, jumpInput, crouchInput, platforms + allGuards.map { it.bounds })
+        player.update(dt, moveInput, jumpInput, crouchInput, platforms + allGuards.map { it.bounds }, boxes)
 
         // Check Exit / Win condition
         if (player.bounds.intersects(exitZone)) {
@@ -165,7 +165,10 @@ data class GameWorld(
             val ground = Rect(x = 0.0, y = 380.0, width = 800.0, height = 100.0)
             val leftWall = Rect(x = -30.0, y = 0.0, width = 30.0, height = 480.0)
             val rightWall = Rect(x = 800.0, y = 0.0, width = 30.0, height = 480.0)
-            val crate = Rect(x = 320.0, y = 300.0, width = 60.0, height = 80.0)
+            // Height 100 sits well outside a normal jump's ~45 unit apex (jumpSpeed^2 / 2*gravity)
+            // but inside the climb's reach (apex + player height, ~141) - the crate square in the
+            // player's path can only be surmounted with the climb move, not a jump.
+            val crate = Rect(x = 320.0, y = 280.0, width = 60.0, height = 100.0)
             val exitZone = Rect(x = 730.0, y = 320.0, width = 40.0, height = 60.0)
 
             val platforms = listOf(ground, leftWall, rightWall, crate)

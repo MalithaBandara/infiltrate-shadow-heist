@@ -913,6 +913,144 @@ class GameplayModelTest {
     }
 
     @Test
+    fun testPlayerClimbsTallBoxTooHighToJump() {
+        val ground = Rect(x = 0.0, y = 380.0, width = 800.0, height = 100.0)
+        // Height 100 exceeds the ~45 unit normal jump apex but fits the climb's reach.
+        val box = Rect(x = 300.0, y = 280.0, width = 60.0, height = 100.0)
+        val platforms = listOf(ground, box)
+        val player = Player(x = 60.0, y = 380.0 - 96.0, startX = 60.0, startY = 380.0 - 96.0)
+
+        // Walk right up against the box.
+        for (i in 0 until 300) {
+            if (player.x + player.width >= box.left) break
+            player.update(dt = 1.0 / 60.0, moveInput = 1.0, jumpInput = false, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
+        }
+        assertFalse(player.isClimbing, "Player should not be climbing yet")
+        assertTrue(player.x + player.width >= box.left - 1.0, "Player should be flush against the box")
+
+        // A plain jump here (no climbTargets) must NOT clear the box - confirms the box really
+        // is taller than a normal jump can reach.
+        val jumpOnlyPlayer = Player(x = player.x, y = player.y, startX = player.x, startY = player.y)
+        for (i in 0 until 90) {
+            jumpOnlyPlayer.update(dt = 1.0 / 60.0, moveInput = 1.0, jumpInput = jumpOnlyPlayer.isGrounded, crouchInput = false, platforms = platforms)
+        }
+        assertTrue(jumpOnlyPlayer.x + jumpOnlyPlayer.width <= box.left + 0.5, "A normal jump must not get the player past this box")
+
+        // Press jump with the box registered as a climb target: should trigger a climb, not a jump.
+        player.update(dt = 1.0 / 60.0, moveInput = 1.0, jumpInput = true, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
+        assertTrue(player.isClimbing, "Jumping in front of a too-tall box should start a climb")
+
+        // Run the climb to completion.
+        for (i in 0 until 200) {
+            if (!player.isClimbing) break
+            player.update(dt = 1.0 / 60.0, moveInput = 0.0, jumpInput = false, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
+        }
+        assertFalse(player.isClimbing, "Climb should have finished")
+        assertTrue(player.isGrounded, "Player should be grounded after climbing")
+        assertEquals(box.top, player.y + player.height, 0.5, "Player's feet should end up on the box top")
+        assertTrue(player.x >= box.left - 0.5 && player.x + player.width <= box.right + 0.5, "Player should land within the box footprint")
+    }
+
+    @Test
+    fun testClimbRisesAgainstBoxFaceBeforeMovingOverIt() {
+        val ground = Rect(x = 0.0, y = 380.0, width = 800.0, height = 100.0)
+        val box = Rect(x = 300.0, y = 280.0, width = 60.0, height = 100.0)
+        val platforms = listOf(ground, box)
+        val player = Player(x = box.left - 36.0, y = 380.0 - 96.0, startX = 60.0, startY = 380.0 - 96.0)
+        player.isGrounded = true
+
+        val startX = player.x
+        val startY = player.y
+        val totalRise = startY - (box.top - player.height)
+        val totalShift = (box.left + 6.0) - startX
+
+        player.update(dt = 1.0 / 60.0, moveInput = 1.0, jumpInput = true, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
+        assertTrue(player.isClimbing, "Climb should have started")
+
+        var riseWhileHanging = 0.0
+        var shiftWhileHanging = 0.0
+        var riseAtPullUpEnd = -1.0
+        var maxRise = 0.0
+        var lastRise = 0.0
+        val dt = 1.0 / 60.0
+
+        while (player.isClimbing) {
+            val before = player.climbPhase
+            player.update(dt = dt, moveInput = 0.0, jumpInput = false, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
+            val rise = (startY - player.y) / totalRise
+            val shift = (player.x - startX) / totalShift
+            maxRise = maxOf(maxRise, rise)
+
+            if (player.climbPhase <= 0.30) {
+                riseWhileHanging = maxOf(riseWhileHanging, rise)
+                shiftWhileHanging = maxOf(shiftWhileHanging, shift)
+            }
+            if (before < 0.67 && player.climbPhase >= 0.67) riseAtPullUpEnd = rise
+
+            assertTrue(rise <= 1.001, "Climb must never overshoot above the box top (rise=$rise)")
+            // Small dips are the body settling while the hands stay planted on the lip; a large
+            // one would mean the character is sliding back down the face.
+            assertTrue(rise >= lastRise - 0.10, "Climb must never drop back down the face (rise=$rise)")
+            lastRise = maxOf(lastRise, rise)
+        }
+
+        // The character hangs off the lip for the first third, so it stays down near the ground
+        // there - it only rises enough to keep its hands on the top edge. Lifting it up the face
+        // during the hang is what made it look like it was levitating.
+        assertTrue(riseWhileHanging < 0.20, "Must stay down near the ground while hanging, was $riseWhileHanging")
+        assertTrue(shiftWhileHanging < 0.02, "Must not drift sideways while hanging, was $shiftWhileHanging")
+        assertTrue(riseAtPullUpEnd > 0.98, "Pull-up should be done by 0.67, was $riseAtPullUpEnd")
+
+        assertEquals(1.0, maxRise, 0.001, "Climb should reach exactly the box top")
+        assertEquals(box.top, player.y + player.height, 0.5, "Feet should finish on the box top")
+        assertTrue(player.x >= box.left && player.x + player.width <= box.right, "Should finish within the box footprint")
+        assertTrue(player.isGrounded, "Should be grounded on the box afterwards")
+    }
+
+    @Test
+    fun testPlayerIsNeverGroundedWithoutSupport() {
+        val world = GameWorld.createDefault()
+        val platforms = world.platforms
+        val boxes = world.boxes
+        val rnd = kotlin.random.Random(20260829)
+        val dt = 1.0 / 60.0
+        val moves = listOf(-1.0, 0.0, 1.0)
+        var violation: String? = null
+
+        outer@ for (trial in 0 until 80) {
+            val p = world.player
+            p.resetToStart()
+            p.x = 200.0 + trial * 2.0
+            p.y = 380.0 - 96.0
+            var move = 1.0
+            for (step in 0 until 700) {
+                if (step % 15 == 0) move = moves[rnd.nextInt(moves.size)]
+                val jump = rnd.nextInt(100) < 8
+                val crouch = rnd.nextInt(100) < 10
+                p.update(dt, move, jump, crouch, platforms, boxes)
+
+                if (p.isGrounded && !p.isClimbing) {
+                    // Checked against the feet, not the full collision box: the drawn character
+                    // only fills the middle ~60% of that box, so a full-width test would call it
+                    // supported while the whole visible body hangs off the ledge.
+                    val feet = p.y + p.height
+                    val footLeft = p.x + (p.width - p.footWidth) / 2.0
+                    val footRight = footLeft + p.footWidth
+                    val supported = platforms.any { pl ->
+                        kotlin.math.abs(pl.top - feet) < 1.0 && footLeft < pl.right - 1e-6 && footRight > pl.left + 1e-6
+                    }
+                    if (!supported) {
+                        violation = "grounded with nothing under the character: x=${p.x} feet=$feet " +
+                            "(trial=$trial step=$step move=$move)"
+                        break@outer
+                    }
+                }
+            }
+        }
+        assertNull(violation, violation ?: "")
+    }
+
+    @Test
     fun testGameProfileVolumeSettings() {
         val storage = InMemoryGameProfileStorage()
         storage.setMusicVolume(0.6f)
