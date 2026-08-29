@@ -1,3 +1,6 @@
+import org.gradle.internal.os.OperatingSystem
+import java.io.ByteArrayOutputStream
+
 plugins {
     kotlin("multiplatform") version "2.3.20"
     id("org.jetbrains.kotlin.plugin.compose") version "2.3.20"
@@ -9,16 +12,39 @@ repositories {
     mavenCentral()
 }
 
+// The link step failed with "Undefined symbols" for swiftCompatibility56/Concurrency/Packs -
+// Kotlin/Native's linker invocation searched a hardcoded, nonexistent Xcode path
+// (.../Xcode-16.4.app/.../usr/lib/swift/iphonesimulator/), not this runner's actual Xcode
+// install, so it never found the real back-deployment compatibility libraries. Computed here
+// via xcode-select rather than hardcoded, so it tracks whatever Xcode the runner actually has.
+// Guarded to macOS only - this build.gradle.kts is also configured on Windows dev machines
+// (composite builds configure every included build eagerly), where xcode-select doesn't exist.
+val macDeveloperDir: String? = if (OperatingSystem.current().isMacOsX) {
+    val stdout = ByteArrayOutputStream()
+    exec {
+        commandLine("xcode-select", "-p")
+        standardOutput = stdout
+    }
+    stdout.toString().trim()
+} else null
+
+fun swiftLibPath(platformSdkName: String): String? =
+    macDeveloperDir?.let { "$it/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$platformSdkName" }
+
 kotlin {
     jvm()
     iosArm64 {
         binaries.framework {
             baseName = "PaywallModule"
+            freeCompilerArgs += listOf("-Xbinary=bundleId=com.infiltrate.paywallmodule")
+            swiftLibPath("iphoneos")?.let { linkerOpts += listOf("-L$it") }
         }
     }
     iosSimulatorArm64 {
         binaries.framework {
             baseName = "PaywallModule"
+            freeCompilerArgs += listOf("-Xbinary=bundleId=com.infiltrate.paywallmodule")
+            swiftLibPath("iphonesimulator")?.let { linkerOpts += listOf("-L$it") }
         }
     }
 
