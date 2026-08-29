@@ -70,6 +70,18 @@ jobs:
       - name: Build unsigned iOS Simulator app (KorGE)
         run: ./gradlew iosBuildSimulatorDebug --no-configuration-cache --stacktrace
 
+      # SPIKE, not part of the real game build: paywall-build is a separate Gradle build
+      # (includeBuild) testing whether RevenueCat 3.6.0's klib (abi_version=2.3.0, compiled
+      # with Kotlin 2.3.20) actually compiles for iOS - something that can't be tested on the
+      # Windows dev machine, since Kotlin/Native iOS targets are disabled there and this task
+      # silently no-ops. Nothing in the main iosBuildSimulatorDebug task graph touches this
+      # separately-included build, so it needs its own explicit invocation here.
+      # continue-on-error: true - a failure here is expected spike output, not a real build
+      # regression, and must not be conflated with the main game build's own pass/fail above.
+      - name: "SPIKE: compile paywall-build for iOS (RevenueCat 3.6.0 / Kotlin 2.3.20)"
+        continue-on-error: true
+        run: ./gradlew :paywall-build:compileKotlinIosSimulatorArm64 --no-configuration-cache --stacktrace
+
       - name: Check for a generated Podfile and run pod install if present
         if: always()
         run: |
