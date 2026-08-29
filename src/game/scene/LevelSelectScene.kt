@@ -53,7 +53,7 @@ class LevelSelectScene : Scene() {
         val mins = totalCentis / 6000
         val secs = (totalCentis / 100) % 60
         val centis = totalCentis % 100
-        return "%02d:%02d.%02d".format(mins, secs, centis)
+        return "${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${centis.toString().padStart(2, '0')}"
     }
 
     // LevelData.name is authored as "01: Warehouse Infiltration" - the number is shown separately
@@ -192,7 +192,7 @@ class LevelSelectScene : Scene() {
                 stroke(Colors.WHITE.withAd(0.08), StrokeInfo(thickness = 1.0)) { roundRect(0.0, 0.0, cardW, cardH, 8.0, 8.0) }
             }
 
-            crisp(card.text("%02d".format(index + 1), textSize = 30.0, font = bebas, color = Colors.WHITE.withAd(0.35)))
+            crisp(card.text((index + 1).toString().padStart(2, '0'), textSize = 30.0, font = bebas, color = Colors.WHITE.withAd(0.35)))
                 .xy(14.0, 10.0)
 
             if (canPlay) {
