@@ -22,6 +22,23 @@ Minor cosmetic note: the built app is named `unnamed.app` because
 `build.gradle.kts`'s `korge {}` block only sets `id`, never `name` -
 easy fix whenever it matters (`korge { name = "..." }`).
 
+**Update (2026-08-29, commit `eeb627d`):** a later commit (`d7ab110`,
+unrelated to anything below) introduced `"%02d".format(...)`-style
+Java `String.format()` calls in `src/game/scene/LevelSelectScene.kt`
+(lines 51-57 and around 195), which has no Kotlin/Native
+implementation and broke `:compileKotlinIosSimulatorArm64` again. Fixed
+by replacing both call sites with manual
+`n.toString().padStart(2, '0')` formatting, which works on every
+target. **Lesson for future sessions:** iOS CI was not re-run between
+`0b958c3` and this fix, so a real regression sat undetected for two
+commits (`d7ab110`, `cdbd938`) — don't assume iOS is still green just
+because JVM `Testing` CI is green; they compile different code paths
+and only the iOS workflow catches Kotlin/Native-only gaps like this.
+`:game`'s iOS build is green again as of `eeb627d`. Separately, this
+session also proved a fully isolated RevenueCat-on-iOS path works via
+a composite build (`paywall-build`) — see "RevenueCat on iOS: PROVEN
+WORKING" below. That work does NOT touch `:game` at all.
+
 ## LOCKED WORKING CONFIGURATION (verified 2026-08-25, commit `0b958c3`)
 
 **These versions are load-bearing. Do not upgrade any of them without
@@ -68,8 +85,13 @@ conflict this session fixed.
   that when the paywall UI itself gets built.
 - **What actually fixed the iOS link failure**: NOT vendoring
   `PurchasesHybridCommon.framework` or adding any `linkerOpts` — that
-  path was investigated (see "RevenueCat on iOS is deferred" below) but
-  never implemented. The fix was entirely `build.gradle.kts`: removing
+  path was investigated (see "RevenueCat version is pinned by iOS klib
+  ABI compatibility" below) but never implemented for `:game`. (A
+  different, working `linkerOpts` fix for a *different* RevenueCat line
+  was later found for the isolated `paywall-build` composite build —
+  see "RevenueCat on iOS: PROVEN WORKING" further below; it does not
+  apply to `:game` itself.) The fix actually used here was entirely
+  `build.gradle.kts`: removing
   the `iosMainApi` dependency on `purchases-kmp-core` so the
   ABI-incompatible/unlinkable klib is never pulled into the iOS
   compile/link graph at all. Zero framework vendoring, zero linker
@@ -89,9 +111,12 @@ conflict this session fixed.
 - Payments: RevenueCat via `purchases-kmp-core` only (plain Kotlin SDK).
   Do NOT add `purchases-kmp-ui` — it requires Compose. The paywall is
   hand-built in KorGE UI instead.
-  **Android only as of 2026-08-25 — deliberately NOT wired on iOS. See
-  "RevenueCat on iOS is deferred" below before assuming otherwise or
-  before touching `iosMainApi` / `PurchasesBridge.ios.kt`.**
+  **`:game` itself is still Android-only as of 2026-08-29 — its own
+  `iosMainApi` has no RevenueCat dependency, and `PurchasesBridge.ios.kt`
+  is still a stub.** This is unchanged by the composite-build spike
+  below. See "RevenueCat on iOS: PROVEN WORKING via isolated composite
+  build" for what *is* now proven (in a separate, isolated module) and
+  exactly what's still missing before `:game` itself could use it.
 
 ## Secrets and credentials — CRITICAL
 
@@ -232,56 +257,335 @@ push-triggered noise/cost becomes a problem — not done yet.
   nothing right now). Always uploads `build/platforms/ios` as a build
   artifact for inspection regardless of pass/fail.
 
-## RevenueCat on iOS is deferred (decision made 2026-08-25)
+## RevenueCat on iOS: PROVEN WORKING via isolated composite build (2026-08-29)
 
-**Current state: `purchases-kmp-core` is Android-only.** `build.gradle.kts`
-only has `add("androidMainApi", ...)` — the `iosMainApi` dependency was
-removed entirely. `src@ios/PurchasesBridge.ios.kt` is a stub (no real
-RevenueCat calls), so this doesn't break anything today, but it means
-**iOS currently has no real purchases/subscription functionality** -
-`IosPurchasesBridge.purchase()` just calls `onResult(true)` unconditionally.
-Don't assume iOS payments work; don't build UI/flows that depend on
-real iOS purchase results until this is revisited.
+**This replaces the old "RevenueCat on iOS is deferred" section below,
+which is no longer accurate.** As of 2026-08-25 this project believed
+every RevenueCat iOS path was dead-ended (klib ABI wall, or a missing
+`PurchasesHybridCommon` binary needing a CocoaPods setup KorGE's build
+pipeline has no hook for). On 2026-08-29 a from-scratch investigation
+proved that's no longer true for RevenueCat's `3.x` line, **on real
+macOS CI, with an actual linked framework artifact as evidence** — not
+theorized, not klib-manifest-inspection alone.
 
-Why: every viable version of `purchases-kmp-core` for iOS was checked
-and every path dead-ended (full detail below and in the sections that
-follow):
-- Every version's iOS klib either fails this toolchain's klib ABI check
-  (`1.201.0`+, checked `2.0.0` through `3.5.1`), or
-- (`1.9.0`/`2.10.2` line, the only ABI-compatible ones) requires linking
-  `PurchasesHybridCommon` at the native framework level, which has
-  **no prebuilt binary anywhere** — not CocoaPods, not Swift Package
-  Manager, not any GitHub release across either `purchases-hybrid-common`
-  or `purchases-ios`. It's source-only; producing a `.framework` for it
-  means compiling it from source in CI, which was judged too large/risky
-  an undertaking for the timeline and deliberately not attempted.
-- Separately, KorGE's own iOS build pipeline (XcodeGen-based) has zero
-  CocoaPods/SPM integration of any kind — confirmed via GitHub code
-  search of `korlibs/korge` (0 hits for "cocoapods", 0 for "Podfile")
-  and reading `Ios.kt`/`IosXcodegen.kt`/`IosProjectTools.kt` directly.
-  Even a manually-placed Podfile would never be consumed, since KorGE's
-  `xcodebuild` invocation is hardcoded to `-project .`, never
-  `-workspace`.
+**Read this whole section before touching RevenueCat/iOS again.** It
+is the single most load-bearing piece of iOS-payments knowledge in this
+file. In particular, do not re-attempt the abandoned approaches below
+(vendoring `RevenueCat.xcframework` + hand-building `PurchasesHybridCommon`
+from source) — they're obsolete; the working path is completely different
+and much simpler.
 
-To revisit this later: `RevenueCat.xcframework` (the underlying native
-SDK) IS available prebuilt — e.g. https://github.com/RevenueCat/purchases-ios/releases/tag/5.32.0
-ships `RevenueCat.xcframework.zip` (~489MB, all Apple platform slices +
-dSYMs + docs; only the `ios-arm64_x86_64-simulator` and `ios-arm64`
-slices are actually needed, each ~9.5MB). The missing piece is still
-`PurchasesHybridCommon` — would need to be built from its source
-(`Package.swift` at https://github.com/RevenueCat/purchases-hybrid-common,
-depends on `RevenueCat` pinned to an exact version — `5.32.0` for the
-`14.3.0` release) via `swift build`/`xcodebuild` in CI, then vendored
-alongside `RevenueCat.xcframework` and wired into Kotlin/Native's
-`binaries.framework { linkerOpts(...) }` for the iOS targets. Untested.
+### What was proven, exactly
+
+- `com.revenuecat.purchases:purchases-kmp-core:3.6.0` **compiles** its
+  iOS klib under **Kotlin `2.3.20`** (`:paywall-build:compileKotlinIosSimulatorArm64`
+  → `BUILD SUCCESSFUL`).
+- It also **links** into a real, standalone `PaywallModule.framework`
+  for `iosSimulatorArm64` (`:paywall-build:linkDebugFrameworkIosSimulatorArm64`
+  → `BUILD SUCCESSFUL in 6m 29s`, 5/5 tasks executed, zero undefined
+  symbols) — with a real call site (`Purchases.configure(...)`) forcing
+  the linker to actually pull in and resolve RevenueCat's native code,
+  not leave it dead-stripped as an unused dependency.
+- **Zero CocoaPods, zero Podfile, zero `PurchasesHybridCommon`** anywhere
+  in this path. RevenueCat's `3.x` line bundles its native SDK directly
+  into the klib via cinterop (`com.revenuecat.purchases:kn-core-cinterop-RevenueCat`,
+  `kn-core-cinterop-AdditionalSwift`, `kn-core` — visible in the klib's
+  own `depends` manifest field), which is exactly why the CocoaPods gap
+  that killed every earlier RevenueCat version simply doesn't apply to
+  `3.x`. Confirmed empirically: no CocoaPods-related error appears
+  anywhere in either the failed or the succeeded link log for this line.
+- All of this happened inside **`paywall-build`**, a Gradle **composite
+  build** (not a subproject) — completely isolated from `:game`. `:game`
+  stayed on KorGE `6.0.0` / Kotlin `2.0.20` throughout, unaffected and
+  still building green, verified repeatedly during this investigation.
+
+### Why a composite build, not a normal subproject
+
+First attempt was a plain Gradle subproject (`include(":paywall")`,
+Kotlin `2.1.20`) inside this same build. **That failed immediately** —
+not with a RevenueCat error, but with
+`org.gradle.plugin.management.internal.InvalidPluginRequestException:
+The request for this plugin could not be satisfied because the plugin
+is already on the classpath with an unknown version`. Root cause: Gradle
+resolves the Kotlin Gradle Plugin once per build and shares that
+classpath across every subproject; `:game`'s own KorGE plugin already
+pulls in Kotlin `2.0.20`'s KGP, so requesting a second version anywhere
+else in the same build is a hard conflict — not something a Gradle flag
+fixes. Worse: this didn't just fail the new subproject, it broke **the
+entire build**, because KorGE's `targetIos()` internally calls
+`project.allprojects { }` during its own configuration (`Ios.kt`,
+`configureNativeIosTvos`), which eagerly touches every subproject
+including the broken one.
+
+The fix is Gradle's actual supported mechanism for mixing Kotlin
+toolchain versions in one repo: an **`includeBuild`** composite build,
+which gets a genuinely separate classpath/daemon per included build,
+confirmed empirically (`./gradlew tasks` succeeded cleanly with both
+builds wired in; `:paywall-build:compileKotlinJvm` compiled with its
+own Kotlin/Compose versions; `:compileKotlinJvm` on root kept succeeding
+throughout, `UP-TO-DATE`/unaffected).
+
+**Non-obvious gotcha: `includeBuild` does not mean CI (or any Gradle
+invocation) automatically builds the included project.** The first
+"successful" iOS CI run after wiring in `paywall-build` was misleading —
+inspecting its log showed `> Configure project :paywall-build` (Gradle
+configures every project in the tree, always) but **zero** `:paywall-build:*`
+tasks actually executed. `ios-build.yml`'s main task
+(`iosBuildSimulatorDebug`) belongs to the root project and has no
+dependency on anything in the separately-included build. Getting a real
+signal required adding an explicit, separate CI step that names
+`paywall-build`'s task directly (see "CI wiring" below) — this is easy
+to get wrong silently (a green run that tests nothing), so if this ever
+needs re-verifying, confirm the actual task ran by grepping the raw log
+for `:paywall-build:<taskname>`, not just the job's pass/fail.
+
+### Exact versions used (all in `paywall-build/`, isolated from `:game`)
+
+- **Kotlin: `2.3.20`** — chosen to *exactly match* the compiler that
+  produced `purchases-kmp-core:3.6.0`'s klib (see ABI check below),
+  rather than betting on forward compatibility with an even newer
+  Kotlin (`2.4.10` was latest stable at the time but deliberately not
+  used, to eliminate ABI-mismatch risk entirely instead of gambling on it).
+- **Compose Multiplatform: `1.12.0`** (`org.jetbrains.compose` +
+  `org.jetbrains.kotlin.plugin.compose`, both pinned to match) — latest
+  stable on Maven Central as of 2026-08-25. Confirmed compatible before
+  using it: JetBrains' own compose-compatibility docs state Compose
+  Multiplatform `1.8.0`+ needs Kotlin `2.1.0` minimum, `2.2.20`+
+  recommended — `2.3.20` is comfortably above both.
+- **`purchases-kmp-core: 3.6.0`** — latest `3.x` on Maven Central as of
+  2026-08-25 (checked directly, not assumed: `3.5.1` was the version
+  guidelines previously recorded as tried-and-failed; `3.6.0` is newer
+  and was re-checked from scratch). **Declared in `iosMain` only, not
+  `commonMain`** — `3.x` publishes iOS-native variants exclusively (no
+  JVM/Android artifact in this line); declaring it in `commonMain`
+  produces an immediate, unambiguous Gradle "no matching variant" error
+  for the `jvm()` target, not a subtle runtime issue.
+
+### The klib ABI check (how the exact Kotlin version was chosen, not guessed)
+
+Same technique this file already used for the `:game` module's own
+RevenueCat investigation (see next section): download the klib directly
+and read its manifest.
+```bash
+curl -sL -o rc.klib "https://repo1.maven.org/maven2/com/revenuecat/purchases/purchases-kmp-core-iossimulatorarm64/3.6.0/purchases-kmp-core-iossimulatorarm64-3.6.0.klib"
+unzip -p rc.klib default/manifest
+```
+Result: `abi_version=2.3.0`, `compiler_version=2.3.20`,
+`native_targets=ios_simulator_arm64`. Kotlin's klib ABI reader can only
+read klibs at or below its own ABI ceiling (this is the exact same
+mechanism that permanently ruled out every `2.0.0+`/`3.0.0`–`3.5.1`
+RevenueCat version against `:game`'s Kotlin `2.0.20` — see next
+section) — so `paywall-build`'s Kotlin was set to `2.3.20` specifically
+to match, not picked arbitrarily. **If `purchases-kmp-core` is ever
+bumped again, re-run this exact manifest check against the new
+version's klib before assuming any given Kotlin version will read it** —
+never assume forward compatibility.
+
+### The link fix — full detail, since this is the genuinely load-bearing, non-obvious part
+
+`compileKotlinIosSimulatorArm64` succeeding is **not** the same as
+producing a usable binary — it only compiles a `.klib`. The real test
+needed a `binaries.framework { }` declaration (which `paywall-build`
+didn't have at first) plus a real call site so the linker has something
+to resolve. Added both:
+
+- `paywall-build/build.gradle.kts`: `iosArm64`/`iosSimulatorArm64` each
+  got `binaries.framework { baseName = "PaywallModule" }`.
+- `paywall-build/src/iosMain/kotlin/PaywallUsage.kt`: a real call to
+  RevenueCat's actual public API (`com.revenuecat.purchases.kmp.Purchases`,
+  `.configure(apiKey = "...") { appUserId = "..." }`, `LogLevel`) — using
+  an obviously-fake placeholder API key, since this only needs to link,
+  never run.
+
+First link attempt (`:paywall-build:linkDebugFrameworkIosSimulatorArm64`)
+**failed** — a genuinely different failure from every prior RevenueCat
+attempt (no CocoaPods error at all, confirming that wall really is gone
+for `3.x`):
+```
+ld: warning: search path '/Applications/Xcode-16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator/' not found
+ld: warning: Could not find or use auto-linked library 'swiftCompatibility56': library 'swiftCompatibility56' not found
+ld: warning: Could not find or use auto-linked library 'swiftCompatibilityConcurrency': library 'swiftCompatibilityConcurrency' not found
+ld: warning: Could not find or use auto-linked library 'swiftCompatibilityPacks': library 'swiftCompatibilityPacks' not found
+Undefined symbols for architecture arm64:
+  "__swift_FORCE_LOAD_$_swiftCompatibility56", referenced from:
+      ... in libcom.revenuecat.purchases:kn-core-cinterop-RevenueCat-cache.a[440](AdTracker.swift.o)
+  "__swift_FORCE_LOAD_$_swiftCompatibilityConcurrency", referenced from: ...
+  "_swift_getFunctionTypeMetadataGlobalActorBackDeploy", referenced from:
+      ... in libcom.revenuecat.purchases:kn-core-cinterop-RevenueCat-cache.a[82](PurchasesOrchestrator.swift.o)
+ld: symbol(s) not found for architecture arm64
+```
+**Root cause**, visible directly in the first `ld: warning` line above:
+Kotlin/Native's default linker invocation searches a **hardcoded/stale
+Xcode path** (`Xcode-16.4.app`) for Swift's back-deployment
+compatibility shim libraries, rather than resolving whatever Xcode is
+actually installed on the build machine. The CI runner's real Xcode was
+`Xcode_26.6.app` (visible in the same log, from the `ld` binary's own
+invocation path) — the shim libraries genuinely exist there, Kotlin/Native
+just never looked in the right place, so RevenueCat's real compiled
+Swift object files (`AdTracker.swift.o`, `PurchasesOrchestrator.swift.o`,
+`CustomerInfo.swift.o` — all real RevenueCat code, confirming it was
+genuinely engaged, not silently skipped) referenced symbols the linker
+could never find.
+
+**The fix** — compute the real Xcode developer directory via
+`xcode-select -p` at Gradle configuration time and add it as an
+explicit linker search path, in `paywall-build/build.gradle.kts`:
+```kotlin
+import org.gradle.internal.os.OperatingSystem
+import java.io.ByteArrayOutputStream
+
+// Guarded to macOS only: this build.gradle.kts is also configured on
+// Windows dev machines (composite builds configure every included
+// build eagerly, even for an unrelated :game-only task), where
+// xcode-select doesn't exist and would break configuration entirely.
+val macDeveloperDir: String? = if (OperatingSystem.current().isMacOsX) {
+    val stdout = ByteArrayOutputStream()
+    exec {
+        commandLine("xcode-select", "-p")
+        standardOutput = stdout
+    }
+    stdout.toString().trim()
+} else null
+
+fun swiftLibPath(platformSdkName: String): String? =
+    macDeveloperDir?.let { "$it/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$platformSdkName" }
+
+kotlin {
+    iosArm64 {
+        binaries.framework {
+            baseName = "PaywallModule"
+            freeCompilerArgs += listOf("-Xbinary=bundleId=com.infiltrate.paywallmodule")
+            swiftLibPath("iphoneos")?.let { linkerOpts += listOf("-L$it") }
+        }
+    }
+    iosSimulatorArm64 {
+        binaries.framework {
+            baseName = "PaywallModule"
+            freeCompilerArgs += listOf("-Xbinary=bundleId=com.infiltrate.paywallmodule")
+            swiftLibPath("iphonesimulator")?.let { linkerOpts += listOf("-L$it") }
+        }
+    }
+}
+```
+(The `-Xbinary=bundleId=...` line addresses a separate, unrelated
+compiler warning — "Cannot infer a bundle ID" — the compiler explicitly
+suggested that exact flag; harmless, included but not proven necessary
+for the link fix itself.)
+
+Re-ran after the fix: **`BUILD SUCCESSFUL in 6m 29s`, 5 actionable
+tasks: 5 executed, zero undefined symbols.** Only remaining output was
+~15 benign warnings about missing Clang module-cache `.pcm` files
+(`Foundation`, `UIKit`, `StoreKit`, etc., under
+`.../swift-packages/RevenueCat/.build/.../ModuleCache/...`) — a known,
+harmless side effect of linking a redistributable static library built
+with `-gmodules` without its original module cache present; degrades
+debug-symbol quality only, not functionality.
+
+**If this ever needs revisiting** (e.g. after a runner image bumps its
+default Xcode, or after any Kotlin/Compose/RevenueCat version bump
+here): re-check whether the hardcoded-Xcode-path bug still exists in
+whatever Kotlin/Native version is in use, and re-verify the
+`xcode-select` fix is still landing on the correct directory — don't
+assume it's permanently fixed upstream.
+
+### CI wiring
+
+`.github/workflows/ios-build.yml`, one step, placed right after the
+main `"Build unsigned iOS Simulator app (KorGE)"` step:
+```yaml
+- name: "SPIKE: link paywall-build framework for iOS (RevenueCat 3.6.0 / Kotlin 2.3.20)"
+  continue-on-error: true
+  run: ./gradlew :paywall-build:linkDebugFrameworkIosSimulatorArm64 --no-configuration-cache --stacktrace
+```
+`continue-on-error: true` is deliberate and important to understand
+correctly: it means a failure in this step **never** red-X's the whole
+job, so the main game build's own pass/fail is never conflated with the
+spike's. **But this also means GitHub's Actions API reports this step's
+`"conclusion"` as `"success"` even when the underlying command
+genuinely failed** (verified directly — a run where the link failed
+with the undefined-symbols error above still showed
+`"conclusion": "success"` for this step via the REST API). **The API's
+conclusion field for a `continue-on-error` step is not a reliable
+pass/fail signal — always read the actual Gradle output in the raw job
+log** (`gh api .../actions/jobs/<id>/logs`, or download via the REST
+API) for `BUILD SUCCESSFUL` vs `BUILD FAILED` / `Undefined symbols` /
+`FAILED` under that specific step, never trust the green checkmark alone.
+
+### What's still NOT done — explicit next-phase work
+
+Everything above is proven **only inside the isolated `paywall-build`
+composite build**. None of it is wired into the real game yet:
+
+- **`:game`'s own RevenueCat setup is completely unchanged.** Still
+  Android-only, still pinned to `purchases-kmp-core:1.9.0+14.3.0`, still
+  zero `iosMainApi` dependency. Migrating `:game` itself onto this
+  proven path (vs. leaving RevenueCat isolated in `paywall-build`
+  forever) is a separate, larger decision not made here.
+- **`PurchasesBridge.ios.kt` / `PurchasesBridge.android.kt` are still
+  stubs**, untouched by this work — `purchase()` still just returns
+  `onResult(false)` on iOS. Nothing calls into `paywall-build` from
+  either bridge.
+- **No native shell/orchestration layer exists** to actually embed
+  `PaywallModule.framework` into the real iOS app target (KorGE's
+  generated Xcode project). The spike proves the framework itself
+  builds and links — not that it's loadable/callable from the shipping
+  app, which needs its own investigation (likely: KorGE-generated
+  Xcode project + a Swift-side bridge, or Kotlin/Native's interop
+  mechanisms to call from `:game`'s own framework into `PaywallModule.framework`).
+- **No shared storage bridge is implemented.** A design was proposed
+  (not built) earlier in this investigation: keep `GameProfile.kt`'s
+  existing `getRaw(key): String?` / `setRaw(key, value)` string-keyed
+  pattern (already used by `MapBackedGameProfileStorage`,
+  `MapBackedLevelStorage`), but have `paywall-build` read/write the
+  *same* keys directly against the native platform store
+  (`NSUserDefaults` on iOS, `SharedPreferences` on Android) rather than
+  through KorGE's `Views.storage` wrapper — since the two frameworks
+  are separately compiled and share no live Kotlin runtime/objects.
+  Open questions before implementing: confirm what backend KorGE's
+  `views.storage` actually uses on iOS today (don't assume
+  `NSUserDefaults`); and whether the two frameworks run in the same
+  process (plain `NSUserDefaults` suffices) or need an App Group
+  container (separate processes/targets).
+- **No real paywall UI exists** anywhere in the codebase (`main.kt` is
+  still the untouched korge-hello-world demo scene, per the note in
+  "LOCKED WORKING CONFIGURATION" above).
+- **Only `iosSimulatorArm64` was actually linked and verified.** The
+  `iosArm64` (real device) `binaries.framework` block mirrors the same
+  fix by construction but has never actually been run/verified — don't
+  assume real-device linking works without checking `:paywall-build:linkDebugFrameworkIosArm64`
+  the same way.
+
+### Traceability (commits, all on `main`)
+
+- `fbb7024` — initial `paywall-build` composite build (Kotlin `2.3.20`,
+  Compose `1.12.0`, `purchases-kmp-core:3.6.0` dependency added).
+- `eeb627d` — unrelated `:game` fix (see top-of-file update note) that
+  had to land first, since it was blocking CI before the spike could
+  even run.
+- `9a523c1` — added the CI step that first proved `paywall-build`'s
+  klib *compiles* (`compileKotlinIosSimulatorArm64`).
+- `6d57823` — added the real `binaries.framework` declaration + real
+  `Purchases.configure()` call site + switched the CI step to the link
+  task (first attempt, failed with the undefined-symbols error above).
+- `4a5f3b8` — the `xcode-select` linker-search-path fix. This is the
+  commit where the link first succeeded.
 
 ## RevenueCat version is pinned by iOS klib ABI compatibility, not just Android/JVM metadata
 
+**Note: the section below documents `:game`'s own separate,
+still-unresolved `purchases-kmp-core:1.9.0+14.3.0` pin (Android-only,
+kept for historical/reference purposes) — a completely different
+dependency line from the proven-working `3.6.0` in `paywall-build`
+above. Don't conflate the two: this history is about why `:game` itself
+is stuck on an old RevenueCat version; the section above is about a
+separate, isolated module using a much newer one successfully.**
+
 - `build.gradle.kts` pins `purchases-kmp-core` to `1.9.0+14.3.0` for
-  `androidMainApi` only now (see "RevenueCat on iOS is deferred" above -
-  this was downgraded from `2.10.2+17.55.1`, which itself was a downgrade
-  from `3.5.1` — see the Android/JVM metadata-conflict note already in
-  this file). The version history below is kept for whoever revisits iOS.
+  `androidMainApi` only now (`:game` itself still has zero iOS dependency
+  on RevenueCat at all — see note just above). This was downgraded from
+  `2.10.2+17.55.1`, which itself was a downgrade from `3.5.1` — see the
+  Android/JVM metadata-conflict note already in this file. The version
+  history below is kept for whoever revisits iOS.
 - The `2.10.2+17.55.1` downgrade fixed Android/JVM but a separate,
   iOS-only problem showed up in `ios-build.yml` CI: `:compileKotlinIosSimulatorArm64`
   failed with a KLIB resolver error — "Incompatible ABI version. The
@@ -332,9 +636,15 @@ alongside `RevenueCat.xcframework` and wired into Kotlin/Native's
 
 ## iOS build pipeline — status and known gap
 
-(This CocoaPods gap is why RevenueCat-iOS is deferred — see above. Kept
-in full below since the `ios-build.yml` workflow itself is still active
-and this is still accurate background for it.)
+(This CocoaPods gap applies specifically to `:game`'s own pinned
+`purchases-kmp-core:1.9.0+14.3.0` line — see "RevenueCat version is
+pinned by iOS klib ABI compatibility" above. It does NOT apply to the
+`3.x` line proven working in the isolated `paywall-build` composite
+build — see "RevenueCat on iOS: PROVEN WORKING" further above, which
+confirmed empirically that `3.x` needs zero CocoaPods/Podfile since it
+bundles its native SDK directly into the klib. Kept in full below since
+the `ios-build.yml` workflow itself is still active and this remains
+accurate background for `:game`'s own current dependency.)
 
 - KorGE's `targetIos()` has its own iOS build pipeline, confirmed via
   https://docs.korge.org/targets/ios/ — it generates a full Xcode
