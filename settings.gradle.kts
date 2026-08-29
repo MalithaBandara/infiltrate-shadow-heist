@@ -23,3 +23,5 @@ buildscript {
 apply(plugin = "com.soywiz.korge.settings")
 
 rootProject.name = "korge-hello-world"
+
+includeBuild("paywall-build")
