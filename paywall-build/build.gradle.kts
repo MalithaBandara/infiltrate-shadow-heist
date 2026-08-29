@@ -11,8 +11,16 @@ repositories {
 
 kotlin {
     jvm()
-    iosArm64()
-    iosSimulatorArm64()
+    iosArm64 {
+        binaries.framework {
+            baseName = "PaywallModule"
+        }
+    }
+    iosSimulatorArm64 {
+        binaries.framework {
+            baseName = "PaywallModule"
+        }
+    }
 
     sourceSets {
         val commonMain by getting {

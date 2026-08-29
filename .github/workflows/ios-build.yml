@@ -71,16 +71,25 @@ jobs:
         run: ./gradlew iosBuildSimulatorDebug --no-configuration-cache --stacktrace
 
       # SPIKE, not part of the real game build: paywall-build is a separate Gradle build
-      # (includeBuild) testing whether RevenueCat 3.6.0's klib (abi_version=2.3.0, compiled
-      # with Kotlin 2.3.20) actually compiles for iOS - something that can't be tested on the
-      # Windows dev machine, since Kotlin/Native iOS targets are disabled there and this task
-      # silently no-ops. Nothing in the main iosBuildSimulatorDebug task graph touches this
-      # separately-included build, so it needs its own explicit invocation here.
+      # (includeBuild) testing whether RevenueCat 3.6.0 actually works for iOS under Kotlin
+      # 2.3.20 - something that can't be tested on the Windows dev machine, since Kotlin/Native
+      # iOS targets are disabled there and these tasks silently no-op. Nothing in the main
+      # iosBuildSimulatorDebug task graph touches this separately-included build, so it needs
+      # its own explicit invocation here.
+      #
+      # compileKotlinIosSimulatorArm64 already confirmed green in a prior run (the klib reads
+      # fine under 2.3.20). This step goes one step further: paywall-build now declares a real
+      # binaries.framework { baseName = "PaywallModule" } output and calls Purchases.configure()
+      # from iosMain, so linkDebugFrameworkIosSimulatorArm64 actually has to link RevenueCat's
+      # bundled native code into a real framework - the exact step that killed every earlier
+      # RevenueCat version here (missing PurchasesHybridCommon via CocoaPods). RevenueCat 3.x's
+      # pitch is that it bundles its native SDK directly, avoiding that - this step tests it.
+      #
       # continue-on-error: true - a failure here is expected spike output, not a real build
       # regression, and must not be conflated with the main game build's own pass/fail above.
-      - name: "SPIKE: compile paywall-build for iOS (RevenueCat 3.6.0 / Kotlin 2.3.20)"
+      - name: "SPIKE: link paywall-build framework for iOS (RevenueCat 3.6.0 / Kotlin 2.3.20)"
         continue-on-error: true
-        run: ./gradlew :paywall-build:compileKotlinIosSimulatorArm64 --no-configuration-cache --stacktrace
+        run: ./gradlew :paywall-build:linkDebugFrameworkIosSimulatorArm64 --no-configuration-cache --stacktrace
 
       - name: Check for a generated Podfile and run pod install if present
         if: always()
