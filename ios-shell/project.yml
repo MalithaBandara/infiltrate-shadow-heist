@@ -35,6 +35,11 @@ targets:
       properties:
         CFBundleDisplayName: Shadow Heist Shell
         UILaunchScreen: {}
+        # Compose Multiplatform's ComposeUIViewController deliberately crashes (via its own
+        # PlistSanityCheck, dispatched on a low-priority background queue - see
+        # .junie/guidelines.md for the full trace) if this is missing/false. Unrelated to the
+        # switch-spike mechanism itself; needed by any Compose-on-iOS app regardless.
+        CADisableMinimumFrameDurationOnPhone: true
     dependencies:
       # Paths are relative to this file (ios-shell/project.yml), pointing at the standard
       # Kotlin/Native debug framework output locations - :game's is confirmed against a real CI
