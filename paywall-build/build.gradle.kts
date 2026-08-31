@@ -56,6 +56,11 @@ kotlin {
                 implementation(compose.material3)
             }
         }
+        val commonTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+            }
+        }
         val iosMain by creating {
             dependsOn(commonMain)
             dependencies {
