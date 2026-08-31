@@ -166,14 +166,14 @@ fun StatPill(
     }
 }
 
-// --- Redesigned Sleek Coin Capsule with Integrated Circular + Badge ---
+// --- Minimalistic Tactical Coin Pill ---
 
 @Composable
 fun CoinPill(
     coins: Int,
     onPlusClicked: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
-    pillHeight: Dp = 36.dp
+    pillHeight: Dp = 34.dp
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -183,10 +183,10 @@ fun CoinPill(
         modifier = modifier
             .height(pillHeight)
             .background(
-                if (isPressed && onPlusClicked != null) Color(0xFF222228) else Color(0xFF141417),
-                RoundedCornerShape(pillHeight / 2)
+                if (isPressed && onPlusClicked != null) Color(0xFF242428) else Color(0xFF18181B),
+                RoundedCornerShape(8.dp)
             )
-            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(pillHeight / 2))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
             .let {
                 if (onPlusClicked != null) {
                     it.clickable(
@@ -196,35 +196,34 @@ fun CoinPill(
                     )
                 } else it
             }
-            .padding(start = 8.dp, end = if (onPlusClicked != null) 5.dp else 12.dp)
+            .padding(horizontal = 10.dp)
     ) {
-        Canvas(modifier = Modifier.size(20.dp)) {
+        Canvas(modifier = Modifier.size(16.dp)) {
             drawCoinIcon(Color(0xFFFFD54F))
         }
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = "$coins",
             color = Color.White,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Bold
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold
         )
         if (onPlusClicked != null) {
             Spacer(modifier = Modifier.width(8.dp))
             Box(
                 modifier = Modifier
-                    .size(24.dp)
-                    .background(Color(0xFFFFB300), CircleShape)
-                    .border(1.dp, Color(0xFFFFE57F).copy(alpha = 0.7f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "+",
-                    color = Color(0xFF141416),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Black,
-                    modifier = Modifier.offset(y = (-0.5).dp)
-                )
-            }
+                    .width(1.dp)
+                    .height(14.dp)
+                    .background(Color.White.copy(alpha = 0.12f))
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "+",
+                color = Color(0xFFFFD54F),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.offset(y = (-1).dp)
+            )
         }
     }
 }
