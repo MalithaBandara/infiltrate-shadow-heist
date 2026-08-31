@@ -57,6 +57,10 @@ private object DesktopVideoPlayerManager {
                     cycleCount = MediaPlayer.INDEFINITE
                     isMute = true
                     isAutoPlay = true
+                    setOnEndOfMedia {
+                        seek(javafx.util.Duration.ZERO)
+                        play()
+                    }
                 }
                 mediaPlayer = mp
 

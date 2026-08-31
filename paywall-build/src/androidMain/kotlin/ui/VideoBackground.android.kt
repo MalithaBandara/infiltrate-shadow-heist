@@ -66,6 +66,9 @@ actual fun LoopingVideoBackground(
                             mp.setVolume(0f, 0f)
                             videoView.start()
                         }
+                        videoView.setOnCompletionListener {
+                            videoView.start()
+                        }
                     }
                     videoView
                 },
