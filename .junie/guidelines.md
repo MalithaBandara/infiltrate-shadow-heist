@@ -42,14 +42,15 @@ WORKING" below. That work does NOT touch `:game` at all.
 **Update (2026-08-31):** shared storage bridge (`PaywallStorage.kt` /
 `KorgeStorageKey.kt`) built and JVM-verified — see "Shared storage
 bridge" below. A native shell (`ios-shell/`) that embeds `GameMain.framework`
-+ `PaywallModule.framework` together, to get the first on-device signal
-for that bridge, has run in real CI once and **genuinely failed** (an
-architecture mismatch — the Kotlin/Native frameworks are arm64-only,
-`xcodebuild` defaulted to building an x86_64 slice too). The suspected
-duplicate-Kotlin-runtime-symbol risk was never actually reached. A fix
-is applied but **not yet pushed for a second attempt** — see "Native iOS
-shell: `ios-shell/`" below for the full, verbatim story before assuming
-either the original risk or the fix's success/failure.
++ `PaywallModule.framework` together is now **WORKING, confirmed on a
+real iOS Simulator in CI** (run `33385051973`, after one earlier failed
+attempt with a real architecture-mismatch bug, since fixed). The
+storage bridge's on-device round-trip genuinely passes: `Storage bridge
+result: OK`, read straight from the log, not assumed. See "Native iOS
+shell: `ios-shell/`" below for the full verbatim story, including two
+risks (duplicate Kotlin/Native runtime symbols; `@ObjCName` prefix
+stripping) that are now resolved with real evidence, not just fixed and
+hoped.
 
 ## LOCKED WORKING CONFIGURATION (verified 2026-08-25, commit `0b958c3`)
 
@@ -688,17 +689,20 @@ work embeds the framework into the real app target.
   today; wiring it into `gradle.yml`/`ios-build.yml` is a separate,
   not-yet-decided follow-up.
 
-## Native iOS shell: `ios-shell/` (2026-08-31) — attempt 1 FAILED (real CI run), fix applied, attempt 2 pending
+## Native iOS shell: `ios-shell/` (2026-08-31) — WORKING, verified on-device in real CI
 
-**Status: one real CI run completed, genuinely failed (architecture
-mismatch, see "Attempt 1" below), fix applied and re-verified locally
-where possible, NOT yet pushed for a second run.** This dev machine has
-no Xcode/simulator, so `:game`'s own two new Kotlin files can only be
-compile-checked by CI (see risk 2 below); everything Xcode/link-level
-can *only* be verified by CI, never locally. Do not assume the fix
-worked until a future session reports attempt 2's real raw logs — same
-discipline that caught attempt 1's real failure past a misleading
-`"success"` API conclusion.
+**Status: GREEN, for real.** Attempt 1 (commit `e6dae18`, run
+[33382783757](https://github.com/MalithaBandara/infiltrate-shadow-heist/actions/runs/33382783757))
+failed with a genuine architecture-mismatch build error (see below).
+Attempt 2 (commit `3fa602d`, run
+[33385051973](https://github.com/MalithaBandara/infiltrate-shadow-heist/actions/runs/33385051973))
+**succeeded — confirmed from the raw log, not the API conclusion field**:
+`GameMain.framework` and `PaywallModule.framework` link together into one
+real `ShellApp.app`, and the on-device storage-bridge round-trip
+genuinely passes. The two risks flagged before attempt 1 (duplicate
+Kotlin/Native runtime symbols; `@ObjCName` prefix-stripping) are both
+now resolved, not just theorized — see "Attempt 2" below for the exact
+proof. Don't re-litigate either without a reason; both are settled.
 
 ### What this is
 
@@ -832,39 +836,86 @@ above) predicted. Every new step's own `conclusion` field also said
   incomplete `.app` Xcode had scaffolded before the link failure. Purely
   downstream of the build failure above, not an independent finding.
 
-### Real, concrete risks — still not resolved after the attempt-1 fixes
+### Attempt 2 (2026-08-31, commit `3fa602d`, run [33385051973](https://github.com/MalithaBandara/infiltrate-shadow-heist/actions/runs/33385051973)) — SUCCEEDED, verified from raw logs
 
-1. **Duplicate Kotlin/Native runtime symbols** — still genuinely
-   untested. Attempt 1 never got far enough to hit this. Still the most
-   likely next blocker: each Kotlin/Native framework embeds its own
-   runtime, and linking two independently-compiled ones (different
-   Kotlin versions) into one binary is a known way to get duplicate-
-   symbol errors. If the next run fails with something like `duplicate
-   symbol '_kotlin...'`, that's this risk materializing — the fix is in
-   how the frameworks are built, not in `ios-shell/`'s Swift code.
-2. **`:game`'s own `compileKotlinIosSimulatorArm64` is disabled on this
-   Windows machine** (`Skipping task ... as task onlyIf 'Task is
-   enabled' is false`) — a KorGE-plugin-specific gate, NOT a general
-   Kotlin/Native limitation (the identical task for `paywall-build`,
-   plain `kotlin("multiplatform")`, runs fine here). Root cause not
-   traced (time-boxed). Practical effect, still true after the
-   `exact = true` fix above: the two `:game`-side files can only be
-   compile-checked by CI, never locally.
-3. Whether `exact = true` actually produces the unprefixed symbol is
-   **still unconfirmed** — the fix compiles locally (klib level only);
-   only a real link (CI) proves whether the ObjC name is really
-   `ShellAppDelegate`/`DebugStorageBridge`/`PaywallStorage` now.
+Same discipline as attempt 1: the API's `"conclusion": "success"` alone
+is not proof (it said that for attempt 1's real failure too). The raw
+log this time genuinely backs it up:
 
-### What's still NOT verified / NOT done
+- `xcodebuild` step: no architecture-mismatch warnings at all (the
+  `EXCLUDED_ARCHS[sdk=iphonesimulator*] = x86_64` fix worked), a clean
+  link/codesign sequence —
+  ```
+  Ld .../ShellApp.app/ShellApp.debug.dylib normal (in target 'ShellApp' from project 'ShellApp')
+  Ld .../ShellApp.app/ShellApp normal (in target 'ShellApp' from project 'ShellApp')
+  CodeSign .../ShellApp.app/ShellApp.debug.dylib (in target 'ShellApp' from project 'ShellApp')
+  CodeSign .../ShellApp.app (in target 'ShellApp' from project 'ShellApp')
+  ```
+  — and `** BUILD SUCCEEDED **`. **No duplicate-symbol errors anywhere**
+  — the risk flagged before attempt 1 (each Kotlin/Native framework
+  embedding its own runtime) turned out not to be a real problem for this
+  pair of frameworks. **This also confirms `@ObjCName(exact = true)`
+  actually worked**: if the exported names were still prefixed, this
+  link would have failed with the same "Undefined symbols" error as
+  attempt 1, just for the correct architecture instead — it didn't.
+- Round-trip verification step, real printed output:
+  ```
+  Found app at: ios-shell/build/Build/Products/Debug-iphonesimulator/ShellApp.app
+  Using simulator device: 6F69910C-E4FA-488A-B9C2-41B770484810
+  Monitoring boot status for iPhone 17 Pro (6F69910C-E4FA-488A-B9C2-41B770484810).
+  ...
+  com.infiltrate.shellapp: 33475
+  Storage bridge result: OK
+  Storage bridge round-trip verified ON-DEVICE (not just JVM-logical): OK
+  ```
+  `com.infiltrate.shellapp: 33475` is `simctl launch`'s own confirmation
+  the app actually launched (its PID) without crashing. `Storage bridge
+  result: OK` is read back from the app's own
+  `Documents/storage_bridge_result.txt` — i.e. `PaywallStorage.shared.setRaw(...)`
+  (from `PaywallModule.framework`) and `DebugStorageBridge.shared.readCoinsForDebug()`
+  (from `GameMain.framework`, going through the real
+  `MapBackedGameProfileStorage` path) agreed on the same value, in one
+  real running process, on a real simulator. This is the first genuine
+  on-device confirmation of the storage bridge — the JVM-only test from
+  the previous session is now superseded by this as the stronger proof,
+  though the JVM test is still useful as a fast local regression check.
 
-- Attempt 1's two fixes (`EXCLUDED_ARCHS`, `@ObjCName(exact = true)`)
-  are implemented but **not yet pushed for attempt 2** as of this
-  writing — don't assume they resolved anything until a future session
-  reports a real run's raw logs, the same discipline as attempt 1 above.
-- No paywall UI, no `PurchasesBridge.ios.kt` wiring — unchanged, out of
-  scope for this step.
-- Only `iosSimulatorArm64` — `iosArm64` (real device) untouched, same
-  caveat as the `paywall-build` spike above.
+### Resolved risks (for future sessions: don't re-litigate these without a new reason)
+
+1. ~~Duplicate Kotlin/Native runtime symbols~~ — tested for real in
+   attempt 2, did not occur. Not a problem for this specific pair of
+   frameworks (Kotlin 2.0.20 `:game` + Kotlin 2.3.20 `paywall-build`,
+   both built as dynamic frameworks, embedded together in one app
+   target). If a future session adds a *third* Kotlin/Native framework
+   to this app, re-verify — this isn't proven for arbitrary combinations.
+2. ~~`@ObjCName(name = "X")` without `exact = true`~~ — confirmed broken
+   (attempt 1), confirmed fixed by adding `exact = true` +
+   `@OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)`
+   (attempt 2 links clean). Apply this pattern to any future Kotlin/Native
+   object exported for cross-framework/Swift use in this project.
+
+### Still-open / genuinely unresolved
+
+- **`:game`'s own `compileKotlinIosSimulatorArm64` is disabled on this
+  Windows machine** (`Skipping task ... as task onlyIf 'Task is enabled'
+  is false`) — a KorGE-plugin-specific gate, not a general Kotlin/Native
+  limitation (the identical task for `paywall-build`, plain
+  `kotlin("multiplatform")`, runs fine here). Root cause not traced
+  (time-boxed both times it came up). Practical effect: any future change
+  to `:game`'s iOS-only source can only be compile-checked by CI, never
+  locally, on this machine.
+- No paywall UI, no `PurchasesBridge.ios.kt` wiring, no shared storage
+  bridge actually driving anything yet — the round-trip above is a
+  proof-of-concept debug path (`DebugStorageBridge`, a native overlay
+  button + an automatic launch-time self-check), not real product code.
+  Unchanged, out of scope for this step.
+- Only `iosSimulatorArm64` — `iosArm64` (real device) untouched for both
+  `GameMain.framework` and `PaywallModule.framework`, same caveat as the
+  `paywall-build` spike above.
+- `ios-shell/` is a standalone proof-of-concept project, not yet wired
+  into any release/distribution pipeline, and not the same project as
+  KorGE's own generated `build/platforms/ios` — no decision has been made
+  about whether/how these converge for a real shipping app.
 
 ## RevenueCat version is pinned by iOS klib ABI compatibility, not just Android/JVM metadata
 
