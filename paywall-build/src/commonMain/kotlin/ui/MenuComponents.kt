@@ -328,11 +328,69 @@ fun DrawScope.drawLockIcon(c: Color, s: Float = 1.0f) {
     )
 }
 
-fun DrawScope.drawCoinIcon(c: Color) {
+fun DrawScope.drawCoinIcon(c: Color = Color(0xFFFFD54F)) {
     val cx = size.width / 2f
     val cy = size.height / 2f
-    drawCircle(color = c, radius = 6.5f, center = Offset(cx, cy))
-    drawCircle(color = Color.Black.copy(alpha = 0.35f), radius = 6.5f, center = Offset(cx, cy), style = Stroke(width = 1f))
+    val r = minOf(size.width, size.height) * 0.44f
+
+    // 1. Dark outer drop shadow
+    drawCircle(
+        color = Color(0xFF3E2723).copy(alpha = 0.6f),
+        radius = r,
+        center = Offset(cx, cy + 1f)
+    )
+
+    // 2. Outer rim (Rich warm gold)
+    drawCircle(
+        color = Color(0xFFFFB300),
+        radius = r,
+        center = Offset(cx, cy)
+    )
+
+    // 3. Highlight bevel on top edge
+    drawCircle(
+        color = Color(0xFFFFE57F),
+        radius = r,
+        center = Offset(cx, cy),
+        style = Stroke(width = 1.6f)
+    )
+
+    // 4. Recessed inner face (Vibrant gold)
+    drawCircle(
+        color = Color(0xFFFFD54F),
+        radius = r * 0.76f,
+        center = Offset(cx, cy)
+    )
+
+    // 5. Inner grooved ring
+    drawCircle(
+        color = Color(0xFFC67100).copy(alpha = 0.7f),
+        radius = r * 0.76f,
+        center = Offset(cx, cy),
+        style = Stroke(width = 1.0f)
+    )
+
+    // 6. Embossed Tactical Diamond Emblem at center
+    val emblemR = r * 0.40f
+    val path = Path().apply {
+        moveTo(cx, cy - emblemR)
+        lineTo(cx + emblemR * 0.75f, cy)
+        lineTo(cx, cy + emblemR)
+        lineTo(cx - emblemR * 0.75f, cy)
+        close()
+    }
+    // Shadow under emblem
+    drawPath(
+        path = path,
+        color = Color(0xFF9E5700),
+        style = Fill
+    )
+    // Gleam on emblem center
+    drawCircle(
+        color = Color.White.copy(alpha = 0.9f),
+        radius = 1.2f,
+        center = Offset(cx - 0.8f, cy - 0.8f)
+    )
 }
 
 fun DrawScope.drawBoltIcon(c: Color) {
@@ -350,12 +408,50 @@ fun DrawScope.drawBoltIcon(c: Color) {
     drawPath(path, color = c, style = Fill)
 }
 
-fun DrawScope.drawCoinStackIcon(c: Color) {
+fun DrawScope.drawCoinStackIcon(c: Color = Color(0xFFFFD54F)) {
     val cx = size.width / 2f
     val cy = size.height / 2f
-    drawOval(color = c, topLeft = Offset(cx - 7f, cy - 5f), size = Size(14f, 5f), style = Stroke(width = 1.5f))
-    drawOval(color = c, topLeft = Offset(cx - 7f, cy - 1f), size = Size(14f, 5f), style = Stroke(width = 1.5f))
-    drawOval(color = c, topLeft = Offset(cx - 7f, cy + 3f), size = Size(14f, 5f), style = Stroke(width = 1.5f))
+    val rx = size.width * 0.42f
+    val ry = size.height * 0.18f
+
+    val coinYs = listOf(cy + size.height * 0.22f, cy, cy - size.height * 0.22f)
+
+    for (coinY in coinYs) {
+        // Coin side thickness (3D cylinder wall)
+        val sidePath = Path().apply {
+            moveTo(cx - rx, coinY)
+            lineTo(cx - rx, coinY + 3.5f)
+            arcTo(
+                rect = androidx.compose.ui.geometry.Rect(cx - rx, coinY + 3.5f - ry, cx + rx, coinY + 3.5f + ry),
+                startAngleDegrees = 180f,
+                sweepAngleDegrees = -180f,
+                forceMoveTo = false
+            )
+            lineTo(cx + rx, coinY)
+            close()
+        }
+        drawPath(sidePath, color = Color(0xFF9E5700))
+
+        // Outer coin face (Gold)
+        drawOval(
+            color = Color(0xFFFFB300),
+            topLeft = Offset(cx - rx, coinY - ry),
+            size = Size(rx * 2f, ry * 2f)
+        )
+        // Top highlight
+        drawOval(
+            color = Color(0xFFFFE082),
+            topLeft = Offset(cx - rx * 0.85f, coinY - ry * 0.85f),
+            size = Size(rx * 1.7f, ry * 1.7f)
+        )
+        // Inner rim groove
+        drawOval(
+            color = Color(0xFFC67100).copy(alpha = 0.6f),
+            topLeft = Offset(cx - rx, coinY - ry),
+            size = Size(rx * 2f, ry * 2f),
+            style = Stroke(width = 1.0f)
+        )
+    }
 }
 
 fun DrawScope.drawSmokeIcon(c: Color) {
