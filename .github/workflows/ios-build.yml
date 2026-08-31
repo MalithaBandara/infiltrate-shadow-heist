@@ -153,7 +153,18 @@ jobs:
           xcrun simctl bootstatus "$DEVICE_ID" -b
           xcrun simctl install "$DEVICE_ID" "$APP_PATH"
           xcrun simctl launch "$DEVICE_ID" "$BUNDLE_ID"
-          sleep 5
+
+          # Switch-spike diagnostic round (run 33417902658) showed the whole automated 6-cycle
+          # run completes within ~13-14s of launch. Capturing screenshots here (foreground, right
+          # after launch) instead of a plain `sleep 5` means their natural per-shot cost (1-13s
+          # each on this runner - confirmed empirically, NOT assumed free) doubles as the delay
+          # before checking results, while actually landing during the window where the switching
+          # happens, unlike capturing them in the next step (which starts only after the result
+          # file already exists, i.e. too late to see anything mid-switch).
+          mkdir -p ios-shell/spike-screenshots
+          for i in $(seq 1 10); do
+            xcrun simctl io "$DEVICE_ID" screenshot "ios-shell/spike-screenshots/frame_$(printf '%02d' "$i").png" || true
+          done
 
           CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" data)
           RESULT_FILE="$CONTAINER/Documents/storage_bridge_result.txt"
@@ -171,18 +182,13 @@ jobs:
         id: boot_shell
 
       # SPIKE: Compose<->KorGE view-switching cost measurement (see .junie/guidelines.md).
-      # DIAGNOSTIC ROUND 2: round 1 (run 33414886599) never produced a result file within 100s
-      # of polling, but that polling loop was itself broken - it called `xcrun simctl io
-      # screenshot` (which turned out to cost 1-13 REAL seconds each on this runner, not the
-      # ~free operation assumed) inside the same loop as the file check, so the loop spent its
-      # entire 100-"second" budget on ~100 slow screenshots instead of actually giving the app
-      # 100 real seconds before giving up - confirmed from the raw per-line timestamps in that
-      # run's log, not assumed. This round: a FAST poll loop with no screenshot work in it (so
-      # 100 iterations really is ~100 real seconds), plus pulling the app's actual console
-      # output (unified log, `process == "ShellApp"`) and any crash report regardless of
-      # whether the result file shows up, so a genuine hang/crash is diagnosable either way.
-      # Screenshots are deliberately dropped from this round - reintroduce once the underlying
-      # cycle logic is confirmed actually completing.
+      # ROUND 3: round 2 (run 33417902658) confirmed the 6-cycle automated run genuinely
+      # completes (result file appears within ~1s of this step starting to poll, i.e. the whole
+      # switch sequence finished during the previous step's own runtime) with real per-cycle
+      # numbers - no hang, no crash. This round just adds back visual evidence (screenshots,
+      # now captured in the PREVIOUS step where they land during the actual switching window -
+      # see its comment) and fills in the switchToComposeLatencyMs field that round 2's summary
+      # line was missing.
       - name: "Shell app: wait for switch-spike cycles, read result"
         continue-on-error: true
         run: |
@@ -223,6 +229,15 @@ jobs:
           echo "===== SWITCH SPIKE RESULT ====="
           cat "$RESULT_FILE"
           echo "================================"
+
+      - name: Upload switch-spike screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: switch-spike-screenshots
+          path: ios-shell/spike-screenshots
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload shell app build output for inspection
         if: always()
