@@ -205,7 +205,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                         let mem = self.residentMemoryMB()
                         print("SPIKE: cycle \(cycle) hiddenDwellTicksAdvanced=\(hiddenTicksAdvanced) (over ~1200ms, KorGE view not visible) residentMemoryMB=\(String(format: "%.2f", mem))")
 
-                        let line = "cycle=\(cycle) switchToKorgeLatencyMs=\(String(format: "%.1f", latencyMs)) switchToKorgeTimedOut=\(timedOut) korgeDwellTicksAdvanced=\(ticksAdvanced) hiddenDwellTicksAdvanced=\(hiddenTicksAdvanced) residentMemoryMB=\(String(format: "%.2f", mem))"
+                        let line = "cycle=\(cycle) switchToKorgeLatencyMs=\(String(format: "%.1f", latencyMs)) switchToKorgeTimedOut=\(timedOut) korgeDwellTicksAdvanced=\(ticksAdvanced) switchToComposeLatencyMsApprox=\(String(format: "%.1f", composeLatencyMs)) hiddenDwellTicksAdvanced=\(hiddenTicksAdvanced) residentMemoryMB=\(String(format: "%.2f", mem))"
                         self.cycleResults.append(line)
 
                         print("SPIKE: ==== cycle \(cycle)/\(self.totalCycles) END ====")
