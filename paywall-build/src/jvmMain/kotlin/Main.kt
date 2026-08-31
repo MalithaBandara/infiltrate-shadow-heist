@@ -45,9 +45,21 @@ fun launchKorgeGame(levelId: String, onFinished: () -> Unit) {
     }
 }
 
-fun main() = application {
-    var isWindowVisible by remember { mutableStateOf(true) }
-    val windowState = rememberWindowState(width = 1560.dp, height = 720.dp)
+fun main() {
+    // Eagerly pre-warm video decoder in background so it's ready on the very first frame
+    val candidates = listOf(
+        File("resources/bg1080p.mp4"),
+        File("../resources/bg1080p.mp4"),
+        File("C:/Users/USER/Downloads/charAnimations/assets/bg1080p.mp4")
+    )
+    val videoFile = candidates.firstOrNull { it.exists() }
+    if (videoFile != null) {
+        DesktopVideoPlayerManager.initialize(videoFile)
+    }
+
+    application {
+        var isWindowVisible by remember { mutableStateOf(true) }
+        val windowState = rememberWindowState(width = 1560.dp, height = 720.dp)
 
     // Galaxy S25 Ultra landscape aspect ratio (3120x1440 at half-scale)
     Window(
