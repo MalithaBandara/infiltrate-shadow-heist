@@ -58,6 +58,11 @@ kotlin {
                 implementation(compose.components.resources)
             }
         }
+        val jvmMain by getting {
+            dependencies {
+                implementation(compose.desktop.currentOs)
+            }
+        }
         // compose.ui (needed for ComposeUIViewController, iOS-only interop entry point) is
         // deliberately NOT in commonMain - it's UIKit-specific and would break the jvm() target,
         // same reasoning as purchases-kmp-core being iosMain-only just above.
@@ -77,3 +82,10 @@ kotlin {
         val iosSimulatorArm64Main by getting { dependsOn(iosMain) }
     }
 }
+
+compose.desktop {
+    application {
+        mainClass = "com.infiltrate.MainKt"
+    }
+}
+
