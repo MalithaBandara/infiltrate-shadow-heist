@@ -64,9 +64,9 @@ fun MenuTopBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(68.dp)
+            .height(74.dp)
             .background(Color(0xFF0B0B0D))
-            .padding(horizontal = 24.dp, vertical = 12.dp)
+            .padding(horizontal = 24.dp, vertical = 10.dp)
     ) {
         // Left: Back Button + Branding
         Row(
@@ -78,7 +78,7 @@ fun MenuTopBar(
 
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(46.dp)
                     .background(if (isPressed) Color(0xFF242428) else Color(0xFF18181B), RoundedCornerShape(8.dp))
                     .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
                     .clickable(
@@ -95,14 +95,14 @@ fun MenuTopBar(
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            // Graphic Logo Mark
+            // Graphic Logo Mark (enlarged for high clarity and visibility)
             Image(
                 painter = painterResource(Res.drawable.logo_main),
                 contentDescription = "Infiltrate: Shadow Heist",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
-                    .height(34.dp)
-                    .width(130.dp)
+                    .height(48.dp)
+                    .width(180.dp)
             )
         }
 
@@ -159,6 +159,63 @@ fun StatPill(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold
             )
+        }
+    }
+}
+
+// --- Interactive Coin Pill with + Button ---
+
+@Composable
+fun CoinPill(
+    coins: Int,
+    onPlusClicked: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    pillHeight: Dp = 34.dp
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .height(pillHeight)
+            .background(Color(0xFF18181B), RoundedCornerShape(8.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+            .padding(start = 10.dp, end = if (onPlusClicked != null) 4.dp else 12.dp)
+    ) {
+        Canvas(modifier = Modifier.size(16.dp)) {
+            drawCoinIcon(Color(0xFFFFD54F))
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = "$coins",
+            color = Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        if (onPlusClicked != null) {
+            Spacer(modifier = Modifier.width(8.dp))
+            val interactionSource = remember { MutableInteractionSource() }
+            val isPressed by interactionSource.collectIsPressedAsState()
+            Box(
+                modifier = Modifier
+                    .size(26.dp)
+                    .background(
+                        if (isPressed) Color(0xFFFFD54F).copy(alpha = 0.35f) else Color(0xFFFFD54F).copy(alpha = 0.2f),
+                        RoundedCornerShape(6.dp)
+                    )
+                    .border(1.dp, Color(0xFFFFD54F).copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                    .clickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        onClick = onPlusClicked
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "+",
+                    color = Color(0xFFFFD54F),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
         }
     }
 }

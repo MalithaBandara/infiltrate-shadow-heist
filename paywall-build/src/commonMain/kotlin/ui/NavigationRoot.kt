@@ -47,6 +47,10 @@ fun NavigationRoot(
                         println("[Navigation] Launching mission ${levelData.id}")
                         onStartLevel(levelData.id)
                     },
+                    onStoreClicked = {
+                        storeInitialTab = StoreTab.COINS
+                        currentScreen = AppScreen.Store
+                    },
                     onBackClicked = { currentScreen = AppScreen.MainMenu }
                 )
             }

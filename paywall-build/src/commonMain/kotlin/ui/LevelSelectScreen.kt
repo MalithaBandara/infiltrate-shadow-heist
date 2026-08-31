@@ -51,6 +51,7 @@ import kotlin.math.roundToInt
 @Composable
 fun LevelSelectScreen(
     onStartMission: (LevelData) -> Unit,
+    onStoreClicked: () -> Unit = {},
     onBackClicked: () -> Unit
 ) {
     val levelStorage: LevelStorage = remember {
@@ -93,12 +94,16 @@ fun LevelSelectScreen(
                     StatPill(
                         label = "$completedCount/${levels.size}",
                         icon = { drawBriefcaseIcon(Color(0xFF9A9A9E)) },
-                        pillWidth = 90.dp
+                        pillWidth = 85.dp
                     )
                     StatPill(
                         label = "$starsEarned/$starsMax",
                         icon = { drawStar(size.width / 2f, size.height / 2f, 7f, 2.8f, Color(0xFFFFD54F)) },
-                        pillWidth = 90.dp
+                        pillWidth = 85.dp
+                    )
+                    CoinPill(
+                        coins = profile.coins,
+                        onPlusClicked = onStoreClicked
                     )
                 }
             )

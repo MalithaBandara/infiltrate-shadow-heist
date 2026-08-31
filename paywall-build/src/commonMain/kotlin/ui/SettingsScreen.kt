@@ -100,32 +100,10 @@ fun SettingsScreen(
                 font = bebasFont,
                 onBackClicked = onBackClicked,
                 statPills = {
-                    StatPill(
-                        label = "${profile.coins}",
-                        icon = { drawCoinIcon(Color(0xFFFFD54F)) },
-                        pillWidth = 110.dp
+                    CoinPill(
+                        coins = profile.coins,
+                        onPlusClicked = onStoreShortcutClicked
                     )
-                    // Quick Store Shortcut Button
-                    val interactionSource = remember { MutableInteractionSource() }
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .background(Color(0xFF18181B), RoundedCornerShape(8.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
-                            .clickable(
-                                interactionSource = interactionSource,
-                                indication = null,
-                                onClick = onStoreShortcutClicked
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "+",
-                            color = Color.White,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
                 }
             )
 
