@@ -15,6 +15,14 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.infiltrate.shellapp
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1,2"
+        # GameMain.framework and PaywallModule.framework are both built from the Kotlin/Native
+        # iosSimulatorArm64 target only (arm64, no x86_64 slice). Without this, a plain
+        # `xcodebuild -sdk iphonesimulator` build (no -destination given) defaults to building
+        # BOTH arm64 and x86_64 simulator slices, and the x86_64 link fails with "Undefined
+        # symbols" because ld just ignores the arm64-only .framework files for that arch -
+        # confirmed exactly this way in CI on 2026-08-31. This is the standard fix for an
+        # Apple-Silicon-only binary framework, independent of whatever -destination gets picked.
+        EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
         FRAMEWORK_SEARCH_PATHS:
           - "$(inherited)"
           - "$(PROJECT_DIR)/../build/bin/iosSimulatorArm64/debugFramework"

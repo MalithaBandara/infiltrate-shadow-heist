@@ -10,12 +10,14 @@ import platform.UIKit.UIApplication
  * `applicationDidFinishLaunching(app)` is abstract: background/foreground/resign/terminate are
  * already concrete on the base class and callable as-is from Swift.
  *
- * `@ObjCName` pins the exported Swift name to `ShellAppDelegate` (exposed as
- * `ShellAppDelegate.shared`, the standard Kotlin/Native object-export convention) instead of
- * relying on the framework-name-prefixing default.
+ * `@ObjCName(..., exact = true)` pins the exported Swift name to exactly `ShellAppDelegate`
+ * (exposed as `ShellAppDelegate.shared`, the standard Kotlin/Native object-export convention).
+ * `exact = true` is required - confirmed the hard way in CI (2026-08-31): `name = "..."` alone,
+ * without `exact`, compiles fine but does NOT override the default framework-name-prefixed
+ * export (the real linked symbol was `GameMainShellAppDelegate`, not `ShellAppDelegate`).
  */
-@OptIn(kotlin.experimental.ExperimentalObjCName::class)
-@ObjCName(name = "ShellAppDelegate")
+@OptIn(kotlin.experimental.ExperimentalObjCName::class, kotlin.experimental.ExperimentalObjCRefinement::class)
+@ObjCName(name = "ShellAppDelegate", exact = true)
 object ShellAppDelegate : KorgwBaseNewAppDelegate() {
     override fun applicationDidFinishLaunching(app: UIApplication) {
         applicationDidFinishLaunching(app) { main() }
