@@ -96,8 +96,8 @@ fun MainMenuScreen(
         val buttonFontSize = if (isCompact) 24.sp else (36 * scale).sp
         val iconSize = if (isCompact) 24.dp else (36 * scale).dp
 
-        val startMargin = if (isCompact) 16.dp else (64 * scale).dp
-        val topMargin = if (isCompact) 18.dp else (36 * scale).dp
+        // Moved slightly to the right for better visual breathing room
+        val startMargin = if (isCompact) 16.dp else (100 * scale).dp
 
         // 1. Looping Video Background (bg1080p.mp4) with bg12.png fallback
         LoopingVideoBackground(
@@ -111,7 +111,7 @@ fun MainMenuScreen(
         Box(
             modifier = Modifier
                 .fillMaxHeight()
-                .width(if (isCompact) screenWidth else (760 * scale).dp)
+                .width(if (isCompact) screenWidth else (820 * scale).dp)
                 .background(
                     Brush.horizontalGradient(
                         0.0f to Color(0xF206080A),
@@ -129,18 +129,18 @@ fun MainMenuScreen(
                 .padding(
                     start = startMargin,
                     end = 28.dp,
-                    top = topMargin,
-                    bottom = 28.dp
+                    top = 20.dp,
+                    bottom = 20.dp
                 )
         ) {
-            // Left Column: Logo + Buttons
+            // Left Column: Logo + Buttons (Vertically Centered)
             Column(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
+                    .align(Alignment.CenterStart)
                     .width(buttonWidth),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Logo Image (logo_main.png) centered relative to the length of buttons
+                // Logo Image (logo_main.png) optically centered relative to the visual body of the buttons
                 Image(
                     painter = painterResource(Res.drawable.logo_main),
                     contentDescription = "INFILTRATE: SHADOW HEIST",
@@ -149,9 +149,11 @@ fun MainMenuScreen(
                     modifier = Modifier
                         .width(logoWidth)
                         .height(logoHeight)
+                        .padding(start = (14 * scale).dp) // Optical centering offset for "INFILTRATE" lettering
                 )
 
-                Spacer(modifier = Modifier.height(if (isCompact) 12.dp else (20 * scale).dp))
+                // Extra breathing space between logo and buttons
+                Spacer(modifier = Modifier.height(if (isCompact) 16.dp else (32 * scale).dp))
 
                 // Textured Heist Buttons Stack
                 HeistTexturedButton(
