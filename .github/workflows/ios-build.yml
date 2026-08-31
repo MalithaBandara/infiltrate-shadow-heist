@@ -171,26 +171,28 @@ jobs:
         id: boot_shell
 
       # SPIKE: Compose<->KorGE view-switching cost measurement (see .junie/guidelines.md).
-      # The app is already running from the step above (storage bridge check happens on the
-      # same launch) and has already started its automated 6-cycle switch measurement 1s after
-      # launch. This step just waits for it to finish (polling for the result file, since total
-      # duration depends on how slow the real cold-start-on-first-switch turns out to be - not
-      # assumed in advance) and captures periodic screenshots throughout so a human can visually
-      # check for flashes/glitches, since headless CI has no way to detect those on its own.
-      - name: "Shell app: wait for switch-spike cycles, capture screenshots, read result"
+      # DIAGNOSTIC ROUND 2: round 1 (run 33414886599) never produced a result file within 100s
+      # of polling, but that polling loop was itself broken - it called `xcrun simctl io
+      # screenshot` (which turned out to cost 1-13 REAL seconds each on this runner, not the
+      # ~free operation assumed) inside the same loop as the file check, so the loop spent its
+      # entire 100-"second" budget on ~100 slow screenshots instead of actually giving the app
+      # 100 real seconds before giving up - confirmed from the raw per-line timestamps in that
+      # run's log, not assumed. This round: a FAST poll loop with no screenshot work in it (so
+      # 100 iterations really is ~100 real seconds), plus pulling the app's actual console
+      # output (unified log, `process == "ShellApp"`) and any crash report regardless of
+      # whether the result file shows up, so a genuine hang/crash is diagnosable either way.
+      # Screenshots are deliberately dropped from this round - reintroduce once the underlying
+      # cycle logic is confirmed actually completing.
+      - name: "Shell app: wait for switch-spike cycles, read result"
         continue-on-error: true
         run: |
           DEVICE_ID="${{ steps.boot_shell.outputs.device_id }}"
           BUNDLE_ID="com.infiltrate.shellapp"
-          mkdir -p ios-shell/spike-screenshots
 
           CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" data)
           RESULT_FILE="$CONTAINER/Documents/switch_spike_result.txt"
 
-          # Worst case (every one of the 6 cycles hitting its own timeout) is ~75s; 100s gives
-          # comfortable margin without assuming in advance how slow the real cold start is.
           for i in $(seq 1 100); do
-            xcrun simctl io "$DEVICE_ID" screenshot "ios-shell/spike-screenshots/frame_$(printf '%03d' "$i").png" || true
             if [ -f "$RESULT_FILE" ]; then
               echo "Result file appeared after ~${i}s of polling."
               break
@@ -198,23 +200,29 @@ jobs:
             sleep 1
           done
 
+          echo "===== simctl launchctl list (is ShellApp still running / did it exit?) ====="
+          xcrun simctl spawn "$DEVICE_ID" launchctl list 2>&1 | grep -i shellapp || echo "com.infiltrate.shellapp not found in launchctl list"
+
+          echo "===== ShellApp unified log, last 10 minutes (process == ShellApp) ====="
+          xcrun simctl spawn "$DEVICE_ID" log show --predicate 'process == "ShellApp"' --style compact --last 10m 2>&1 | tail -400 || echo "log show produced nothing or failed"
+
+          echo "===== Crash report search ====="
+          find "$HOME/Library/Logs/DiagnosticReports" "$HOME/Library/Logs/CoreSimulator" -iname "*ShellApp*" 2>/dev/null | while read -r f; do
+            echo "--- $f ---"
+            cat "$f"
+          done
+          if ! find "$HOME/Library/Logs/DiagnosticReports" "$HOME/Library/Logs/CoreSimulator" -iname "*ShellApp*" 2>/dev/null | grep -q .; then
+            echo "No ShellApp crash reports found."
+          fi
+
           if [ ! -f "$RESULT_FILE" ]; then
-            echo "switch_spike_result.txt never appeared after 100s - app may have hung or crashed mid-cycle. Check device log."
+            echo "switch_spike_result.txt never appeared after 100s of real polling this time - see logs above for diagnosis."
             exit 1
           fi
 
           echo "===== SWITCH SPIKE RESULT ====="
           cat "$RESULT_FILE"
           echo "================================"
-
-      - name: Upload switch-spike screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: switch-spike-screenshots
-          path: ios-shell/spike-screenshots
-          if-no-files-found: warn
-          retention-days: 7
 
       - name: Upload shell app build output for inspection
         if: always()
