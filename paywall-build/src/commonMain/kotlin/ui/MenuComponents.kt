@@ -45,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
+import paywall_build.generated.resources.Res
+import paywall_build.generated.resources.logo_main
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -93,24 +95,15 @@ fun MenuTopBar(
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            // Mini Branding
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "INFILTRATE",
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    fontFamily = font,
-                    letterSpacing = 1.sp
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "SHADOW HEIST",
-                    color = Color(0xFF6E6E72),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
-            }
+            // Graphic Logo Mark
+            Image(
+                painter = painterResource(Res.drawable.logo_main),
+                contentDescription = "Infiltrate: Shadow Heist",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .height(34.dp)
+                    .width(130.dp)
+            )
         }
 
         // Center: Screen Title
