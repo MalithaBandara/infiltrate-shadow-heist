@@ -87,17 +87,17 @@ fun MainMenuScreen(
         // Reference 720p scale factor for widescreen phone / desktop displays
         val scale = if (isCompact) 0.65f else (screenHeight / 720.dp).coerceIn(0.85f, 1.4f)
 
-        val logoWidth = if (isCompact) 260.dp else (460 * scale).dp
-        val logoHeight = if (isCompact) 76.dp else (135 * scale).dp
+        val logoWidth = if (isCompact) 280.dp else (540 * scale).dp
+        val logoHeight = if (isCompact) 82.dp else (158 * scale).dp
 
-        val buttonWidth = if (isCompact) screenWidth - 32.dp else (480 * scale).dp
+        val buttonWidth = if (isCompact) screenWidth - 32.dp else (560 * scale).dp
         val buttonHeight = if (isCompact) 56.dp else (84 * scale).dp
         val buttonSpacing = if (isCompact) 10.dp else (16 * scale).dp
         val buttonFontSize = if (isCompact) 24.sp else (36 * scale).sp
         val iconSize = if (isCompact) 24.dp else (36 * scale).dp
 
-        val startMargin = if (isCompact) 16.dp else (72 * scale).dp
-        val topMargin = if (isCompact) 20.dp else (42 * scale).dp
+        val startMargin = if (isCompact) 16.dp else (64 * scale).dp
+        val topMargin = if (isCompact) 18.dp else (36 * scale).dp
 
         // 1. Looping Video Background (bg1080p.mp4) with bg12.png fallback
         LoopingVideoBackground(
@@ -111,7 +111,7 @@ fun MainMenuScreen(
         Box(
             modifier = Modifier
                 .fillMaxHeight()
-                .width(if (isCompact) screenWidth else (680 * scale).dp)
+                .width(if (isCompact) screenWidth else (760 * scale).dp)
                 .background(
                     Brush.horizontalGradient(
                         0.0f to Color(0xF206080A),
@@ -137,20 +137,21 @@ fun MainMenuScreen(
             Column(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .width(buttonWidth)
+                    .width(buttonWidth),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Logo Image (logo_main.png)
+                // Logo Image (logo_main.png) centered relative to the length of buttons
                 Image(
                     painter = painterResource(Res.drawable.logo_main),
                     contentDescription = "INFILTRATE: SHADOW HEIST",
                     contentScale = ContentScale.Fit,
-                    alignment = Alignment.CenterStart,
+                    alignment = Alignment.Center,
                     modifier = Modifier
                         .width(logoWidth)
                         .height(logoHeight)
                 )
 
-                Spacer(modifier = Modifier.height(if (isCompact) 14.dp else (24 * scale).dp))
+                Spacer(modifier = Modifier.height(if (isCompact) 12.dp else (20 * scale).dp))
 
                 // Textured Heist Buttons Stack
                 HeistTexturedButton(
