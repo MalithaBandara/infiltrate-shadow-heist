@@ -5,11 +5,24 @@ plugins {
     kotlin("multiplatform") version "2.3.20"
     id("org.jetbrains.kotlin.plugin.compose") version "2.3.20"
     id("org.jetbrains.compose") version "1.12.0"
+    id("com.android.library") version "8.5.2"
 }
 
 repositories {
     google()
     mavenCentral()
+}
+
+android {
+    namespace = "com.infiltrate.paywall"
+    compileSdk = 34
+    defaultConfig {
+        minSdk = 24
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
 }
 
 // The link step failed with "Undefined symbols" for swiftCompatibility56/Concurrency/Packs -
@@ -32,6 +45,7 @@ fun swiftLibPath(platformSdkName: String): String? =
     macDeveloperDir?.let { "$it/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$platformSdkName" }
 
 kotlin {
+    androidTarget()
     jvm()
     iosArm64 {
         binaries.framework {
