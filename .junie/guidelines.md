@@ -39,6 +39,16 @@ session also proved a fully isolated RevenueCat-on-iOS path works via
 a composite build (`paywall-build`) — see "RevenueCat on iOS: PROVEN
 WORKING" below. That work does NOT touch `:game` at all.
 
+**Update (2026-08-31):** shared storage bridge (`PaywallStorage.kt` /
+`KorgeStorageKey.kt`) built and JVM-verified — see "Shared storage
+bridge" below. A native shell (`ios-shell/`) that embeds `GameMain.framework`
++ `PaywallModule.framework` together and gives the first on-device
+signal for that bridge has been **written but NOT YET RUN — no CI signal
+exists for it yet, don't assume it works.** See "Native iOS shell:
+`ios-shell/`" below, including a real, unresolved risk (duplicate
+Kotlin/Native runtime symbols when linking two independently-compiled
+frameworks) that could plausibly break the very first build attempt.
+
 ## LOCKED WORKING CONFIGURATION (verified 2026-08-25, commit `0b958c3`)
 
 **These versions are load-bearing. Do not upgrade any of them without
@@ -67,9 +77,12 @@ conflict this session fixed.
 - **JDK: `21`** — `zulu` distribution in CI (both workflows). On this
   Windows dev machine, JDK 21 (Temurin) is installed but is NOT the
   default `JAVA_HOME` (that's JDK 19) — override explicitly
-  (`export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.12.8-hotspot"`
+  (`export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.12.101-hotspot"`
   in Git Bash) for any local `gradlew` command; JDK 19 fails with
-  "Dependency requires at least JVM runtime version 21."
+  "Dependency requires at least JVM runtime version 21." (Corrected
+  2026-08-31: the exact patch version is `.101`, not `.8` as an earlier
+  note said — verify with `ls "/c/Program Files/Eclipse Adoptium/"`
+  before trusting either number, it can drift with auto-updates.)
 - **`purchases-kmp-core`: `1.9.0+14.3.0`, Android-only.** Declared via
   `add("androidMainApi", ...)` in `build.gradle.kts`. iOS has **no
   dependency on it at all** — deliberately removed (commit `487a1dc`).
@@ -532,20 +545,14 @@ composite build**. None of it is wired into the real game yet:
   app, which needs its own investigation (likely: KorGE-generated
   Xcode project + a Swift-side bridge, or Kotlin/Native's interop
   mechanisms to call from `:game`'s own framework into `PaywallModule.framework`).
-- **No shared storage bridge is implemented.** A design was proposed
-  (not built) earlier in this investigation: keep `GameProfile.kt`'s
-  existing `getRaw(key): String?` / `setRaw(key, value)` string-keyed
-  pattern (already used by `MapBackedGameProfileStorage`,
-  `MapBackedLevelStorage`), but have `paywall-build` read/write the
-  *same* keys directly against the native platform store
-  (`NSUserDefaults` on iOS, `SharedPreferences` on Android) rather than
-  through KorGE's `Views.storage` wrapper — since the two frameworks
-  are separately compiled and share no live Kotlin runtime/objects.
-  Open questions before implementing: confirm what backend KorGE's
-  `views.storage` actually uses on iOS today (don't assume
-  `NSUserDefaults`); and whether the two frameworks run in the same
-  process (plain `NSUserDefaults` suffices) or need an App Group
-  container (separate processes/targets).
+- **Shared storage bridge: DONE for iOS, as of 2026-08-31.** See
+  "Shared storage bridge: paywall-build ↔ :game" below — the open
+  questions from this bullet (what backend `views.storage` uses on iOS,
+  same-process vs. App Group) are now answered and implemented
+  (`PaywallStorage.kt` + `KorgeStorageKey.kt` in `paywall-build`),
+  verified logically (JVM unit tests) but not yet on a real device/
+  simulator. Android's storage backend is documented there too but not
+  implemented — `paywall-build` has no Android target.
 - **No real paywall UI exists** anywhere in the codebase (`main.kt` is
   still the untouched korge-hello-world demo scene, per the note in
   "LOCKED WORKING CONFIGURATION" above).
@@ -569,6 +576,262 @@ composite build**. None of it is wired into the real game yet:
   task (first attempt, failed with the undefined-symbols error above).
 - `4a5f3b8` — the `xcode-select` linker-search-path fix. This is the
   commit where the link first succeeded.
+
+## Shared storage bridge: paywall-build ↔ :game (2026-08-31) — iOS done, Android deferred
+
+**This replaces the "No shared storage bridge is implemented" bullet under
+"What's still NOT done" in the RevenueCat section above** — that's no
+longer accurate for iOS. This is the foundation everything else in that
+"What's still NOT done" list depends on, so read this before touching it.
+
+### What `Views.storage` actually uses — verified, not assumed
+
+The earlier open question ("confirm what backend KorGE's `views.storage`
+actually uses on iOS today — don't assume `NSUserDefaults`") is now
+answered by reading KorGE 6.0.0's real implementation directly (extracted
+from the local Gradle cache: `korge-6.0.0-sources.jar` for iOS,
+`korge-android-6.0.0.aar`'s `classes.jar` decompiled for Android, since no
+sources jar is published for the Android artifact):
+
+- **iOS/darwin** (`korlibs.korge.service.storage.DarwinNativeStorage`,
+  used by every Kotlin/Native darwin target, including
+  `iosArm64`/`iosSimulatorArm64`): backed by
+  `NSUserDefaults(suiteName = "korge")` — a **named suite**, deliberately
+  NOT `NSUserDefaults.standardUserDefaults` (that line is commented out
+  in KorGE's own source, right above the suite version). Every key is
+  prefixed with `"org.korge.storage."` before being read/written
+  (`getKey(key) = "org.korge.storage.$key"`). Values go through
+  `setObject(value, forKey:)` / `objectForKey(key)?.toString()`, and
+  every write/remove calls `synchronize()` afterward.
+- **Android** (`korlibs.korge.service.storage.NativeStorage`, decompiled
+  with `javap -c -constants` since only the `.aar` is published, no
+  sources jar): backed by
+  `context.getSharedPreferences("KorgeNativeStorage", 0 /* MODE_PRIVATE */)`.
+  Keys are stored **unprefixed**, plain `putString`/`getString` — no
+  transformation needed on this platform.
+- A named `NSUserDefaults` suite with no App Group entitlement resolves
+  to the same on-disk plist for any code running inside the same app
+  sandbox/process, regardless of which compiled framework instantiates
+  it — so once `PaywallModule.framework` is actually embedded into
+  `:game`'s app target (still not done — see "No native shell/orchestration
+  layer exists" below, unchanged), no App Group is needed for this to
+  work. If a different integration is ever chosen (e.g. paywall running
+  as a separate extension process instead of embedded in the same app
+  target), this assumption would need revisiting.
+
+### What was implemented
+
+- `paywall-build/src/commonMain/kotlin/KorgeStorageKey.kt` — pure
+  `PREFIX`/`iosKey()` helper replicating `DarwinNativeStorage`'s exact key
+  transform, kept separate from the real iOS calls so it's unit-testable
+  on the JVM target.
+- `paywall-build/src/iosMain/kotlin/PaywallStorage.kt` — real
+  `getRaw`/`setRaw` backed by `NSUserDefaults(suiteName = "korge")`,
+  matching `:game`'s `MapBackedGameProfileStorage` contract
+  (`GameProfile.kt`) exactly.
+- `paywall-build/src/commonTest/kotlin/StorageKeyCompatibilityTest.kt` +
+  a `commonTest`/`jvmTest` source set added to
+  `paywall-build/build.gradle.kts` (it already had a `jvm()` target for
+  `Placeholder.kt`, just no test source set yet).
+- Keys covered: the 5 keys `MapBackedGameProfileStorage` actually
+  persists today — `user_coins`, `user_is_premium`, `user_music_vol`,
+  `user_sfx_vol`, `user_unlocked_levels`. **Pre-existing gap, found while
+  reading `GameProfile.kt` for this work, not caused by it and not fixed
+  here:** `GameProfile.powerupInventory` exists on the data class but
+  `MapBackedGameProfileStorage.persist()`/`loadFromStorage()` never
+  reads/writes it — powerup counts are silently lost across app restarts
+  today, independent of anything in this section. Whoever fixes that
+  should add the matching key to this storage bridge too.
+
+### Verification — logical/JVM-only, not on-device (be precise about this)
+
+`./gradlew :paywall-build:jvmTest` — **BUILD SUCCESSFUL, 4/4 tests
+executed and passed** (confirmed via the actual JUnit XML output, not
+just Gradle's exit code, per this file's own "verify the actual output"
+standard from the RevenueCat CI section above). What these tests prove:
+that `:game`'s key-prefixing logic and `paywall-build`'s `iosKey()`
+produce identical raw keys, and that a value written through one side's
+transform reads back correctly through the other's, for all 5 keys.
+
+**What this does NOT prove**: that the real on-device `NSUserDefaults`
+store is actually shared between the two separately compiled frameworks.
+This dev machine has no iOS simulator/Xcode, so that round-trip can't be
+run here — same constraint already documented for the real link/build
+steps elsewhere in this file. Also run, as a real (not assumed) signal:
+`./gradlew :paywall-build:compileKotlinIosSimulatorArm64
+--no-configuration-cache` **succeeds on this Windows machine** (Kotlin/Native
+klib compilation for Apple targets doesn't require macOS, unlike linking)
+— confirms `PaywallStorage.kt` compiles cleanly against the real
+`platform.Foundation.NSUserDefaults` iOS bindings. Actual on-device
+verification (write from a `PaywallModule.framework` call, read back via
+`:game`'s `views.storage`) is still open — do that once the native shell
+work embeds the framework into the real app target.
+
+### What's still NOT done (Android + everything downstream)
+
+- **No Android implementation.** `paywall-build` has zero Android target
+  today (only `jvm()` + iOS) — deliberate, confirmed with the user:
+  `:game` already talks to RevenueCat directly on Android via
+  `androidMainApi`, so there's no cross-framework boundary to bridge
+  there yet. If `paywall-build` ever needs an Android target, the
+  `SharedPreferences("KorgeNativeStorage", MODE_PRIVATE)` backing
+  documented above is what a matching `getRaw`/`setRaw` needs to target —
+  no key prefix needed on that platform, unlike iOS.
+- Everything else in the RevenueCat section's "What's still NOT done"
+  list is still true and unaffected by this: no native shell/embedding,
+  no paywall UI, `PurchasesBridge.ios.kt` is still a stub and doesn't
+  call into `paywall-build` or `PaywallStorage` at all yet, only
+  `iosSimulatorArm64` has ever been linked (not `iosArm64`/real device).
+- No CI step runs `:paywall-build:jvmTest` yet — it's runnable locally
+  today; wiring it into `gradle.yml`/`ios-build.yml` is a separate,
+  not-yet-decided follow-up.
+
+## Native iOS shell: `ios-shell/` (2026-08-31) — built, NOT YET VERIFIED IN CI
+
+**Status: implemented locally, never run.** This dev machine has no
+Xcode/simulator at all, so unlike every other iOS milestone in this
+file, nothing below has a real pass/fail signal yet — it hasn't even
+been pushed. Treat everything in this section as "designed carefully
+against real source, not yet proven" until a future session reports an
+actual CI run's raw log output. Do not assume it works just because it's
+described here.
+
+### What this is
+
+The first attempt to run `:game`'s `GameMain.framework` and
+`paywall-build`'s `PaywallModule.framework` **in the same process** —
+everything before this only proved each framework links in isolation.
+Deliberately minimal: no paywall UI, no `PurchasesBridge.ios.kt` wiring.
+Purpose-built to get the first on-device signal for the storage bridge
+(previous section), which was until now only verified with a JVM-only
+logical test.
+
+### Load-bearing finding: why the trigger lives in Swift, not a KorGE scene
+
+Reading KorGE's real iOS entry-point source directly
+(`korlibs.render.KorgwBaseNewAppDelegate`, `DefaultGameWindowIos.kt`,
+extracted from the local Gradle cache — not KorGE's docs, not assumed)
+confirms `:game` (Kotlin 2.0.20) and `paywall-build` (Kotlin 2.3.20)
+produce **ABI-incompatible klibs** — the exact same wall already
+documented above for why `:game` can't depend on RevenueCat 3.6.0
+directly. That means `:game`'s own Kotlin code cannot call into
+`PaywallModule`'s Kotlin API either — there is no way to put a real
+cross-framework call inside a KorGE scene without a Kotlin **cinterop**
+binding against `PaywallModule.framework`'s compiled Objective-C header
+(possible in principle, since cinterop reads compiled headers, not
+klibs — but real added Gradle/cinterop surface, deliberately not done
+here). **Confirmed with the user**: the round-trip trigger lives in the
+native Swift shell instead, which can safely call both frameworks'
+exported Objective-C APIs with no coupling between the two Kotlin
+builds.
+
+### What was built
+
+- **`src@ios/ShellAppDelegate.ios.kt`** (new, `:game`) — subclasses
+  `KorgwBaseNewAppDelegate`. Confirmed directly from source: only
+  `applicationDidFinishLaunching(app: UIApplication)` is abstract;
+  background/foreground/resign/terminate are already concrete on the
+  base class. Calls the base class's 2-arg overload with `:game`'s real
+  entry point (`suspend fun main()` in `src/main.kt`).
+- **`src@ios/DebugStorageBridge.ios.kt`** (new, `:game`) — exercises the
+  SAME production path every scene already uses
+  (`game.model.MapBackedGameProfileStorage`), just swapping
+  `views.storage[it]` for `korlibs.korge.service.storage.DarwinNativeStorage`
+  directly. This works with no live `Views`/window because on darwin,
+  KorGE's `NativeStorage` is literally `by DarwinNativeStorage` — a plain
+  object, not `Views`-dependent. A fresh `MapBackedGameProfileStorage` is
+  constructed on every call (its `init{}` loads from storage), so this
+  proves a real disk re-read, not a cached in-memory value.
+- **`ios-shell/`** (new directory) — hand-authored via **XcodeGen**
+  (`project.yml`, declarative — far less error-prone to author correctly
+  without Xcode to check against than a raw `project.pbxproj`; also the
+  same tool KorGE's own plugin uses internally, so it's a safe bet for
+  runner availability). Deliberately separate from
+  `build/platforms/ios` (KorGE's own generated project, not used here).
+  One app target, embeds both frameworks by relative path to their
+  standard Kotlin/Native debug-framework output locations. Entry point is
+  a classic `main.swift` + `UIApplicationMain(...)` (not `@UIApplicationMain`/`@main`,
+  to avoid depending on attribute behavior that varies by Xcode version
+  and can't be checked here). `AppDelegate.swift` forwards lifecycle
+  calls to `ShellAppDelegate.shared`, adds one native `UIButton`+`UILabel`
+  overlay for manual testing, and **also runs the same check
+  automatically once at launch** — writes `PaywallStorage.shared.setRaw(key:
+  "user_coins", value: <timestamp-derived test value>)`, then
+  `DebugStorageBridge.shared.readCoinsForDebug()`, compares, and writes
+  `"OK"` / `"FAIL:expected=X:actual=Y"` to
+  `Documents/storage_bridge_result.txt` in the app's sandbox — this is
+  what CI reads back, so verification doesn't require simulating a tap.
+- **`.github/workflows/ios-build.yml`** — new steps after the existing
+  `paywall-build` spike (all `continue-on-error: true`, same convention):
+  install XcodeGen if missing, `xcodegen generate`, `xcodebuild build`,
+  then boot a simulator / install / launch / read the result file back
+  via `xcrun simctl get_app_container ... data` and fail the step
+  (explicit content check, not just launch exit code) if it isn't `OK`.
+
+### Real, concrete risks — not yet resolved, be honest about these
+
+1. **Duplicate Kotlin/Native runtime symbols.** Each Kotlin/Native
+   framework embeds its own copy of the Kotlin/Native runtime by
+   default. Linking two *independently compiled* ones (different Kotlin
+   versions, no less) into one app binary is a known potential source of
+   duplicate-symbol link errors. This was not tested before writing the
+   code — it's the single most likely reason the `xcodebuild build` step
+   fails on its first real run. If it does, the fix is almost certainly
+   in how one or both frameworks are built (e.g. static framework output,
+   or excluding the runtime from one), not in `ios-shell/`'s own Swift
+   code — investigate `xcodebuild`'s actual linker error before assuming
+   anything else is wrong.
+2. **`paywall-build`'s `PaywallModule.framework` output path is unconfirmed
+   locally.** `project.yml` references
+   `paywall-build/build/bin/iosSimulatorArm64/debugFramework/PaywallModule.framework`
+   by analogy with `:game`'s own confirmed path (see "LOCKED WORKING
+   CONFIGURATION" above) — `linkDebugFrameworkIosSimulatorArm64` has only
+   ever run in CI, never checked against a real build output on disk.
+3. **`@ObjCName` needed an explicit opt-in** —
+   `@OptIn(kotlin.experimental.ExperimentalObjCName::class)` —  that
+   Kotlin 2.0.20/2.3.20 docs don't make obvious from the annotation name
+   alone (it reads as if it should be stable). **Caught locally, for
+   real**: `PaywallStorage.kt` (from the previous session, no
+   `@ObjCName`) was given one now so its exported Swift name is pinned to
+   `PaywallStorage` instead of the framework-prefixed default (see next
+   point) — first without the opt-in, which failed
+   `:paywall-build:compileKotlinIosSimulatorArm64` with "This declaration
+   needs opt-in"; fixed and reconfirmed compiling. The same opt-in was
+   applied to the two new `:game`-side objects, but **those could not be
+   compile-checked locally at all** — see next point.
+4. **`:game`'s own `compileKotlinIosSimulatorArm64` is disabled on this
+   Windows machine** (`Skipping task ... as task onlyIf 'Task is
+   enabled' is false`) — a KorGE-plugin-specific gate, NOT a general
+   Kotlin/Native limitation: the identical klib-compile task for
+   `paywall-build` (plain `kotlin("multiplatform")`, no KorGE plugin)
+   **does** run and succeed on this same machine. Root cause not fully
+   traced (time-boxed). Practical effect: `ShellAppDelegate.ios.kt` and
+   `DebugStorageBridge.ios.kt` are written carefully against
+   `KorgwBaseNewAppDelegate`'s real, directly-read source contract, but
+   have never actually been compiled anywhere, by anyone, until CI runs.
+5. **Kotlin/Native's default ObjC name for an exported `object` IS
+   framework-prefixed** — confirmed by comparing KorGE's own generated
+   bootstrap (`object NewAppDelegate` → Swift/ObjC
+   `GameMainNewAppDelegate`) against its framework's `baseName`
+   (`GameMain`). This is why every new exported object in this session
+   got an explicit `@ObjCName` — without it, `PaywallStorage` would have
+   exported as `PaywallModulePaywallStorage`, not `PaywallStorage`, and
+   the Swift code in `ios-shell/` would fail to compile against what it
+   expects.
+
+### What's still NOT verified / NOT done
+
+- Not pushed yet — no real CI run exists for any of this. Push only
+  after explicit confirmation (this triggers a real, visible CI run),
+  then read the actual raw logs for each new step (not just the
+  conclusion field — `continue-on-error: true` steps report `"success"`
+  even when the underlying command fails, exactly like the `paywall-build`
+  spike step already documented above) before updating this section
+  with the real outcome.
+- No paywall UI, no `PurchasesBridge.ios.kt` wiring — unchanged, out of
+  scope for this step.
+- Only `iosSimulatorArm64` — `iosArm64` (real device) untouched, same
+  caveat as the `paywall-build` spike above.
 
 ## RevenueCat version is pinned by iOS klib ABI compatibility, not just Android/JVM metadata
 

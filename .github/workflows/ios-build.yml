@@ -91,6 +91,94 @@ jobs:
         continue-on-error: true
         run: ./gradlew :paywall-build:linkDebugFrameworkIosSimulatorArm64 --no-configuration-cache --stacktrace
 
+      # --- Native shell app (ios-shell/) ---
+      #
+      # Hand-authored via XcodeGen, deliberately NOT KorGE's own generated project under
+      # build/platforms/ios. First real attempt to embed BOTH GameMain.framework (:game,
+      # Kotlin 2.0.20, built by the "Build unsigned iOS Simulator app" step above) and
+      # PaywallModule.framework (paywall-build, Kotlin 2.3.20, built by the spike step above)
+      # into ONE running process. This is a genuinely open question, not just "does it build" -
+      # each Kotlin/Native framework embeds its own copy of the Kotlin/Native runtime, and linking
+      # two independently-compiled ones together is a known source of duplicate-symbol link
+      # errors. continue-on-error: true on every step here for the same reason as the spike
+      # above: a failure must not be conflated with the main game build's own pass/fail, and per
+      # this file's own established rule, the API's "conclusion" field for a continue-on-error
+      # step is NOT reliable - read the raw log for BUILD SUCCEEDED/FAILED and the actual printed
+      # "Storage bridge result:" line, never just the green check.
+      - name: "Shell app: install XcodeGen (if not already present on the runner image)"
+        continue-on-error: true
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: "Shell app: generate Xcode project from ios-shell/project.yml"
+        continue-on-error: true
+        run: |
+          cd ios-shell
+          xcodegen generate --spec project.yml
+
+      - name: "Shell app: build (embeds GameMain.framework + PaywallModule.framework)"
+        continue-on-error: true
+        run: |
+          xcodebuild -project ios-shell/ShellApp.xcodeproj -scheme ShellApp \
+            -sdk iphonesimulator -configuration Debug \
+            -derivedDataPath ios-shell/build build
+
+      - name: "Shell app: boot simulator, install, launch, verify on-device storage bridge"
+        continue-on-error: true
+        run: |
+          set -e
+          APP_PATH=$(find ios-shell/build -name "ShellApp.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ShellApp.app not found - the build step above likely failed. See its log."
+            exit 1
+          fi
+          echo "Found app at: $APP_PATH"
+
+          BUNDLE_ID="com.infiltrate.shellapp"
+          # Plain-text simctl output, not -j/JSON, specifically to avoid embedding a Python
+          # script inside this YAML block (a leading-indented python3 -c heredoc throws
+          # IndentationError on its first line - caught locally, not risking it in CI).
+          DEVICE_ID=$(xcrun simctl list devices available | grep -m1 "iPhone" | grep -oE '[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}')
+          if [ -z "$DEVICE_ID" ]; then
+            echo "No available iPhone simulator found on this runner."
+            exit 1
+          fi
+          echo "Using simulator device: $DEVICE_ID"
+
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcrun simctl install "$DEVICE_ID" "$APP_PATH"
+          xcrun simctl launch "$DEVICE_ID" "$BUNDLE_ID"
+          sleep 5
+
+          CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" data)
+          RESULT_FILE="$CONTAINER/Documents/storage_bridge_result.txt"
+          if [ ! -f "$RESULT_FILE" ]; then
+            echo "storage_bridge_result.txt not found under $CONTAINER/Documents - app may have crashed on launch. Check the simulator's device log."
+            exit 1
+          fi
+          RESULT=$(cat "$RESULT_FILE")
+          echo "Storage bridge result: $RESULT"
+          if [ "$RESULT" != "OK" ]; then
+            echo "Storage bridge round-trip FAILED on-device: $RESULT"
+            exit 1
+          fi
+          echo "Storage bridge round-trip verified ON-DEVICE (not just JVM-logical): OK"
+
+      - name: Upload shell app build output for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-shell-app
+          path: |
+            ios-shell/build
+            ios-shell/project.yml
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Check for a generated Podfile and run pod install if present
         if: always()
         run: |

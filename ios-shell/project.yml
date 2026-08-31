@@ -1,0 +1,42 @@
+name: ShellApp
+options:
+  bundleIdPrefix: com.infiltrate
+  deploymentTarget:
+    iOS: "15.0"
+
+targets:
+  ShellApp:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.infiltrate.shellapp
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        FRAMEWORK_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(PROJECT_DIR)/../build/bin/iosSimulatorArm64/debugFramework"
+          - "$(PROJECT_DIR)/../paywall-build/build/bin/iosSimulatorArm64/debugFramework"
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/Frameworks"
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: Shadow Heist Shell
+        UILaunchScreen: {}
+    dependencies:
+      # Paths are relative to this file (ios-shell/project.yml), pointing at the standard
+      # Kotlin/Native debug framework output locations - :game's is confirmed against a real CI
+      # log (see .junie/guidelines.md, "LOCKED WORKING CONFIGURATION"); paywall-build's follows
+      # the same Kotlin/Native convention but hasn't been confirmed against a real build output
+      # yet (compileKotlinIosSimulatorArm64 has run here; linkDebugFrameworkIosSimulatorArm64,
+      # which actually produces the .framework, has only ever run in CI, not on this machine).
+      - framework: ../build/bin/iosSimulatorArm64/debugFramework/GameMain.framework
+        embed: true
+        codeSign: false
+      - framework: ../paywall-build/build/bin/iosSimulatorArm64/debugFramework/PaywallModule.framework
+        embed: true
+        codeSign: false
