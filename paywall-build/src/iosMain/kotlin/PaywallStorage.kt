@@ -11,14 +11,16 @@ import platform.Foundation.NSUserDefaults
  * the same store as `:game` when both run in the same app process/bundle - a named suite with no
  * App Group is scoped to the app's own container, not shared across separate processes.
  *
- * `@ObjCName` pins the exported Swift name to `PaywallStorage` (`PaywallStorage.shared`) instead
- * of Kotlin/Native's default framework-name-prefixed export (confirmed elsewhere in this project:
- * KorGE's own generated bootstrap exports its `NewAppDelegate` object as `GameMainNewAppDelegate`
- * for its `GameMain` framework - the same prefixing would otherwise apply here as
- * `PaywallModulePaywallStorage` for this `PaywallModule` framework).
+ * `@ObjCName(..., exact = true)` pins the exported Swift/ObjC name to exactly `PaywallStorage`
+ * (`PaywallStorage.shared`), overriding Kotlin/Native's default framework-name-prefixed export.
+ * `exact = true` is required for this - confirmed the hard way in CI (2026-08-31): without it,
+ * `name = "PaywallStorage"` alone compiled fine but the linker's real exported symbol was still
+ * `PaywallModulePaywallStorage` (matching KorGE's own generated bootstrap, which exports its
+ * `NewAppDelegate` object as `GameMainNewAppDelegate` for the same reason) - `name` without
+ * `exact` does not override the default prefixing, it turned out.
  */
-@OptIn(kotlin.experimental.ExperimentalObjCName::class)
-@ObjCName(name = "PaywallStorage")
+@OptIn(kotlin.experimental.ExperimentalObjCName::class, kotlin.experimental.ExperimentalObjCRefinement::class)
+@ObjCName(name = "PaywallStorage", exact = true)
 object PaywallStorage {
     private val defaults = NSUserDefaults(suiteName = "korge")
 
