@@ -34,7 +34,7 @@ import org.jetbrains.compose.resources.painterResource
 import java.awt.image.BufferedImage
 import java.io.File
 
-private object DesktopVideoPlayerManager {
+internal object DesktopVideoPlayerManager {
     private var isInitialized = false
     private var mediaPlayer: MediaPlayer? = null
     private var mediaView: MediaView? = null
