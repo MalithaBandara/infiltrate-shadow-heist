@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -165,57 +166,63 @@ fun StatPill(
     }
 }
 
-// --- Interactive Coin Pill with + Button ---
+// --- Redesigned Sleek Coin Capsule with Integrated Circular + Badge ---
 
 @Composable
 fun CoinPill(
     coins: Int,
     onPlusClicked: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
-    pillHeight: Dp = 34.dp
+    pillHeight: Dp = 36.dp
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .height(pillHeight)
-            .background(Color(0xFF18181B), RoundedCornerShape(8.dp))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
-            .padding(start = 10.dp, end = if (onPlusClicked != null) 4.dp else 12.dp)
+            .background(
+                if (isPressed && onPlusClicked != null) Color(0xFF222228) else Color(0xFF141417),
+                RoundedCornerShape(pillHeight / 2)
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(pillHeight / 2))
+            .let {
+                if (onPlusClicked != null) {
+                    it.clickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        onClick = onPlusClicked
+                    )
+                } else it
+            }
+            .padding(start = 8.dp, end = if (onPlusClicked != null) 5.dp else 12.dp)
     ) {
-        Canvas(modifier = Modifier.size(16.dp)) {
+        Canvas(modifier = Modifier.size(20.dp)) {
             drawCoinIcon(Color(0xFFFFD54F))
         }
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = "$coins",
             color = Color.White,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold
         )
         if (onPlusClicked != null) {
             Spacer(modifier = Modifier.width(8.dp))
-            val interactionSource = remember { MutableInteractionSource() }
-            val isPressed by interactionSource.collectIsPressedAsState()
             Box(
                 modifier = Modifier
-                    .size(26.dp)
-                    .background(
-                        if (isPressed) Color(0xFFFFD54F).copy(alpha = 0.35f) else Color(0xFFFFD54F).copy(alpha = 0.2f),
-                        RoundedCornerShape(6.dp)
-                    )
-                    .border(1.dp, Color(0xFFFFD54F).copy(alpha = 0.6f), RoundedCornerShape(6.dp))
-                    .clickable(
-                        interactionSource = interactionSource,
-                        indication = null,
-                        onClick = onPlusClicked
-                    ),
+                    .size(24.dp)
+                    .background(Color(0xFFFFB300), CircleShape)
+                    .border(1.dp, Color(0xFFFFE57F).copy(alpha = 0.7f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "+",
-                    color = Color(0xFFFFD54F),
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Black
+                    color = Color(0xFF141416),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.offset(y = (-0.5).dp)
                 )
             }
         }
