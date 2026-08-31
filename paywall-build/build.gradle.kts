@@ -50,6 +50,7 @@ kotlin {
 
     sourceSets {
         val commonMain by getting {
+            kotlin.srcDir("../src/game/model")
             dependencies {
                 implementation(compose.runtime)
                 implementation(compose.foundation)
