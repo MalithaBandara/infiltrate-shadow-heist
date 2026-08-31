@@ -45,6 +45,12 @@ internal object DesktopVideoPlayerManager {
     var videoHeight: Int by mutableStateOf(1080)
 
     fun initialize(videoFile: File) {
+        try {
+            JFXPanel()
+        } catch (t: Throwable) {
+            // ignore
+        }
+
         if (isInitialized && mediaPlayer != null) {
             resume()
             return
