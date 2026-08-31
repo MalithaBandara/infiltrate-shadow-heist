@@ -25,6 +25,7 @@ import javafx.embed.swing.JFXPanel
 import javafx.embed.swing.SwingFXUtils
 import javafx.scene.Group
 import javafx.scene.Scene
+import javafx.scene.SnapshotParameters
 import javafx.scene.image.WritableImage
 import javafx.scene.media.Media
 import javafx.scene.media.MediaPlayer
@@ -43,6 +44,16 @@ internal object DesktopVideoPlayerManager {
     var currentFrame: ImageBitmap? by mutableStateOf(null)
     var videoWidth: Int by mutableStateOf(1920)
     var videoHeight: Int by mutableStateOf(1080)
+
+    init {
+        try {
+            System.setProperty("prism.order", "d3d,sw")
+            System.setProperty("prism.vsync", "false")
+            System.setProperty("prism.allowhidpi", "false")
+        } catch (t: Throwable) {
+            // ignore
+        }
+    }
 
     fun initialize(videoFile: File) {
         try {
@@ -78,7 +89,7 @@ internal object DesktopVideoPlayerManager {
                 val root = Group(mv)
                 val scene = Scene(root)
 
-                val snapParams = javafx.scene.SnapshotParameters().apply {
+                val snapParams = SnapshotParameters().apply {
                     fill = javafx.scene.paint.Color.TRANSPARENT
                 }
 
@@ -87,6 +98,30 @@ internal object DesktopVideoPlayerManager {
                 var lastMediaTime: javafx.util.Duration? = null
                 var lastSnapshotNanos = 0L
                 val minFrameIntervalNanos = 16_000_000L // Cap to ~60fps max
+
+                fun captureFrame(): Boolean {
+                    val w = if (media.width > 0) media.width else 1920
+                    val h = if (media.height > 0) media.height else 1080
+                    if (w <= 0 || h <= 0) return false
+
+                    if (videoWidth != w || videoHeight != h) {
+                        videoWidth = w
+                        videoHeight = h
+                    }
+                    if (writableImage == null || writableImage?.width?.toInt() != w || writableImage?.height?.toInt() != h) {
+                        writableImage = WritableImage(w, h)
+                    }
+                    if (bufferedImage == null || bufferedImage?.width != w || bufferedImage?.height != h) {
+                        bufferedImage = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB_PRE)
+                    }
+
+                    mv.snapshot(snapParams, writableImage)
+                    bufferedImage = SwingFXUtils.fromFXImage(writableImage, bufferedImage)
+                    bufferedImage?.let {
+                        currentFrame = it.toComposeImageBitmap()
+                    }
+                    return true
+                }
 
                 val timer = object : AnimationTimer() {
                     override fun handle(now: Long) {
@@ -97,22 +132,7 @@ internal object DesktopVideoPlayerManager {
                             lastMediaTime = currentTime
                             lastSnapshotNanos = now
 
-                            val w = media.width
-                            val h = media.height
-                            if (w > 0 && h > 0) {
-                                if (videoWidth != w || videoHeight != h) {
-                                    videoWidth = w
-                                    videoHeight = h
-                                }
-                                if (writableImage == null || writableImage?.width?.toInt() != w || writableImage?.height?.toInt() != h) {
-                                    writableImage = WritableImage(w, h)
-                                }
-                                mv.snapshot(snapParams, writableImage)
-                                bufferedImage = SwingFXUtils.fromFXImage(writableImage, bufferedImage)
-                                bufferedImage?.let {
-                                    currentFrame = it.toComposeImageBitmap()
-                                }
-                            }
+                            captureFrame()
                         } catch (t: Throwable) {
                             // snapshot catch
                         }
@@ -127,6 +147,14 @@ internal object DesktopVideoPlayerManager {
                     mv.fitHeight = h.toDouble()
                     videoWidth = w
                     videoHeight = h
+
+                    // JIT warm-up pass
+                    try {
+                        captureFrame()
+                    } catch (t: Throwable) {
+                        // ignore
+                    }
+
                     timer.start()
                     mp.play()
                 }
@@ -159,7 +187,12 @@ internal object DesktopVideoPlayerManager {
         Platform.runLater {
             try {
                 animTimer?.start()
-                mediaPlayer?.play()
+                mediaPlayer?.let { player ->
+                    if (player.status == MediaPlayer.Status.STOPPED || player.status == MediaPlayer.Status.HALTED) {
+                        player.seek(javafx.util.Duration.ZERO)
+                    }
+                    player.play()
+                }
             } catch (t: Throwable) {
                 // ignore
             }
