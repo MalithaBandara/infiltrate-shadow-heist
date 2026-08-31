@@ -92,14 +92,9 @@ fun LevelSelectScreen(
                 onBackClicked = onBackClicked,
                 statPills = {
                     StatPill(
-                        label = "$completedCount/${levels.size}",
-                        icon = { drawBriefcaseIcon(Color(0xFF9A9A9E)) },
-                        pillWidth = 85.dp
-                    )
-                    StatPill(
                         label = "$starsEarned/$starsMax",
                         icon = { drawStar(size.width / 2f, size.height / 2f, 7f, 2.8f, Color(0xFFFFD54F)) },
-                        pillWidth = 85.dp
+                        pillWidth = 95.dp
                     )
                     CoinPill(
                         coins = profile.coins,
