@@ -83,13 +83,12 @@ fun MainMenuScreen(
         val screenHeight = maxHeight
         val isCompact = screenWidth < 600.dp
 
-        // 1. Cinematic Background Image (bg12.png) - right anchored cover
-        Image(
-            painter = painterResource(Res.drawable.bg12),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            alignment = Alignment.CenterEnd,
-            modifier = Modifier.fillMaxSize()
+        // 1. Looping Cinematic Video Background (bg1080p.mp4) with bg12.png fallback
+        LoopingVideoBackground(
+            modifier = Modifier.fillMaxSize(),
+            videoName = "bg1080p",
+            videoExtension = "mp4",
+            fallbackDrawable = Res.drawable.bg12
         )
 
         // 2. Left silhouette dark gradient fade ensuring full contrast for title & button stack
