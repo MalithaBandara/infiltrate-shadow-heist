@@ -34,6 +34,116 @@ import org.jetbrains.compose.resources.painterResource
 import java.awt.image.BufferedImage
 import java.io.File
 
+private object DesktopVideoPlayerManager {
+    private var isInitialized = false
+    private var mediaPlayer: MediaPlayer? = null
+    private var mediaView: MediaView? = null
+    private var animTimer: AnimationTimer? = null
+
+    var currentFrame: ImageBitmap? by mutableStateOf(null)
+    var videoWidth: Int by mutableStateOf(1920)
+    var videoHeight: Int by mutableStateOf(1080)
+
+    fun initialize(videoFile: File) {
+        if (isInitialized && mediaPlayer != null) {
+            resume()
+            return
+        }
+
+        Platform.runLater {
+            try {
+                val media = Media(videoFile.toURI().toString())
+                val mp = MediaPlayer(media).apply {
+                    cycleCount = MediaPlayer.INDEFINITE
+                    isMute = true
+                    isAutoPlay = true
+                }
+                mediaPlayer = mp
+
+                val mv = MediaView(mp).apply {
+                    isPreserveRatio = true
+                }
+                mediaView = mv
+
+                val root = Group(mv)
+                val scene = Scene(root)
+
+                var writableImage: WritableImage? = null
+                var bufferedImage: BufferedImage? = null
+
+                val timer = object : AnimationTimer() {
+                    override fun handle(now: Long) {
+                        try {
+                            val w = media.width
+                            val h = media.height
+                            if (w > 0 && h > 0) {
+                                if (videoWidth != w || videoHeight != h) {
+                                    videoWidth = w
+                                    videoHeight = h
+                                }
+                                if (writableImage == null || writableImage?.width?.toInt() != w || writableImage?.height?.toInt() != h) {
+                                    writableImage = WritableImage(w, h)
+                                }
+                                mv.snapshot(null, writableImage)
+                                bufferedImage = SwingFXUtils.fromFXImage(writableImage, bufferedImage)
+                                bufferedImage?.let {
+                                    currentFrame = it.toComposeImageBitmap()
+                                }
+                            }
+                        } catch (t: Throwable) {
+                            // snapshot catch
+                        }
+                    }
+                }
+                animTimer = timer
+
+                fun start() {
+                    val w = if (media.width > 0) media.width else 1920
+                    val h = if (media.height > 0) media.height else 1080
+                    mv.fitWidth = w.toDouble()
+                    mv.fitHeight = h.toDouble()
+                    videoWidth = w
+                    videoHeight = h
+                    timer.start()
+                    mp.play()
+                }
+
+                if (mp.status == MediaPlayer.Status.READY || mp.status == MediaPlayer.Status.PLAYING) {
+                    start()
+                } else {
+                    mp.setOnReady { start() }
+                }
+
+                isInitialized = true
+            } catch (e: Throwable) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun pause() {
+        Platform.runLater {
+            try {
+                animTimer?.stop()
+                mediaPlayer?.pause()
+            } catch (t: Throwable) {
+                // ignore
+            }
+        }
+    }
+
+    fun resume() {
+        Platform.runLater {
+            try {
+                animTimer?.start()
+                mediaPlayer?.play()
+            } catch (t: Throwable) {
+                // ignore
+            }
+        }
+    }
+}
+
 @Composable
 actual fun LoopingVideoBackground(
     modifier: Modifier,
@@ -59,84 +169,18 @@ actual fun LoopingVideoBackground(
         candidates.firstOrNull { it.exists() }
     }
 
-    var currentFrame by remember { mutableStateOf<ImageBitmap?>(null) }
-    var videoWidthPx by remember { mutableStateOf(1920) }
-    var videoHeightPx by remember { mutableStateOf(1080) }
-
     DisposableEffect(videoFile) {
-        if (videoFile == null) return@DisposableEffect onDispose {}
-
-        var player: MediaPlayer? = null
-        var timer: AnimationTimer? = null
-
-        Platform.runLater {
-            try {
-                val media = Media(videoFile.toURI().toString())
-                val mp = MediaPlayer(media).apply {
-                    cycleCount = MediaPlayer.INDEFINITE
-                    isMute = true
-                }
-                player = mp
-
-                val mediaView = MediaView(mp).apply {
-                    isPreserveRatio = true
-                }
-
-                val root = Group(mediaView)
-                val scene = Scene(root)
-
-                var writableImage: WritableImage? = null
-                var bufferedImage: BufferedImage? = null
-
-                val animTimer = object : AnimationTimer() {
-                    override fun handle(now: Long) {
-                        try {
-                            val w = media.width
-                            val h = media.height
-                            if (w > 0 && h > 0) {
-                                if (videoWidthPx != w || videoHeightPx != h) {
-                                    videoWidthPx = w
-                                    videoHeightPx = h
-                                }
-                                if (writableImage == null || writableImage?.width?.toInt() != w || writableImage?.height?.toInt() != h) {
-                                    writableImage = WritableImage(w, h)
-                                }
-                                mediaView.snapshot(null, writableImage)
-                                bufferedImage = SwingFXUtils.fromFXImage(writableImage, bufferedImage)
-                                bufferedImage?.let {
-                                    currentFrame = it.toComposeImageBitmap()
-                                }
-                            }
-                        } catch (t: Throwable) {
-                            // snapshot catch
-                        }
-                    }
-                }
-                timer = animTimer
-
-                mp.setOnReady {
-                    mediaView.fitWidth = media.width.toDouble()
-                    mediaView.fitHeight = media.height.toDouble()
-                    animTimer.start()
-                    mp.play()
-                }
-            } catch (e: Throwable) {
-                e.printStackTrace()
-            }
+        if (videoFile != null) {
+            DesktopVideoPlayerManager.initialize(videoFile)
         }
-
         onDispose {
-            Platform.runLater {
-                try {
-                    timer?.stop()
-                    player?.stop()
-                    player?.dispose()
-                } catch (t: Throwable) {
-                    // ignore
-                }
-            }
+            DesktopVideoPlayerManager.pause()
         }
     }
+
+    val currentFrame = DesktopVideoPlayerManager.currentFrame
+    val videoWidthPx = DesktopVideoPlayerManager.videoWidth
+    val videoHeightPx = DesktopVideoPlayerManager.videoHeight
 
     BoxWithConstraints(
         modifier = modifier.background(Color.Black)
