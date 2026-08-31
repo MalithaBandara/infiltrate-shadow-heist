@@ -76,6 +76,8 @@ internal object DesktopVideoPlayerManager {
                     fill = javafx.scene.paint.Color.TRANSPARENT
                 }
 
+                var writableImage: WritableImage? = null
+                var bufferedImage: BufferedImage? = null
                 var lastMediaTime: javafx.util.Duration? = null
                 var lastSnapshotNanos = 0L
                 val minFrameIntervalNanos = 16_000_000L // Cap to ~60fps max
