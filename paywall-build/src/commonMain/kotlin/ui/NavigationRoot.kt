@@ -16,7 +16,7 @@ enum class AppScreen {
 
 @Composable
 fun NavigationRoot(
-    onStartLevel: () -> Unit = {}
+    onStartLevel: (levelId: String) -> Unit = {}
 ) {
     var currentScreen by remember { mutableStateOf(AppScreen.MainMenu) }
     var storeInitialTab by remember { mutableStateOf(StoreTab.POWER_UPS) }
@@ -28,7 +28,7 @@ fun NavigationRoot(
                 MainMenuScreen(
                     onPlayClicked = {
                         // Default to Mission 1 if clicked directly from MainMenu
-                        onStartLevel()
+                        onStartLevel("level_1")
                     },
                     onMissionsClicked = { currentScreen = AppScreen.LevelSelect },
                     onStoreClicked = {
@@ -45,7 +45,7 @@ fun NavigationRoot(
                 LevelSelectScreen(
                     onStartMission = { levelData ->
                         println("[Navigation] Launching mission ${levelData.id}")
-                        onStartLevel()
+                        onStartLevel(levelData.id)
                     },
                     onBackClicked = { currentScreen = AppScreen.MainMenu }
                 )
