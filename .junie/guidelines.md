@@ -174,6 +174,15 @@ in git history even if later deleted, unless history is rewritten.
 Never assume a placeholder or "TODO: add real key later" is safe to
 commit if it resembles a real key format — flag it anyway.
 
+## Git push policy — NEVER push without explicit user consent
+
+**NEVER run `git push` autonomously.** Even if tests pass locally, security scans are clean, or a prompt mentions CI verification:
+1. Make local commits only.
+2. Show the proposed commit(s) and changes to the user.
+3. Explicitly ASK the user for permission to push to GitHub.
+4. Wait for the user's explicit approval before executing `git push`.
+
+
 ## Keep this file up to date
 
 This file is the first thing a new chat/agent should read for project
