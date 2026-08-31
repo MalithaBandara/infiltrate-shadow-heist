@@ -18,7 +18,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     private var korgeVC: UIViewController?
     private var composeVC: UIViewController?
-    private var window: UIWindow?
+    private var shellWindow: UIWindow?
 
     private let totalCycles = 6
     private var cycleResults: [String] = []
@@ -30,7 +30,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     ) -> Bool {
         ShellAppDelegate.shared.applicationDidFinishLaunching(app: application)
         let window = ShellAppDelegate.shared.window
-        self.window = window
+        self.shellWindow = window
 
         addDebugOverlay()
         runStorageBridgeCheck()
@@ -159,7 +159,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     private func runCycle(_ cycle: Int) {
-        guard cycle <= totalCycles, let window = self.window, let korgeVC = self.korgeVC else {
+        guard cycle <= totalCycles, let window = self.shellWindow, let korgeVC = self.korgeVC else {
             finishSpike()
             return
         }
