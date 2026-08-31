@@ -137,10 +137,9 @@ fun StoreScreen(
                 font = bebasFont,
                 onBackClicked = onBackClicked,
                 statPills = {
-                    StatPill(
-                        label = "${profile.coins}",
-                        icon = { drawCoinIcon(Color(0xFFFFD54F)) },
-                        pillWidth = 110.dp
+                    CoinPill(
+                        coins = profile.coins,
+                        onPlusClicked = { currentTab = StoreTab.COINS }
                     )
                 }
             )
