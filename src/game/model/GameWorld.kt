@@ -9,8 +9,10 @@ data class GameWorld(
     val exitZone: Rect = Rect(x = 730.0, y = 320.0, width = 40.0, height = 60.0),
     val levelData: LevelData = LevelData(),
     val extraGuards: List<Guard> = emptyList(),
+    val cameras: List<Camera> = emptyList(),
     val boxes: List<Rect> = listOf(crate),
     val worldWidth: Double = 800.0,
+    val activePowerups: ActivePowerups = ActivePowerups(),
     var minDetectionTime: Double = 0.3,     // Seconds to catch at point-blank range (~0.3s)
     var maxDetectionTime: Double = 1.5,     // Seconds to catch at outer edge of vision cone (~1.5s)
     var alertDecayRate: Double = 0.6,       // Progress drained per second when outside vision
@@ -41,9 +43,15 @@ data class GameWorld(
 
     private val recentlySeeingGuards = LinkedHashSet<Guard>()
 
-    fun getDetectionTimeToCatch(distance: Double): Double {
-        val range = guard.visionRange.coerceAtLeast(1.0)
-        val normalizedDist = (distance / range).coerceIn(0.0, 1.0)
+    fun activatePowerup(type: PowerupType): Boolean {
+        if (isLevelComplete || isGameOver) return false
+        activePowerups.activate(type)
+        return true
+    }
+
+    fun getDetectionTimeToCatch(distance: Double, range: Double = guard.visionRange): Double {
+        val r = range.coerceAtLeast(1.0)
+        val normalizedDist = (distance / r).coerceIn(0.0, 1.0)
         return minDetectionTime + normalizedDist * (maxDetectionTime - minDetectionTime)
     }
 
@@ -71,17 +79,52 @@ data class GameWorld(
 
         timeTaken += dt.toFloat()
 
-        // Check every guard's vision cone; the closest one with eyes on the player fills the alert.
+        // Update active powerup timers
+        activePowerups.update(dt)
+
+        // Update cameras (continuous sweep) - paused while Smoke Screen is active
+        if (!activePowerups.isSmokeScreenActive) {
+            for (c in cameras) {
+                c.update(dt)
+            }
+        }
+
+        // Check every guard and camera's vision cone; the closest one with eyes on the player fills the alert.
         val previousAlert = alertProgress
         val seeingGuards = ArrayList<Guard>(allGuards.size)
         var spottedDist: Double? = null
-        for (g in allGuards) {
-            val d = VisionSystem.getPlayerSpottedDistance(g, player, occluders)
-            if (d != null) {
-                seeingGuards.add(g)
-                if (spottedDist == null || d < spottedDist) spottedDist = d
+        var detectorRange: Double = guard.visionRange
+
+        // Invisibility: player cannot be spotted by any guard or camera
+        if (!activePowerups.isInvisibilityActive) {
+            // Guards vision checks - skipped if Phantom Cloak puts guards to sleep
+            if (!activePowerups.isPhantomCloakActive) {
+                for (g in allGuards) {
+                    val d = VisionSystem.getPlayerSpottedDistance(g, player, occluders)
+                    if (d != null) {
+                        seeingGuards.add(g)
+                        if (spottedDist == null || d < spottedDist) {
+                            spottedDist = d
+                            detectorRange = g.visionRange
+                        }
+                    }
+                }
+            }
+
+            // Cameras vision checks - skipped if Smoke Screen disables cameras
+            if (!activePowerups.isSmokeScreenActive) {
+                for (c in cameras) {
+                    val d = VisionSystem.getPlayerSpottedDistance(c, player, occluders)
+                    if (d != null) {
+                        if (spottedDist == null || d < spottedDist) {
+                            spottedDist = d
+                            detectorRange = c.visionRange
+                        }
+                    }
+                }
             }
         }
+
         val inVision = spottedDist != null
         isPlayerInVision = inVision
 
@@ -93,15 +136,15 @@ data class GameWorld(
                     g.onPlayerSpottedWhileInvestigating(player.x)
                 }
             }
-            val timeToCatch = getDetectionTimeToCatch(spottedDist)
+            val timeToCatch = getDetectionTimeToCatch(spottedDist, detectorRange)
             alertProgress = (alertProgress + dt / timeToCatch).coerceAtMost(1.0)
             if (alertProgress >= 1.0) {
                 isSpotted = true
                 spottedCount++
                 wasDetected = true
                 alertProgress = 0.0
-                println("[SPOTTED] Guard caught player at (${player.x.toInt()}, ${player.y.toInt()}) (distance: ${spottedDist.toInt()}px)! Total alerts: $spottedCount. Resetting to start...")
-                onSpotted?.invoke(seeingGuards.first(), player)
+                println("[SPOTTED] Player caught at (${player.x.toInt()}, ${player.y.toInt()}) (distance: ${spottedDist.toInt()}px)! Total alerts: $spottedCount. Resetting to start...")
+                onSpotted?.invoke(seeingGuards.firstOrNull() ?: allGuards.first(), player)
                 isGameOver = true
                 onGameOver?.invoke()
                 for (g in allGuards) g.returnToPatrol()
@@ -113,7 +156,7 @@ data class GameWorld(
         } else {
             isSpotted = false
             // Lost visual mid-alert -> only the guards who saw the player investigate where the player last was
-            if (previousAlert > 0.0 && recentlySeeingGuards.isNotEmpty()) {
+            if (previousAlert > 0.0 && recentlySeeingGuards.isNotEmpty() && !activePowerups.isPhantomCloakActive) {
                 for (g in recentlySeeingGuards) {
                     if (g.state == GuardState.PATROL) g.onVisualLost(player.x)
                 }
@@ -125,8 +168,8 @@ data class GameWorld(
             }
         }
 
-        // Guards without eyes on the player keep walking their route
-        if (!isGameOver) {
+        // Guards without eyes on the player keep walking their route (unless asleep from Phantom Cloak)
+        if (!isGameOver && !activePowerups.isPhantomCloakActive) {
             for (g in allGuards) {
                 if (g !in seeingGuards) g.update(dt, occluders)
             }
@@ -145,10 +188,12 @@ data class GameWorld(
         }
 
         // Check Movement Noise Detection (blocked by solid occluders, same as vision line-of-sight)
-        if (player.currentNoiseRadius > 0.0) {
+        // Level-duration Noise Suppression keeps movement completely silent regardless of walk/crouch
+        val effectiveNoiseRadius = if (activePowerups.isNoiseSuppressed) 0.0 else player.currentNoiseRadius
+        if (effectiveNoiseRadius > 0.0 && !activePowerups.isPhantomCloakActive) {
             for (g in allGuards) {
                 val distToGuard = player.center.distanceTo(g.center)
-                if (distToGuard <= player.currentNoiseRadius &&
+                if (distToGuard <= effectiveNoiseRadius &&
                     GeometryUtils.hasLineOfSight(player.center, g.center, occluders)
                 ) {
                     g.onNoiseHeard(player.x)
@@ -190,6 +235,20 @@ data class GameWorld(
                 facing = -1.0 // Start facing left towards the crate
             )
 
+            val cameras = levelData.cameras.map { spawn ->
+                Camera(
+                    x = spawn.x,
+                    y = spawn.y,
+                    minAngle = spawn.minAngle,
+                    maxAngle = spawn.maxAngle,
+                    currentAngle = spawn.startAngle,
+                    sweepSpeed = spawn.sweepSpeed,
+                    visionRange = spawn.visionRange,
+                    visionFov = spawn.visionFov,
+                    sweepDirection = spawn.sweepDirection
+                )
+            }
+
             return GameWorld(
                 player = player,
                 guard = guard,
@@ -197,7 +256,8 @@ data class GameWorld(
                 platforms = platforms,
                 occluders = occluders,
                 exitZone = exitZone,
-                levelData = levelData
+                levelData = levelData,
+                cameras = cameras
             )
         }
 
@@ -230,6 +290,20 @@ data class GameWorld(
             }
             require(guards.isNotEmpty()) { "Level layout must define at least one guard" }
 
+            val cameras = (layout.cameras.ifEmpty { levelData.cameras }).map { spawn ->
+                Camera(
+                    x = spawn.x,
+                    y = spawn.y,
+                    minAngle = spawn.minAngle,
+                    maxAngle = spawn.maxAngle,
+                    currentAngle = spawn.startAngle,
+                    sweepSpeed = spawn.sweepSpeed,
+                    visionRange = spawn.visionRange,
+                    visionFov = spawn.visionFov,
+                    sweepDirection = spawn.sweepDirection
+                )
+            }
+
             return GameWorld(
                 player = player,
                 guard = guards.first(),
@@ -239,6 +313,7 @@ data class GameWorld(
                 exitZone = layout.exitZone,
                 levelData = levelData,
                 extraGuards = guards.drop(1),
+                cameras = cameras,
                 boxes = layout.boxes,
                 worldWidth = layout.worldWidth
             )
