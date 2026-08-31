@@ -67,11 +67,11 @@ class GameplayScene(
         exitContainer.solidRect(3.0, world.exitZone.height, COLOR_BORDER_GREEN).xy(world.exitZone.width - 3.0, 0.0)
         exitContainer.text("EXIT", textSize = 10.0, color = COLOR_BORDER_GREEN).xy(6.0, 6.0)
 
-        // Boxes & obstacles: solid full black cover objects
+        // Boxes & obstacles: rendered as silhouette shipping containers
         for (box in world.boxes) {
             if (box.width <= 0.0) continue
             val boxContainer = worldView.container().xy(box.x, box.y)
-            boxContainer.solidRect(box.width, box.height, Colors.BLACK)
+            renderShippingContainer(boxContainer, box.width, box.height)
         }
 
         // Guards: vision cones first so they render beneath the bodies
@@ -84,6 +84,16 @@ class GameplayScene(
         val guardBadges = world.allGuards.mapIndexed { i, _ ->
             guardContainers[i].text("?", textSize = 16.0, color = COLOR_BORDER_GOLD).xy(8.0, -22.0)
                 .also { it.visible = false }
+        }
+
+        // Cameras: vision cones first beneath bodies
+        val cameraCones = world.cameras.map { worldView.graphics() }
+        val cameraContainers = world.cameras.map { c -> worldView.container().xy(c.x, c.y) }
+        val cameraMounts = world.cameras.mapIndexed { i, c ->
+            // Mount & body: distinct grey housing
+            cameraContainers[i].solidRect(c.width, c.height, Colors["#34495e"])
+            cameraContainers[i].solidRect(c.width - 4.0, c.height - 4.0, Colors["#2c3e50"]).xy(2.0, 2.0)
+            cameraContainers[i].solidRect(6.0, 6.0, Colors["#e74c3c"]).xy((c.width - 6.0) / 2.0, (c.height - 6.0) / 2.0)
         }
 
         // Player View
@@ -114,6 +124,9 @@ class GameplayScene(
         var jumpPhase = "none"
         var jumpPhaseElapsed = 0.0
         var jumpStartY = world.player.y
+        // Set for the one tick a jump lands on, so the grounded-state switch below can tell a
+        // landing (already moving at full speed) apart from starting to walk from a standstill.
+        var justLandedFromJump = false
 
         // Crouch: entering/exiting are the down/up transition played once; holding pins the last
         // frame. crouchFrameProgress is continuous (not just a phase flag) so re-toggling crouch
@@ -174,10 +187,12 @@ class GameplayScene(
             text = "|| PAUSE",
             width = 84.0,
             height = 34.0,
+            x = 698.0,
+            y = 8.0,
             textSize = 11.0
         ) {
             isPaused = !isPaused
-        }.xy(698.0, 8.0)
+        }
 
         // Alert banner flash on full detection
         var alertBannerTimer = 0.0
@@ -189,8 +204,13 @@ class GameplayScene(
         alertText.xy((800.0 - alertText.width) / 2.0, 12.0)
         alertBanner.visible = false
 
+        // Active Powerups status text below top HUD threat meter
+        val activePowerupLabel = topHud.text("", textSize = 10.0, color = COLOR_BORDER_CYAN)
+        activePowerupLabel.xy(240.0, 42.0)
+        activePowerupLabel.visible = false
+
         // ==========================================
-        // TACTILE MOBILE TOUCH CONTROLS
+        // TACTICAL MOBILE TOUCH CONTROLS & POWERUP HUD
         // ==========================================
         var touchLeft = false
         var touchRight = false
@@ -270,6 +290,62 @@ class GameplayScene(
         }
 
         // ==========================================
+        // TACTICAL POWERUP HUD ROW (Interactive buttons)
+        // ==========================================
+        data class PowerupHudButton(
+            val type: PowerupType,
+            val keyNum: String,
+            val btnContainer: Container,
+            val bgRect: SolidRect,
+            val borderRect: SolidRect,
+            val nameText: Text,
+            val countText: Text
+        )
+
+        val powerupTypes = listOf(
+            PowerupType.SMOKE_SCREEN to "1",
+            PowerupType.PHANTOM_CLOAK to "2",
+            PowerupType.INVISIBILITY to "3",
+            PowerupType.NOISE_SUPPRESSION to "4"
+        )
+
+        val powerupBtnW = 86.0
+        val powerupBtnH = 46.0
+        val powerupBtnGap = 8.0
+        val totalPowerupWidth = powerupTypes.size * powerupBtnW + (powerupTypes.size - 1) * powerupBtnGap
+        val startPowerupX = (800.0 - totalPowerupWidth) / 2.0
+        val powerupBtnY = 412.0
+
+        fun tryActivatePowerup(type: PowerupType) {
+            if (world.isLevelComplete || world.isGameOver || isPaused) return
+            if (profileStorage.consumePowerup(type)) {
+                world.activatePowerup(type)
+            }
+        }
+
+        val powerupHudButtons = powerupTypes.mapIndexed { index, (type, keyNum) ->
+            val bx = startPowerupX + index * (powerupBtnW + powerupBtnGap)
+            val btnCont = controlsContainer.container().xy(bx, powerupBtnY)
+            val bg = btnCont.solidRect(powerupBtnW, powerupBtnH, Colors["#000000"].withAd(0.65))
+            val border = btnCont.solidRect(powerupBtnW, 1.5, COLOR_BORDER_CYAN.withAd(0.6)).xy(0.0, 0.0)
+            btnCont.solidRect(powerupBtnW, 1.0, Colors.WHITE.withAd(0.2)).xy(0.0, powerupBtnH - 1.0)
+
+            val nameTxt = btnCont.text("[$keyNum] ${type.shortName}", textSize = 10.0, color = COLOR_TEXT_LIGHT)
+            nameTxt.xy((powerupBtnW - nameTxt.width) / 2.0, 6.0)
+
+            val countTxt = btnCont.text("x0", textSize = 11.0, color = COLOR_BORDER_GOLD)
+            countTxt.xy((powerupBtnW - countTxt.width) / 2.0, 24.0)
+
+            btnCont.mouse {
+                onClick {
+                    tryActivatePowerup(type)
+                }
+            }
+
+            PowerupHudButton(type, keyNum, btnCont, bg, border, nameTxt, countTxt)
+        }
+
+        // ==========================================
         // 1. PAUSE OVERLAY
         // ==========================================
         val pauseOverlay = container()
@@ -283,22 +359,22 @@ class GameplayScene(
         val pauseTitle = pausePanel.text("TACTICAL PAUSE", textSize = 20.0, color = COLOR_TEXT_LIGHT)
         pauseTitle.xy((320.0 - pauseTitle.width) / 2.0, 40.0)
 
-        pausePanel.createButton("RESUME HEIST", width = 220.0, height = 44.0, textSize = 14.0) {
+        pausePanel.createButton("RESUME HEIST", width = 220.0, height = 44.0, x = 50.0, y = 85.0, textSize = 14.0) {
             isPaused = false
             pauseOverlay.visible = false
-        }.xy(50.0, 85.0)
+        }
 
-        pausePanel.createButton("RESTART LEVEL", width = 220.0, height = 42.0, textSize = 13.0) {
+        pausePanel.createButton("RESTART LEVEL", width = 220.0, height = 42.0, x = 50.0, y = 142.0, textSize = 13.0) {
             sceneContainer.changeTo { GameplayScene(levelData) }
-        }.xy(50.0, 142.0)
+        }
 
-        pausePanel.createButton("SETTINGS & AUDIO", width = 220.0, height = 42.0, textSize = 13.0) {
+        pausePanel.createButton("SETTINGS & AUDIO", width = 220.0, height = 42.0, x = 50.0, y = 196.0, textSize = 13.0) {
             sceneContainer.changeTo { SettingsScene() }
-        }.xy(50.0, 196.0)
+        }
 
-        pausePanel.createButton("QUIT TO MENU", width = 220.0, height = 42.0, textSize = 13.0) {
+        pausePanel.createButton("QUIT TO MENU", width = 220.0, height = 42.0, x = 50.0, y = 250.0, textSize = 13.0) {
             sceneContainer.changeTo { MainMenuScene() }
-        }.xy(50.0, 250.0)
+        }
 
         pauseOverlay.visible = false
 
@@ -325,13 +401,13 @@ class GameplayScene(
         tipBox.text("TACTICAL RECON TIP:", textSize = 10.0, color = COLOR_BORDER_GOLD).xy(10.0, 8.0)
         tipBox.text("Crouch-walk [SNEAK] to eliminate movement noise.\nStay out of guard vision cones and use crates as cover.", textSize = 10.0, color = COLOR_TEXT_MUTED).xy(10.0, 26.0)
 
-        caughtPanel.createButton("RETRY INFILTRATION", width = 220.0, height = 44.0, textSize = 14.0) {
+        caughtPanel.createButton("RETRY INFILTRATION", width = 220.0, height = 44.0, x = 90.0, y = 190.0, textSize = 14.0) {
             sceneContainer.changeTo { GameplayScene(levelData) }
-        }.xy(90.0, 190.0)
+        }
 
-        caughtPanel.createButton("RETURN TO MENU", width = 220.0, height = 42.0, textSize = 13.0) {
+        caughtPanel.createButton("RETURN TO MENU", width = 220.0, height = 42.0, x = 90.0, y = 246.0, textSize = 13.0) {
             sceneContainer.changeTo { MainMenuScene() }
-        }.xy(90.0, 246.0)
+        }
 
         caughtOverlay.visible = false
 
@@ -371,22 +447,22 @@ class GameplayScene(
         val nextLevel = if (currentLevelIndex >= 0 && currentLevelIndex + 1 < allLevels.size) allLevels[currentLevelIndex + 1] else null
 
         if (nextLevel != null) {
-            winBtnRow.createButton("NEXT MISSION", width = 150.0, height = 44.0, textSize = 13.0) {
+            winBtnRow.createButton("NEXT MISSION", width = 150.0, height = 44.0, x = 0.0, y = 0.0, textSize = 13.0) {
                 sceneContainer.changeTo { GameplayScene(nextLevel) }
-            }.xy(0.0, 0.0)
+            }
         } else {
-            winBtnRow.createButton("ALL CLEAR!", width = 150.0, height = 44.0, textSize = 13.0) {
+            winBtnRow.createButton("ALL CLEAR!", width = 150.0, height = 44.0, x = 0.0, y = 0.0, textSize = 13.0) {
                 sceneContainer.changeTo { LevelSelectScene() }
-            }.xy(0.0, 0.0)
+            }
         }
 
-        winBtnRow.createButton("RETRY", width = 140.0, height = 44.0, textSize = 13.0) {
+        winBtnRow.createButton("RETRY", width = 140.0, height = 44.0, x = 165.0, y = 0.0, textSize = 13.0) {
             sceneContainer.changeTo { GameplayScene(levelData) }
-        }.xy(165.0, 0.0)
+        }
 
-        winBtnRow.createButton("MAIN MENU", width = 140.0, height = 44.0, textSize = 13.0) {
+        winBtnRow.createButton("MAIN MENU", width = 140.0, height = 44.0, x = 320.0, y = 0.0, textSize = 13.0) {
             sceneContainer.changeTo { MainMenuScene() }
-        }.xy(320.0, 0.0)
+        }
 
         winContainer.visible = false
 
@@ -472,6 +548,15 @@ class GameplayScene(
             val crouchPressed = views.input.keys[Key.DOWN] || views.input.keys[Key.S] || views.input.keys[Key.C] ||
                     views.input.keys[Key.LEFT_CONTROL] || views.input.keys[Key.RIGHT_CONTROL] || touchCrouch
 
+            // Powerup Key Shortcuts
+            if (views.input.keys.justPressed(Key.N1)) tryActivatePowerup(PowerupType.SMOKE_SCREEN)
+            if (views.input.keys.justPressed(Key.N2)) tryActivatePowerup(PowerupType.PHANTOM_CLOAK)
+            if (views.input.keys.justPressed(Key.N3)) tryActivatePowerup(PowerupType.INVISIBILITY)
+            if (views.input.keys.justPressed(Key.N4)) tryActivatePowerup(PowerupType.NOISE_SUPPRESSION)
+            if (views.input.keys.justPressed(Key.N0) || views.input.keys.justPressed(Key.R)) {
+                profileStorage.grantDebugPowerups(3)
+            }
+
             val moveInput = when {
                 leftPressed && !rightPressed -> -1.0
                 rightPressed && !leftPressed -> 1.0
@@ -485,6 +570,9 @@ class GameplayScene(
             playerContainer.xy(world.player.x, world.player.y)
             for (i in world.allGuards.indices) {
                 guardContainers[i].xy(world.allGuards[i].x, world.allGuards[i].y)
+            }
+            for (i in world.cameras.indices) {
+                cameraContainers[i].xy(world.cameras[i].x, world.cameras[i].y)
             }
 
             // Camera: Center player, clamped to level bounds
@@ -519,9 +607,21 @@ class GameplayScene(
                             jumpPhase = "air"
                             jumpPhaseElapsed = 0.0
                         }
+                        // The "land" phase plays the recovery clip through to a standing pose -
+                        // right if the player is stopped, but wrong if they're still holding a
+                        // direction: world x keeps advancing on physics regardless of animation
+                        // phase, so riding out the standing-recovery frames while already moving
+                        // reads as gliding forward in a standing pose for those 0.26s before the
+                        // walk cut-over. Moving into the touchdown skips straight past it instead.
                         "air" -> if (world.player.isGrounded) {
-                            jumpPhase = "land"
-                            jumpPhaseElapsed = 0.0
+                            if (world.player.isMoving) {
+                                jumpPhase = "none"
+                                playerAnimState = "none"
+                                justLandedFromJump = true
+                            } else {
+                                jumpPhase = "land"
+                                jumpPhaseElapsed = 0.0
+                            }
                         }
                         else -> if (!world.player.isGrounded) {
                             jumpPhase = "launch"
@@ -530,6 +630,7 @@ class GameplayScene(
                         } else if (jumpPhaseElapsed >= jumpLandDuration) {
                             jumpPhase = "none"
                             playerAnimState = "none"
+                            justLandedFromJump = true
                         }
                     }
                 }
@@ -572,20 +673,31 @@ class GameplayScene(
             if (playerAnimState != "jump" && playerAnimState != "crouch" && playerAnimState != "climb") {
                 val groundedState = if (world.player.isMoving) "walk" else "idle"
                 if (groundedState != playerAnimState) {
-                    // Every entry into walk - from a standstill or from landing a jump while
-                    // still holding a direction - gets the lean-in, so the loop is never joined
-                    // mid-stride straight out of an idle-shaped landing pose.
+                    // Starting to walk from a standstill gets the lean-in, so the loop is never
+                    // joined mid-stride straight out of an idle pose. Landing a jump while still
+                    // holding a direction skips it instead: the player is already at full stride
+                    // speed, not accelerating from rest, so the lean-in would read as stopping to
+                    // a stand before walking again.
                     playerAnimState = groundedState
                     if (groundedState == "walk") {
-                        walkInTransition = true
-                        walkTransitionElapsed = 0.0
                         walkCycleProgress = 0.0
                         playerSprite.playAnimationLooped(playerAnimations.walk, manualFrameTime)
+                        if (justLandedFromJump) {
+                            walkInTransition = false
+                            playerSprite.setFrame(PlayerAnimations.WALK_LOOP_START)
+                        } else {
+                            walkInTransition = true
+                            walkTransitionElapsed = 0.0
+                        }
                     } else {
                         playerSprite.playAnimationLooped(playerAnimations.idle)
                     }
                 }
             }
+            // Only meaningful on the exact tick a jump lands - if that tick went into crouch
+            // instead (isCrouching held through touchdown), discard it rather than letting it
+            // skip the lean-in whenever walk is next entered, possibly much later.
+            justLandedFromJump = false
 
             playerSprite.y = world.player.height
             if (playerAnimState == "jump") {
@@ -650,60 +762,161 @@ class GameplayScene(
             playerSprite.scaleX = playerBaseScale * (if (playerFacingLeft) -1.0 else 1.0)
             playerSprite.scaleY = playerBaseScale
 
+            // Invisibility visual effect on player
+            playerSprite.alpha = if (world.activePowerups.isInvisibilityActive) 0.35 else 1.0
+
             // Update guard visors and badges
             for (i in world.allGuards.indices) {
                 val g = world.allGuards[i]
-                guardBadges[i].visible = g.state == GuardState.INVESTIGATING
-                guardVisors[i].x = if (g.facing >= 0) g.width - 6.0 else 0.0
-                guardVisors[i].color =
-                    if (g.state == GuardState.INVESTIGATING) COLOR_BORDER_GOLD else Colors["#e74c3c"]
+                if (world.activePowerups.isPhantomCloakActive) {
+                    guardBadges[i].text = "Zzz"
+                    guardBadges[i].color = COLOR_BORDER_CYAN
+                    guardBadges[i].visible = true
+                    guardVisors[i].x = if (g.facing >= 0) g.width - 6.0 else 0.0
+                    guardVisors[i].color = Colors["#34495e"]
+                } else {
+                    guardBadges[i].text = "?"
+                    guardBadges[i].color = COLOR_BORDER_GOLD
+                    guardBadges[i].visible = g.state == GuardState.INVESTIGATING
+                    guardVisors[i].x = if (g.facing >= 0) g.width - 6.0 else 0.0
+                    guardVisors[i].color =
+                        if (g.state == GuardState.INVESTIGATING) COLOR_BORDER_GOLD else Colors["#e74c3c"]
+                }
             }
 
             val alertProgress = world.alertProgress
 
-            // Render vision cones
+            // Render guard vision cones
             for (i in world.allGuards.indices) {
                 val g = world.allGuards[i]
-                val coneColor = when {
-                    alertBannerTimer > 0.0 || world.isGameOver -> {
-                        Colors["#ff3838"].withAd(0.55)
+                if (world.activePowerups.isPhantomCloakActive) {
+                    guardCones[i].updateShape { }
+                } else {
+                    val coneColor = when {
+                        alertBannerTimer > 0.0 || world.isGameOver -> {
+                            Colors["#ff3838"].withAd(0.55)
+                        }
+                        alertProgress > 0.0 -> {
+                            val pulse = 0.5 + 0.5 * sin(totalElapsedSeconds * 16.0)
+                            val r = (241 + (255 - 241) * alertProgress).toInt().coerceIn(0, 255)
+                            val gVal = (196 + (56 - 196) * alertProgress).toInt().coerceIn(0, 255)
+                            val b = (15 + (56 - 15) * alertProgress).toInt().coerceIn(0, 255)
+                            val baseAlpha = 0.32 + 0.30 * alertProgress
+                            val pulsedAlpha = (baseAlpha + 0.15 * pulse * alertProgress).coerceIn(0.1, 0.75)
+                            RGBA(r, gVal, b, (pulsedAlpha * 255).toInt())
+                        }
+                        g.state == GuardState.INVESTIGATING -> {
+                            Colors["#f39c12"].withAd(0.42)
+                        }
+                        else -> {
+                            Colors["#e67e22"].withAd(0.32)
+                        }
                     }
-                    alertProgress > 0.0 -> {
-                        val pulse = 0.5 + 0.5 * sin(totalElapsedSeconds * 16.0)
-                        val r = (241 + (255 - 241) * alertProgress).toInt().coerceIn(0, 255)
-                        val gVal = (196 + (56 - 196) * alertProgress).toInt().coerceIn(0, 255)
-                        val b = (15 + (56 - 15) * alertProgress).toInt().coerceIn(0, 255)
-                        val baseAlpha = 0.32 + 0.30 * alertProgress
-                        val pulsedAlpha = (baseAlpha + 0.15 * pulse * alertProgress).coerceIn(0.1, 0.75)
-                        RGBA(r, gVal, b, (pulsedAlpha * 255).toInt())
-                    }
-                    g.state == GuardState.INVESTIGATING -> {
-                        Colors["#f39c12"].withAd(0.42)
-                    }
-                    else -> {
-                        Colors["#e67e22"].withAd(0.32)
-                    }
-                }
-                val visionPolygon = VisionSystem.computeVisionPolygon(
-                    origin = g.eyePosition,
-                    facingAngle = g.facingAngle,
-                    range = g.visionRange,
-                    fov = g.visionFov,
-                    occluders = world.occluders
-                )
-                guardCones[i].updateShape {
-                    if (visionPolygon.isNotEmpty()) {
-                        fill(coneColor) {
-                            val first = visionPolygon.first()
-                            moveTo(Point(first.x, first.y))
-                            for (p in 1 until visionPolygon.size) {
-                                val pt = visionPolygon[p]
-                                lineTo(Point(pt.x, pt.y))
+                    val visionPolygon = VisionSystem.computeVisionPolygon(
+                        origin = g.eyePosition,
+                        facingAngle = g.facingAngle,
+                        range = g.visionRange,
+                        fov = g.visionFov,
+                        occluders = world.occluders
+                    )
+                    guardCones[i].updateShape {
+                        if (visionPolygon.isNotEmpty()) {
+                            fill(coneColor) {
+                                val first = visionPolygon.first()
+                                moveTo(Point(first.x, first.y))
+                                for (p in 1 until visionPolygon.size) {
+                                    val pt = visionPolygon[p]
+                                    lineTo(Point(pt.x, pt.y))
+                                }
+                                close()
                             }
-                            close()
                         }
                     }
                 }
+            }
+
+            // Render camera vision cones and status
+            for (i in world.cameras.indices) {
+                val c = world.cameras[i]
+                cameraMounts[i].color = if (world.activePowerups.isSmokeScreenActive) Colors["#555555"] else Colors["#e74c3c"]
+                if (world.activePowerups.isSmokeScreenActive) {
+                    cameraCones[i].updateShape { }
+                } else {
+                    val coneColor = when {
+                        alertBannerTimer > 0.0 || world.isGameOver -> {
+                            Colors["#ff3838"].withAd(0.55)
+                        }
+                        alertProgress > 0.0 -> {
+                            val pulse = 0.5 + 0.5 * sin(totalElapsedSeconds * 16.0)
+                            val r = (241 + (255 - 241) * alertProgress).toInt().coerceIn(0, 255)
+                            val gVal = (196 + (56 - 196) * alertProgress).toInt().coerceIn(0, 255)
+                            val b = (15 + (56 - 15) * alertProgress).toInt().coerceIn(0, 255)
+                            val baseAlpha = 0.32 + 0.30 * alertProgress
+                            val pulsedAlpha = (baseAlpha + 0.15 * pulse * alertProgress).coerceIn(0.1, 0.75)
+                            RGBA(r, gVal, b, (pulsedAlpha * 255).toInt())
+                        }
+                        else -> {
+                            Colors["#e67e22"].withAd(0.32)
+                        }
+                    }
+                    val visionPolygon = VisionSystem.computeVisionPolygon(
+                        origin = c.eyePosition,
+                        facingAngle = c.facingAngle,
+                        range = c.visionRange,
+                        fov = c.visionFov,
+                        occluders = world.occluders
+                    )
+                    cameraCones[i].updateShape {
+                        if (visionPolygon.isNotEmpty()) {
+                            fill(coneColor) {
+                                val first = visionPolygon.first()
+                                moveTo(Point(first.x, first.y))
+                                for (p in 1 until visionPolygon.size) {
+                                    val pt = visionPolygon[p]
+                                    lineTo(Point(pt.x, pt.y))
+                                }
+                                close()
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Update Powerup HUD buttons and active countdown indicators
+            val activeStatusParts = mutableListOf<String>()
+            val currentProfile = profileStorage.getProfile()
+            for (btn in powerupHudButtons) {
+                val count = currentProfile.getPowerupCount(btn.type)
+                val isActive = world.activePowerups.isActive(btn.type)
+                val remTime = world.activePowerups.getRemainingTime(btn.type)
+
+                if (isActive) {
+                    btn.bgRect.color = Colors["#002b36"].withAd(0.85)
+                    btn.borderRect.color = COLOR_BORDER_GREEN
+                    if (btn.type.isLevelDuration) {
+                        btn.countText.text = "ACTIVE"
+                        btn.countText.color = COLOR_BORDER_GREEN
+                        activeStatusParts.add("SILENCE: PERM")
+                    } else {
+                        val secStr = ((remTime * 10).toInt() / 10.0).toString()
+                        btn.countText.text = "${secStr}s"
+                        btn.countText.color = COLOR_BORDER_GOLD
+                        activeStatusParts.add("${btn.type.shortName}: ${secStr}s")
+                    }
+                } else {
+                    btn.bgRect.color = Colors["#000000"].withAd(if (count > 0) 0.65 else 0.35)
+                    btn.borderRect.color = if (count > 0) COLOR_BORDER_CYAN.withAd(0.6) else Colors["#555555"].withAd(0.3)
+                    btn.countText.text = "x$count"
+                    btn.countText.color = if (count > 0) COLOR_BORDER_GOLD else COLOR_TEXT_MUTED
+                }
+                btn.countText.xy((powerupBtnW - btn.countText.width) / 2.0, 24.0)
+            }
+
+            if (activeStatusParts.isNotEmpty()) {
+                activePowerupLabel.visible = true
+                activePowerupLabel.text = "⚡ ACTIVE: " + activeStatusParts.joinToString(" | ")
+            } else {
+                activePowerupLabel.visible = false
             }
 
             // Update HUD Status & Threat Meter
@@ -717,8 +930,13 @@ class GameplayScene(
             val timeStr = ((world.timeTaken * 10).toInt() / 10.0).toString()
             timeLabel.text = "⏱ ${timeStr}s"
 
-            stanceBadge.text = if (world.player.isCrouching) "[ SNEAK (SILENT) ]" else if (world.player.isMoving) "[ SPRINT (NOISE) ]" else "[ STAND ]"
-            stanceBadge.color = if (world.player.isCrouching) COLOR_BORDER_GREEN else if (world.player.isMoving) COLOR_BORDER_GOLD else COLOR_BORDER_CYAN
+            if (world.activePowerups.isNoiseSuppressed) {
+                stanceBadge.text = if (world.player.isCrouching) "[ SNEAK (SILENT) ]" else if (world.player.isMoving) "[ SPRINT (SILENT) ]" else "[ STAND (SILENT) ]"
+                stanceBadge.color = COLOR_BORDER_GREEN
+            } else {
+                stanceBadge.text = if (world.player.isCrouching) "[ SNEAK (SILENT) ]" else if (world.player.isMoving) "[ SPRINT (NOISE) ]" else "[ STAND ]"
+                stanceBadge.color = if (world.player.isCrouching) COLOR_BORDER_GREEN else if (world.player.isMoving) COLOR_BORDER_GOLD else COLOR_BORDER_CYAN
+            }
 
             when {
                 world.isGameOver -> {
@@ -754,5 +972,28 @@ class GameplayScene(
                 }
             }
         }
+    }
+
+    private fun renderShippingContainer(
+        container: Container,
+        width: Double,
+        height: Double
+    ) {
+        // High-contrast silhouette shipping container (Shadow Fight / Vector aesthetic)
+        // Completely solid black with protruding top and bottom rims matching container silhouette
+        val rimH = (height * 0.08).coerceIn(3.0, 6.0)
+        val indentX = (height * 0.05).coerceIn(2.0, 4.0).coerceAtMost(width * 0.1)
+
+        // 1. Top rim (full width)
+        container.solidRect(width, rimH, Colors.BLACK).xy(0.0, 0.0)
+
+        // 2. Main middle body (inset from left and right)
+        val bodyH = height - (rimH * 2.0)
+        if (bodyH > 0.0) {
+            container.solidRect(width - (indentX * 2.0), bodyH, Colors.BLACK).xy(indentX, rimH)
+        }
+
+        // 3. Bottom rim (full width)
+        container.solidRect(width, rimH, Colors.BLACK).xy(0.0, height - rimH)
     }
 }

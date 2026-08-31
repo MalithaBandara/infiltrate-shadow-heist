@@ -61,13 +61,15 @@ object VisionSystem {
     }
 
     fun getPlayerSpottedDistance(
-        guard: Guard,
+        eye: Vec2d,
+        facingAngle: Double,
+        visionRange: Double,
+        visionFov: Double,
         player: Player,
         occluders: List<Rect>
     ): Double? {
-        val eye = guard.eyePosition
-        val halfFov = guard.visionFov / 2.0
-        val maxDistSq = guard.visionRange * guard.visionRange
+        val halfFov = visionFov / 2.0
+        val maxDistSq = visionRange * visionRange
         var closestDist: Double? = null
 
         for (targetPoint in player.keyPoints) {
@@ -75,7 +77,7 @@ object VisionSystem {
             if (distSq > maxDistSq) continue
 
             val angleToTarget = atan2(targetPoint.y - eye.y, targetPoint.x - eye.x)
-            val angleDiff = abs(GeometryUtils.angleDifference(angleToTarget, guard.facingAngle))
+            val angleDiff = abs(GeometryUtils.angleDifference(angleToTarget, facingAngle))
             if (angleDiff > halfFov) continue
 
             if (GeometryUtils.hasLineOfSight(eye, targetPoint, occluders)) {
@@ -88,9 +90,41 @@ object VisionSystem {
         return closestDist
     }
 
+    fun getPlayerSpottedDistance(
+        guard: Guard,
+        player: Player,
+        occluders: List<Rect>
+    ): Double? = getPlayerSpottedDistance(
+        eye = guard.eyePosition,
+        facingAngle = guard.facingAngle,
+        visionRange = guard.visionRange,
+        visionFov = guard.visionFov,
+        player = player,
+        occluders = occluders
+    )
+
+    fun getPlayerSpottedDistance(
+        camera: Camera,
+        player: Player,
+        occluders: List<Rect>
+    ): Double? = getPlayerSpottedDistance(
+        eye = camera.eyePosition,
+        facingAngle = camera.facingAngle,
+        visionRange = camera.visionRange,
+        visionFov = camera.visionFov,
+        player = player,
+        occluders = occluders
+    )
+
     fun isPlayerSpotted(
         guard: Guard,
         player: Player,
         occluders: List<Rect>
     ): Boolean = getPlayerSpottedDistance(guard, player, occluders) != null
+
+    fun isPlayerSpotted(
+        camera: Camera,
+        player: Player,
+        occluders: List<Rect>
+    ): Boolean = getPlayerSpottedDistance(camera, player, occluders) != null
 }

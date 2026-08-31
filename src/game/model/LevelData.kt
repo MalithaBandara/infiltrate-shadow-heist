@@ -1,5 +1,7 @@
 package game.model
 
+import kotlin.math.PI
+
 /** A guard placed on a specific surface of a [LevelLayout]. */
 data class GuardSpawn(
     val startX: Double,
@@ -9,6 +11,19 @@ data class GuardSpawn(
     val speed: Double = 55.0,
     val facing: Double = 1.0,
     val visionRange: Double = 220.0
+)
+
+/** A security camera placed in a [LevelLayout] or [LevelData]. */
+data class CameraSpawn(
+    val x: Double,
+    val y: Double,
+    val minAngle: Double = (90.0 - 30.0) * (PI / 180.0),
+    val maxAngle: Double = (90.0 + 30.0) * (PI / 180.0),
+    val startAngle: Double = (90.0 - 30.0) * (PI / 180.0),
+    val sweepSpeed: Double = 0.7,
+    val visionRange: Double = 240.0,
+    val visionFov: Double = 45.0 * (PI / 180.0),
+    val sweepDirection: Double = 1.0
 )
 
 /**
@@ -25,7 +40,8 @@ data class LevelLayout(
     val exitZone: Rect,
     val platforms: List<Rect>,
     val boxes: List<Rect>,
-    val guards: List<GuardSpawn>
+    val guards: List<GuardSpawn>,
+    val cameras: List<CameraSpawn> = emptyList()
 )
 
 data class LevelData(
@@ -38,7 +54,8 @@ data class LevelData(
     val guardPatrolMaxX: Double = 600.0,
     val coinRewardBase: Int = 50,
     val coinRewardPerStar: Int = 25,
-    val layout: LevelLayout? = null
+    val layout: LevelLayout? = null,
+    val cameras: List<CameraSpawn> = emptyList()
 ) {
     companion object {
         val DEFAULT_LEVEL_1 = LevelData(
@@ -48,7 +65,19 @@ data class LevelData(
             description = "Infiltrate the warehouse perimeter, bypass the guard patrol, and reach extraction.",
             guardSpeed = 60.0,
             guardPatrolMinX = 300.0,
-            guardPatrolMaxX = 600.0
+            guardPatrolMaxX = 600.0,
+            cameras = listOf(
+                CameraSpawn(
+                    x = 660.0,
+                    y = 180.0,
+                    minAngle = (90.0 - 30.0) * (PI / 180.0),
+                    maxAngle = (90.0 + 30.0) * (PI / 180.0),
+                    startAngle = (90.0 - 30.0) * (PI / 180.0),
+                    sweepSpeed = 0.7,
+                    visionRange = 240.0,
+                    visionFov = 45.0 * (PI / 180.0)
+                )
+            )
         )
 
         val DEFAULT_LEVEL_2 = LevelData(

@@ -1058,4 +1058,464 @@ class GameplayModelTest {
         assertEquals(0.6f, storage.getProfile().musicVolume, 0.001f)
         assertEquals(0.4f, storage.getProfile().sfxVolume, 0.001f)
     }
+
+    @Test
+    fun testCameraRotationAndSweepOscillation() {
+        val minAngle = 60.0 * (PI / 180.0)
+        val maxAngle = 120.0 * (PI / 180.0)
+        val speed = 1.0 // 1 radian/sec
+        val camera = Camera(
+            x = 600.0,
+            y = 100.0,
+            minAngle = minAngle,
+            maxAngle = maxAngle,
+            currentAngle = minAngle,
+            sweepSpeed = speed,
+            sweepDirection = 1.0
+        )
+
+        assertEquals(minAngle, camera.currentAngle, 0.001)
+        assertEquals(minAngle, camera.facingAngle, 0.001)
+
+        // Advance 0.5s -> angle reaches minAngle + 0.5
+        camera.update(0.5)
+        assertEquals(minAngle + 0.5, camera.currentAngle, 0.001)
+        assertEquals(1.0, camera.sweepDirection)
+
+        // Advance past maxAngle -> should clamp to maxAngle and reverse direction to -1.0
+        val remainingToMax = maxAngle - camera.currentAngle
+        camera.update(remainingToMax + 0.2)
+        assertEquals(maxAngle, camera.currentAngle, 0.001)
+        assertEquals(-1.0, camera.sweepDirection, "Camera must reverse sweep direction at maxAngle")
+
+        // Advance back towards minAngle
+        camera.update(0.5)
+        assertEquals(maxAngle - 0.5, camera.currentAngle, 0.001)
+
+        // Advance past minAngle -> should clamp to minAngle and reverse direction to +1.0
+        val remainingToMin = camera.currentAngle - minAngle
+        camera.update(remainingToMin + 0.2)
+        assertEquals(minAngle, camera.currentAngle, 0.001)
+        assertEquals(1.0, camera.sweepDirection, "Camera must reverse sweep direction at minAngle")
+    }
+
+    @Test
+    fun testCameraVisionDetectionAndOcclusion() {
+        // Camera mounted overhead at x=500, y=100 pointing downwards (PI/2 = 90 deg)
+        val camera = Camera(
+            x = 500.0,
+            y = 100.0,
+            minAngle = 80.0 * (PI / 180.0),
+            maxAngle = 100.0 * (PI / 180.0),
+            currentAngle = 90.0 * (PI / 180.0), // 90 deg = straight down
+            sweepSpeed = 0.5,
+            visionRange = 250.0,
+            visionFov = 40.0 * (PI / 180.0)
+        )
+
+        val player = Player(x = 500.0 - 25.0, y = 284.0) // Directly underneath camera
+        val occluder = Rect(x = 450.0, y = 200.0, width = 100.0, height = 30.0) // Floating ceiling between camera and player
+
+        // 1. Clear line of sight
+        val dist = VisionSystem.getPlayerSpottedDistance(camera, player, occluders = emptyList())
+        assertNotNull(dist, "Player directly under camera should be spotted")
+        assertTrue(VisionSystem.isPlayerSpotted(camera, player, occluders = emptyList()))
+
+        // 2. Occluded by barrier
+        val occludedDist = VisionSystem.getPlayerSpottedDistance(camera, player, occluders = listOf(occluder))
+        assertNull(occludedDist, "Player under barrier must NOT be spotted by overhead camera")
+        assertFalse(VisionSystem.isPlayerSpotted(camera, player, occluders = listOf(occluder)))
+
+        // 3. Player far to the left outside camera FOV cone
+        val outsidePlayer = Player(x = 200.0, y = 284.0)
+        assertFalse(VisionSystem.isPlayerSpotted(camera, outsidePlayer, occluders = emptyList()))
+    }
+
+    @Test
+    fun testCameraAlertSystemIntegrationInGameWorld() {
+        // World with a camera pointing straight down at x=500, y=100, no guards
+        val camera = Camera(
+            x = 500.0,
+            y = 100.0,
+            minAngle = 89.0 * (PI / 180.0),
+            maxAngle = 91.0 * (PI / 180.0),
+            currentAngle = 90.0 * (PI / 180.0),
+            sweepSpeed = 0.0,
+            visionRange = 250.0,
+            visionFov = 60.0 * (PI / 180.0)
+        )
+        val dummyGuard = Guard(x = 0.0, y = 0.0, patrolMinX = 0.0, patrolMaxX = 0.0, speed = 0.0, visionRange = 0.0)
+        val world = GameWorld(
+            player = Player(x = 60.0, y = 284.0),
+            guard = dummyGuard,
+            crate = Rect(0.0, 0.0, 0.0, 0.0),
+            platforms = listOf(Rect(0.0, 380.0, 800.0, 100.0)),
+            occluders = emptyList(),
+            cameras = listOf(camera)
+        )
+        world.setUniformDetectionTime(0.8)
+        world.alertDecayRate = 0.5
+
+        // Player starts at safe position (x = 60)
+        world.update(dt = 0.1, moveInput = 0.0, jumpInput = false)
+        assertFalse(world.isPlayerInVision)
+        assertEquals(0.0, world.alertProgress)
+
+        // Move player into camera cone at x = 500
+        world.player.x = 500.0 - 25.0
+        world.player.y = 284.0
+        world.update(dt = 0.4, moveInput = 0.0, jumpInput = false)
+
+        assertTrue(world.isPlayerInVision, "Player in camera cone should be detected in vision")
+        assertEquals(0.5, world.alertProgress, 0.02, "Alert progress should increase to 50% from camera vision")
+        assertFalse(world.isGameOver)
+
+        // Move player back to safe zone -> alert decays
+        world.player.x = 60.0
+        world.update(dt = 0.4, moveInput = 0.0, jumpInput = false)
+        assertFalse(world.isPlayerInVision)
+        assertEquals(0.3, world.alertProgress, 0.02, "Alert progress should decay when leaving camera vision")
+
+        // Put player back in camera cone until alert reaches 100% -> triggers Game Over & caught
+        world.player.x = 500.0 - 25.0
+        world.update(dt = 0.8, moveInput = 0.0, jumpInput = false)
+        assertTrue(world.isGameOver, "Staying in camera cone must trigger Game Over")
+        assertEquals(1, world.spottedCount, "Spotted count should increment")
+        assertTrue(world.wasDetected, "wasDetected flag should be set")
+    }
+
+    @Test
+    fun testCameraTimingChallengeWalkthrough() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1)
+        assertEquals(1, world.cameras.size, "Default level 1 should have 1 camera")
+
+        val camera = world.cameras.first()
+        assertEquals(660.0, camera.x)
+        assertEquals(180.0, camera.y)
+        assertEquals(240.0, camera.visionRange)
+
+        // 1. When camera is sweeping down-left (120°), standing in the open corridor (e.g. x=580) spots the player
+        camera.currentAngle = 120.0 * (PI / 180.0)
+        world.player.x = 580.0
+        world.player.y = 284.0
+        assertTrue(VisionSystem.isPlayerSpotted(camera, world.player, world.occluders), "Camera pointing down-left should spot player at x=580")
+
+        // 2. When camera is sweeping down-right (60°), standing at x=580 is out of the vision cone
+        camera.currentAngle = 60.0 * (PI / 180.0)
+        assertFalse(VisionSystem.isPlayerSpotted(camera, world.player, world.occluders), "Camera pointing down-right towards exit leaves x=580 clear")
+
+        // 3. Timing execution: Start past the guard patrol (e.g. x=600) right as the camera sweeps right
+        world.guard.x = 300.0
+        world.guard.facing = -1.0
+        world.player.x = 600.0
+        camera.currentAngle = 60.0 * (PI / 180.0)
+        camera.sweepDirection = 1.0
+
+        val dt = 1.0 / 60.0
+        while (!world.isLevelComplete && !world.isGameOver) {
+            world.update(dt, moveInput = 1.0, jumpInput = false)
+        }
+
+        assertTrue(world.isLevelComplete, "Player should time the camera sweep and complete the level")
+        assertFalse(world.wasDetected, "Timed crossing should not trigger detection")
+    }
+
+    @Test
+    fun testPowerupSmokeScreenDisablesCameras() {
+        // Camera positioned to spot player
+        val camera = Camera(
+            x = 500.0,
+            y = 100.0,
+            minAngle = 80.0 * (PI / 180.0),
+            maxAngle = 100.0 * (PI / 180.0),
+            currentAngle = 90.0 * (PI / 180.0),
+            sweepSpeed = 0.5,
+            visionRange = 250.0,
+            visionFov = 60.0 * (PI / 180.0)
+        )
+        val dummyGuard = Guard(x = 0.0, y = 0.0, patrolMinX = 0.0, patrolMaxX = 0.0, speed = 0.0, visionRange = 0.0)
+        val world = GameWorld(
+            player = Player(x = 500.0 - 25.0, y = 284.0),
+            guard = dummyGuard,
+            crate = Rect(0.0, 0.0, 0.0, 0.0),
+            platforms = listOf(Rect(0.0, 380.0, 800.0, 100.0)),
+            occluders = emptyList(),
+            cameras = listOf(camera)
+        )
+
+        // Without smoke screen, camera spots player and increases alert
+        world.update(0.1, moveInput = 0.0, jumpInput = false)
+        assertTrue(world.isPlayerInVision, "Player in camera cone should be detected")
+        assertTrue(world.alertProgress > 0.0, "Alert should start increasing")
+
+        // Activate Smoke Screen
+        val activated = world.activatePowerup(PowerupType.SMOKE_SCREEN)
+        assertTrue(activated)
+        assertTrue(world.activePowerups.isSmokeScreenActive)
+        assertEquals(10.0, world.activePowerups.getRemainingTime(PowerupType.SMOKE_SCREEN), 0.01)
+
+        val angleBefore = camera.currentAngle
+
+        // Update during smoke screen: camera sweep is paused, vision is skipped, alert decays
+        world.update(2.0, moveInput = 0.0, jumpInput = false)
+        assertEquals(angleBefore, camera.currentAngle, 0.001, "Camera sweep should be paused while Smoke Screen is active")
+        assertFalse(world.isPlayerInVision, "VisionSystem should skip camera detection during Smoke Screen")
+        assertEquals(0.0, world.alertProgress, 0.01, "Alert progress should decay to 0 while camera is disabled")
+
+        // Advance until smoke screen expires (after 8 more seconds, total 10s)
+        world.update(8.1, moveInput = 0.0, jumpInput = false)
+        assertFalse(world.activePowerups.isSmokeScreenActive, "Smoke Screen should expire after 10s")
+
+        // Camera resumes sweeping and detection
+        world.update(0.1, moveInput = 0.0, jumpInput = false)
+        assertTrue(world.isPlayerInVision, "Camera should resume detection after Smoke Screen expires")
+        assertNotEquals(angleBefore, camera.currentAngle, "Camera sweep should resume after Smoke Screen expires")
+    }
+
+    @Test
+    fun testPowerupPhantomCloakPutsGuardsToSleep() {
+        val guard = Guard(
+            x = 400.0,
+            y = 332.0,
+            patrolMinX = 300.0,
+            patrolMaxX = 500.0,
+            facing = -1.0,
+            speed = 80.0,
+            visionRange = 250.0,
+            visionFov = 60.0 * (PI / 180.0)
+        )
+        val world = GameWorld(
+            player = Player(x = 330.0, y = 284.0), // In front of guard
+            guard = guard,
+            crate = Rect(0.0, 0.0, 0.0, 0.0),
+            platforms = listOf(Rect(0.0, 380.0, 800.0, 100.0)),
+            occluders = emptyList()
+        )
+
+        // Without cloak, guard spots player
+        world.update(0.1, moveInput = 0.0, jumpInput = false)
+        assertTrue(world.isPlayerInVision, "Player in front of guard should be spotted")
+
+        // Activate Phantom Cloak
+        world.activatePowerup(PowerupType.PHANTOM_CLOAK)
+        assertTrue(world.activePowerups.isPhantomCloakActive)
+
+        val guardXWhileAsleep = guard.x
+        val guardFacingWhileAsleep = guard.facing
+
+        // Update during sleep: guard does not move, does not spot player, alert decays
+        world.update(3.0, moveInput = 0.0, jumpInput = false)
+        assertEquals(guardXWhileAsleep, guard.x, 0.001, "Guard must not move while asleep")
+        assertEquals(guardFacingWhileAsleep, guard.facing, 0.001, "Guard must preserve facing direction while asleep")
+        assertFalse(world.isPlayerInVision, "Guard cannot spot player while asleep")
+        assertEquals(0.0, world.alertProgress, 0.01)
+
+        // Advance 7.1s to expire 10s cloak
+        world.update(7.1, moveInput = 0.0, jumpInput = false)
+        assertFalse(world.activePowerups.isPhantomCloakActive, "Phantom Cloak should expire after 10s")
+
+        // Guard resumes patrol and detection
+        world.update(0.5, moveInput = 0.0, jumpInput = false)
+        assertTrue(world.isPlayerInVision, "Guard should wake up and detect player")
+    }
+
+    @Test
+    fun testPowerupInvisibilityGrantsFullImmunity() {
+        val guard = Guard(
+            x = 400.0,
+            y = 332.0,
+            patrolMinX = 300.0,
+            patrolMaxX = 500.0,
+            facing = -1.0,
+            speed = 50.0,
+            visionRange = 250.0,
+            visionFov = 60.0 * (PI / 180.0)
+        )
+        val camera = Camera(
+            x = 330.0,
+            y = 100.0,
+            minAngle = 80.0 * (PI / 180.0),
+            maxAngle = 100.0 * (PI / 180.0),
+            currentAngle = 90.0 * (PI / 180.0),
+            sweepSpeed = 0.5,
+            visionRange = 250.0,
+            visionFov = 60.0 * (PI / 180.0)
+        )
+        val world = GameWorld(
+            player = Player(x = 330.0, y = 284.0),
+            guard = guard,
+            crate = Rect(0.0, 0.0, 0.0, 0.0),
+            platforms = listOf(Rect(0.0, 380.0, 800.0, 100.0)),
+            occluders = emptyList(),
+            cameras = listOf(camera)
+        )
+
+        // Activate Invisibility
+        world.activatePowerup(PowerupType.INVISIBILITY)
+        assertTrue(world.activePowerups.isInvisibilityActive)
+
+        val guardStartPos = guard.x
+        val cameraStartAngle = camera.currentAngle
+
+        // Both guard and camera keep operating normally, but player is completely immune to detection
+        world.update(2.0, moveInput = 0.0, jumpInput = false)
+        assertFalse(world.isPlayerInVision, "Invisible player cannot be seen by guard or camera")
+        assertEquals(0.0, world.alertProgress, 0.01)
+        assertNotEquals(guardStartPos, guard.x, "Guard continues patrolling normally during player invisibility")
+        assertNotEquals(cameraStartAngle, camera.currentAngle, "Camera continues sweeping normally during player invisibility")
+
+        // Wait out the 10 seconds
+        world.update(8.1, moveInput = 0.0, jumpInput = false)
+        assertFalse(world.activePowerups.isInvisibilityActive, "Invisibility expires after 10s")
+    }
+
+    @Test
+    fun testPowerupNoiseSuppressionLevelDuration() {
+        val guard = Guard(
+            x = 300.0,
+            y = 332.0,
+            patrolMinX = 100.0,
+            patrolMaxX = 500.0,
+            facing = 1.0, // Facing right away from player
+            speed = 50.0,
+            visionRange = 200.0,
+            visionFov = 60.0 * (PI / 180.0)
+        )
+        val world = GameWorld(
+            player = Player(x = 150.0, y = 284.0), // Behind guard within noise radius (dist = 150 < 180)
+            guard = guard,
+            crate = Rect(0.0, 0.0, 0.0, 0.0),
+            platforms = listOf(Rect(0.0, 380.0, 800.0, 100.0)),
+            occluders = emptyList()
+        )
+
+        // Walking (sprinting) behind guard without noise suppression triggers noise investigation
+        world.update(0.1, moveInput = 1.0, jumpInput = false, crouchInput = false)
+        assertEquals(GuardState.INVESTIGATING, guard.state, "Normal walking within 180px should alert guard")
+
+        // Reset guard to patrol
+        guard.returnToPatrol()
+        assertEquals(GuardState.PATROL, guard.state)
+
+        // Activate Noise Suppression
+        world.activatePowerup(PowerupType.NOISE_SUPPRESSION)
+        assertTrue(world.activePowerups.isNoiseSuppressed)
+        assertTrue(world.activePowerups.isActive(PowerupType.NOISE_SUPPRESSION))
+
+        // Walking behind guard with Noise Suppression does NOT trigger noise investigation
+        for (i in 0 until 50) {
+            world.update(0.1, moveInput = 1.0, jumpInput = false, crouchInput = false)
+        }
+        assertEquals(GuardState.PATROL, guard.state, "Noise suppression must prevent guard noise detection while sprinting")
+
+        // Verify it lasts for level-duration (e.g. 60 seconds later, still active)
+        world.update(60.0, moveInput = 0.0, jumpInput = false)
+        assertTrue(world.activePowerups.isNoiseSuppressed, "Noise suppression must last for entire level duration")
+    }
+
+    @Test
+    fun testActivePowerupsStateModel() {
+        val active = ActivePowerups()
+        assertFalse(active.anyActive)
+        assertFalse(active.isSmokeScreenActive)
+        assertFalse(active.isPhantomCloakActive)
+        assertFalse(active.isInvisibilityActive)
+        assertFalse(active.isNoiseSuppressed)
+
+        active.activate(PowerupType.SMOKE_SCREEN)
+        assertTrue(active.isSmokeScreenActive)
+        assertTrue(active.anyActive)
+        assertEquals(10.0, active.getRemainingTime(PowerupType.SMOKE_SCREEN))
+
+        active.update(4.0)
+        assertEquals(6.0, active.getRemainingTime(PowerupType.SMOKE_SCREEN), 0.01)
+
+        active.activate(PowerupType.NOISE_SUPPRESSION)
+        assertTrue(active.isNoiseSuppressed)
+        assertEquals(-1.0, active.getRemainingTime(PowerupType.NOISE_SUPPRESSION))
+
+        active.reset()
+        assertFalse(active.anyActive)
+    }
+
+    @Test
+    fun testGameProfilePowerupInventoryAndPersistence() {
+        val storageMap = mutableMapOf<String, String>()
+        val profileStorage = MapBackedGameProfileStorage(
+            getRaw = { storageMap[it] },
+            setRaw = { k, v -> storageMap[k] = v }
+        )
+
+        val profile = profileStorage.getProfile()
+        assertTrue(profile.getPowerupCount(PowerupType.SMOKE_SCREEN) >= 1)
+        assertTrue(profile.getPowerupCount(PowerupType.PHANTOM_CLOAK) >= 1)
+        assertTrue(profile.getPowerupCount(PowerupType.INVISIBILITY) >= 1)
+        assertTrue(profile.getPowerupCount(PowerupType.NOISE_SUPPRESSION) >= 1)
+
+        val initialSmoke = profile.getPowerupCount(PowerupType.SMOKE_SCREEN)
+        val consumed = profileStorage.consumePowerup(PowerupType.SMOKE_SCREEN)
+        assertTrue(consumed)
+        assertEquals(initialSmoke - 1, profileStorage.getProfile().getPowerupCount(PowerupType.SMOKE_SCREEN))
+
+        // Verify persistence to storage map
+        assertTrue(storageMap.containsKey("user_powerups"))
+
+        // Create fresh storage instance reading from storageMap
+        val reloadedStorage = MapBackedGameProfileStorage(
+            getRaw = { storageMap[it] },
+            setRaw = { k, v -> storageMap[k] = v }
+        )
+        assertEquals(
+            initialSmoke - 1,
+            reloadedStorage.getProfile().getPowerupCount(PowerupType.SMOKE_SCREEN),
+            "Powerup count should persist across storage reloads"
+        )
+
+        // Grant debug powerups
+        reloadedStorage.grantDebugPowerups(5)
+        assertEquals(initialSmoke - 1 + 5, reloadedStorage.getProfile().getPowerupCount(PowerupType.SMOKE_SCREEN))
+    }
+
+    @Test
+    fun testStorePowerupPurchasesAndInventory() {
+        val storageMap = mutableMapOf<String, String>()
+        val profileStorage = MapBackedGameProfileStorage(
+            getRaw = { storageMap[it] },
+            setRaw = { k, v -> storageMap[k] = v }
+        )
+
+        // Set starting coin balance
+        profileStorage.addCoins(5000)
+        val initialCoins = profileStorage.getProfile().coins
+        assertTrue(initialCoins >= 5000)
+
+        // Test buying each powerup type
+        val powerupsToTest = listOf(
+            PowerupType.SMOKE_SCREEN to 600,
+            PowerupType.PHANTOM_CLOAK to 800,
+            PowerupType.INVISIBILITY to 1000,
+            PowerupType.NOISE_SUPPRESSION to 750
+        )
+
+        for ((type, cost) in powerupsToTest) {
+            val countBefore = profileStorage.getProfile().getPowerupCount(type)
+            val coinsBefore = profileStorage.getProfile().coins
+
+            val bought = profileStorage.buyPowerup(type.id, cost)
+            assertTrue(bought, "Should successfully buy ${type.displayName} for $cost coins")
+
+            val profileAfter = profileStorage.getProfile()
+            assertEquals(coinsBefore - cost, profileAfter.coins, "Coins should be deducted by $cost")
+            assertEquals(countBefore + 1, profileAfter.getPowerupCount(type), "Inventory for ${type.displayName} should increment by 1")
+        }
+
+        // Test failed purchase when coins are insufficient
+        val currentCoins = profileStorage.getProfile().coins
+        profileStorage.spendCoins(currentCoins - 100) // Leave only 100 coins
+        assertEquals(100, profileStorage.getProfile().coins)
+
+        val failedBuy = profileStorage.buyPowerup(PowerupType.INVISIBILITY.id, 1000)
+        assertFalse(failedBuy, "Purchase should fail if player does not have enough coins")
+        assertEquals(100, profileStorage.getProfile().coins, "Coins should not be deducted on failed purchase")
+    }
 }

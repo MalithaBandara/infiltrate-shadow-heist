@@ -1,5 +1,6 @@
 package game.scene
 
+import korlibs.image.bitmap.Bitmap
 import korlibs.image.color.*
 import korlibs.image.format.readBitmap
 import korlibs.image.vector.*
@@ -43,10 +44,37 @@ object UiComponents {
      */
     fun Container.uiGraphics(): Graphics = graphics(renderer = GraphicsRenderer.GPU)
 
-    suspend fun Container.drawAtmosphericBackdrop(width: Double = 800.0, height: Double = 480.0) {
-        val bgBitmap = resourcesVfs["bg_menu.jpg"].readBitmap()
-        image(bgBitmap) {
-            size(width, height)
+    suspend fun Container.drawAtmosphericBackdrop(width: Double = 800.0, height: Double = 480.0, path: String = "bg_menu.jpg", darken: Double = 0.0) {
+        val bgBitmap = resourcesVfs[path].readBitmap()
+        drawAtmosphericBackdropBitmap(bgBitmap, width, height, darken)
+    }
+
+    /**
+     * Same layout as [drawAtmosphericBackdrop] but takes an already-loaded [Bitmap] and isn't
+     * suspending - needed so a resize handler (which can't be a suspend override, see
+     * MainMenuScene.onSizeChanged) can redraw the backdrop synchronously from a bitmap loaded
+     * once up front, instead of re-hitting the VFS on every resize.
+     */
+    fun Container.drawAtmosphericBackdropBitmap(bgBitmap: Bitmap, width: Double = 800.0, height: Double = 480.0, darken: Double = 0.0) {
+        // Splits the difference between "fit to height" (no top/bottom crop, but may not fill a
+        // wide canvas) and "cover" (fills the box, but can crop deep into faces/heads) - halfway
+        // between the two reads better than either extreme. Still anchored to the right edge so
+        // any horizontal overflow crops off the left, which sits behind the opaque left panel.
+        val heightFitScale = height / bgBitmap.height
+        val coverScale = max(width / bgBitmap.width, heightFitScale)
+        val scale = heightFitScale + (coverScale - heightFitScale) * 0.5
+        val scaledW = bgBitmap.width * scale
+        val scaledH = bgBitmap.height * scale
+        // Top-anchored rather than vertically centered: on a canvas much shorter than the source
+        // image (e.g. a very wide/short aspect ratio), any vertical overflow crops off the bottom
+        // instead of trimming equal slivers off both top and bottom - keeps the sky/skyline these
+        // backdrops are framed around intact and only sacrifices ground-level detail.
+        val img = image(bgBitmap) {
+            size(scaledW, scaledH)
+        }.xy(width - scaledW, 0.0)
+        if (darken > 0.0) {
+            val level = (1.0 - darken).coerceIn(0.0, 1.0)
+            img.colorMul = Colors.WHITE.withRd(level).withGd(level).withBd(level)
         }
     }
 
@@ -65,29 +93,38 @@ object UiComponents {
         text: String,
         width: Double = 410.0,
         height: Double = 75.0,
+        x: Double = 0.0,
+        y: Double = 0.0,
         iconPath: String? = null,
         heistStyle: Boolean = false,
+        heistTexture: String = "button1.png",
         iconRenderer: (ShapeBuilder.() -> Unit)? = null,
         onClick: suspend () -> Unit
     ): Container {
-        val btn = container()
+        // Positioned immediately, before the suspending readBitmap()/readTtfFont() calls below -
+        // the container is added to the scene graph right away, so if a frame renders while this
+        // function is still suspended on either of those, an unpositioned button would flash at
+        // (0,0) until the caller's own .xy(...) ran after this function finally returned.
+        val btn = container().xy(x, y)
 
         if (heistStyle) {
-            // Matches the logo's white paper.
             val ink = Colors["#17140F"]
-            val paper = Colors["#F6F4EE"]
-            val paperHover = Colors.WHITE
-            val paperPress = Colors["#DEDACE"]
 
-            val g = btn.uiGraphics()
-            fun draw(fillColor: RGBA) {
-                g.updateShape {
-                    clear()
-                    fill(fillColor) { rect(0.0, 0.0, width, height) }
+            // Baked worn-poster texture (torn/burnt edge, ink splatter) instead of a drawn rect -
+            // plain stretch, not 9-sliced: Korge's NinePatch view rendered visible horizontal seam
+            // lines through the scaled segments on this asset (not present in the source texture
+            // itself, confirmed by direct pixel inspection), so 9-slicing was reverted in favor of
+            // the simple, artifact-free stretch. Falls back to a plain paper rect + stroke if the
+            // asset is missing.
+            val bgBmp = try { resourcesVfs[heistTexture].readBitmap() } catch (e: Exception) { null }
+            if (bgBmp != null) {
+                btn.image(bgBmp) { size(width, height) }
+            } else {
+                btn.uiGraphics().updateShape {
+                    fill(Colors["#F6F4EE"]) { rect(0.0, 0.0, width, height) }
                     stroke(ink, StrokeInfo(thickness = 3.0)) { rect(0.0, 0.0, width, height) }
                 }
             }
-            draw(paper)
 
             if (iconRenderer != null) {
                 btn.uiGraphics().xy(38.0, height / 2.0).updateShape { iconRenderer() }
@@ -101,10 +138,19 @@ object UiComponents {
             label.graphicsRenderer = GraphicsRenderer.GPU
             label.xy(if (iconRenderer != null) 72.0 else 20.0, (height - textSize) / 2.0 - textSize * 0.05)
 
-            btn.onOut { draw(paper) }
-            btn.onOver { draw(paperHover) }
-            btn.onDown { draw(paperPress) }
-            btn.onUp { draw(paperHover) }
+            // The bg is now a baked texture, so state feedback is a translucent scrim on top
+            // rather than swapping fill color.
+            val overlay = btn.uiGraphics()
+            fun setOverlay(color: RGBA, alpha: Double) {
+                overlay.updateShape {
+                    clear()
+                    if (alpha > 0.0) fill(color.withAd(alpha)) { rect(0.0, 0.0, width, height) }
+                }
+            }
+            btn.onOut { setOverlay(Colors.WHITE, 0.0) }
+            btn.onOver { setOverlay(Colors.WHITE, 0.18) }
+            btn.onDown { setOverlay(Colors.BLACK, 0.15) }
+            btn.onUp { setOverlay(Colors.WHITE, 0.18) }
             btn.mouse { onClick { onClick() } }
             return btn
         }
@@ -139,10 +185,83 @@ object UiComponents {
         text: String,
         width: Double,
         height: Double,
+        x: Double = 0.0,
+        y: Double = 0.0,
         textSize: Double = 14.0,
         primary: Boolean = false,
         onClick: suspend () -> Unit
-    ) = createMenuButton(text, width, height, iconPath = null, onClick = onClick)
+    ) = createMenuButton(text, width, height, x = x, y = y, iconPath = null, onClick = onClick)
+
+    /**
+     * Sidebar/tab-list entry using one of the worn-poster button textures - background stays the
+     * bright paper texture either way, dimmed under a dark scrim when unselected (rather than
+     * swapping fill color) so the torn-edge artwork stays visible in both states. Shared by
+     * Store's and Settings' sidebars.
+     */
+    suspend fun Container.createTexturedTab(
+        x: Double, y: Double, width: Double, height: Double,
+        label: String, selected: Boolean, texture: String,
+        iconRenderer: ShapeBuilder.() -> Unit,
+        onTap: suspend () -> Unit
+    ): Container {
+        val ink = Colors["#17140F"]
+        val tab = container().xy(x, y)
+        val bgBmp = try { resourcesVfs[texture].readBitmap() } catch (e: Exception) { null }
+        if (bgBmp != null) {
+            tab.image(bgBmp) { size(width, height) }
+        } else {
+            tab.uiGraphics().updateShape { fill(Colors["#F4F2EC"]) { rect(0.0, 0.0, width, height) } }
+        }
+        if (!selected) {
+            tab.uiGraphics().updateShape { fill(Colors.BLACK.withAd(0.6)) { rect(0.0, 0.0, width, height) } }
+        }
+        tab.uiGraphics().xy(26.0, height / 2.0).updateShape { iconRenderer() }
+        val font = try { resourcesVfs["BebasNeue-Regular.ttf"].readTtfFont() } catch (e: Exception) { DefaultTtfFont }
+        val labelText = tab.text(label, textSize = 13.0, font = font, color = ink)
+        labelText.graphicsRenderer = GraphicsRenderer.GPU
+        labelText.xy(48.0, (height - 13.0) / 2.0 - 1.0)
+        tab.mouse { onClick { onTap() } }
+        return tab
+    }
+
+    /**
+     * Draggable 0..1 slider used for volume controls. Dragging is tracked via
+     * onMoveAnywhere/onUpAnywhere (not onMove/onUp) so the handle keeps following the pointer
+     * even once it leaves the narrow hit strip mid-drag.
+     */
+    fun Container.createVolumeSlider(
+        x: Double, y: Double, trackWidth: Double, initial: Float,
+        onChange: (Float) -> Unit
+    ): Container {
+        val slider = container().xy(x, y)
+        val trackH = 6.0
+        val handleR = 8.0
+        val g = slider.uiGraphics()
+        var value = initial.toDouble().coerceIn(0.0, 1.0)
+        fun draw() {
+            g.updateShape {
+                clear()
+                fill(Colors.WHITE.withAd(0.15)) { roundRect(0.0, 0.0, trackWidth, trackH, trackH / 2.0, trackH / 2.0) }
+                fill(COLOR_ACCENT_CYAN) { roundRect(0.0, 0.0, trackWidth * value, trackH, trackH / 2.0, trackH / 2.0) }
+                fill(Colors.WHITE) { circle(Point(trackWidth * value, trackH / 2.0), handleR) }
+            }
+        }
+        draw()
+
+        var dragging = false
+        fun setFromLocalX(lx: Double) {
+            value = (lx / trackWidth).coerceIn(0.0, 1.0)
+            draw()
+            onChange(value.toFloat())
+        }
+        val hit = slider.solidRect(trackWidth, handleR * 2.0, Colors.TRANSPARENT).xy(0.0, trackH / 2.0 - handleR)
+        hit.mouse {
+            onDown { me -> dragging = true; setFromLocalX(me.currentPosLocal.x) }
+            onUpAnywhere { dragging = false }
+            onMoveAnywhere { me -> if (dragging) setFromLocalX(me.currentPosLocal.x) }
+        }
+        return slider
+    }
 
     fun Container.createInfoBox(
         x: Double,
