@@ -56,6 +56,9 @@ kotlin {
                 implementation(compose.material3)
             }
         }
+        // compose.ui (needed for ComposeUIViewController, iOS-only interop entry point) is
+        // deliberately NOT in commonMain - it's UIKit-specific and would break the jvm() target,
+        // same reasoning as purchases-kmp-core being iosMain-only just above.
         val commonTest by getting {
             dependencies {
                 implementation(kotlin("test"))
@@ -65,6 +68,7 @@ kotlin {
             dependsOn(commonMain)
             dependencies {
                 implementation("com.revenuecat.purchases:purchases-kmp-core:3.6.0")
+                implementation(compose.ui)
             }
         }
         val iosArm64Main by getting { dependsOn(iosMain) }
