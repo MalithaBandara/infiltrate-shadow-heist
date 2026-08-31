@@ -55,6 +55,7 @@ kotlin {
                 implementation(compose.runtime)
                 implementation(compose.foundation)
                 implementation(compose.material3)
+                implementation(compose.components.resources)
             }
         }
         // compose.ui (needed for ComposeUIViewController, iOS-only interop entry point) is
