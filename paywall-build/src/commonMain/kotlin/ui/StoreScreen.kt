@@ -107,10 +107,10 @@ fun StoreScreen(
 
     val powerupItems = remember {
         listOf(
-            PowerupItem(PowerupType.SMOKE_SCREEN, "SMOKE SCREEN", "Disables all cameras for 10 seconds.", 600) { c -> drawSmokeIcon(c) },
-            PowerupItem(PowerupType.PHANTOM_CLOAK, "PHANTOM CLOAK", "Puts all guards to sleep for 10 seconds.", 800) { c -> drawCloakIcon(c) },
-            PowerupItem(PowerupType.INVISIBILITY, "INVISIBILITY", "Total sight immunity for 10 seconds.", 1000) { c -> drawInvisIcon(c) },
-            PowerupItem(PowerupType.NOISE_SUPPRESSION, "NOISE SUPPRESSION", "Silent movement for entire mission.", 750) { c -> drawBootIcon(c) }
+            PowerupItem(PowerupType.SMOKE_SCREEN, "SMOKE SCREEN", "Disables all cameras for 10 seconds.", PowerupType.SMOKE_SCREEN.defaultCost) { c -> drawSmokeIcon(c) },
+            PowerupItem(PowerupType.PHANTOM_CLOAK, "PHANTOM CLOAK", "Puts all guards to sleep for 10 seconds.", PowerupType.PHANTOM_CLOAK.defaultCost) { c -> drawCloakIcon(c) },
+            PowerupItem(PowerupType.INVISIBILITY, "INVISIBILITY", "Total sight immunity for 10 seconds.", PowerupType.INVISIBILITY.defaultCost) { c -> drawInvisIcon(c) },
+            PowerupItem(PowerupType.NOISE_SUPPRESSION, "NOISE SUPPRESSION", "Silent movement for entire mission.", PowerupType.NOISE_SUPPRESSION.defaultCost) { c -> drawBootIcon(c) }
         )
     }
 

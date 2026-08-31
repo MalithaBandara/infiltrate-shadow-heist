@@ -56,16 +56,36 @@ class StoreScene(private val initialTab: StoreTab = StoreTab.POWER_UPS) : Scene(
     }
 
     private fun ShapeBuilder.drawCoinStackIcon(c: RGBA) {
-        stroke(c, StrokeInfo(thickness = 1.6)) {
-            ellipse(Rectangle(-8.0, -5.0, 16.0, 6.0))
-            ellipse(Rectangle(-8.0, -1.0, 16.0, 6.0))
-            ellipse(Rectangle(-8.0, 3.0, 16.0, 6.0))
+        val darkGold = Colors["#9E5700"]
+        val brightGold = Colors["#FFB300"]
+        val highlightGold = Colors["#FFE082"]
+
+        for (y in listOf(3.0, -1.0, -5.0)) {
+            fill(darkGold) {
+                moveTo(-8.0, y)
+                lineTo(-8.0, y + 3.0)
+                lineTo(8.0, y + 3.0)
+                lineTo(8.0, y)
+                close()
+            }
+            fill(brightGold) { ellipse(Rectangle(-8.0, y - 3.0, 16.0, 6.0)) }
+            stroke(highlightGold, StrokeInfo(thickness = 1.0)) { ellipse(Rectangle(-6.5, y - 2.5, 13.0, 5.0)) }
         }
     }
 
     private fun ShapeBuilder.drawCoinIcon(c: RGBA) {
-        fill(c) { circle(Point(0.0, 0.0), 8.0) }
-        stroke(Colors.BLACK.withAd(0.35), StrokeInfo(thickness = 1.0)) { circle(Point(0.0, 0.0), 8.0) }
+        fill(Colors["#3E2723"].withAd(0.6)) { circle(Point(0.0, 1.0), 8.0) }
+        fill(Colors["#FFB300"]) { circle(Point(0.0, 0.0), 8.0) }
+        stroke(Colors["#FFE57F"], StrokeInfo(thickness = 1.4)) { circle(Point(0.0, 0.0), 8.0) }
+        fill(Colors["#FFD54F"]) { circle(Point(0.0, 0.0), 6.0) }
+        stroke(Colors["#C67100"].withAd(0.7), StrokeInfo(thickness = 0.8)) { circle(Point(0.0, 0.0), 6.0) }
+        fill(Colors["#9E5700"]) {
+            moveTo(0.0, -3.5)
+            lineTo(2.5, 0.0)
+            lineTo(0.0, 3.5)
+            lineTo(-2.5, 0.0)
+            close()
+        }
     }
 
     private fun ShapeBuilder.drawPlusIcon(c: RGBA) {
@@ -114,10 +134,10 @@ class StoreScene(private val initialTab: StoreTab = StoreTab.POWER_UPS) : Scene(
     }
 
     private val powerupDefs = listOf(
-        PowerupDef(PowerupType.SMOKE_SCREEN, PowerupType.SMOKE_SCREEN.id, "SMOKE SCREEN", "Disables all cameras\nfor 10 seconds.", 600) { c -> drawSmokeIcon(c) },
-        PowerupDef(PowerupType.PHANTOM_CLOAK, PowerupType.PHANTOM_CLOAK.id, "PHANTOM CLOAK", "Puts all guards to sleep\nfor 10 seconds.", 800) { c -> drawCloakIcon(c) },
-        PowerupDef(PowerupType.INVISIBILITY, PowerupType.INVISIBILITY.id, "INVISIBILITY", "Total sight immunity\nfor 10 seconds.", 1000) { c -> drawInvisIcon(c) },
-        PowerupDef(PowerupType.NOISE_SUPPRESSION, PowerupType.NOISE_SUPPRESSION.id, "NOISE SUPPRESSION", "Silent movement for\nentire mission.", 750) { c -> drawBootIcon(c) }
+        PowerupDef(PowerupType.SMOKE_SCREEN, PowerupType.SMOKE_SCREEN.id, "SMOKE SCREEN", "Disables all cameras\nfor 10 seconds.", PowerupType.SMOKE_SCREEN.defaultCost) { c -> drawSmokeIcon(c) },
+        PowerupDef(PowerupType.PHANTOM_CLOAK, PowerupType.PHANTOM_CLOAK.id, "PHANTOM CLOAK", "Puts all guards to sleep\nfor 10 seconds.", PowerupType.PHANTOM_CLOAK.defaultCost) { c -> drawCloakIcon(c) },
+        PowerupDef(PowerupType.INVISIBILITY, PowerupType.INVISIBILITY.id, "INVISIBILITY", "Total sight immunity\nfor 10 seconds.", PowerupType.INVISIBILITY.defaultCost) { c -> drawInvisIcon(c) },
+        PowerupDef(PowerupType.NOISE_SUPPRESSION, PowerupType.NOISE_SUPPRESSION.id, "NOISE SUPPRESSION", "Silent movement for\nentire mission.", PowerupType.NOISE_SUPPRESSION.defaultCost) { c -> drawBootIcon(c) }
     )
 
     private data class CoinPack(val id: String, val amount: Int, val price: String, val bestValue: Boolean = false)

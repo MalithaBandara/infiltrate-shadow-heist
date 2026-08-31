@@ -52,11 +52,36 @@ data class LevelData(
     val guardSpeed: Double = 60.0,
     val guardPatrolMinX: Double = 300.0,
     val guardPatrolMaxX: Double = 600.0,
-    val coinRewardBase: Int = 50,
-    val coinRewardPerStar: Int = 25,
+    val coinRewardBase: Int = 0,
+    val coinRewardPerStar: Int = 0,
     val layout: LevelLayout? = null,
     val cameras: List<CameraSpawn> = emptyList()
 ) {
+    /**
+     * Calculates coin reward based on 2-tier progression:
+     * Levels 1–5 (Easy): 1★ = 100, 2★ = 200, 3★ = 350 (Lifetime 3★ = 1,750)
+     * Levels 6–10 (Hard): 1★ = 200, 2★ = 400, 3★ = 700 (Lifetime 3★ = 3,500)
+     * Total lifetime earn across 10 levels = 5,250 coins.
+     */
+    fun getCoinReward(starCount: Int): Int {
+        if (starCount <= 0) return 0
+        val levelNum = id.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 1
+        val isHard = levelNum in 6..10 || id.contains("hard") || id.contains("dlc")
+        return if (isHard) {
+            when (starCount) {
+                1 -> 200
+                2 -> 400
+                else -> 700
+            }
+        } else {
+            when (starCount) {
+                1 -> 100
+                2 -> 200
+                else -> 350
+            }
+        }
+    }
+
     companion object {
         val DEFAULT_LEVEL_1 = LevelData(
             id = "level_1",

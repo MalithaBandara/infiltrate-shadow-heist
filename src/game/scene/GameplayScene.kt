@@ -473,7 +473,7 @@ class GameplayScene(
 
             // Calculate and award coins
             val multiplier = if (profileStorage.getProfile().isPremium) 2 else 1
-            val earnedCoins = (levelData.coinRewardBase + result.starCount * levelData.coinRewardPerStar) * multiplier
+            val earnedCoins = levelData.getCoinReward(result.starCount) * multiplier
             profileStorage.addCoins(earnedCoins)
 
             // Unlock next level in progression
