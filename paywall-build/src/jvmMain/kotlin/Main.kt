@@ -61,22 +61,23 @@ fun main() {
         var isWindowVisible by remember { mutableStateOf(true) }
         val windowState = rememberWindowState(width = 1560.dp, height = 720.dp)
 
-    // Galaxy S25 Ultra landscape aspect ratio (3120x1440 at half-scale)
-    Window(
-        onCloseRequest = ::exitApplication,
-        title = "Infiltrate: Shadow Heist",
-        state = windowState,
-        visible = isWindowVisible
-    ) {
-        NavigationRoot(
-            onStartLevel = { levelId ->
-                isWindowVisible = false
-                DesktopVideoPlayerManager.pause()
-                launchKorgeGame(levelId) {
-                    isWindowVisible = true
-                    DesktopVideoPlayerManager.resume()
+        // Galaxy S25 Ultra landscape aspect ratio (3120x1440 at half-scale)
+        Window(
+            onCloseRequest = ::exitApplication,
+            title = "Infiltrate: Shadow Heist",
+            state = windowState,
+            visible = isWindowVisible
+        ) {
+            NavigationRoot(
+                onStartLevel = { levelId ->
+                    isWindowVisible = false
+                    DesktopVideoPlayerManager.pause()
+                    launchKorgeGame(levelId) {
+                        isWindowVisible = true
+                        DesktopVideoPlayerManager.resume()
+                    }
                 }
-            }
-        )
+            )
+        }
     }
 }
