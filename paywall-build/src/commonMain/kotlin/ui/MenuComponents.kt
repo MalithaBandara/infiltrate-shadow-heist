@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -49,6 +50,7 @@ import paywall_build.generated.resources.Res
 import paywall_build.generated.resources.logo_main
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 // --- Top Bar ---
@@ -228,12 +230,14 @@ fun TexturedSidebarTab(
     isSelected: Boolean,
     texture: DrawableResource,
     font: FontFamily,
-    iconRenderer: DrawScope.() -> Unit,
+    iconRenderer: DrawScope.(Color) -> Unit,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     tabHeight: Dp = 48.dp
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    val iconColor = if (isSelected) ShadowTheme.Ink else Color.White
+    val textColor = if (isSelected) ShadowTheme.Ink else Color.White
 
     Box(
         modifier = modifier
@@ -267,12 +271,12 @@ fun TexturedSidebarTab(
             modifier = Modifier.padding(start = 16.dp)
         ) {
             Canvas(modifier = Modifier.size(20.dp)) {
-                iconRenderer()
+                iconRenderer(iconColor)
             }
             Spacer(modifier = Modifier.width(12.dp))
             Text(
                 text = text,
-                color = if (isSelected) ShadowTheme.Ink else Color(0xFFC9C9CC),
+                color = textColor,
                 fontSize = 18.sp,
                 fontFamily = font,
                 letterSpacing = 1.sp
@@ -299,33 +303,33 @@ fun VolumeSlider(
             valueRange = 0f..1f,
             colors = SliderDefaults.colors(
                 thumbColor = Color.White,
-                activeTrackColor = Color(0xFF00E5FF),
-                inactiveTrackColor = Color(0xFF22242B)
+                activeTrackColor = Color.White,
+                inactiveTrackColor = Color(0xFF2A2A2E)
             ),
             modifier = Modifier.weight(1f)
         )
         Spacer(modifier = Modifier.width(12.dp))
         Text(
-            text = "${(value * 100).toInt()}%",
-            color = Color.White,
-            fontSize = 13.sp,
+            text = "${(value * 100).roundToInt()}%",
+            color = Color(0xFFC9C9CC),
+            fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.width(42.dp)
         )
     }
 }
 
-// --- Vector Icons ---
+// --- Icons & Drawing Helpers ---
 
 fun DrawScope.drawBackChevron(c: Color) {
     val cx = size.width / 2f
     val cy = size.height / 2f
     val path = Path().apply {
-        moveTo(cx + 3f, cy - 6f)
+        moveTo(cx + 4f, cy - 8f)
         lineTo(cx - 4f, cy)
-        lineTo(cx + 3f, cy + 6f)
+        lineTo(cx + 4f, cy + 8f)
     }
-    drawPath(path, color = c, style = Stroke(width = 2.4f, cap = StrokeCap.Round))
+    drawPath(path, color = c, style = Stroke(width = 2.4f))
 }
 
 fun DrawScope.drawStar(
@@ -351,21 +355,30 @@ fun DrawScope.drawStar(
 fun DrawScope.drawBriefcaseIcon(c: Color) {
     val cx = size.width / 2f
     val cy = size.height / 2f
+    val s = 1.1f
     drawRoundRect(
         color = c,
-        topLeft = Offset(cx - 7f, cy - 4f),
-        size = Size(14f, 10f),
-        cornerRadius = CornerRadius(2f, 2f),
-        style = Stroke(width = 1.6f)
+        topLeft = Offset(cx - 3f * s, cy - 5.5f * s),
+        size = Size(6f * s, 4f * s),
+        cornerRadius = CornerRadius(1.5f * s, 1.5f * s),
+        style = Stroke(width = 1.5f * s)
     )
-    val handle = Path().apply {
-        moveTo(cx - 3f, cy - 4f)
-        lineTo(cx - 3f, cy - 7f)
-        lineTo(cx + 3f, cy - 7f)
-        lineTo(cx + 3f, cy - 4f)
-    }
-    drawPath(handle, color = c, style = Stroke(width = 1.6f))
-    drawLine(c, Offset(cx - 7f, cy + 1f), Offset(cx + 7f, cy + 1f), strokeWidth = 1.4f)
+    drawRoundRect(
+        color = c,
+        topLeft = Offset(cx - 7f * s, cy - 2f * s),
+        size = Size(14f * s, 10f * s),
+        cornerRadius = CornerRadius(2.5f * s, 2.5f * s)
+    )
+    drawLine(
+        color = Color(0xFF18181B),
+        start = Offset(cx - 7f * s, cy + 2f * s),
+        end = Offset(cx + 7f * s, cy + 2f * s),
+        strokeWidth = 1.2f * s
+    )
+}
+
+fun DrawScope.drawPadlockIcon(c: Color) {
+    drawLockIcon(c, 1.1f)
 }
 
 fun DrawScope.drawLockIcon(c: Color, s: Float = 1.0f) {
@@ -373,7 +386,7 @@ fun DrawScope.drawLockIcon(c: Color, s: Float = 1.0f) {
     val cy = size.height / 2f
     drawCircle(
         color = c,
-        radius = 4.5f * s,
+        radius = 4f * s,
         center = Offset(cx, cy - 2.5f * s),
         style = Stroke(width = 1.8f * s)
     )
@@ -465,7 +478,7 @@ fun DrawScope.drawBoltIcon(c: Color) {
     drawPath(path, color = c, style = Fill)
 }
 
-fun DrawScope.drawCoinStackIcon(c: Color = Color(0xFFFFD54F)) {
+fun DrawScope.drawCoinStackIcon(c: Color) {
     val cx = size.width / 2f
     val cy = size.height / 2f
     val rx = size.width * 0.42f
@@ -479,7 +492,7 @@ fun DrawScope.drawCoinStackIcon(c: Color = Color(0xFFFFD54F)) {
             moveTo(cx - rx, coinY)
             lineTo(cx - rx, coinY + 3.5f)
             arcTo(
-                rect = androidx.compose.ui.geometry.Rect(cx - rx, coinY + 3.5f - ry, cx + rx, coinY + 3.5f + ry),
+                rect = Rect(cx - rx, coinY + 3.5f - ry, cx + rx, coinY + 3.5f + ry),
                 startAngleDegrees = 180f,
                 sweepAngleDegrees = -180f,
                 forceMoveTo = false
@@ -487,25 +500,19 @@ fun DrawScope.drawCoinStackIcon(c: Color = Color(0xFFFFD54F)) {
             lineTo(cx + rx, coinY)
             close()
         }
-        drawPath(sidePath, color = Color(0xFF9E5700))
+        drawPath(sidePath, color = c.copy(alpha = 0.55f))
 
-        // Outer coin face (Gold)
+        // Outer coin face
         drawOval(
-            color = Color(0xFFFFB300),
+            color = c,
             topLeft = Offset(cx - rx, coinY - ry),
             size = Size(rx * 2f, ry * 2f)
         )
-        // Top highlight
+        // Inner rim groove / highlight
         drawOval(
-            color = Color(0xFFFFE082),
-            topLeft = Offset(cx - rx * 0.85f, coinY - ry * 0.85f),
-            size = Size(rx * 1.7f, ry * 1.7f)
-        )
-        // Inner rim groove
-        drawOval(
-            color = Color(0xFFC67100).copy(alpha = 0.6f),
-            topLeft = Offset(cx - rx, coinY - ry),
-            size = Size(rx * 2f, ry * 2f),
+            color = if (c == Color.White) Color.Black.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.35f),
+            topLeft = Offset(cx - rx * 0.82f, coinY - ry * 0.82f),
+            size = Size(rx * 1.64f, ry * 1.64f),
             style = Stroke(width = 1.0f)
         )
     }

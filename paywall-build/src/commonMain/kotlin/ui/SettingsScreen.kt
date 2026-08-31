@@ -126,7 +126,7 @@ fun SettingsScreen(
                         isSelected = currentTab == SettingsTab.AUDIO,
                         texture = Res.drawable.button1,
                         font = bebasFont,
-                        iconRenderer = { drawSpeakerIcon(ShadowTheme.Ink) },
+                        iconRenderer = { color -> drawSpeakerIcon(color) },
                         onClick = { currentTab = SettingsTab.AUDIO },
                         tabHeight = (46 * scale).dp
                     )
@@ -136,7 +136,7 @@ fun SettingsScreen(
                         isSelected = currentTab == SettingsTab.ABOUT,
                         texture = Res.drawable.button2,
                         font = bebasFont,
-                        iconRenderer = { drawInfoIcon(ShadowTheme.Ink) },
+                        iconRenderer = { color -> drawInfoIcon(color) },
                         onClick = { currentTab = SettingsTab.ABOUT },
                         tabHeight = (46 * scale).dp
                     )

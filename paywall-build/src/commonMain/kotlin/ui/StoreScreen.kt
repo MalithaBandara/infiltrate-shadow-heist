@@ -163,7 +163,7 @@ fun StoreScreen(
                         isSelected = currentTab == StoreTab.POWER_UPS,
                         texture = Res.drawable.button1,
                         font = bebasFont,
-                        iconRenderer = { drawBoltIcon(ShadowTheme.Ink) },
+                        iconRenderer = { color -> drawBoltIcon(color) },
                         onClick = { currentTab = StoreTab.POWER_UPS },
                         tabHeight = (46 * scale).dp
                     )
@@ -173,7 +173,7 @@ fun StoreScreen(
                         isSelected = currentTab == StoreTab.COINS,
                         texture = Res.drawable.button2,
                         font = bebasFont,
-                        iconRenderer = { drawCoinStackIcon(ShadowTheme.Ink) },
+                        iconRenderer = { color -> drawCoinStackIcon(color) },
                         onClick = { currentTab = StoreTab.COINS },
                         tabHeight = (46 * scale).dp
                     )
