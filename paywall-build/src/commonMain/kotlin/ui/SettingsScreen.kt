@@ -55,7 +55,7 @@ enum class SettingsTab {
 fun SettingsScreen(
     initialTab: SettingsTab = SettingsTab.AUDIO,
     onBackClicked: () -> Unit,
-    onStoreShortcutClicked: () -> Unit
+    onStoreShortcutClicked: () -> Unit = {}
 ) {
     val profileStorage: GameProfileStorage = remember {
         MapBackedGameProfileStorage(
@@ -98,13 +98,7 @@ fun SettingsScreen(
             MenuTopBar(
                 title = "SETTINGS",
                 font = bebasFont,
-                onBackClicked = onBackClicked,
-                statPills = {
-                    CoinPill(
-                        coins = profile.coins,
-                        onPlusClicked = onStoreShortcutClicked
-                    )
-                }
+                onBackClicked = onBackClicked
             )
 
             // Content: Sidebar + Main Area
