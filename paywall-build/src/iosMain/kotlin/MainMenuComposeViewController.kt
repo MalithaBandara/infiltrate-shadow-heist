@@ -7,8 +7,11 @@ import platform.UIKit.UIViewController
 @OptIn(kotlin.experimental.ExperimentalObjCName::class, kotlin.experimental.ExperimentalObjCRefinement::class)
 @ObjCName(name = "MainMenuComposeScreen", exact = true)
 object MainMenuComposeScreen {
-    fun makeViewController(onStartLevel: () -> Unit): UIViewController =
+    fun makeViewController(onStartLevel: (String) -> Unit): UIViewController =
         ComposeUIViewController {
             NavigationRoot(onStartLevel = onStartLevel)
         }
+
+    fun makeViewController(onStartLevel: () -> Unit): UIViewController =
+        makeViewController(onStartLevel = { _ -> onStartLevel() })
 }

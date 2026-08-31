@@ -47,3 +47,9 @@ dependencies {
     //add("commonMainApi", project(":korge-dragonbones"))
 }
 
+tasks.withType<JavaExec>().configureEach {
+    if (project.hasProperty("startLevel")) {
+        systemProperty("startLevel", project.property("startLevel") as String)
+    }
+}
+
