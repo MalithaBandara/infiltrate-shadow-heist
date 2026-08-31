@@ -72,12 +72,23 @@ internal object DesktopVideoPlayerManager {
                 val root = Group(mv)
                 val scene = Scene(root)
 
-                var writableImage: WritableImage? = null
-                var bufferedImage: BufferedImage? = null
+                val snapParams = javafx.scene.SnapshotParameters().apply {
+                    fill = javafx.scene.paint.Color.TRANSPARENT
+                }
+
+                var lastMediaTime: javafx.util.Duration? = null
+                var lastSnapshotNanos = 0L
+                val minFrameIntervalNanos = 16_000_000L // Cap to ~60fps max
 
                 val timer = object : AnimationTimer() {
                     override fun handle(now: Long) {
                         try {
+                            if (now - lastSnapshotNanos < minFrameIntervalNanos) return
+                            val currentTime = mp.currentTime
+                            if (currentTime == lastMediaTime) return
+                            lastMediaTime = currentTime
+                            lastSnapshotNanos = now
+
                             val w = media.width
                             val h = media.height
                             if (w > 0 && h > 0) {
@@ -88,7 +99,7 @@ internal object DesktopVideoPlayerManager {
                                 if (writableImage == null || writableImage?.width?.toInt() != w || writableImage?.height?.toInt() != h) {
                                     writableImage = WritableImage(w, h)
                                 }
-                                mv.snapshot(null, writableImage)
+                                mv.snapshot(snapParams, writableImage)
                                 bufferedImage = SwingFXUtils.fromFXImage(writableImage, bufferedImage)
                                 bufferedImage?.let {
                                     currentFrame = it.toComposeImageBitmap()
