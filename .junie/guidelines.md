@@ -52,6 +52,24 @@ risks (duplicate Kotlin/Native runtime symbols; `@ObjCName` prefix
 stripping) that are now resolved with real evidence, not just fixed and
 hoped.
 
+**Update (2026-09-01):** the "KorGE only during gameplay, Compose owns
+everything else" architecture is **PROVEN VIABLE on real iOS Simulator
+CI**. Repeatedly swapping `window.rootViewController` between a Compose
+screen and KorGE's already-warm `ViewController` works correctly with no
+extra pause/resume plumbing: switch-to-KorGE latency lands well under
+half a second even cold and 60–120ms warm, and — the important one for
+battery — KorGE's render loop genuinely stops producing frames while
+hidden (measured 0 across every cycle, not assumed from docs). Getting a
+clean CI run took 5 iterations, including one real Swift compile bug, one
+bug in my own measurement harness, and one genuine Compose Multiplatform
+crash (`PlistSanityCheck` requiring `CADisableMinimumFrameDurationOnPhone`
+in `Info.plist`) — all caught by reading raw logs, not the misleading
+green `continue-on-error` checkmark, same discipline as every other spike
+in this file. See "Compose/KorGE view-switching spike" below for the full
+story. Separately, also confirmed **`korge-video` is NOT viable** for the
+planned menu video background — see "`korge-video` feasibility spike"
+below.
+
 ## LOCKED WORKING CONFIGURATION (verified 2026-08-25, commit `0b958c3`)
 
 **These versions are load-bearing. Do not upgrade any of them without
@@ -916,6 +934,239 @@ log this time genuinely backs it up:
   into any release/distribution pipeline, and not the same project as
   KorGE's own generated `build/platforms/ios` — no decision has been made
   about whether/how these converge for a real shipping app.
+
+## Compose/KorGE view-switching spike (2026-09-01) — PROVEN VIABLE on real iOS Simulator CI
+
+**Status: viable, build the real menu/store/gameplay architecture around
+this.** Tests the architecture where KorGE is shown ONLY during actual
+gameplay and Compose Multiplatform owns everything else (menu, level
+select, store, settings, and a "watch ad to continue" flow that re-enters
+KorGE after the ad finishes) — reusing `ios-shell/`'s already-proven
+`GameMain.framework` + `PaywallModule.framework` embedding rather than a
+new app.
+
+### What was built
+
+- **`paywall-build/src/iosMain/kotlin/SpikeComposeScreen.kt`** — the
+  **first real Compose UI written anywhere in this repo** (`paywall-build`
+  previously only declared `compose.runtime`/`foundation`/`material3`
+  with no actual `@Composable`). One centered "Start Level" button,
+  exported as `SpikeComposeScreen.shared.makeViewController(onStartLevel:)`
+  via `ComposeUIViewController { }`. Needed adding `implementation(compose.ui)`
+  to `paywall-build/build.gradle.kts`'s `iosMain` (not `commonMain` —
+  UIKit-specific, would break the `jvm()` target, same reasoning as the
+  RevenueCat dependency just above it).
+- **`src@ios/SwitchSpikeScene.kt`** — a debug KorGE scene (pulsing rect,
+  live tick counter, a real "END LEVEL (debug)" button wired via
+  `.mouse { onClick { ... } }`) that the app **never navigates away
+  from** — the whole point is that the KorGE engine + this scene stay
+  resident for the app's life; "switching" is purely a native
+  `window.rootViewController` toggle, not a KorGE scene change.
+- **`src@ios/SpikeBridge.ios.kt`** — a Kotlin/Native object (same
+  `@ObjCName(exact = true)` export pattern as `DebugStorageBridge`/`ShellAppDelegate`)
+  exposing a per-frame `frameTicks` counter, incremented from
+  `SwitchSpikeScene`'s `addUpdater { }` every render tick regardless of
+  UIKit visibility. This is the actual measurement instrument: Swift
+  polls it to detect (a) when a fresh frame renders after KorGE is shown
+  again, and (b) whether it keeps changing while hidden.
+- **`src@ios/SpikeEntry.ios.kt`** — a separate `spikeMain()`, structurally
+  identical to `src/main.kt`'s real `Korge { sceneContainer()... }` but
+  pointed at `SwitchSpikeScene` instead of `SplashScene`. `ShellAppDelegate.ios.kt`'s
+  entry lambda was temporarily switched from `{ main() }` to
+  `{ spikeMain() }` for this spike — commonMain's real `src/main.kt` was
+  never touched.
+- **`ios-shell/Sources/AppDelegate.swift`** — drives 6 fully automated
+  Compose→KorGE→Compose cycles in one app session (no human tapping
+  needed, no fragile `xcodebuild`/`XCUITest` tap-simulation): for each
+  cycle, swap to KorGE and poll `SpikeBridge.shared.frameTicks` (2ms
+  `Timer`) until it changes or times out (switch latency), dwell ~700ms
+  visible (proves active rendering), call the same `requestLevelEnd()`
+  the debug button calls, swap back to Compose, dwell ~1200ms hidden
+  (proves the render loop actually stopped), sample resident memory via
+  `mach_task_basic_info`. Results written to
+  `Documents/switch_spike_result.txt`, read back by CI the same way
+  `storage_bridge_result.txt` already was.
+
+### The 5 CI iterations — real bugs, not flakiness, each confirmed from raw logs
+
+Every one of these showed **`"conclusion": "success"`** in the GitHub
+Actions API/UI (the steps use `continue-on-error: true`, same convention
+as the rest of this file) while the actual command underneath had failed.
+**This is not a one-off — it happened on 3 of 5 rounds in a row for
+different reasons.** Never trust the checkmark for these steps; always
+pull the job's raw log (`gh api .../actions/jobs/<id>/logs` or the REST
+`/logs` zip) and grep for the real output.
+
+1. **`62b135b`, run `33412736968`** — genuine Swift compile failure:
+   `private var window: UIWindow?` on `AppDelegate` collided with
+   `UIApplicationDelegate`'s own optional `window` property requirement
+   (Swift requires protocol-conforming properties to be at least as
+   accessible as the enclosing type). `** BUILD FAILED **` in the raw
+   `xcodebuild` log; the app was never even built, let alone run. Fixed
+   by renaming to `shellWindow` (`1320743`).
+2. **`1320743`, run `33414886599`** — build succeeded and the app ran
+   correctly, but the CI step meant to wait for the result file
+   (`xcrun simctl io "$DEVICE_ID" screenshot ...` on every iteration of a
+   100-iteration poll loop) turned out to cost **1–13 real seconds per
+   screenshot on this runner** (confirmed from the raw per-line log
+   timestamps, not assumed) — so the loop burned its entire 100-"second"
+   budget on ~100 slow screenshots and never gave the app a real chance
+   to be checked before giving up. Looked exactly like a hang; wasn't
+   one. Fixed by dropping screenshots from that loop entirely for the
+   next round and using a genuinely fast 1s-interval poll.
+3. **`06aea45`, run `33417902658`** — **first clean success.** Fast poll
+   found the result file **within ~1s of starting to check** (the whole
+   6-cycle sequence had already finished during the previous step's own
+   ~13–14s post-launch window). Real per-cycle data, see table below.
+4. **`a8caaf7`, run `33420468867`** — re-added screenshots (this time in
+   the *launch* step, right after `simctl launch`, so they'd actually
+   land during the switching window instead of after it) — but keeping
+   the CI step alive for ~95+ real seconds (10 screenshots × up to 13s
+   each) gave a **genuine, deterministic Compose Multiplatform crash**
+   time to fire: `SIGABRT`, Kotlin `kotlin#error(...)`, inside
+   `androidx.compose.ui.uikit.PlistSanityCheck` — fetched directly from
+   `JetBrains/compose-multiplatform-core` (`compose/ui/ui/src/iosMain/kotlin/androidx/compose/ui/uikit/PlistSanityCheck.ios.kt`):
+   it dispatches a one-time check onto a **low-priority background
+   queue** (`DISPATCH_QUEUE_PRIORITY_LOW`, matching the crash's own
+   `"queue":"com.apple.root.utility-qos"` exactly) that hard-aborts the
+   process if `Info.plist` doesn't have
+   `CADisableMinimumFrameDurationOnPhone` set to `true`. `ios-shell/project.yml`
+   never set it. Round 3 (above) never crashed only because its CI step
+   exited in ~13s — too fast for the low-priority check to have fired
+   yet; it would eventually have crashed there too, just later than CI
+   was watching. **Not a switch-spike bug, not flaky — any Compose-on-iOS
+   work in this repo needs this key regardless of the switching
+   architecture.**
+5. **`2130686`, run `33423097578`** — added
+   `CADisableMinimumFrameDurationOnPhone: true` to `ios-shell/project.yml`'s
+   Info.plist properties. Clean 6-cycle run, no crash, real numbers for
+   every field including the one round 3 was missing
+   (`switchToComposeLatencyMsApprox`).
+
+### Real numbers (both clean runs — 06aea45/`33417902658` and 2130686/`33423097578` — cited separately, cross-run variance is Simulator-noise, not a regression)
+
+| cycle | switchToKorgeLatencyMs (run 3) | switchToKorgeLatencyMs (run 5) | hiddenDwellTicksAdvanced (both runs) |
+|---|---|---|---|
+| 1 (cold) | 370.8 | 383.4 | 0 |
+| 2 | 390.0 | 84.5 | 0 |
+| 3 | 485.7 | 60.0 | 0 |
+| 4 | 111.8 | 119.1 | 0 |
+| 5 | 229.7 | 103.2 | 0 |
+| 6 | 157.1 | 74.5 | 0 |
+
+- **Switch-to-KorGE latency**: noisy on the Simulator (cycle 3 of run 3
+  was actually its slowest, not cycle 1) but consistently well under
+  500ms cold and in the 60–120ms range once warm across both runs — no
+  loading spinner needed for the "continue after ad" re-entry; a brief
+  fade on the very first level entry would be a reasonable hedge against
+  the ~370–390ms cold case.
+- **`hiddenDwellTicksAdvanced` = 0, every cycle, both runs, no
+  exception.** This is the load-bearing result: `GLKViewController`'s
+  internal display link genuinely stops firing once its view leaves the
+  window via a plain `window.rootViewController =` swap — **no manual
+  `.paused = true`/resume plumbing needed.** Directly answers the
+  battery-drain question this spike was built to answer.
+- **`korgeDwellTicksAdvanced`** (frames rendered per ~700ms while
+  visible) started low in run 3 (1–2 ticks in cycles 1–2, rising to
+  16–17 by cycles 5–6) and higher-but-still-well-under-60fps in run 5
+  (2 then 19–24) — almost certainly Metal shader warm-up on the
+  Simulator (`"Metal Compiling Shader"` lines visible in the unified
+  log right at launch), not representative of real-device frame rates.
+  Don't read the absolute fps here as a real-device number; the
+  visible/hidden *on-off* behavior is the reliable part.
+- **Memory**: run 3 — 297→303→300→294→267→288 MB; run 5 —
+  310→319→314→297→292→275 MB. Both fluctuate without a monotonic growth
+  trend across 6 cycles. Not proof of no leak (6 cycles is a small
+  sample — a slow leak could easily hide in this noise), but no obvious
+  runaway either.
+- **`switchToComposeLatencyMsApprox`**: turned out to be a flawed proxy,
+  confirmed once real data came in — it measures "time until the next
+  *KorGE* tick after hiding it," which is guaranteed to hit its own
+  2000ms timeout precisely because the previous bullet's finding is
+  true (no more KorGE ticks happen once hidden). It reported exactly
+  `~2000.4` for all 6 cycles in run 5, i.e. it timed out every time —
+  self-consistent with, not contradicting, the hidden-dwell result, but
+  it says nothing about how fast Compose itself becomes visually ready.
+  Not re-instrumented this session; a trivial static screen like this
+  one is expected to be sub-frame, but that's an expectation, not a
+  measurement.
+
+### What's still open
+
+- **Visual flash/glitch check is inconclusive, not clean.** 10
+  screenshots were captured (via `xcrun simctl io screenshot`, moved
+  into the launch step so they'd land during the switching window) but
+  **all 10 landed on the same static Compose "Start Level" screen** —
+  the entire 6-cycle sequence completes in ~13–14s real time while each
+  screenshot itself costs 1–13s, so external `simctl` polling never
+  happened to land inside one of the ~100–500ms KorGE-visible windows.
+  If real visual proof is needed before shipping, the fix is to
+  deliberately hold KorGE visible for a few seconds on just one cycle
+  (not all 6) specifically to make it screenshot-able — not attempted
+  this session.
+- Only tested on `iosSimulatorArm64`, same caveat as every other iOS
+  spike in this file — real-device (`iosArm64`) frame-rate/latency
+  characteristics are unverified and could differ meaningfully from the
+  Simulator's Metal-emulation numbers above.
+- This is still a debug scene (`SwitchSpikeScene`) and a throwaway
+  Compose screen (`SpikeComposeScreen`), not real menu/gameplay code.
+  `ShellAppDelegate.ios.kt`'s entry lambda currently points at
+  `spikeMain()` — **revert to `{ main() }` before/while building the
+  real Compose menu integration**, this was left pointed at the spike
+  deliberately so the CI evidence above could be gathered, not as an
+  oversight.
+- `CADisableMinimumFrameDurationOnPhone: true` is only set in
+  `ios-shell/project.yml`. If/when the real Compose menu UI moves into
+  a different Xcode project or KorGE's own generated
+  `build/platforms/ios`, that project's `Info.plist` needs the same key
+  or it will hit the identical `PlistSanityCheck` crash.
+
+## `korge-video` feasibility spike (2026-09-01) — NOT VIABLE
+
+**Status: do not build the planned menu video background around
+`korge-video`.** Tested as a pure feasibility check (throwaway scene,
+`deps.kproject.yml` entry, `runJvm`), fully reverted afterward — no trace
+left in the working tree, documented here so the investigation isn't
+redone.
+
+- **Doesn't even compile on JVM** against this project's locked KorGE
+  `6.0.0`: `:korge-video:compileKotlinJvm` failed with a wall of
+  `Unresolved reference` errors (`PlatformAudioOutput`, `delay`, `stop`,
+  `dispose`, `setFloatStereo`, `createPlatformAudioOutput`,
+  `readShortArrayLE`, `writeArrayLE`) — korau/korio APIs renamed or
+  removed between whatever KorGE version `korge-video` was last built
+  against and `6.0.0`.
+- **[korlibs/korge-video](https://github.com/korlibs/korge-video)**: 0
+  stars, 13 commits total, **last real commit 2023-10-05** ("Upgrade
+  KorGE to 5.0.5") — nearly 3 years stale. The library's own maintainer
+  (soywiz) opened
+  [issue #2](https://github.com/korlibs/korge-video/issues/2), "Apply
+  patch to fix android on korge 6.0.0", in Feb 2025 with an unmerged
+  patch attached — still open, confirming even Android doesn't work
+  out of the box against this project's exact KorGE version.
+- **iOS backend is a literal empty stub, not just unmaintained**:
+  `korge-video/src/nativeMain/kotlin/korlibs/video/internal/KorviInternalNative.kt`
+  (the implementation used by every Kotlin/Native target, iOS included)
+  is
+  ```kotlin
+  internal class NativeKorviInternal : KorviInternal() {
+  }
+  ```
+  — overrides nothing, silently falls back to the common base class's
+  `DummyKorviVideoLL(3.minutes)`: a fake generated video (solid
+  background + elapsed-time text), not real MP4 decoding. A
+  `nativeInterop/cinterop/min_ffmpeg.def` suggests an abandoned attempt
+  at a real FFmpeg-backed native decoder that was never wired up. No
+  issue, open or closed, mentions iOS at all.
+- Real decoding only exists for JVM (JCodec-based MP4 demuxer) and
+  Android (`MediaPlayer`)/JS. No reusable `View` wrapper ships in the
+  library either — consumers hand-roll one from the library's own demo
+  app's source, which is what the spike scene did.
+- **If video playback is still wanted**: cheaper paths that don't
+  need any new dependency are re-encoding the clip as a low-fps
+  PNG/JPEG frame sequence animated through KorGE's normal
+  `Bitmap`/`Animation` APIs, or a sprite-sheet-style approach — both
+  proven, no codec involved.
 
 ## RevenueCat version is pinned by iOS klib ABI compatibility, not just Android/JVM metadata
 
