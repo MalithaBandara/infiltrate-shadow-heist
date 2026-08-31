@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.infiltrate.storage.PlatformStorage
@@ -81,9 +82,24 @@ fun MainMenuScreen(
     ) {
         val screenWidth = maxWidth
         val screenHeight = maxHeight
-        val isCompact = screenWidth < 600.dp
+        val isCompact = screenWidth < 700.dp
 
-        // 1. Looping Cinematic Video Background (bg1080p.mp4) with bg12.png fallback
+        // Reference 720p scale factor for widescreen phone / desktop displays
+        val scale = if (isCompact) 0.65f else (screenHeight / 720.dp).coerceIn(0.85f, 1.4f)
+
+        val logoWidth = if (isCompact) 260.dp else (460 * scale).dp
+        val logoHeight = if (isCompact) 76.dp else (135 * scale).dp
+
+        val buttonWidth = if (isCompact) screenWidth - 32.dp else (480 * scale).dp
+        val buttonHeight = if (isCompact) 56.dp else (84 * scale).dp
+        val buttonSpacing = if (isCompact) 10.dp else (16 * scale).dp
+        val buttonFontSize = if (isCompact) 24.sp else (36 * scale).sp
+        val iconSize = if (isCompact) 24.dp else (36 * scale).dp
+
+        val startMargin = if (isCompact) 16.dp else (72 * scale).dp
+        val topMargin = if (isCompact) 20.dp else (42 * scale).dp
+
+        // 1. Looping Video Background (bg1080p.mp4) with bg12.png fallback
         LoopingVideoBackground(
             modifier = Modifier.fillMaxSize(),
             videoName = "bg1080p",
@@ -95,12 +111,12 @@ fun MainMenuScreen(
         Box(
             modifier = Modifier
                 .fillMaxHeight()
-                .width(if (isCompact) screenWidth else 480.dp)
+                .width(if (isCompact) screenWidth else (680 * scale).dp)
                 .background(
                     Brush.horizontalGradient(
                         0.0f to Color(0xF206080A),
-                        0.5f to Color(0xCC06080A),
-                        0.8f to Color(0x6606080A),
+                        0.45f to Color(0xDD06080A),
+                        0.75f to Color(0x7706080A),
                         1.0f to Color.Transparent
                     )
                 )
@@ -111,62 +127,75 @@ fun MainMenuScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(
-                    start = if (isCompact) 16.dp else 48.dp,
-                    end = 24.dp,
-                    top = if (isCompact) 20.dp else 36.dp,
-                    bottom = 24.dp
+                    start = startMargin,
+                    end = 28.dp,
+                    top = topMargin,
+                    bottom = 28.dp
                 )
         ) {
             // Left Column: Logo + Buttons
             Column(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .width(if (isCompact) screenWidth - 32.dp else 320.dp)
+                    .width(buttonWidth)
             ) {
                 // Logo Image (logo_main.png)
                 Image(
                     painter = painterResource(Res.drawable.logo_main),
                     contentDescription = "INFILTRATE: SHADOW HEIST",
                     contentScale = ContentScale.Fit,
+                    alignment = Alignment.CenterStart,
                     modifier = Modifier
-                        .width(if (isCompact) 240.dp else 300.dp)
-                        .height(if (isCompact) 70.dp else 90.dp)
+                        .width(logoWidth)
+                        .height(logoHeight)
                 )
 
-                Spacer(modifier = Modifier.height(if (isCompact) 18.dp else 28.dp))
+                Spacer(modifier = Modifier.height(if (isCompact) 14.dp else (24 * scale).dp))
 
                 // Textured Heist Buttons Stack
                 HeistTexturedButton(
                     text = "PLAY",
                     texture = Res.drawable.button1,
                     font = bebasFont,
+                    buttonHeight = buttonHeight,
+                    fontSize = buttonFontSize,
+                    iconSize = iconSize,
                     iconRenderer = { drawInkPlay() },
                     onClick = onPlayClicked
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(buttonSpacing))
 
                 HeistTexturedButton(
                     text = "MISSIONS",
                     texture = Res.drawable.button2,
                     font = bebasFont,
+                    buttonHeight = buttonHeight,
+                    fontSize = buttonFontSize,
+                    iconSize = iconSize,
                     iconRenderer = { drawInkTarget() },
                     onClick = onMissionsClicked
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(buttonSpacing))
 
                 HeistTexturedButton(
                     text = "STORE",
                     texture = Res.drawable.button3,
                     font = bebasFont,
+                    buttonHeight = buttonHeight,
+                    fontSize = buttonFontSize,
+                    iconSize = iconSize,
                     iconRenderer = { drawInkCart() },
                     onClick = onStoreClicked
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(buttonSpacing))
 
                 HeistTexturedButton(
                     text = "SETTINGS",
                     texture = Res.drawable.button4,
                     font = bebasFont,
+                    buttonHeight = buttonHeight,
+                    fontSize = buttonFontSize,
+                    iconSize = iconSize,
                     iconRenderer = { drawInkGear() },
                     onClick = onSettingsClicked
                 )
@@ -178,6 +207,8 @@ fun MainMenuScreen(
                     .align(Alignment.BottomEnd)
                     .padding(bottom = 8.dp, end = 8.dp),
                 font = bebasFont,
+                scale = scale,
+                isCompact = isCompact,
                 onClick = onMissionsClicked
             )
         }
@@ -189,6 +220,9 @@ private fun HeistTexturedButton(
     text: String,
     texture: DrawableResource,
     font: FontFamily,
+    buttonHeight: Dp,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    iconSize: Dp,
     iconRenderer: DrawScope.() -> Unit,
     onClick: () -> Unit
 ) {
@@ -198,7 +232,7 @@ private fun HeistTexturedButton(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp)
+            .height(buttonHeight)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -219,26 +253,26 @@ private fun HeistTexturedButton(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.15f))
+                    .background(Color.Black.copy(alpha = 0.18f))
             )
         }
 
         // Icon + Label Row
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 22.dp)
+            modifier = Modifier.padding(start = buttonHeight * 0.4f)
         ) {
-            Canvas(modifier = Modifier.size(24.dp)) {
+            Canvas(modifier = Modifier.size(iconSize)) {
                 iconRenderer()
             }
-            Spacer(modifier = Modifier.width(18.dp))
+            Spacer(modifier = Modifier.width(buttonHeight * 0.35f))
             Text(
                 text = text,
                 color = ShadowTheme.Ink,
-                fontSize = 24.sp,
+                fontSize = fontSize,
                 fontFamily = font,
                 fontWeight = FontWeight.Normal,
-                letterSpacing = 1.5.sp
+                letterSpacing = 2.sp
             )
         }
     }
@@ -248,6 +282,8 @@ private fun HeistTexturedButton(
 private fun MissionDossierCard(
     modifier: Modifier = Modifier,
     font: FontFamily,
+    scale: Float,
+    isCompact: Boolean,
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -256,18 +292,21 @@ private fun MissionDossierCard(
     val bgAlpha = if (isPressed) 0.98f else 0.92f
     val borderAlpha = if (isPressed) 0.25f else 0.10f
 
+    val cardWidth = if (isCompact) 280.dp else (440 * scale).dp
+    val cardHeight = if (isCompact) 110.dp else (165 * scale).dp
+
     Box(
         modifier = modifier
-            .width(310.dp)
-            .height(120.dp)
-            .background(Color(0xFF0A0A0B).copy(alpha = bgAlpha), RoundedCornerShape(10.dp))
-            .border(1.dp, Color.White.copy(alpha = borderAlpha), RoundedCornerShape(10.dp))
+            .width(cardWidth)
+            .height(cardHeight)
+            .background(Color(0xFF0A0A0B).copy(alpha = bgAlpha), RoundedCornerShape(12.dp))
+            .border(1.dp, Color.White.copy(alpha = borderAlpha), RoundedCornerShape(12.dp))
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick
             )
-            .padding(16.dp)
+            .padding(if (isCompact) 14.dp else (22 * scale).dp)
     ) {
         Row(
             verticalAlignment = Alignment.Top,
@@ -275,55 +314,56 @@ private fun MissionDossierCard(
         ) {
             Canvas(
                 modifier = Modifier
-                    .size(28.dp)
-                    .padding(top = 2.dp)
+                    .size(if (isCompact) 28.dp else (38 * scale).dp)
+                    .padding(top = 4.dp)
             ) {
                 drawFolderIcon()
             }
 
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(if (isCompact) 14.dp else (20 * scale).dp))
 
             Column(verticalArrangement = Arrangement.Center) {
                 Text(
                     text = "MISSION 03",
                     color = Color(0xFF9A9A9E),
-                    fontSize = 11.sp,
+                    fontSize = if (isCompact) 11.sp else (15 * scale).sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.sp
                 )
 
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(3.dp))
 
                 Text(
                     text = "THE WAREHOUSE",
                     color = Color.White,
-                    fontSize = 22.sp,
+                    fontSize = if (isCompact) 22.sp else (32 * scale).sp,
                     fontFamily = font,
-                    letterSpacing = 1.sp
+                    letterSpacing = 1.5.sp
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(5.dp))
 
                 Text(
                     text = "Infiltrate the warehouse and\nretrieve the stolen files.",
                     color = Color(0xFFB7B7BC),
-                    fontSize = 11.sp,
-                    lineHeight = 14.sp
+                    fontSize = if (isCompact) 11.sp else (15 * scale).sp,
+                    lineHeight = if (isCompact) 14.sp else (19 * scale).sp
                 )
             }
         }
     }
 }
 
-// Icon Drawing Routines matching MainMenuScene.kt exactly
+// Icon Drawing Routines scaled to match button icon bounding box
 
 private fun DrawScope.drawInkPlay() {
     val cx = size.width / 2f
     val cy = size.height / 2f
+    val scale = size.width / 24f
     val path = Path().apply {
-        moveTo(cx - 7f, cy - 10f)
-        lineTo(cx + 10f, cy)
-        lineTo(cx - 7f, cy + 10f)
+        moveTo(cx - 7f * scale, cy - 10f * scale)
+        lineTo(cx + 10f * scale, cy)
+        lineTo(cx - 7f * scale, cy + 10f * scale)
         close()
     }
     drawPath(path, color = ShadowTheme.Ink)
@@ -332,38 +372,43 @@ private fun DrawScope.drawInkPlay() {
 private fun DrawScope.drawInkTarget() {
     val cx = size.width / 2f
     val cy = size.height / 2f
-    val r = 11f
-    drawCircle(color = ShadowTheme.Ink, radius = r, style = Stroke(width = 3f))
-    drawCircle(color = ShadowTheme.Ink, radius = 3.2f)
-    drawLine(ShadowTheme.Ink, Offset(cx, cy - 16f), Offset(cx, cy - 11f), strokeWidth = 3f, cap = StrokeCap.Square)
-    drawLine(ShadowTheme.Ink, Offset(cx, cy + 11f), Offset(cx, cy + 16f), strokeWidth = 3f, cap = StrokeCap.Square)
-    drawLine(ShadowTheme.Ink, Offset(cx - 16f, cy), Offset(cx - 11f, cy), strokeWidth = 3f, cap = StrokeCap.Square)
-    drawLine(ShadowTheme.Ink, Offset(cx + 11f, cy), Offset(cx + 16f, cy), strokeWidth = 3f, cap = StrokeCap.Square)
+    val scale = size.width / 24f
+    val r = 11f * scale
+    val thickness = 3.0f * scale
+    drawCircle(color = ShadowTheme.Ink, radius = r, style = Stroke(width = thickness))
+    drawCircle(color = ShadowTheme.Ink, radius = 3.2f * scale)
+    drawLine(ShadowTheme.Ink, Offset(cx, cy - 16f * scale), Offset(cx, cy - 11f * scale), strokeWidth = thickness, cap = StrokeCap.Square)
+    drawLine(ShadowTheme.Ink, Offset(cx, cy + 11f * scale), Offset(cx, cy + 16f * scale), strokeWidth = thickness, cap = StrokeCap.Square)
+    drawLine(ShadowTheme.Ink, Offset(cx - 16f * scale, cy), Offset(cx - 11f * scale, cy), strokeWidth = thickness, cap = StrokeCap.Square)
+    drawLine(ShadowTheme.Ink, Offset(cx + 11f * scale, cy), Offset(cx + 16f * scale, cy), strokeWidth = thickness, cap = StrokeCap.Square)
 }
 
 private fun DrawScope.drawInkCart() {
     val cx = size.width / 2f
     val cy = size.height / 2f
+    val scale = size.width / 24f
     val path = Path().apply {
-        moveTo(cx - 12f, cy - 9f)
-        lineTo(cx - 9f, cy - 9f)
-        lineTo(cx - 5.5f, cy + 5f)
-        lineTo(cx + 9f, cy + 5f)
-        lineTo(cx + 11.5f, cy - 3.5f)
-        lineTo(cx - 8f, cy - 3.5f)
+        moveTo(cx - 12f * scale, cy - 9f * scale)
+        lineTo(cx - 9f * scale, cy - 9f * scale)
+        lineTo(cx - 5.5f * scale, cy + 5f * scale)
+        lineTo(cx + 9f * scale, cy + 5f * scale)
+        lineTo(cx + 11.5f * scale, cy - 3.5f * scale)
+        lineTo(cx - 8f * scale, cy - 3.5f * scale)
     }
-    drawPath(path, color = ShadowTheme.Ink, style = Stroke(width = 2.8f, cap = StrokeCap.Round))
-    drawCircle(color = ShadowTheme.Ink, radius = 2.4f, center = Offset(cx - 4f, cy + 10f))
-    drawCircle(color = ShadowTheme.Ink, radius = 2.4f, center = Offset(cx + 7f, cy + 10f))
+    drawPath(path, color = ShadowTheme.Ink, style = Stroke(width = 2.8f * scale, cap = StrokeCap.Round))
+    drawCircle(color = ShadowTheme.Ink, radius = 2.4f * scale, center = Offset(cx - 4f * scale, cy + 10f * scale))
+    drawCircle(color = ShadowTheme.Ink, radius = 2.4f * scale, center = Offset(cx + 7f * scale, cy + 10f * scale))
 }
 
 private fun DrawScope.drawInkGear() {
     val cx = size.width / 2f
     val cy = size.height / 2f
-    val ringR = 7.5f
-    drawCircle(color = ShadowTheme.Ink, radius = ringR, style = Stroke(width = 3.2f))
-    val innerR = 6.3f
-    val outerR = 12.0f
+    val scale = size.width / 24f
+    val ringR = 7.5f * scale
+    val thickness = 3.2f * scale
+    drawCircle(color = ShadowTheme.Ink, radius = ringR, style = Stroke(width = thickness))
+    val innerR = 6.3f * scale
+    val outerR = 12.0f * scale
     for (i in 0 until 8) {
         val angle = i * PI / 4.0
         val ux = cos(angle).toFloat()
@@ -372,7 +417,7 @@ private fun DrawScope.drawInkGear() {
             color = ShadowTheme.Ink,
             start = Offset(cx + ux * innerR, cy + uy * innerR),
             end = Offset(cx + ux * outerR, cy + uy * outerR),
-            strokeWidth = 3.2f,
+            strokeWidth = thickness,
             cap = StrokeCap.Square
         )
     }
@@ -381,15 +426,16 @@ private fun DrawScope.drawInkGear() {
 private fun DrawScope.drawFolderIcon() {
     val cx = size.width / 2f
     val cy = size.height / 2f
+    val scale = size.width / 28f
     val path = Path().apply {
-        moveTo(cx - 12f, cy - 7f)
-        lineTo(cx - 4f, cy - 7f)
-        lineTo(cx - 1f, cy - 4f)
-        lineTo(cx + 12f, cy - 4f)
-        lineTo(cx + 12f, cy + 9f)
-        lineTo(cx - 12f, cy + 9f)
+        moveTo(cx - 12f * scale, cy - 7f * scale)
+        lineTo(cx - 4f * scale, cy - 7f * scale)
+        lineTo(cx - 1f * scale, cy - 4f * scale)
+        lineTo(cx + 12f * scale, cy - 4f * scale)
+        lineTo(cx + 12f * scale, cy + 9f * scale)
+        lineTo(cx - 12f * scale, cy + 9f * scale)
         close()
     }
     drawPath(path, color = Color(0xFFECE7DA))
-    drawPath(path, color = Color.Black.copy(alpha = 0.25f), style = Stroke(width = 1f))
+    drawPath(path, color = Color.Black.copy(alpha = 0.25f), style = Stroke(width = 1f * scale))
 }

@@ -61,6 +61,16 @@ kotlin {
         val jvmMain by getting {
             dependencies {
                 implementation(compose.desktop.currentOs)
+                val osName = System.getProperty("os.name").lowercase()
+                val osClassifier = when {
+                    osName.contains("win") -> "win"
+                    osName.contains("mac") -> "mac"
+                    else -> "linux"
+                }
+                implementation("org.openjfx:javafx-base:21.0.2:$osClassifier")
+                implementation("org.openjfx:javafx-graphics:21.0.2:$osClassifier")
+                implementation("org.openjfx:javafx-media:21.0.2:$osClassifier")
+                implementation("org.openjfx:javafx-swing:21.0.2:$osClassifier")
             }
         }
         // compose.ui (needed for ComposeUIViewController, iOS-only interop entry point) is
