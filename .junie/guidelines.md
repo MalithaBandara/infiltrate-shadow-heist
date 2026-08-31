@@ -1316,3 +1316,35 @@ The gameplay logic is decoupled from the rendering engine:
   - `StoreScene.kt`: Black market contraband depot featuring the hero Shadow Operative Pass with gold neon border, tiered coin caches, tactical powerups (smoke screen, EMP scrambler, phantom cloak), and restore purchases wired to `PurchasesBridge`.
   - `SettingsScene.kt`: Tactical configuration terminal with interactive music & SFX volume sliders, restore purchases, privacy policy, terms of service, and clear cache options.
   - `GameplayScene.kt`: Immersive stealth parkour level with stark white high-contrast background and solid black silhouette architecture, extraction beacon, ground-aligned character sprite anchoring (calibrated feet contact line eliminating floating gap), tactile mobile touch controls (Left/Right virtual D-Pad, Jump/Vault, Sneak/Crouch), top glassmorphism HUD with live threat & detection radar bar, stance indicator, stopwatch timer, and modal overlays (Pause, Mission Failed with tactical recon tips, Level Complete with 3-star rating reveal & 2x multiplier coin bounty rewards).
+
+## Non-Gameplay UI Migration to Compose Multiplatform (2026-09-01) — MainMenu Ported
+
+**Status: IN PROGRESS — MainMenu ported to Compose Multiplatform (`paywall-build`), LevelSelect/Store/Settings stubbed as placeholder navigation targets.** KorGE (`:game`) becomes gameplay-only, entered when starting a level via `window.rootViewController` swap on iOS (and warm view-swap candidate on Android).
+
+### 1. Model Sharing across Gradle Composite Builds (`srcDir`)
+- **Finding**: Composite build dependency substitution (`implementation("com.sample.demo:korge-hello-world")`) failed because Gradle included builds cannot resolve parent build artifacts without explicit Maven publishing.
+- **Mechanism**: `src/game/model/` is 100% engine-agnostic standard Kotlin library (`kotlin.math`). Adding `kotlin.srcDir("../src/game/model")` in `paywall-build/build.gradle.kts` allows `paywall-build` (Kotlin `2.3.20`) to compile `GameProfile.kt`, `LevelData.kt`, `Geometry.kt`, `Powerup.kt`, etc. directly from source alongside `:game` (Kotlin `2.0.20`).
+- **Standing Constraint**: All files under `src/game/model/` must remain pure Kotlin (standard library only) and compile cleanly under **both** Kotlin 2.0.20 and 2.3.20. Zero imports of `korlibs.*` or engine-specific types are permitted. Guarded by an automated test (`ZeroKorlibsLintTest`).
+
+### 2. Exact Storage Keys & Zero-Drift Persistence Bridge
+- Because `paywall-build` compiles `src/game/model` from source, it directly instantiates `MapBackedGameProfileStorage` and `MapBackedLevelStorage`.
+- Discrete storage keys persisted:
+  - `user_coins`: String-formatted Int (e.g. `"100"`, `"350"`)
+  - `user_is_premium`: String-formatted Boolean (`"true"` / `"false"`)
+  - `user_music_vol`: String-formatted Float (e.g. `"0.8"`)
+  - `user_sfx_vol`: String-formatted Float (e.g. `"1.0"`)
+  - `user_unlocked_levels`: Semicolon-delimited level IDs (e.g. `"level_1;level_4"`, `"level_1;level_2;level_4"`)
+  - `user_powerups`: Semicolon-delimited `id:count` pairs (e.g. `"smoke_screen:2;phantom_cloak:2"`)
+  - `level_result_<levelId>`: CSV formatted `"$levelId,$completed,$wasDetected,$timeTaken,$timeTargetSeconds"`
+- On iOS: `PlatformStorage` delegates to `PaywallStorage`, which uses `NSUserDefaults(suiteName = "korge")` and key prefix `"org.korge.storage."`, matching KorGE's `DarwinNativeStorage` byte-for-byte.
+
+### 3. Android Warm Engine Symmetry (Candidate Architecture — Unspiked)
+- **Status**: Android Compose wiring is **out of scope for this pass** and deferred to a dedicated Android pass.
+- **Architecture Note**: Multi-Activity (`startActivity`/`finish`) would destroy and recreate the KorGE Activity on every level transition, forfeiting the warm resident engine property proven on iOS (~60–120ms warm swap).
+- **Candidate for Future Spike**: Single-Activity with a parent `FrameLayout` holding both `ComposeView` and KorGE's `KorgwSurfaceView` (or `GLSurfaceView`), toggling `visibility = View.VISIBLE` vs `View.GONE` to pause the OpenGL render thread without engine destruction.
+
+### 4. iOS Shell Architecture (`ios-shell/Sources/AppDelegate.swift`)
+- `MainMenuComposeScreen.shared.makeViewController(onStartLevel:)` (exported via `@ObjCName(name = "MainMenuComposeScreen", exact = true)`) serves as the initial `window.rootViewController`.
+- Tapping "PLAY" swaps `window.rootViewController` to `self.korgeVC` (the warm resident KorGE GLKViewController).
+- When a level ends, `AppDelegate` detects the event and swaps `window.rootViewController` back to `self.composeVC`.
+- On launch, `AppDelegate` runs on-device storage bridge validation against real profile fields and writes `OK:coins=350:unlocked=level_1;level_2;level_4` to `storage_bridge_result.txt` for CI verification.

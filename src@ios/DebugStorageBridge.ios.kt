@@ -23,4 +23,14 @@ object DebugStorageBridge {
         getRaw = { DarwinNativeStorage.getOrNull(it) },
         setRaw = { k, v -> DarwinNativeStorage.set(k, v) }
     ).getProfile().coins
+
+    fun readUnlockedLevelsForDebug(): String = MapBackedGameProfileStorage(
+        getRaw = { DarwinNativeStorage.getOrNull(it) },
+        setRaw = { k, v -> DarwinNativeStorage.set(k, v) }
+    ).getProfile().unlockedLevelIds.sorted().joinToString(";")
+
+    fun readIsPremiumForDebug(): Boolean = MapBackedGameProfileStorage(
+        getRaw = { DarwinNativeStorage.getOrNull(it) },
+        setRaw = { k, v -> DarwinNativeStorage.set(k, v) }
+    ).getProfile().isPremium
 }
