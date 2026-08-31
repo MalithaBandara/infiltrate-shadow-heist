@@ -20,6 +20,9 @@ import platform.UIKit.UIApplication
 @ObjCName(name = "ShellAppDelegate", exact = true)
 object ShellAppDelegate : KorgwBaseNewAppDelegate() {
     override fun applicationDidFinishLaunching(app: UIApplication) {
-        applicationDidFinishLaunching(app) { main() }
+        // TEMP for the Compose<->KorGE switch spike (see .junie/guidelines.md): points at
+        // spikeMain() (SwitchSpikeScene) instead of the real game's main(). Revert to
+        // `{ main() }` once the spike is done - does NOT touch commonMain's src/main.kt itself.
+        applicationDidFinishLaunching(app) { spikeMain() }
     }
 }

@@ -147,6 +147,7 @@ jobs:
             exit 1
           fi
           echo "Using simulator device: $DEVICE_ID"
+          echo "device_id=$DEVICE_ID" >> "$GITHUB_OUTPUT"
 
           xcrun simctl boot "$DEVICE_ID" || true
           xcrun simctl bootstatus "$DEVICE_ID" -b
@@ -167,6 +168,53 @@ jobs:
             exit 1
           fi
           echo "Storage bridge round-trip verified ON-DEVICE (not just JVM-logical): OK"
+        id: boot_shell
+
+      # SPIKE: Compose<->KorGE view-switching cost measurement (see .junie/guidelines.md).
+      # The app is already running from the step above (storage bridge check happens on the
+      # same launch) and has already started its automated 6-cycle switch measurement 1s after
+      # launch. This step just waits for it to finish (polling for the result file, since total
+      # duration depends on how slow the real cold-start-on-first-switch turns out to be - not
+      # assumed in advance) and captures periodic screenshots throughout so a human can visually
+      # check for flashes/glitches, since headless CI has no way to detect those on its own.
+      - name: "Shell app: wait for switch-spike cycles, capture screenshots, read result"
+        continue-on-error: true
+        run: |
+          DEVICE_ID="${{ steps.boot_shell.outputs.device_id }}"
+          BUNDLE_ID="com.infiltrate.shellapp"
+          mkdir -p ios-shell/spike-screenshots
+
+          CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" data)
+          RESULT_FILE="$CONTAINER/Documents/switch_spike_result.txt"
+
+          # Worst case (every one of the 6 cycles hitting its own timeout) is ~75s; 100s gives
+          # comfortable margin without assuming in advance how slow the real cold start is.
+          for i in $(seq 1 100); do
+            xcrun simctl io "$DEVICE_ID" screenshot "ios-shell/spike-screenshots/frame_$(printf '%03d' "$i").png" || true
+            if [ -f "$RESULT_FILE" ]; then
+              echo "Result file appeared after ~${i}s of polling."
+              break
+            fi
+            sleep 1
+          done
+
+          if [ ! -f "$RESULT_FILE" ]; then
+            echo "switch_spike_result.txt never appeared after 100s - app may have hung or crashed mid-cycle. Check device log."
+            exit 1
+          fi
+
+          echo "===== SWITCH SPIKE RESULT ====="
+          cat "$RESULT_FILE"
+          echo "================================"
+
+      - name: Upload switch-spike screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: switch-spike-screenshots
+          path: ios-shell/spike-screenshots
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload shell app build output for inspection
         if: always()
