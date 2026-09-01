@@ -91,6 +91,20 @@ jobs:
         continue-on-error: true
         run: ./gradlew :paywall-build:linkDebugFrameworkIosSimulatorArm64 --no-configuration-cache --stacktrace
 
+      # Real crash (run 33554234984): MissingResourceException for bebas_neue_regular.ttf the
+      # moment MainMenuComposeScreen's real content renders - nothing to do with AdMob, ios-shell
+      # never copied Compose Multiplatform's font/resource bundle into the app at all. Confirmed
+      # by reading Compose's own Gradle plugin source (IosResources.kt) directly: our framework's
+      # Gradle-internal binary name is "podDebugFramework" (starts with "pod"), which the plugin
+      # treats as `isCocoapodsFramework()` - true even though we don't use a real Podfile for
+      # THIS framework's own consumption - so its resources always land at the fixed path
+      # build/compose/cocoapods/compose-resources/, no Xcode env vars or Run Script phase needed.
+      # That copy only happens via this task though, never invoked automatically by our own
+      # link task above.
+      - name: "Shell app: sync Compose Multiplatform resources (fonts, etc.) for iOS"
+        continue-on-error: true
+        run: ./gradlew :paywall-build:syncPodComposeResourcesForIos --no-configuration-cache --stacktrace
+
       # --- Native shell app (ios-shell/) ---
       #
       # Hand-authored via XcodeGen, deliberately NOT KorGE's own generated project under

@@ -12,6 +12,15 @@ targets:
       - Sources
       - path: Resources
         buildPhase: resources
+      # Compose Multiplatform resources (fonts etc. used by the real MainMenu screen) - see the
+      # "sync Compose Multiplatform resources" CI step comment and .junie/guidelines.md "AdMob
+      # (basic-ads) feasibility spike" for the full story of how this was found missing (a real
+      # crash, MissingResourceException for bebas_neue_regular.ttf, nothing to do with AdMob).
+      # `type: folder` = Xcode folder reference (preserves the composeResources/... substructure
+      # underneath, copied verbatim) rather than a flattening group.
+      - path: ../paywall-build/build/compose/cocoapods/compose-resources
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.infiltrate.shellapp
