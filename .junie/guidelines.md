@@ -70,6 +70,23 @@ story. Separately, also confirmed **`korge-video` is NOT viable** for the
 planned menu video background — see "`korge-video` feasibility spike"
 below.
 
+**Update (2026-09-01, later same day):** AdMob via `app.lexilabs.basic:basic-ads`
+is **VIABLE on iOS — real link proven, `BUILD SUCCESSFUL`**, but needed
+genuine CocoaPods wiring (unlike RevenueCat 3.x). Took 3 attempts: plain
+Maven dependency failed (`framework 'GoogleMobileAds' not found` — it
+doesn't bundle Google's SDK into its klib), adding the CocoaPods plugin
+with a manually-declared framework failed with the *same* error despite
+CocoaPods genuinely fetching and building the pod, and the actual fix
+only came from reading Kotlin's own Gradle plugin source directly:
+`configureLinkingOptions()` only wires pod search paths onto the ONE
+framework the plugin auto-creates per target (Gradle-internal name
+prefixed `"pod"`), never onto an independently-declared
+`binaries.framework {}` no matter its name. Fix was configuring that
+auto-created framework via `cocoapods { framework { ... } } ` instead.
+See "AdMob (`basic-ads`) feasibility spike" below for the full story,
+exact working config, and what's still unproven (not yet embedded in
+`ios-shell/`, Android untested, real device untested).
+
 ## LOCKED WORKING CONFIGURATION (verified 2026-08-25, commit `0b958c3`)
 
 **These versions are load-bearing. Do not upgrade any of them without
@@ -1177,6 +1194,168 @@ redone.
   `Bitmap`/`Animation` APIs, or a sprite-sheet-style approach — both
   proven, no codec involved.
 
+## AdMob (`basic-ads`) feasibility spike (2026-09-01) — VIABLE, iOS link proven working
+
+**Status: `app.lexilabs.basic:basic-ads` genuinely links on iOS now.**
+Isolated to `paywall-build`, same module used for the RevenueCat and
+Compose/KorGE spikes above — real CocoaPods wiring was required (unlike
+RevenueCat 3.x, which deliberately avoids CocoaPods entirely), and getting
+it working took 3 attempts, the last one only solved by reading Kotlin's
+own Gradle plugin source directly rather than guessing.
+
+### Why `basic-ads` over the alternatives
+
+Checked three KMP AdMob wrappers. The other two
+(`saitawngpha/Admob-KMP`, `AndreSand/ads-kmp`) are 1–3-star, 4–7-commit
+personal projects with no Maven Central publication — the same red flags
+as `korge-video` above. `app.lexilabs.basic:basic-ads` is real: 109 stars,
+87 commits, last commit **2026-08-23** (days before this spike), published
+on Maven Central, genuine 1:1 `iosMain`/`androidMain` implementations
+(checked its actual file tree, not just the README) for all four ad
+formats (Banner, Interstitial, Rewarded, Rewarded Interstitial) plus GDPR
+consent handling.
+
+### Attempt 1: plain Maven dependency, no CocoaPods — FAILED
+
+Just `implementation("app.lexilabs.basic:basic-ads:1.2.1")` in
+`androidMain`/`iosMain`, no `cocoapods {}` block. Failed at
+`:paywall-build:linkDebugFrameworkIosSimulatorArm64`:
+```
+ld: framework 'GoogleMobileAds' not found
+```
+Confirms `basic-ads` does **not** bundle Google's SDK into its published
+klib the way RevenueCat 3.x bundles its own native SDK (see "RevenueCat
+on iOS: PROVEN WORKING" above) — it genuinely needs the pod linked, same
+as the CocoaPods-dependent RevenueCat versions that were ruled out
+earlier in this project. Its own build declares
+`cocoapods { pod("Google-Mobile-Ads-SDK") { version = "13.8.0" } }`
+(Kotlin `2.4.10`) — checked directly against its `build.gradle.kts` and
+Maven Central Gradle module metadata (only `androidJvm` +
+`ios_arm64`/`ios_simulator_arm64` variants published, no `jvm()` desktop
+variant, so it can't go in `commonMain` in a module that also targets
+`jvm()` — same lesson as `purchases-kmp-core` 3.x elsewhere in this file).
+
+### Attempt 2: add `org.jetbrains.kotlin.native.cocoapods` + `pod()` declarations — FAILED differently
+
+Bumped `paywall-build` from Kotlin `2.3.20` to `2.4.10` to match
+`basic-ads`'s own pin (safe direction — a newer Kotlin/Native compiler can
+read an older klib, not the reverse; RevenueCat's `3.6.0` klib, compiled
+at `2.3.20`, still needed to keep working). Added the `native-cocoapods`
+plugin with `pod("Google-Mobile-Ads-SDK") { version = "13.8.0" }` and
+`pod("GoogleUserMessagingPlatform") { version = "3.1.0" }` (matching
+`basic-ads`'s own exact pod versions), kept the framework declared
+manually via `iosArm64 { binaries.framework { baseName = "PaywallModule" ... } }`
+(mirroring `basic-ads`'s own `build.gradle.kts`, which combines both
+approaches).
+
+Real progress this time — `podSetupBuildGoogle-Mobile-Ads-SDKIosSimulator`,
+`podBuildGoogle-Mobile-Ads-SDKIosSimulator`, and
+`cinteropGoogleMobileAdsIosSimulatorArm64` all genuinely executed
+(CocoaPods fetched and built the real SDK, Kotlin generated real
+interop bindings) — but the link step still failed with the **identical**
+`ld: framework 'GoogleMobileAds' not found`. The pod existed on disk now;
+the linker just didn't know where.
+
+### Root cause — found by reading Kotlin's actual Gradle plugin source, not guessed
+
+Downloaded `KotlinCocoapodsPlugin.kt` and `CocoapodsExtension.kt` straight
+from `JetBrains/kotlin` on GitHub. The relevant logic
+(`configureLinkingOptions()`):
+```kotlin
+target.binaries.all { binary ->
+    val testExecutable = binary is TestExecutable
+    val podFramework = binary is Framework && binary.name.startsWith(POD_FRAMEWORK_PREFIX)
+    if (testExecutable || podFramework) {
+        configureLinkingOptions(project, cocoapodsExtension, binary)  // <- only this adds -F<path>/-framework
+    }
+}
+```
+`POD_FRAMEWORK_PREFIX = "pod"` — a name the plugin assigns to **one
+specific framework it auto-creates per Apple target** the moment the
+plugin is applied (`createDefaultFrameworks()`, unconditional). The
+pod's `-F<frameworkSearchPath>` and `-framework <name>` linker args are
+**only** ever attached to that framework (or test executables) — never to
+an independently-declared `binaries.framework {}`, no matter its
+`baseName`. `basic-ads`'s own build combines both, exactly like our
+attempt 2 did, so if it's ever actually tested by directly running its
+own `linkDebugFramework*` task rather than only publishing the compiled
+klib, it would hit the identical gap — this project just happened to be
+the one that needed to actually prove the link, not just compile.
+
+### Attempt 3: configure the plugin's own auto-created framework instead — SUCCEEDED
+
+Removed the manual `iosArm64`/`iosSimulatorArm64` `binaries.framework {}`
+blocks. Moved the same config (`baseName = "PaywallModule"`,
+`-Xbinary=bundleId=...`, the per-target `swiftLibPath` linker fix already
+established for RevenueCat above) into `cocoapods { framework { ... } }`,
+which — confirmed from `CocoapodsExtension.kt`'s `framework(configure)` →
+`forAllPodFrameworks` — **reconfigures the plugin's already-auto-created,
+correctly-wired framework in place**, not a third competing one. Since
+that single block runs once per Apple target, branched
+`iphoneos`/`iphonesimulator` via the `Framework`'s own `.target.name`
+(confirmed real: `binary.target` is the identical property
+`configureLinkingOptions()` itself reads).
+
+Result: `:paywall-build:linkDebugFrameworkIosSimulatorArm64` — **`BUILD
+SUCCESSFUL in 6m 39s`, 25/25 tasks executed, zero link errors.** Only
+output was the already-known-benign RevenueCat module-cache `.pcm`
+warnings documented in the RevenueCat section above (unrelated,
+pre-existing, cosmetic).
+
+### Exact working config (`paywall-build/build.gradle.kts`)
+
+```kotlin
+plugins {
+    kotlin("multiplatform") version "2.4.10"
+    id("org.jetbrains.kotlin.native.cocoapods") version "2.4.10"
+    // ... existing plugins
+}
+kotlin {
+    cocoapods {
+        ios.deploymentTarget = "15.0"
+        noPodspec()  // embedded into ios-shell/ as a plain .framework, never consumed via a Podfile itself
+        pod("Google-Mobile-Ads-SDK") { moduleName = "GoogleMobileAds"; version = "13.8.0"; extraOpts += listOf("-compiler-option", "-fmodules") }
+        pod("GoogleUserMessagingPlatform") { moduleName = "UserMessagingPlatform"; version = "3.1.0"; extraOpts += listOf("-compiler-option", "-fmodules") }
+        framework {
+            baseName = "PaywallModule"
+            freeCompilerArgs += listOf("-Xbinary=bundleId=com.infiltrate.paywallmodule")
+            val sdkName = if (target.name == "iosArm64") "iphoneos" else "iphonesimulator"
+            swiftLibPath(sdkName)?.let { linkerOpts += listOf("-L$it") }
+        }
+    }
+    iosArm64()
+    iosSimulatorArm64()
+    // NOT: iosArm64 { binaries.framework { ... } } - the whole point of this section
+}
+```
+`AdMobSpikeUsage.kt` (`paywall-build/src/iosMain/kotlin/`) — real calls to
+`BasicAds.Initialize()` and `BannerAd(adUnitId = AdUnitId.BANNER_DEFAULT)`,
+same "force the linker to actually resolve it" pattern as
+`PaywallUsage.kt`'s RevenueCat call — is what made this a genuine link
+test, not a compile of dead-strippable unused code.
+
+### What's still open
+
+- **Only the isolated `paywall-build` klib/framework link was proven.**
+  Not yet embedded into `ios-shell/` (the native shell that already
+  combines `GameMain.framework` + `PaywallModule.framework` — see "Native
+  iOS shell" above) or run on a simulator. The storage-bridge/switch-spike
+  pattern (write a result file, read it back via `simctl`) is the obvious
+  next step to prove `BasicAds.Initialize()` and `BannerAd()` actually
+  run, not just link.
+- **Android side is completely untested this session** — added
+  `com.google.android.gms:play-services-ads`/`com.google.android.ump:user-messaging-platform`
+  to `androidMain` alongside `basic-ads`, but never built or run.
+- Only `iosSimulatorArm64` linked — `iosArm64` (real device) untouched,
+  same caveat as every other iOS spike in this file.
+- The output framework's exact file path (whether it still lands at the
+  standard `paywall-build/build/bin/iosSimulatorArm64/debugFramework/PaywallModule.framework`
+  `ios-shell/project.yml` already expects, or somewhere CocoaPods-specific)
+  was not independently re-confirmed after switching to the `cocoapods { framework {} }`
+  DSL — worth double-checking before wiring into `ios-shell/`.
+- `AdMobSpikeUsage.kt` is throwaway spike code (mirrors `PaywallUsage.kt`'s
+  own status) — no real ad-serving UI, no wiring into any real screen.
+
 ## RevenueCat version is pinned by iOS klib ABI compatibility, not just Android/JVM metadata
 
 **Note: the section below documents `:game`'s own separate,
@@ -1317,14 +1496,10 @@ The gameplay logic is decoupled from the rendering engine:
   - `LevelData.kt`: `LevelData`, `LevelResult` (3-star rating evaluation: completed, undetected, time target), scalable `LevelRegistry` (`DEFAULT_LEVELS`), and `LevelStorage` repository interface with `InMemoryLevelStorage` and `MapBackedLevelStorage`.
   - `GameProfile.kt`: `GameProfile` (coins balance, premium bundle status, music & SFX volume, unlocked levels, tactical powerup inventory), with `GameProfileStorage`, `InMemoryGameProfileStorage`, and `MapBackedGameProfileStorage`.
   - `GameWorld.kt`: Orchestrates player, guard entity collision, platforms, crates/occluders, stopping guard movement upon player detection in vision cone, distance-scaled detection progress (0.3s point-blank to 1.5s max range), alert decay (0.6/s), noise event detection triggering guard investigation, visual loss mid-alert triggering guard investigation, exit zone win condition, level time tracking, and game-over/caught event triggers.
-- `game.scene`: KorGE presentation and navigation layer:
-  - `UiComponents.kt`: Reusable high-tech UI components (tactical buttons with corner notch accents and responsive hover/press states, glassmorphic panels, dossier cards, top bar with integrated Operative Star status & Heist Coin pill badges, cyber alert toast feedback, atmospheric skyline backdrop, 5-point star graphics).
-  - `SplashScene.kt`: Atmospheric launch sequence with encrypted link decryption status, scanning lines, glowing logo branding, and auto-transition to Main Menu.
-  - `MainMenuScene.kt`: Command hub with operative dossier card (rank, heist intel, tactical directives), hero infiltration action button, black market access, and settings terminal navigation.
-  - `LevelSelectScene.kt`: Classified mission selection dossier grid displaying operation number, lock status, star ratings (0-3), target times, coin bounties, best record times, and smooth touch scrolling.
-  - `StoreScene.kt`: Black market contraband depot featuring the hero Shadow Operative Pass with gold neon border, tiered coin caches, tactical powerups (smoke screen, EMP scrambler, phantom cloak), and restore purchases wired to `PurchasesBridge`.
-  - `SettingsScene.kt`: Tactical configuration terminal with interactive music & SFX volume sliders, restore purchases, privacy policy, terms of service, and clear cache options.
-  - `GameplayScene.kt`: Immersive stealth parkour level with stark white high-contrast background and solid black silhouette architecture, extraction beacon, ground-aligned character sprite anchoring (calibrated feet contact line eliminating floating gap), tactile mobile touch controls (Left/Right virtual D-Pad, Jump/Vault, Sneak/Crouch), top glassmorphism HUD with live threat & detection radar bar, stance indicator, stopwatch timer, and modal overlays (Pause, Mission Failed with tactical recon tips, Level Complete with 3-star rating reveal & 2x multiplier coin bounty rewards).
+- `game.scene`: KorGE gameplay presentation layer:
+  - `UiComponents.kt`: UI constants and GPU vector rendering utilities (`uiGraphics`, `drawStar`, cyber theme colors) used across `GameplayScene`.
+  - `PlayerAnimations.kt`: Frame-accurate sprite sheet animations for operative actions (idle, run, jump, sneak/crouch, vault/climb).
+  - `GameplayScene.kt`: Core gameplay engine. Immersive stealth parkour level styled with modern AAA stealth mobile UI matching the Compose Multiplatform cyber-tactical theme (`BebasNeue` typography, `COLOR_DARK_BG`, cyan/gold/green/red neon accents, GPU vector rendering). Features zoomed character action (`worldZoom = 1.35x` centering operative and obstacles), fixed vertical ground alignment (`worldView.y = canvasH - (baseGroundY + 70.0) * worldZoom`), unzoomed atmospheric looping background layer (`bgmg2.png` post-processed with electric cyan/steel-blue duotone color grading at native 480px height scrolling with 0.2x horizontal parallax), lowered ground floor level (`groundY = 410.0` maximizing playable vertical space), integrated game silhouette assets (`crate.png`, `chainedcrate.png`, and `chainedhook.png` tightly cropped to exact visual bounds without transparent offsets), flat solid black silhouette ground and structural platforms, Level 1 sequence featuring initial ground running approach (x = 60..580), half-height step crate (48px high, 68px wide) at x = 580 to climb up onto a long elevated structural platform (96px high, length 900px), overhead hanging chained crate at x = 1050 (clearing 54px above platform) requiring operative to crouch-walk underneath, atmospheric hanging chained hook at x = 1380, solid architectural terrain blocks across the 3200px corridor, far-corner guard patrol and security camera coverage above extraction beacon, ground-aligned character sprite anchoring (calibrated feet contact line eliminating floating gap), modern translucent GPU vector-rendered mobile touch controls (Left/Right vector chevrons, Jump/Vault arrow, Sneak/Crouch arrow with glowing neon touch states), floating translucent top HUD with sleek rounded stealth radar capsule, live threat & detection radar bar, stance indicator, formatted stopwatch pill (`mm:ss.t`), modern 36x36 vector pause icon button, dynamic floating powerup quick-dock, and themed modal overlays (Tactical Pause, Mission Failed with recon tips, Level Complete with 3-star rating reveal & 2x multiplier coin bounty rewards). All debug cheat codes removed for clean production builds. All non-gameplay screens (MainMenu, LevelSelect, Store, Settings, Paywall) are fully delegated to Compose Multiplatform.
 
 ## Non-Gameplay UI Migration to Compose Multiplatform (2026-09-01) — MainMenu Ported
 
@@ -1342,6 +1517,8 @@ The gameplay logic is decoupled from the rendering engine:
   - `user_is_premium`: String-formatted Boolean (`"true"` / `"false"`)
   - `user_music_vol`: String-formatted Float (e.g. `"0.8"`)
   - `user_sfx_vol`: String-formatted Float (e.g. `"1.0"`)
+  - `user_controls_swapped`: String-formatted Boolean (`"true"` / `"false"`)
+  - `user_language`: String-formatted language code (e.g. `"en"`)
   - `user_unlocked_levels`: Semicolon-delimited level IDs (e.g. `"level_1;level_4"`, `"level_1;level_2;level_4"`)
   - `user_powerups`: Semicolon-delimited `id:count` pairs (e.g. `"smoke_screen:2;phantom_cloak:2"`)
   - `level_result_<levelId>`: CSV formatted `"$levelId,$completed,$wasDetected,$timeTaken,$timeTargetSeconds"`
@@ -1356,4 +1533,9 @@ The gameplay logic is decoupled from the rendering engine:
 - `MainMenuComposeScreen.shared.makeViewController(onStartLevel:)` (exported via `@ObjCName(name = "MainMenuComposeScreen", exact = true)`) serves as the initial `window.rootViewController`.
 - Tapping "PLAY" swaps `window.rootViewController` to `self.korgeVC` (the warm resident KorGE GLKViewController).
 - When a level ends, `AppDelegate` detects the event and swaps `window.rootViewController` back to `self.composeVC`.
-- On launch, `AppDelegate` runs on-device storage bridge validation against real profile fields and writes `OK:coins=350:unlocked=level_1;level_2;level_4` to `storage_bridge_result.txt` for CI verification.
+- On launch, `AppDelegate` runs on-device storage bridge validation against real profile fields and writes `OK:coins=350:unlocked=level_1;level_2;level_4` to `storage_bridge_result.txt` for CI verification.
+
+### 5. Multiplatform Entry Point Rules (`src/main.kt`)
+- KorGE's auto-generated iOS bootstrap (`build/platforms/native-ios/bootstrap.kt`) calls `suspend fun main()` with zero arguments.
+- `src/main.kt` must always expose a parameterless `suspend fun main() = main(emptyArray())` alongside `suspend fun main(args: Array<String>)`.
+- Never use JVM-only APIs such as `java.lang.System.getProperty` in `src/main.kt` or common code; use `korlibs.io.lang.Environment["key"]` or `args.firstOrNull()` which compile across Kotlin/JVM, Kotlin/Native (iOS), and Kotlin/JS.
