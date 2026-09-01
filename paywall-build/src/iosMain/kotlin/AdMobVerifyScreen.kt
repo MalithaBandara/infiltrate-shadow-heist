@@ -1,29 +1,31 @@
+package com.infiltrate.ui
+
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.window.ComposeUIViewController
+import androidx.compose.ui.unit.dp
 import app.lexilabs.basic.ads.AdUnitId
 import app.lexilabs.basic.ads.BasicAds
 import app.lexilabs.basic.ads.DependsOnGoogleMobileAds
 import app.lexilabs.basic.ads.composable.BannerAd
 import kotlin.native.ObjCName
-import platform.UIKit.UIViewController
 
 // SPIKE / THROWAWAY - AdMob on-device verification only, see .junie/guidelines.md "AdMob
-// (basic-ads) feasibility spike". The link-only spike (AdMobSpikeUsage.kt) already proved the
-// SDK compiles and links; this proves it actually RUNS - BasicAds.Initialize() completes and a
-// real BannerAd load either succeeds or reports a concrete error, observed on a real iOS
-// Simulator via the same result-file pattern already used for the storage bridge and level
-// transition checks.
+// (basic-ads) feasibility spike". Round 1 of this on-device check created its own separate
+// ComposeUIViewController shown by swapping window.rootViewController to it - that crashed
+// (SIGABRT inside Compose's own setContent/BackgroundInputView machinery, no AdMob symbols in
+// the trace) while the MainMenu's own ComposeUIViewController was still alive underneath it.
+// Working theory: two live ComposeUIViewControllers in one process at once is the trigger.
+// Round 2: no second ComposeUIViewController at all - this content renders inside the SAME
+// scene MainMenuComposeScreen already owns (see MainMenuComposeViewController.kt), as a tiny
+// 1dp invisible element alongside the real NavigationRoot, present unconditionally from launch.
 @OptIn(kotlin.experimental.ExperimentalObjCName::class, kotlin.experimental.ExperimentalObjCRefinement::class)
 @ObjCName(name = "AdMobVerifyBridge", exact = true)
 object AdMobVerifyBridge {
     var initializeCalled: Boolean = false
         private set
     var bannerLoaded: Boolean = false
-        private set
-    var bannerLoadError: String? = null
         private set
 
     fun markInitializeCalled() {
@@ -33,31 +35,16 @@ object AdMobVerifyBridge {
     fun markBannerLoaded() {
         bannerLoaded = true
     }
-
-    fun markBannerLoadError(message: String) {
-        bannerLoadError = message
-    }
-}
-
-@OptIn(kotlin.experimental.ExperimentalObjCName::class, kotlin.experimental.ExperimentalObjCRefinement::class)
-@ObjCName(name = "AdMobVerifyScreen", exact = true)
-object AdMobVerifyScreen {
-    fun makeViewController(): UIViewController =
-        ComposeUIViewController {
-            AdMobVerifyContent()
-        }
 }
 
 @OptIn(DependsOnGoogleMobileAds::class)
 @Composable
-private fun AdMobVerifyContent() {
+fun AdMobVerifyContent() {
     BasicAds.Initialize()
     AdMobVerifyBridge.markInitializeCalled()
-    Box(modifier = Modifier.fillMaxSize()) {
-        // basic-ads' BannerAd Composable doesn't expose a dedicated onError callback, only
-        // onLoad - a real load failure (e.g. no network, bad ad unit ID) surfaces as onLoad
-        // simply never firing, which the Swift-side poll timeout already treats as a genuine
-        // "did not load" result rather than assuming success.
+    // 1dp, not zero - some Compose ad-rendering paths skip work entirely for a
+    // zero-size container; this is deliberately still practically invisible.
+    Box(modifier = Modifier.size(1.dp)) {
         BannerAd(
             adUnitId = AdUnitId.BANNER_DEFAULT,
             onLoad = { AdMobVerifyBridge.markBannerLoaded() },
