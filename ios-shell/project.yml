@@ -28,7 +28,15 @@ targets:
         FRAMEWORK_SEARCH_PATHS:
           - "$(inherited)"
           - "$(PROJECT_DIR)/../build/bin/iosSimulatorArm64/debugFramework"
-          - "$(PROJECT_DIR)/../paywall-build/build/bin/iosSimulatorArm64/debugFramework"
+          # NOT debugFramework: paywall-build's framework is now declared via
+          # cocoapods { framework { ... } } (see .junie/guidelines.md "AdMob (basic-ads)
+          # feasibility spike", attempt 3), which reconfigures the plugin's own auto-created
+          # binary - Gradle-internal name "podDebugFramework" for the debug build (confirmed
+          # from Kotlin's own NativeBinary.outputDirectoryProperty source:
+          # build/bin/<target>/<binary.name>, and binary.name here literally is
+          # "podDebugFramework" - matches the linkPodDebugFrameworkIosSimulatorArm64 task name
+          # exactly). The old plain "debugFramework" directory no longer exists at all.
+          - "$(PROJECT_DIR)/../paywall-build/build/bin/iosSimulatorArm64/podDebugFramework"
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
           - "@executable_path/Frameworks"
@@ -43,15 +51,14 @@ targets:
         # switch-spike mechanism itself; needed by any Compose-on-iOS app regardless.
         CADisableMinimumFrameDurationOnPhone: true
     dependencies:
-      # Paths are relative to this file (ios-shell/project.yml), pointing at the standard
-      # Kotlin/Native debug framework output locations - :game's is confirmed against a real CI
-      # log (see .junie/guidelines.md, "LOCKED WORKING CONFIGURATION"); paywall-build's follows
-      # the same Kotlin/Native convention but hasn't been confirmed against a real build output
-      # yet (compileKotlinIosSimulatorArm64 has run here; linkDebugFrameworkIosSimulatorArm64,
-      # which actually produces the .framework, has only ever run in CI, not on this machine).
+      # Paths are relative to this file (ios-shell/project.yml). :game's GameMain.framework path
+      # is confirmed against a real CI log (see .junie/guidelines.md, "LOCKED WORKING
+      # CONFIGURATION"); paywall-build's PaywallModule.framework path is the cocoapods-plugin
+      # output location (see the FRAMEWORK_SEARCH_PATHS comment above for why it's
+      # "podDebugFramework", not the default "debugFramework").
       - framework: ../build/bin/iosSimulatorArm64/debugFramework/GameMain.framework
         embed: true
         codeSign: false
-      - framework: ../paywall-build/build/bin/iosSimulatorArm64/debugFramework/PaywallModule.framework
+      - framework: ../paywall-build/build/bin/iosSimulatorArm64/podDebugFramework/PaywallModule.framework
         embed: true
         codeSign: false
