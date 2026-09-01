@@ -2,8 +2,14 @@ import org.gradle.internal.os.OperatingSystem
 import java.io.ByteArrayOutputStream
 
 plugins {
-    kotlin("multiplatform") version "2.3.20"
-    id("org.jetbrains.kotlin.plugin.compose") version "2.3.20"
+    // Bumped from 2.3.20 to 2.4.10 (2026-09-01) specifically to match app.lexilabs.basic:basic-ads
+    // (AdMob KMP wrapper)'s own pin - see .junie/guidelines.md "AdMob (basic-ads) feasibility
+    // spike". Unlike :game's Kotlin 2.0.20 (locked to KorGE 6.0.0, do not touch), this module's
+    // Kotlin version is a free choice made to match whatever native SDK it's bridging - bumping
+    // it is low-risk since a newer Kotlin/Native compiler can read older klibs (the RevenueCat
+    // purchases-kmp-core:3.6.0 klib below was compiled at 2.3.20/ABI 2.3.0), just not the reverse.
+    kotlin("multiplatform") version "2.4.10"
+    id("org.jetbrains.kotlin.plugin.compose") version "2.4.10"
     id("org.jetbrains.compose") version "1.12.0"
     id("com.android.library") version "8.5.2"
 }
@@ -72,6 +78,19 @@ kotlin {
                 implementation(compose.components.resources)
             }
         }
+        val androidMain by getting {
+            dependencies {
+                // AdMob feasibility spike (2026-09-01, see .junie/guidelines.md). basic-ads only
+                // publishes androidJvm + ios_arm64/ios_simulator_arm64 variants (checked directly
+                // against its Maven Central Gradle module metadata, not assumed) - no jvm()
+                // desktop variant, so it can't go in commonMain now that this module also targets
+                // jvm() (would fail Gradle variant resolution for that target, the exact same
+                // "no matching variant" lesson already learned from purchases-kmp-core 3.x above).
+                implementation("app.lexilabs.basic:basic-ads:1.2.1")
+                implementation("com.google.android.gms:play-services-ads:25.4.0")
+                implementation("com.google.android.ump:user-messaging-platform:4.0.0")
+            }
+        }
         val jvmMain by getting {
             dependencies {
                 implementation(compose.desktop.currentOs)
@@ -100,6 +119,7 @@ kotlin {
             dependencies {
                 implementation("com.revenuecat.purchases:purchases-kmp-core:3.6.0")
                 implementation(compose.ui)
+                implementation("app.lexilabs.basic:basic-ads:1.2.1")
             }
         }
         val iosArm64Main by getting { dependsOn(iosMain) }
