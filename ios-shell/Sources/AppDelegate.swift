@@ -189,32 +189,32 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     // just that the code compiles).
 
     private func runAdMobVerification() {
-        guard let window = self.shellWindow else { return }
         print("ADMOB_TEST: ==== AdMob Verification START ====")
-        window.rootViewController = AdMobVerifyScreen.shared.makeViewController()
+        // No rootViewController swap this round - AdMobVerifyContent() renders unconditionally
+        // inside MainMenu's own ComposeUIViewController scene (see AdMobVerifyScreen.kt /
+        // MainMenuComposeViewController.kt), so BasicAds.Initialize() already ran at launch.
+        // This just polls the result. Round 1 swapped to a second, separate
+        // ComposeUIViewController here and crashed inside Compose's own setContent machinery
+        // with two scenes alive at once - see guidelines.md for the full story.
 
-        // Real ad network round-trip, unlike the fixed-delay UI-only checks above - poll with a
-        // genuine time budget rather than a single fixed wait, same discipline as the switch-spike
-        // poll loop (see guidelines.md for why a flat sleep was wrong there too).
+        // Real ad network round-trip - poll with a genuine time budget rather than a single
+        // fixed wait, same discipline as the switch-spike poll loop.
         let deadline = Date().addingTimeInterval(15.0)
         var pollTimer: Timer?
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] t in
-            guard let self = self else { t.invalidate(); return }
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { t in
             let loaded = AdMobVerifyBridge.shared.bannerLoaded
             let timedOut = Date() >= deadline
             if loaded || timedOut {
                 t.invalidate()
                 let initCalled = AdMobVerifyBridge.shared.initializeCalled
-                let errorMsg = AdMobVerifyBridge.shared.bannerLoadError
                 let resultText: String
                 if loaded {
                     resultText = "OK:initializeCalled=\(initCalled):bannerLoaded=true"
                 } else {
-                    resultText = "FAIL:initializeCalled=\(initCalled):bannerLoaded=false:timedOut=\(timedOut):error=\(errorMsg ?? "none")"
+                    resultText = "FAIL:initializeCalled=\(initCalled):bannerLoaded=false:timedOut=\(timedOut)"
                 }
                 print("ADMOB_TEST: ==== AdMob Verification COMPLETE: \(resultText) ====")
                 self.writeTextFile("admob_verify_result.txt", resultText)
-                self.switchToCompose()
             }
         }
         _ = pollTimer
