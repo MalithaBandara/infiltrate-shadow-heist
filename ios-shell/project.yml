@@ -50,6 +50,14 @@ targets:
         # .junie/guidelines.md for the full trace) if this is missing/false. Unrelated to the
         # switch-spike mechanism itself; needed by any Compose-on-iOS app regardless.
         CADisableMinimumFrameDurationOnPhone: true
+        # Google Mobile Ads SDK's own requirement - GADMobileAds.sharedInstance().start(...)
+        # (called from BasicAds.Initialize()) throws GADInvalidInitializationException
+        # (crashed the app: GADApplicationVerifyPublisherInitializedCorrectly, confirmed from a
+        # real on-device crash report, see .junie/guidelines.md "AdMob (basic-ads) feasibility
+        # spike") if this key is missing. Google's own public test/demo App ID - safe to use,
+        # documented in Google's official AdMob iOS quick-start guide. Swap for the real App ID
+        # before shipping.
+        GADApplicationIdentifier: "ca-app-pub-3940256099942544~1458002511"
     dependencies:
       # Paths are relative to this file (ios-shell/project.yml). :game's GameMain.framework path
       # is confirmed against a real CI log (see .junie/guidelines.md, "LOCKED WORKING
