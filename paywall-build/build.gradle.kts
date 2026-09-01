@@ -67,6 +67,21 @@ kotlin {
     // we happened to pick. noPodspec(): this module is embedded into ios-shell/ as a plain
     // compiled .framework via XcodeGen, never consumed through a Podfile itself, so there's no
     // need for Kotlin to generate one.
+    //
+    // AdMob spike part 3 (2026-09-01, see .junie/guidelines.md): the previous attempt kept the
+    // framework declared manually via iosArm64/iosSimulatorArm64 { binaries.framework { ... } },
+    // which failed to link with "framework 'GoogleMobileAds' not found" even though CocoaPods had
+    // genuinely fetched and built the pod. Root cause, confirmed by reading the actual Kotlin
+    // Gradle Plugin source (KotlinCocoapodsPlugin.kt on GitHub, not guessed): the plugin only
+    // wires -F<frameworkSearchPath>/-framework linker args onto binaries that are either a
+    // TestExecutable, or a Framework whose *Gradle-internal* name starts with "pod" - a name it
+    // assigns to ONE specific auto-created framework per target (createDefaultFrameworks()),
+    // separate from and never applied to any independently-declared binaries.framework{}, no
+    // matter what baseName that one uses. So the manually-declared "PaywallModule" framework was
+    // never getting the pod's search path wired in, full stop. Fix: configure THAT auto-created
+    // framework via cocoapods{}'s own framework{} block (which reconfigures it in place, not a
+    // third framework) instead of declaring one manually - this is the one Kotlin's own plugin
+    // logic actually wires up correctly.
     cocoapods {
         ios.deploymentTarget = "15.0"
         noPodspec()
@@ -80,22 +95,20 @@ kotlin {
             version = "3.1.0"
             extraOpts += listOf("-compiler-option", "-fmodules")
         }
+        framework {
+            baseName = "PaywallModule"
+            freeCompilerArgs += listOf("-Xbinary=bundleId=com.infiltrate.paywallmodule")
+            // target is this Framework's owning KotlinNativeTarget (confirmed real: the plugin's
+            // own configureLinkingOptions() reads the identical `binary.target` property) - this
+            // single framework{} block applies to every Apple target's auto-created framework, so
+            // branch per-target the same way the two separate manual blocks used to.
+            val sdkName = if (target.name == "iosArm64") "iphoneos" else "iphonesimulator"
+            swiftLibPath(sdkName)?.let { linkerOpts += listOf("-L$it") }
+        }
     }
 
-    iosArm64 {
-        binaries.framework {
-            baseName = "PaywallModule"
-            freeCompilerArgs += listOf("-Xbinary=bundleId=com.infiltrate.paywallmodule")
-            swiftLibPath("iphoneos")?.let { linkerOpts += listOf("-L$it") }
-        }
-    }
-    iosSimulatorArm64 {
-        binaries.framework {
-            baseName = "PaywallModule"
-            freeCompilerArgs += listOf("-Xbinary=bundleId=com.infiltrate.paywallmodule")
-            swiftLibPath("iphonesimulator")?.let { linkerOpts += listOf("-L$it") }
-        }
-    }
+    iosArm64()
+    iosSimulatorArm64()
 
     sourceSets {
         val commonMain by getting {
