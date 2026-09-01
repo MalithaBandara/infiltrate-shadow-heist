@@ -1,6 +1,7 @@
 import game.model.LevelData
 import game.scene.*
 import korlibs.image.color.*
+import korlibs.io.lang.Environment
 import korlibs.korge.*
 import korlibs.korge.scene.*
 import korlibs.math.geom.*
@@ -16,10 +17,11 @@ suspend fun main(args: Array<String>) = Korge(
     virtualSize = Size(480.0 * (windowSize.width / windowSize.height), 480.0),
     scaleMode = ScaleMode.SHOW_ALL,
     backgroundColor = Colors["#16161d"],
-    title = "Infiltrate: Shadow Heist"
+    title = "Infiltrate: Shadow Heist",
+    args = args
 ) {
     val sceneContainer = sceneContainer()
-    val levelId = System.getProperty("startLevel") ?: args.firstOrNull()
+    val levelId = Environment["startLevel"] ?: args.firstOrNull()
     if (levelId != null) {
         val levelData = LevelData.DEFAULT_LEVELS.firstOrNull { it.id == levelId } ?: LevelData.DEFAULT_LEVEL_1
         sceneContainer.changeTo { GameplayScene(levelData) }
@@ -27,3 +29,6 @@ suspend fun main(args: Array<String>) = Korge(
         sceneContainer.changeTo { SplashScene() }
     }
 }
+
+suspend fun main() = main(emptyArray())
+
