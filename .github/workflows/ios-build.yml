@@ -100,10 +100,18 @@ jobs:
       # THIS framework's own consumption - so its resources always land at the fixed path
       # build/compose/cocoapods/compose-resources/, no Xcode env vars or Run Script phase needed.
       # That copy only happens via this task though, never invoked automatically by our own
-      # link task above.
+      # link task above. It also unconditionally reads PLATFORM_NAME/ARCHS as task @Input
+      # properties (evaluated regardless of the isCocoapodsFramework() output-dir branch, per
+      # IosResourcesTasks.kt) - normally set by Xcode itself when it runs this as a build script;
+      # supplied here directly via the documented Gradle properties instead, since we're invoking
+      # Gradle standalone, not from within Xcode. iosSimulatorArm64 == iphonesimulator/arm64,
+      # matching Xcode's own env var convention for that target.
       - name: "Shell app: sync Compose Multiplatform resources (fonts, etc.) for iOS"
         continue-on-error: true
-        run: ./gradlew :paywall-build:syncPodComposeResourcesForIos --no-configuration-cache --stacktrace
+        run: |
+          ./gradlew :paywall-build:syncPodComposeResourcesForIos --no-configuration-cache --stacktrace \
+            -Pcompose.ios.resources.platform=iphonesimulator \
+            -Pcompose.ios.resources.archs=arm64
 
       # --- Native shell app (ios-shell/) ---
       #
