@@ -222,6 +222,37 @@ jobs:
             echo "transition_test_result.txt did not appear within 30s."
           fi
 
+      # AdMob (basic-ads) on-device verification (see .junie/guidelines.md "AdMob (basic-ads)
+      # feasibility spike"). Runs chained after the level-transition test in the app itself, so
+      # this step starts polling only after that one already found (or gave up on) its own
+      # result file. Real ad network round-trip needs real time, not a fixed sleep - the app's
+      # own poll loop already budgets up to 15s from when the AdMob screen is shown; this step's
+      # 40s budget covers that plus the ~3.5s the transition test needed first, with margin.
+      - name: "Shell app: wait for AdMob verification, read result"
+        continue-on-error: true
+        run: |
+          DEVICE_ID="${{ steps.boot_shell.outputs.device_id }}"
+          BUNDLE_ID="com.infiltrate.shellapp"
+
+          CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" data)
+          RESULT_FILE="$CONTAINER/Documents/admob_verify_result.txt"
+
+          for i in $(seq 1 40); do
+            if [ -f "$RESULT_FILE" ]; then
+              echo "AdMob verify result file appeared after ~${i}s of polling."
+              break
+            fi
+            sleep 1
+          done
+
+          if [ -f "$RESULT_FILE" ]; then
+            echo "===== ADMOB VERIFY RESULT ====="
+            cat "$RESULT_FILE"
+            echo "================================"
+          else
+            echo "admob_verify_result.txt did not appear within 40s - see ShellApp log above for diagnosis."
+          fi
+
       - name: Upload MainMenu and transition screenshots
         if: always()
         uses: actions/upload-artifact@v4

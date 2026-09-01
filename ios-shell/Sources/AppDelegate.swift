@@ -175,8 +175,49 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 self?.switchToCompose()
                 print("CI_TEST: ==== Automated Transition Test COMPLETE ====")
                 self?.writeTextFile("transition_test_result.txt", "TRANSITION_OK")
+
+                // Chained, not parallel: avoids two automated UI-swap sequences racing on the
+                // same rootViewController.
+                self?.runAdMobVerification()
             }
         }
+    }
+
+    // MARK: - AdMob On-Device Verification (see .junie/guidelines.md "AdMob (basic-ads)
+    // feasibility spike" - the link-only spike proved basic-ads compiles+links; this proves
+    // BasicAds.Initialize() and a real BannerAd load actually run on a real iOS Simulator, not
+    // just that the code compiles).
+
+    private func runAdMobVerification() {
+        guard let window = self.shellWindow else { return }
+        print("ADMOB_TEST: ==== AdMob Verification START ====")
+        window.rootViewController = AdMobVerifyScreen.shared.makeViewController()
+
+        // Real ad network round-trip, unlike the fixed-delay UI-only checks above - poll with a
+        // genuine time budget rather than a single fixed wait, same discipline as the switch-spike
+        // poll loop (see guidelines.md for why a flat sleep was wrong there too).
+        let deadline = Date().addingTimeInterval(15.0)
+        var pollTimer: Timer?
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] t in
+            guard let self = self else { t.invalidate(); return }
+            let loaded = AdMobVerifyBridge.shared.bannerLoaded
+            let timedOut = Date() >= deadline
+            if loaded || timedOut {
+                t.invalidate()
+                let initCalled = AdMobVerifyBridge.shared.initializeCalled
+                let errorMsg = AdMobVerifyBridge.shared.bannerLoadError
+                let resultText: String
+                if loaded {
+                    resultText = "OK:initializeCalled=\(initCalled):bannerLoaded=true"
+                } else {
+                    resultText = "FAIL:initializeCalled=\(initCalled):bannerLoaded=false:timedOut=\(timedOut):error=\(errorMsg ?? "none")"
+                }
+                print("ADMOB_TEST: ==== AdMob Verification COMPLETE: \(resultText) ====")
+                self.writeTextFile("admob_verify_result.txt", resultText)
+                self.switchToCompose()
+            }
+        }
+        _ = pollTimer
     }
 
     private func writeTextFile(_ name: String, _ text: String) {
