@@ -152,7 +152,16 @@ jobs:
           xcrun simctl boot "$DEVICE_ID" || true
           xcrun simctl bootstatus "$DEVICE_ID" -b
           xcrun simctl install "$DEVICE_ID" "$APP_PATH"
-          xcrun simctl launch "$DEVICE_ID" "$BUNDLE_ID"
+
+          # AdMob on-device verification has crashed twice now with no readable exception
+          # message anywhere - `log show`/unified logging genuinely does not capture Kotlin's
+          # own crash-handler print output for a simctl-launched app (confirmed: its output for
+          # this process just stops mid-launch, nothing crash-related ever appears there,
+          # checked directly rather than assumed). --console-pty attaches to the process's real
+          # stdout/stderr instead. Backgrounded (&) so the script doesn't block on it - it keeps
+          # streaming into the file for the life of the process, read back further down.
+          xcrun simctl launch --console-pty "$DEVICE_ID" "$BUNDLE_ID" > /tmp/shellapp_console.log 2>&1 &
+          CONSOLE_PID=$!
 
           # Switch-spike diagnostic round (run 33417902658) showed the whole automated 6-cycle
           # run completes within ~13-14s of launch. Capturing screenshots here (foreground, right
@@ -165,6 +174,10 @@ jobs:
           for i in $(seq 1 10); do
             xcrun simctl io "$DEVICE_ID" screenshot "ios-shell/spike-screenshots/frame_$(printf '%02d' "$i").png" || true
           done
+
+          echo "===== ShellApp real console output (stdout+stderr via --console-pty) ====="
+          cat /tmp/shellapp_console.log 2>/dev/null || echo "(no console output captured yet)"
+          echo "============================================================================"
 
           CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" data)
           RESULT_FILE="$CONTAINER/Documents/storage_bridge_result.txt"
@@ -201,6 +214,10 @@ jobs:
 
           echo "===== simctl launchctl list (is ShellApp still running / did it exit?) ====="
           xcrun simctl spawn "$DEVICE_ID" launchctl list 2>&1 | grep -i shellapp || echo "com.infiltrate.shellapp not found in launchctl list"
+
+          echo "===== ShellApp real console output (stdout+stderr via --console-pty, started in the previous step) ====="
+          cat /tmp/shellapp_console.log 2>/dev/null || echo "(no console output file found - background process may not have survived the step boundary)"
+          echo "======================================================================================================"
 
           echo "===== ShellApp unified log, last 10 minutes (process == ShellApp) ====="
           xcrun simctl spawn "$DEVICE_ID" log show --predicate 'process == "ShellApp"' --style compact --last 10m 2>&1 | tail -400 || echo "log show produced nothing or failed"
