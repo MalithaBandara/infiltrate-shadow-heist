@@ -12,6 +12,13 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.10"
     id("org.jetbrains.compose") version "1.12.0"
     id("com.android.library") version "8.5.2"
+    // AdMob feasibility spike, part 2 (2026-09-01, see .junie/guidelines.md). The first attempt
+    // (a plain Maven dependency on app.lexilabs.basic:basic-ads with no cocoapods setup) failed
+    // to LINK with "ld: framework 'GoogleMobileAds' not found" - confirmed from the raw CI log,
+    // not assumed - because basic-ads does NOT bundle Google-Mobile-Ads-SDK's compiled binary
+    // into its published klib (unlike RevenueCat 3.x). This module needs to fetch and link that
+    // pod itself, the same way basic-ads' own build does.
+    id("org.jetbrains.kotlin.native.cocoapods") version "2.4.10"
 }
 
 repositories {
@@ -53,6 +60,28 @@ fun swiftLibPath(platformSdkName: String): String? =
 kotlin {
     androidTarget()
     jvm()
+
+    // Matches basic-ads' own pod versions exactly (its gradle/libs.versions.toml:
+    // cocoapods-admob = "13.8.0", cocoapods-ump = "3.1.0") - the whole point is for our compiled
+    // klib to link against the SAME pod version basic-ads was compiled against, not a newer one
+    // we happened to pick. noPodspec(): this module is embedded into ios-shell/ as a plain
+    // compiled .framework via XcodeGen, never consumed through a Podfile itself, so there's no
+    // need for Kotlin to generate one.
+    cocoapods {
+        ios.deploymentTarget = "15.0"
+        noPodspec()
+        pod("Google-Mobile-Ads-SDK") {
+            moduleName = "GoogleMobileAds"
+            version = "13.8.0"
+            extraOpts += listOf("-compiler-option", "-fmodules")
+        }
+        pod("GoogleUserMessagingPlatform") {
+            moduleName = "UserMessagingPlatform"
+            version = "3.1.0"
+            extraOpts += listOf("-compiler-option", "-fmodules")
+        }
+    }
+
     iosArm64 {
         binaries.framework {
             baseName = "PaywallModule"
