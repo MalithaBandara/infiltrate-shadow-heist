@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.infiltrate.storage.PlatformStorage
@@ -50,7 +51,6 @@ import org.jetbrains.compose.resources.Font
 import org.jetbrains.compose.resources.painterResource
 import paywall_build.generated.resources.Res
 import paywall_build.generated.resources.bebas_neue_regular
-import paywall_build.generated.resources.bg_menu
 import paywall_build.generated.resources.button1
 import paywall_build.generated.resources.button2
 
@@ -67,11 +67,19 @@ private data class PowerupItem(
     val icon: DrawScope.(Color) -> Unit
 )
 
+private data class InventoryItem(
+    val type: PowerupType,
+    val title: String,
+    val icon: DrawScope.(Color) -> Unit
+)
+
 private data class CoinPackItem(
     val id: String,
+    val title: String,
     val amount: Int,
     val price: String,
-    val isBestValue: Boolean = false
+    val badge: String? = null,
+    val isAd: Boolean = false
 )
 
 @Composable
@@ -86,12 +94,27 @@ fun StoreScreen(
         )
     }
 
-    var profile by remember { mutableStateOf(profileStorage.getProfile()) }
+    var profile by remember {
+        val p = profileStorage.getProfile()
+        mutableStateOf(p.copy(coins = p.coins, powerupInventory = p.powerupInventory.toMutableMap()))
+    }
     var currentTab by remember { mutableStateOf(initialTab) }
     val bebasFont = FontFamily(Font(Res.font.bebas_neue_regular))
 
     var toastMessage by remember { mutableStateOf<String?>(null) }
     var toastIsSuccess by remember { mutableStateOf(true) }
+
+    fun refreshProfile() {
+        val p = profileStorage.getProfile()
+        profile = p.copy(
+            coins = p.coins,
+            powerupInventory = p.powerupInventory.toMutableMap()
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        refreshProfile()
+    }
 
     LaunchedEffect(toastMessage) {
         if (toastMessage != null) {
@@ -110,15 +133,65 @@ fun StoreScreen(
             PowerupItem(PowerupType.SMOKE_SCREEN, "SMOKE SCREEN", "Disables all cameras for 10 seconds.", PowerupType.SMOKE_SCREEN.defaultCost) { c -> drawSmokeIcon(c) },
             PowerupItem(PowerupType.PHANTOM_CLOAK, "PHANTOM CLOAK", "Puts all guards to sleep for 10 seconds.", PowerupType.PHANTOM_CLOAK.defaultCost) { c -> drawCloakIcon(c) },
             PowerupItem(PowerupType.INVISIBILITY, "INVISIBILITY", "Total sight immunity for 10 seconds.", PowerupType.INVISIBILITY.defaultCost) { c -> drawInvisIcon(c) },
-            PowerupItem(PowerupType.NOISE_SUPPRESSION, "NOISE SUPPRESSION", "Silent movement for entire mission.", PowerupType.NOISE_SUPPRESSION.defaultCost) { c -> drawBootIcon(c) }
+            PowerupItem(PowerupType.NOISE_SUPPRESSION, "NOISE SUPPRESSION", "Silent movement for entire mission.", PowerupType.NOISE_SUPPRESSION.defaultCost) { c -> drawBootIcon(c) },
+            PowerupItem(PowerupType.SMOKE_SCREEN, "SMOKE GRENADE", "Portable smoke canister for rapid evasion.", 150) { c -> drawSmokeIcon(c) },
+            PowerupItem(PowerupType.PHANTOM_CLOAK, "SLEEP DART", "Tranquilizer dart to pacify patrol guards.", 250) { c -> drawCloakIcon(c) }
+        )
+    }
+
+    val inventoryItems = remember {
+        listOf(
+            InventoryItem(PowerupType.SMOKE_SCREEN, "SMOKE SCREEN") { c -> drawSmokeIcon(c) },
+            InventoryItem(PowerupType.PHANTOM_CLOAK, "PHANTOM CLOAK") { c -> drawCloakIcon(c) },
+            InventoryItem(PowerupType.INVISIBILITY, "INVISIBILITY") { c -> drawInvisIcon(c) },
+            InventoryItem(PowerupType.NOISE_SUPPRESSION, "NOISE SUPPRESSION") { c -> drawBootIcon(c) }
         )
     }
 
     val coinPacks = remember {
         listOf(
-            CoinPackItem("coins_small", 500, "$0.99"),
-            CoinPackItem("coins_medium", 1200, "$1.99", isBestValue = true),
-            CoinPackItem("coins_large", 3500, "$4.99")
+            CoinPackItem(
+                id = "coins_ad",
+                title = "SPONSORED INTEL",
+                amount = 500,
+                price = "WATCH AD",
+                badge = "FREE REWARD",
+                isAd = true
+            ),
+            CoinPackItem(
+                id = "coins_tier_1",
+                title = "OPERATIVE STASH",
+                amount = 1000,
+                price = "$0.99"
+            ),
+            CoinPackItem(
+                id = "coins_tier_2",
+                title = "SMUGGLER'S POUCH",
+                amount = 2500,
+                price = "$1.99",
+                badge = "+25% BONUS"
+            ),
+            CoinPackItem(
+                id = "coins_tier_3",
+                title = "TACTICAL BRIEFCASE",
+                amount = 4000,
+                price = "$2.99",
+                badge = "+33% BONUS"
+            ),
+            CoinPackItem(
+                id = "coins_tier_4",
+                title = "HEIST DUFFLE BAG",
+                amount = 7500,
+                price = "$4.99",
+                badge = "MOST POPULAR"
+            ),
+            CoinPackItem(
+                id = "coins_tier_5",
+                title = "BLACK MARKET VAULT",
+                amount = 20000,
+                price = "$9.99",
+                badge = "BEST VALUE"
+            )
         )
     }
 
@@ -178,45 +251,22 @@ fun StoreScreen(
                         tabHeight = (46 * scale).dp
                     )
 
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // Thumbnail Preview
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height((110 * scale).dp)
-                            .background(Color(0xFF141416), RoundedCornerShape(8.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
-                    ) {
-                        Image(
-                            painter = painterResource(Res.drawable.bg_menu),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.45f))
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     // Inventory Summary
                     Text(
                         text = "INVENTORY",
                         color = Color(0xFF6E6E72),
-                        fontSize = (12 * scale).sp,
+                        fontSize = (13 * scale).sp,
                         fontFamily = bebasFont,
                         letterSpacing = 1.sp
                     )
 
                     Column(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy((8 * scale).dp)
                     ) {
-                        for (item in powerupItems) {
+                        for (item in inventoryItems) {
                             val count = profile.getPowerupCount(item.type)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -225,22 +275,22 @@ fun StoreScreen(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Canvas(modifier = Modifier.size(14.dp)) {
+                                    Canvas(modifier = Modifier.size(15.dp)) {
                                         item.icon(this, Color(0xFFB7B7BC))
                                     }
                                     Text(
                                         text = item.title,
                                         color = Color(0xFFC9C9CC),
-                                        fontSize = (11 * scale).sp,
+                                        fontSize = (12 * scale).sp,
                                         fontWeight = FontWeight.Medium
                                     )
                                 }
                                 Text(
                                     text = "x$count",
                                     color = if (count > 0) Color(0xFFFFD54F) else Color(0xFF6E6E72),
-                                    fontSize = (12 * scale).sp,
+                                    fontSize = (13 * scale).sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
@@ -263,7 +313,7 @@ fun StoreScreen(
                                 scale = scale,
                                 onBuy = { item ->
                                     if (profileStorage.buyPowerup(item.type.id, item.cost)) {
-                                        profile = profileStorage.getProfile()
+                                        refreshProfile()
                                         showToast("ACQUIRED ${item.title}", true)
                                     } else {
                                         showToast("INSUFFICIENT CREDITS", false)
@@ -278,8 +328,12 @@ fun StoreScreen(
                                 scale = scale,
                                 onPurchase = { pack ->
                                     profileStorage.addCoins(pack.amount)
-                                    profile = profileStorage.getProfile()
-                                    showToast("+${pack.amount} CREDITS TRANSFERRED", true)
+                                    refreshProfile()
+                                    if (pack.isAd) {
+                                        showToast("+${pack.amount} INTEL CREDITS GRANTED", true)
+                                    } else {
+                                        showToast("+${pack.amount} CREDITS TRANSFERRED", true)
+                                    }
                                 }
                             )
                         }
@@ -327,7 +381,7 @@ private fun PowerupsGrid(
 ) {
     Column(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy((14 * scale).dp)
+        verticalArrangement = Arrangement.spacedBy((10 * scale).dp)
     ) {
         // Section Header
         Row(
@@ -350,44 +404,29 @@ private fun PowerupsGrid(
             )
         }
 
-        // 2x2 Grid of Powerup Cards
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            horizontalArrangement = Arrangement.spacedBy((14 * scale).dp)
-        ) {
-            for (i in 0..1) {
-                PowerupCard(
-                    item = items[i],
-                    canAfford = profile.coins >= items[i].cost,
-                    font = font,
-                    scale = scale,
-                    onBuy = { onBuy(items[i]) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                )
-            }
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            horizontalArrangement = Arrangement.spacedBy((14 * scale).dp)
-        ) {
-            for (i in 2..3) {
-                PowerupCard(
-                    item = items[i],
-                    canAfford = profile.coins >= items[i].cost,
-                    font = font,
-                    scale = scale,
-                    onBuy = { onBuy(items[i]) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                )
+        // 2x3 Grid of Powerup Cards
+        for (chunk in items.chunked(3)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                horizontalArrangement = Arrangement.spacedBy((10 * scale).dp)
+            ) {
+                for (item in chunk) {
+                    PowerupCard(
+                        item = item,
+                        canAfford = profile.coins >= item.cost,
+                        font = font,
+                        scale = scale,
+                        onBuy = { onBuy(item) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                    )
+                }
+                for (empty in 0 until (3 - chunk.size)) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
             }
         }
     }
@@ -404,9 +443,9 @@ private fun PowerupCard(
 ) {
     Box(
         modifier = modifier
-            .background(Color(0xFF141416), RoundedCornerShape(10.dp))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
-            .padding((16 * scale).dp)
+            .background(Color(0xFF141416), RoundedCornerShape(8.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+            .padding((10 * scale).dp)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -414,34 +453,38 @@ private fun PowerupCard(
         ) {
             Row(
                 verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy((12 * scale).dp)
+                horizontalArrangement = Arrangement.spacedBy((8 * scale).dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size((44 * scale).dp)
-                        .background(Color(0xFF1B1B1F), RoundedCornerShape(8.dp))
-                        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
+                        .size((34 * scale).dp)
+                        .background(Color(0xFF1B1B1F), RoundedCornerShape(6.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(6.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Canvas(modifier = Modifier.size((22 * scale).dp)) {
+                    Canvas(modifier = Modifier.size((18 * scale).dp)) {
                         item.icon(this, Color(0xFF00E5FF))
                     }
                 }
 
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = item.title,
                         color = Color.White,
-                        fontSize = (16 * scale).sp,
+                        fontSize = (13 * scale).sp,
                         fontFamily = font,
-                        letterSpacing = 1.sp
+                        letterSpacing = 0.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = item.description,
                         color = Color(0xFFB7B7BC),
-                        fontSize = (12 * scale).sp,
-                        lineHeight = (15 * scale).sp
+                        fontSize = (10 * scale).sp,
+                        lineHeight = (12 * scale).sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -454,38 +497,39 @@ private fun PowerupCard(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Canvas(modifier = Modifier.size(16.dp)) {
+                    Canvas(modifier = Modifier.size(13.dp)) {
                         drawCoinIcon(Color(0xFFFFD54F))
                     }
                     Text(
                         text = "${item.cost}",
                         color = Color(0xFFFFD54F),
-                        fontSize = (16 * scale).sp,
+                        fontSize = (14 * scale).sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
                 val interactionSource = remember { MutableInteractionSource() }
+                val click = LocalUiClick.current
                 Box(
                     modifier = Modifier
                         .background(
                             if (canAfford) Color(0xFFECE7DA) else Color(0xFF242428),
-                            RoundedCornerShape(6.dp)
+                            RoundedCornerShape(5.dp)
                         )
                         .clickable(
                             interactionSource = interactionSource,
                             indication = null,
-                            onClick = onBuy
+                            onClick = { click(); onBuy() }
                         )
-                        .padding(horizontal = (18 * scale).dp, vertical = (8 * scale).dp),
+                        .padding(horizontal = (12 * scale).dp, vertical = (5 * scale).dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "BUY",
                         color = if (canAfford) ShadowTheme.Ink else Color(0xFF6E6E72),
-                        fontSize = (13 * scale).sp,
+                        fontSize = (12 * scale).sp,
                         fontFamily = font,
                         letterSpacing = 1.sp
                     )
@@ -504,7 +548,7 @@ private fun CoinsGrid(
 ) {
     Column(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy((16 * scale).dp)
+        verticalArrangement = Arrangement.spacedBy((10 * scale).dp)
     ) {
         // Section Header
         Row(
@@ -527,23 +571,28 @@ private fun CoinsGrid(
             )
         }
 
-        // Coin Packs Row
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            horizontalArrangement = Arrangement.spacedBy((16 * scale).dp)
-        ) {
-            for (pack in items) {
-                CoinPackCard(
-                    pack = pack,
-                    font = font,
-                    scale = scale,
-                    onPurchase = { onPurchase(pack) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                )
+        // 2x3 Grid of Coin Packs
+        for (chunk in items.chunked(3)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                horizontalArrangement = Arrangement.spacedBy((10 * scale).dp)
+            ) {
+                for (pack in chunk) {
+                    CoinPackCard(
+                        pack = pack,
+                        font = font,
+                        scale = scale,
+                        onPurchase = { onPurchase(pack) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                    )
+                }
+                for (empty in 0 until (3 - chunk.size)) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
             }
         }
     }
@@ -557,72 +606,101 @@ private fun CoinPackCard(
     onPurchase: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isHighlight = pack.badge != null
+    val accentColor = when {
+        pack.isAd -> Color(0xFF00E5FF)
+        pack.badge == "BEST VALUE" -> Color(0xFFFFD54F)
+        pack.badge == "MOST POPULAR" -> Color(0xFFFF9800)
+        isHighlight -> Color(0xFF00E676)
+        else -> Color.White.copy(alpha = 0.08f)
+    }
+
     Box(
         modifier = modifier
-            .background(Color(0xFF141416), RoundedCornerShape(10.dp))
+            .background(Color(0xFF141416), RoundedCornerShape(8.dp))
             .border(
                 1.dp,
-                if (pack.isBestValue) Color(0xFFFFD54F).copy(alpha = 0.4f) else Color.White.copy(alpha = 0.08f),
-                RoundedCornerShape(10.dp)
+                if (isHighlight) accentColor.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.08f),
+                RoundedCornerShape(8.dp)
             )
-            .padding((18 * scale).dp)
+            .padding((10 * scale).dp)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            if (pack.isBestValue) {
+            if (pack.badge != null) {
                 Box(
                     modifier = Modifier
-                        .background(Color(0xFFFFD54F), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .background(accentColor, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "BEST VALUE",
+                        text = pack.badge,
                         color = Color(0xFF0A0A0C),
-                        fontSize = (10 * scale).sp,
+                        fontSize = (9 * scale).sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.sp
                     )
                 }
             } else {
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height((12 * scale).dp))
             }
 
-            // Coin Graphic + Amount
+            // Graphic + Title + Amount
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Canvas(modifier = Modifier.size((40 * scale).dp)) {
-                    drawCoinStackIcon(Color(0xFFFFD54F))
+                Canvas(modifier = Modifier.size((26 * scale).dp)) {
+                    if (pack.isAd) {
+                        drawBoltIcon(Color(0xFF00E5FF))
+                    } else {
+                        drawCoinStackIcon(Color(0xFFFFD54F))
+                    }
                 }
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = pack.title,
+                    color = Color(0xFFB7B7BC),
+                    fontSize = (10 * scale).sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.5.sp,
+                    maxLines = 1
+                )
                 Text(
                     text = "${pack.amount} CREDITS",
                     color = Color.White,
-                    fontSize = (20 * scale).sp,
+                    fontSize = (15 * scale).sp,
                     fontFamily = font,
                     letterSpacing = 1.sp
                 )
             }
 
-            // Price Button
+            // Price / Action Button
             val interactionSource = remember { MutableInteractionSource() }
+            val click = LocalUiClick.current
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFFECE7DA), RoundedCornerShape(6.dp))
+                    .background(
+                        when {
+                            pack.isAd -> Color(0xFF00E5FF)
+                            pack.badge == "BEST VALUE" -> Color(0xFFFFD54F)
+                            else -> Color(0xFFECE7DA)
+                        },
+                        RoundedCornerShape(5.dp)
+                    )
                     .clickable(
                         interactionSource = interactionSource,
                         indication = null,
-                        onClick = onPurchase
+                        onClick = { click(); onPurchase() }
                     )
-                    .padding(vertical = (10 * scale).dp),
+                    .padding(vertical = (6 * scale).dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = pack.price,
-                    color = ShadowTheme.Ink,
-                    fontSize = (16 * scale).sp,
+                    color = Color(0xFF0A0A0C),
+                    fontSize = (13 * scale).sp,
                     fontFamily = font,
                     letterSpacing = 1.sp
                 )

@@ -78,6 +78,7 @@ fun MenuTopBar(
         ) {
             val interactionSource = remember { MutableInteractionSource() }
             val isPressed by interactionSource.collectIsPressedAsState()
+            val click = LocalUiClick.current
 
             Box(
                 modifier = Modifier
@@ -87,7 +88,7 @@ fun MenuTopBar(
                     .clickable(
                         interactionSource = interactionSource,
                         indication = null,
-                        onClick = onBackClicked
+                        onClick = { click(); onBackClicked() }
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -177,6 +178,7 @@ fun CoinPill(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    val click = LocalUiClick.current
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -192,7 +194,7 @@ fun CoinPill(
                     it.clickable(
                         interactionSource = interactionSource,
                         indication = null,
-                        onClick = onPlusClicked
+                        onClick = { click(); onPlusClicked() }
                     )
                 } else it
             }
@@ -244,6 +246,7 @@ fun TexturedSidebarTab(
     val interactionSource = remember { MutableInteractionSource() }
     val iconColor = if (isSelected) ShadowTheme.Ink else Color.White
     val textColor = if (isSelected) ShadowTheme.Ink else Color.White
+    val click = LocalUiClick.current
 
     Box(
         modifier = modifier
@@ -252,7 +255,7 @@ fun TexturedSidebarTab(
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = onClick
+                onClick = { click(); onClick() }
             ),
         contentAlignment = Alignment.CenterStart
     ) {

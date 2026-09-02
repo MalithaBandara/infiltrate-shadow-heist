@@ -2,7 +2,14 @@ import korlibs.korge.gradle.*
 
 plugins {
 	alias(libs.plugins.korge)
+	`maven-publish`
 }
+
+// Explicit, so android-shell/ (a genuinely separate Gradle build, see settings.gradle.kts) can
+// depend on this project's Android artifact deterministically via mavenLocal(), the same reason
+// paywall-build/build.gradle.kts pins its own group/version.
+group = "com.sample.demo"
+version = "1.0"
 
 korge {
 	id = "com.sample.demo"
@@ -23,6 +30,12 @@ korge {
 	targetIos()
 	targetAndroid()
 
+	// Compose owns the real menu/UI on Android too now (android-shell/), same as iOS's
+	// ios-shell/ - so KorGE must stop generating its own launcher MainActivity/manifest here
+	// (which would otherwise conflict: two launcher activities, one showing gameplay directly
+	// with no menu at all). See .junie/guidelines.md "Watch ad to continue" / android-shell.
+	androidLibrary = true
+
 	serializationJson()
 }
 
@@ -31,6 +44,7 @@ korge {
         minSdk = 23
     }
 }
+
 
 
 dependencies {

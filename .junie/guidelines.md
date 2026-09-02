@@ -1639,3 +1639,93 @@ The gameplay logic is decoupled from the rendering engine:
 - KorGE's auto-generated iOS bootstrap (`build/platforms/native-ios/bootstrap.kt`) calls `suspend fun main()` with zero arguments.
 - `src/main.kt` must always expose a parameterless `suspend fun main() = main(emptyArray())` alongside `suspend fun main(args: Array<String>)`.
 - Never use JVM-only APIs such as `java.lang.System.getProperty` in `src/main.kt` or common code; use `korlibs.io.lang.Environment["key"]` or `args.firstOrNull()` which compile across Kotlin/JVM, Kotlin/Native (iOS), and Kotlin/JS.
+
+## Audio: two sound buses, and how assets reach each platform (2026-09-03)
+
+The game has **two independent audio systems**. They share no code and load files by
+different mechanisms, so a sound added to one is not available to the other.
+
+1. **Gameplay (`:game`, KorGE)** — `src/game/scene/GameAudio.kt`. Loads `sfx/*.wav` through
+   `resourcesVfs`, i.e. out of `resources/sfx/`. A gain table (`STEP_GAIN`, `TAKEOFF_GAIN`,
+   `LANDING_GAIN`, `CLIMB_GAIN`, `CROUCH_GAIN`, `UI_CLICK_GAIN`, `HUD_TAP_GAIN`) sets relative
+   levels on top of the player's SFX volume. Missing clips are a silent no-op, never a crash -
+   which means a bundling failure is invisible rather than loud. Keep that in mind when a sound
+   "doesn't work": check the file reached the bundle before suspecting the code.
+2. **Menus (`paywall-build`, Compose)** — `ui/MenuSfx.kt`, an `expect`/`actual` following the
+   same per-platform pattern as `MenuMusic`/`LoopingVideoBackground`. Delivered to screens
+   through `LocalUiClick`, a CompositionLocal provided once in `NavigationRoot` (so the voice
+   pool is not rebuilt on every navigation), defaulting to a no-op so previews stay silent
+   instead of failing. Uses the overlap-capable API on each platform - a 4-voice `AVAudioPlayer`
+   pool on iOS, `SoundPool` on Android, JavaFX `AudioClip` on desktop - because one player
+   restarted cuts the previous tap off mid-sound.
+
+### Format: WAV, not OGG
+
+Everything must be **PCM s16le / 44.1 kHz / mono**. This is the only format all four consumers
+accept: KorGE's `readSound`, iOS `AVAudioPlayer`, Android `SoundPool`, and JavaFX. **iOS and
+JavaFX cannot decode Ogg Vorbis at all**, so a CC0 pack downloaded as `.ogg` (Kenney ships Ogg)
+must be converted before use, or the menu bus is silent on two of three platforms.
+
+### Where each platform reads the click from
+
+`ui_click.wav` is deliberately checked in **twice**, mirroring how `mainmenu.mp3` already is:
+
+- `resources/sfx/ui_click.wav` — KorGE gameplay (all platforms), and the desktop menu bus,
+  which looks for `resources/sfx/…` relative to the working directory.
+- `ios-shell/Resources/ui_click.wav` — the iOS menu bus, read via `NSBundle`. `project.yml`
+  already copies that whole directory as a resources build phase.
+- Android's menu bus finds it at `assets/sfx/ui_click.wav`, which is where KorGE's Gradle plugin
+  copies `resources/` - no `res/raw` copy needed, though `res/raw` is tried first.
+
+### KNOWN GAP: `resources/` never reaches the iOS shell bundle
+
+`ios-shell/project.yml` copies `ios-shell/Resources` and `paywall-build`'s compose-resources,
+**and nothing else**. There is no path for the repo's `resources/` directory into the app bundle,
+and every gameplay asset - sprites, backgrounds, the Bebas font, all of `sfx/` - is loaded
+through `resourcesVfs`, which resolves against the bundle. So on the iOS shell build, gameplay
+audio and gameplay art are expected to be missing. `GameplayScene` catches each load and falls
+back to `null`/vector drawing, so this degrades silently rather than crashing, which is probably
+why it has gone unnoticed. **Unverified on-device** - confirm against a CI run before acting, but
+do not assume gameplay audio works on iOS until this is fixed. The likely fix is one more folder
+reference in `project.yml`; it was deliberately not applied without the owner's go-ahead, since
+that file is part of the hard-won working iOS config.
+
+## Compose Resources package is derived from the project `group` — trap (2026-09-03)
+
+`paywall-build/build.gradle.kts` sets `group = "com.infiltrate"` (added so `android-shell` can
+reference this module's Android artifact through the composite-build substitution). Compose
+Resources derives the generated `Res` class's package from the project `group` when
+`packageOfResClass` is not set, so adding that line silently moved the generated package from
+`paywall_build.generated.resources` to `com.infiltrate.paywall_build.generated.resources`, while
+all five UI files still imported the short one. Result: `compileKotlinJvm` failed across
+`MainMenuScreen`, `LevelSelectScreen`, `MenuComponents`, `SettingsScreen` and `StoreScreen` with
+`Unresolved reference 'paywall_build'` — nothing to do with the code being edited at the time.
+
+Fixed by pinning the package explicitly rather than rewriting five files' imports:
+
+```kotlin
+compose.resources { packageOfResClass = "paywall_build.generated.resources" }
+```
+
+**If `group` is ever changed again, this pin is what stops the generated package moving with it.**
+
+## RESOLVED: `android-shell/` root-build configuration clash (2026-09-03)
+
+Briefly, `android-shell/` was included by `settings.gradle.kts` as a subproject while applying
+`org.jetbrains.compose` 1.12.0, which requires **Kotlin >= 2.2.0**. The root build is on
+**Kotlin 2.0.20**, locked to KorGE 6.0.0, so configuration failed for *any* root-build task:
+
+```
+Failed to apply plugin 'org.jetbrains.compose'.
+  > Configuration problem: Minimal supported Kotlin Gradle Plugin version is 2.2.0
+```
+
+This was masked for a while by a stale configuration-cache entry created before the module
+existed; once that cache was invalidated, every root task failed at configuration.
+
+Resolved by making `android-shell/` its own fully separate Gradle build (the `include(":android-shell")`
+line is gone from `settings.gradle.kts`), consuming `paywall-build`'s Android artifact through
+`mavenLocal()` rather than a subproject/composite dependency - the same isolation `paywall-build`
+itself already relies on. Recorded here because the symptom (every root task failing to configure
+on a plugin the task has nothing to do with) is confusing enough to be worth recognising if a
+future module reintroduces it.

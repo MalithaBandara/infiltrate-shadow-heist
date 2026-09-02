@@ -33,7 +33,7 @@ enum class PowerupType(
         displayName = "NOISE SUPPRESSION",
         shortName = "SILENCE",
         duration = -1.0, // Level-duration
-        defaultCost = 600
+        defaultCost = 500
     );
 
     val isLevelDuration: Boolean get() = duration <= 0.0

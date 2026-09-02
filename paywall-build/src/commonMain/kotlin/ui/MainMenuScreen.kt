@@ -4,6 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -112,8 +114,16 @@ fun MainMenuScreen(
         val screenHeight = maxHeight
         val isCompact = screenWidth < 700.dp
 
-        // Reference 720p scale factor for widescreen phone / desktop displays
-        val scale = if (isCompact) 0.65f else (screenHeight / 720.dp).coerceIn(0.85f, 1.4f)
+        // Reference 720p scale factor for widescreen phone / desktop displays.
+        //
+        // Was floored at 0.85 on the theory that touch-target legibility mattered more than
+        // fitting without scrolling - real device testing overturned that: a landscape phone's
+        // natural scale (~0.54 at ~390dp tall) got clamped up to 0.85, ballooning the button
+        // stack to ~1.57x the size that actually fits, pushing STORE/SETTINGS off-screen. 0.55
+        // still keeps buttonHeight (84*scale) just above the 48dp touch minimum at the shortest
+        // realistic phone height, while letting real devices reach close to their natural scale
+        // instead of being forced oversized.
+        val scale = if (isCompact) 0.65f else (screenHeight / 720.dp).coerceIn(0.55f, 1.4f)
 
         val logoWidth = if (isCompact) 280.dp else (540 * scale).dp
         val logoHeight = if (isCompact) 82.dp else (158 * scale).dp
@@ -192,10 +202,17 @@ fun MainMenuScreen(
                 )
         ) {
             // Left Column: Logo + Buttons (Vertically Centered)
+            //
+            // scale's 0.85 floor above (deliberate - keeps buttons above the 48dp touch minimum
+            // rather than shrinking them to fit) means the logo + 4 buttons reliably run taller
+            // than a real phone's landscape height (~390dp against the 720dp reference, well
+            // under the floor) - scrollable rather than shrinking further keeps every button
+            // reachable without undoing that floor.
             Column(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    .width(buttonWidth),
+                    .width(buttonWidth)
+                    .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // Logo Image (logo_main.png) optically centered relative to the visual body of the buttons
@@ -273,7 +290,6 @@ fun MainMenuScreen(
                 missionDescription = missionDescription,
                 font = bebasFont,
                 scale = dossierScale,
-                onClick = { onPlayClicked(currentMission.id) }
             )
         }
     }
@@ -292,6 +308,7 @@ private fun HeistTexturedButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    val click = LocalUiClick.current
 
     val scale = if (isPressed) 0.98f else 1.0f
     val alpha = if (isPressed) 0.85f else 1.0f
@@ -303,7 +320,7 @@ private fun HeistTexturedButton(
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = onClick
+                onClick = { click(); onClick() }
             ),
         contentAlignment = Alignment.Center
     ) {
@@ -443,11 +460,7 @@ private fun MissionDossierCard(
     missionDescription: String,
     font: FontFamily,
     scale: Float,
-    onClick: () -> Unit
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-
     val cardWidth = (DOSSIER_BASE_WIDTH * scale).dp
     val cardHeight = (DOSSIER_BASE_WIDTH / DOSSIER_ASPECT * scale).dp
 
@@ -490,21 +503,17 @@ private fun MissionDossierCard(
     // inconsistency that makes two screens look like different designs rather than one at two sizes.
     val ruleWeight = (2 * scale).dp
 
+    // Decorative only, deliberately not clickable - it used to double as a shortcut into
+    // onPlayClicked, which read as an accidental/confusing second PLAY trigger.
     Box(
         modifier = modifier
             .width(cardWidth)
             .height(cardHeight)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            )
     ) {
         Image(
             painter = painterResource(Res.drawable.dossier_paper),
             contentDescription = null,
             contentScale = ContentScale.FillBounds,
-            alpha = if (isPressed) 0.86f else 1f,
             modifier = Modifier.fillMaxSize()
         )
 

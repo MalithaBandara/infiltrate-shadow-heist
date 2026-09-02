@@ -284,6 +284,7 @@ private fun MissionCard(
     val isPressed by interactionSource.collectIsPressedAsState()
 
     val title = levelData.name.replaceFirst(Regex("^\\d+:\\s*"), "").uppercase()
+    val click = LocalUiClick.current
 
     Box(
         modifier = modifier
@@ -300,7 +301,7 @@ private fun MissionCard(
                 interactionSource = interactionSource,
                 indication = null,
                 enabled = canPlay,
-                onClick = onClick
+                onClick = { click(); onClick() }
             )
             .padding((16 * scale).dp)
     ) {

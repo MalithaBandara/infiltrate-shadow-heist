@@ -245,6 +245,8 @@ private fun GeneralSettingsPanel(
     onControlsSwapChange: (Boolean) -> Unit,
     onResetProgress: () -> Unit
 ) {
+    val click = LocalUiClick.current
+
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy((14 * scale).dp)
@@ -333,7 +335,7 @@ private fun GeneralSettingsPanel(
                     .clickable(
                         interactionSource = langInteractionSource,
                         indication = null,
-                        onClick = { onLanguageChange("en") }
+                        onClick = { click(); onLanguageChange("en") }
                     )
                     .padding(horizontal = (14 * scale).dp, vertical = (8 * scale).dp),
                 contentAlignment = Alignment.Center
@@ -463,7 +465,7 @@ private fun GeneralSettingsPanel(
                         .clickable(
                             interactionSource = defaultInteractionSource,
                             indication = null,
-                            onClick = { onControlsSwapChange(false) }
+                            onClick = { click(); onControlsSwapChange(false) }
                         )
                         .padding(horizontal = (14 * scale).dp, vertical = (8 * scale).dp),
                     contentAlignment = Alignment.Center
@@ -494,7 +496,7 @@ private fun GeneralSettingsPanel(
                         .clickable(
                             interactionSource = swappedInteractionSource,
                             indication = null,
-                            onClick = { onControlsSwapChange(true) }
+                            onClick = { click(); onControlsSwapChange(true) }
                         )
                         .padding(horizontal = (14 * scale).dp, vertical = (8 * scale).dp),
                     contentAlignment = Alignment.Center

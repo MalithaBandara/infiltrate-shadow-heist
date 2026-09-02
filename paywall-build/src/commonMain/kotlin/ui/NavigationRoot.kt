@@ -1,6 +1,7 @@
 package com.infiltrate.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,53 +40,62 @@ fun NavigationRoot(
     val musicVolume = remember(currentScreen) { profileStorage.getProfile().musicVolume }
     MenuMusic(volume = musicVolume)
 
-    ShadowHeistTheme {
-        when (currentScreen) {
-            AppScreen.MainMenu -> {
-                MainMenuScreen(
-                    onPlayClicked = {
-                        // Default to Mission 1 if clicked directly from MainMenu
-                        onStartLevel("level_1")
-                    },
-                    onMissionsClicked = { currentScreen = AppScreen.LevelSelect },
-                    onStoreClicked = {
-                        storeInitialTab = StoreTab.POWER_UPS
-                        currentScreen = AppScreen.Store
-                    },
-                    onSettingsClicked = {
-                        settingsInitialTab = SettingsTab.GENERAL
-                        currentScreen = AppScreen.Settings
-                    }
-                )
-            }
-            AppScreen.LevelSelect -> {
-                LevelSelectScreen(
-                    onStartMission = { levelData ->
-                        println("[Navigation] Launching mission ${levelData.id}")
-                        onStartLevel(levelData.id)
-                    },
-                    onStoreClicked = {
-                        storeInitialTab = StoreTab.COINS
-                        currentScreen = AppScreen.Store
-                    },
-                    onBackClicked = { currentScreen = AppScreen.MainMenu }
-                )
-            }
-            AppScreen.Store -> {
-                StoreScreen(
-                    initialTab = storeInitialTab,
-                    onBackClicked = { currentScreen = AppScreen.MainMenu }
-                )
-            }
-            AppScreen.Settings -> {
-                SettingsScreen(
-                    initialTab = settingsInitialTab,
-                    onBackClicked = { currentScreen = AppScreen.MainMenu },
-                    onStoreShortcutClicked = {
-                        storeInitialTab = StoreTab.COINS
-                        currentScreen = AppScreen.Store
-                    }
-                )
+    // The click is provided here, alongside the music, and for the same reason: every menu
+    // screen needs it, and mounting it per-screen would rebuild the voice pool on every
+    // navigation. Re-read on screen change so the Settings SFX slider applies on the way back
+    // out, matching how musicVolume behaves.
+    val sfxVolume = remember(currentScreen) { profileStorage.getProfile().sfxVolume }
+    val uiClick = rememberUiClick(volume = sfxVolume)
+
+    CompositionLocalProvider(LocalUiClick provides uiClick) {
+        ShadowHeistTheme {
+            when (currentScreen) {
+                AppScreen.MainMenu -> {
+                    MainMenuScreen(
+                        onPlayClicked = {
+                            // Default to Mission 1 if clicked directly from MainMenu
+                            onStartLevel("level_1")
+                        },
+                        onMissionsClicked = { currentScreen = AppScreen.LevelSelect },
+                        onStoreClicked = {
+                            storeInitialTab = StoreTab.POWER_UPS
+                            currentScreen = AppScreen.Store
+                        },
+                        onSettingsClicked = {
+                            settingsInitialTab = SettingsTab.GENERAL
+                            currentScreen = AppScreen.Settings
+                        }
+                    )
+                }
+                AppScreen.LevelSelect -> {
+                    LevelSelectScreen(
+                        onStartMission = { levelData ->
+                            println("[Navigation] Launching mission ${levelData.id}")
+                            onStartLevel(levelData.id)
+                        },
+                        onStoreClicked = {
+                            storeInitialTab = StoreTab.COINS
+                            currentScreen = AppScreen.Store
+                        },
+                        onBackClicked = { currentScreen = AppScreen.MainMenu }
+                    )
+                }
+                AppScreen.Store -> {
+                    StoreScreen(
+                        initialTab = storeInitialTab,
+                        onBackClicked = { currentScreen = AppScreen.MainMenu }
+                    )
+                }
+                AppScreen.Settings -> {
+                    SettingsScreen(
+                        initialTab = settingsInitialTab,
+                        onBackClicked = { currentScreen = AppScreen.MainMenu },
+                        onStoreShortcutClicked = {
+                            storeInitialTab = StoreTab.COINS
+                            currentScreen = AppScreen.Store
+                        }
+                    )
+                }
             }
         }
     }
