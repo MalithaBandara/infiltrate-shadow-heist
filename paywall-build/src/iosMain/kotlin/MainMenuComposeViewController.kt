@@ -1,6 +1,7 @@
 package com.infiltrate.ui
 
 import androidx.compose.ui.window.ComposeUIViewController
+import com.infiltrate.ads.ContinueAdContent
 import kotlin.native.ObjCName
 import platform.UIKit.UIViewController
 
@@ -15,6 +16,9 @@ object MainMenuComposeScreen {
             // (that crashed - see AdMobVerifyScreen.kt for the full story). Tiny/invisible,
             // does not affect the real menu UI.
             AdMobVerifyContent()
+            // Real "watch ad to continue" trigger (see ContinueAdBridge.kt) - inert until Swift
+            // calls ContinueAdTrigger.requestShow() after a mid-game death.
+            ContinueAdContent()
         }
 
     fun makeViewController(onStartLevel: () -> Unit): UIViewController =

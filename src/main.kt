@@ -22,12 +22,12 @@ suspend fun main(args: Array<String>) = Korge(
 ) {
     val sceneContainer = sceneContainer()
     val levelId = Environment["startLevel"] ?: args.firstOrNull()
-    if (levelId != null) {
-        val levelData = LevelData.DEFAULT_LEVELS.firstOrNull { it.id == levelId } ?: LevelData.DEFAULT_LEVEL_1
-        sceneContainer.changeTo { GameplayScene(levelData) }
+    val levelData = if (levelId != null) {
+        LevelData.DEFAULT_LEVELS.firstOrNull { it.id == levelId } ?: LevelData.DEFAULT_LEVEL_1
     } else {
-        sceneContainer.changeTo { SplashScene() }
+        LevelData.DEFAULT_LEVEL_1
     }
+    sceneContainer.changeTo { GameplayScene(levelData) }
 }
 
 suspend fun main() = main(emptyArray())

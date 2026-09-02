@@ -577,6 +577,44 @@ fun DrawScope.drawBootIcon(c: Color) {
     drawPath(path, color = c)
 }
 
+fun DrawScope.drawGearIcon(c: Color) {
+    val cx = size.width / 2f
+    val cy = size.height / 2f
+    val scale = size.width / 24f
+    
+    // Main ring
+    val ringR = 5.5f * scale
+    val thickness = 3.8f * scale
+    drawCircle(color = c, radius = ringR, center = Offset(cx, cy), style = Stroke(width = thickness))
+    
+    // Teeth
+    val innerR = 5.0f * scale
+    val outerR = 8.6f * scale
+    val toothWidth = 3.0f * scale
+    for (i in 0 until 8) {
+        val angle = i * PI / 4.0
+        val ux = cos(angle).toFloat()
+        val uy = sin(angle).toFloat()
+        drawLine(
+            color = c, 
+            start = Offset(cx + ux * innerR, cy + uy * innerR), 
+            end = Offset(cx + ux * outerR, cy + uy * outerR), 
+            strokeWidth = toothWidth, 
+            cap = StrokeCap.Square
+        )
+    }
+}
+
+fun DrawScope.drawGlobeIcon(c: Color) {
+    val cx = size.width / 2f
+    val cy = size.height / 2f
+    val r = 7.5f
+    drawCircle(color = c, radius = r, center = Offset(cx, cy), style = Stroke(width = 1.5f))
+    drawLine(color = c, start = Offset(cx - r, cy), end = Offset(cx + r, cy), strokeWidth = 1.2f)
+    drawLine(color = c, start = Offset(cx, cy - r), end = Offset(cx, cy + r), strokeWidth = 1.2f)
+    drawOval(color = c, topLeft = Offset(cx - r * 0.5f, cy - r), size = Size(r, r * 2f), style = Stroke(width = 1.2f))
+}
+
 fun DrawScope.drawSpeakerIcon(c: Color) {
     val cx = size.width / 2f
     val cy = size.height / 2f

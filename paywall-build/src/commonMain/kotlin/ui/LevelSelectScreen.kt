@@ -119,7 +119,7 @@ fun LevelSelectScreen(
                     for (i in 0 until 4) {
                         val isReal = (i == 0)
                         ChapterCard(
-                            title = if (isReal) "SHIPYARD" else "COMING SOON",
+                            title = if (isReal) "THE SHIPYARD" else "COMING SOON",
                             isUnlocked = isReal,
                             starsText = "$starsEarned/$starsMax",
                             font = bebasFont,
@@ -137,7 +137,7 @@ fun LevelSelectScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "SHIPYARD",
+                        text = "THE SHIPYARD",
                         color = Color.White,
                         fontSize = (18 * scale).sp,
                         fontFamily = bebasFont,

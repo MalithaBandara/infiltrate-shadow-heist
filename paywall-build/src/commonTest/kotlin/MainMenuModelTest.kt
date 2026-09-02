@@ -29,16 +29,22 @@ class MainMenuModelTest {
         assertTrue(profile.unlockedLevelIds.contains("level_1"), "level_1 should be unlocked by default")
         assertTrue(profile.unlockedLevelIds.contains("level_4"), "level_4 should be unlocked by default")
         assertEquals(false, profile.isPremium, "Default isPremium should be false")
+        assertEquals(false, profile.controlsSwapped, "Default controlsSwapped should be false")
+        assertEquals("en", profile.language, "Default language should be 'en'")
 
         // Modify and save profile
         initialStorage.addCoins(250)
         initialStorage.unlockLevel("level_2")
         initialStorage.setMusicVolume(0.5f)
+        initialStorage.setControlsSwapped(true)
+        initialStorage.setLanguage("en")
 
         // Verify discrete keys were written to rawStore
         assertEquals("350", rawStore["user_coins"])
         assertTrue(rawStore["user_unlocked_levels"]?.contains("level_2") == true)
         assertEquals("0.5", rawStore["user_music_vol"])
+        assertEquals("true", rawStore["user_controls_swapped"])
+        assertEquals("en", rawStore["user_language"])
 
         // Construct a fresh storage instance simulating an app restart
         val reloadedStorage: GameProfileStorage = MapBackedGameProfileStorage(
@@ -49,6 +55,8 @@ class MainMenuModelTest {
         assertEquals(350, reloadedProfile.coins)
         assertTrue(reloadedProfile.unlockedLevelIds.containsAll(listOf("level_1", "level_4", "level_2")))
         assertEquals(0.5f, reloadedProfile.musicVolume)
+        assertEquals(true, reloadedProfile.controlsSwapped)
+        assertEquals("en", reloadedProfile.language)
     }
 
     @Test

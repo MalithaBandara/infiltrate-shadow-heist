@@ -1194,9 +1194,17 @@ redone.
   `Bitmap`/`Animation` APIs, or a sprite-sheet-style approach — both
   proven, no codec involved.
 
-## AdMob (`basic-ads`) feasibility spike (2026-09-01) — VIABLE, iOS link proven working
+## AdMob (`basic-ads`) feasibility spike (2026-09-01/02) — VIABLE, proven working on real iOS Simulator (link + on-device run)
 
-**Status: `app.lexilabs.basic:basic-ads` genuinely links on iOS now.**
+**Status: `app.lexilabs.basic:basic-ads` genuinely links AND runs on iOS.** CI run
+[33559815333](https://github.com/MalithaBandara/infiltrate-shadow-heist/actions/runs/33559815333)
+(commit `27702a7`) confirmed, from raw logs: `syncPodComposeResourcesForIos` `BUILD SUCCESSFUL`,
+no crash reports, `LEVEL TRANSITION RESULT: TRANSITION_OK`, storage bridge
+`OK:coins=350:unlocked=level_1;level_2;level_4`, and — the actual point of the spike —
+`AdMob verify result: OK:initializeCalled=true:bannerLoaded=true`: a real Google-served banner
+ad genuinely initialized and loaded on a real iOS Simulator. See "Watch ad to continue — real
+feature" below for what got built on top of this, and the on-device crash chase (unrelated to
+AdMob) that had to be fixed first.
 Isolated to `paywall-build`, same module used for the RevenueCat and
 Compose/KorGE spikes above — real CocoaPods wiring was required (unlike
 RevenueCat 3.x, which deliberately avoids CocoaPods entirely), and getting
@@ -1336,25 +1344,117 @@ test, not a compile of dead-strippable unused code.
 
 ### What's still open
 
-- **Only the isolated `paywall-build` klib/framework link was proven.**
-  Not yet embedded into `ios-shell/` (the native shell that already
-  combines `GameMain.framework` + `PaywallModule.framework` — see "Native
-  iOS shell" above) or run on a simulator. The storage-bridge/switch-spike
-  pattern (write a result file, read it back via `simctl`) is the obvious
-  next step to prove `BasicAds.Initialize()` and `BannerAd()` actually
-  run, not just link.
-- **Android side is completely untested this session** — added
-  `com.google.android.gms:play-services-ads`/`com.google.android.ump:user-messaging-platform`
-  to `androidMain` alongside `basic-ads`, but never built or run.
-- Only `iosSimulatorArm64` linked — `iosArm64` (real device) untouched,
+- **Android runtime is still untested** — `basic-ads` + `play-services-ads`/
+  `user-messaging-platform` compile clean for `:paywall-build`'s Android
+  target (`compileDebugKotlinAndroid` succeeds) and the real Android
+  `APPLICATION_ID` meta-data is wired (see "Watch ad to continue" below),
+  but there is no emulator in this environment and, more fundamentally, no
+  Android host Activity anywhere that consumes `paywall-build`'s Compose UI
+  at all yet (unlike iOS's `ios-shell/`) — building that is real,
+  undone work, not a quick follow-up.
+- Only `iosSimulatorArm64` verified — `iosArm64` (real device) untouched,
   same caveat as every other iOS spike in this file.
-- The output framework's exact file path (whether it still lands at the
-  standard `paywall-build/build/bin/iosSimulatorArm64/debugFramework/PaywallModule.framework`
-  `ios-shell/project.yml` already expects, or somewhere CocoaPods-specific)
-  was not independently re-confirmed after switching to the `cocoapods { framework {} }`
-  DSL — worth double-checking before wiring into `ios-shell/`.
-- `AdMobSpikeUsage.kt` is throwaway spike code (mirrors `PaywallUsage.kt`'s
-  own status) — no real ad-serving UI, no wiring into any real screen.
+- `AdMobVerifyScreen.kt`/`AdMobVerifyBridge` (the spike code proven above)
+  is still throwaway — it deliberately stays on `AdUnitId.BANNER_DEFAULT`
+  (Google's test constant), never a real ad unit, since it runs
+  unattended in CI and a real ad unit there would be invalid traffic.
+  The real feature is `ContinueAdBridge`/`ContinueAdTrigger`, documented
+  next.
+
+## Watch ad to continue — real feature (2026-09-02)
+
+Real AdMob apps + rewarded ad units created in the AdMob console (not test IDs):
+
+| | App ID | Rewarded ad unit ID |
+|---|---|---|
+| Android | `ca-app-pub-7912148730700666~8824437805` | `ca-app-pub-7912148730700666/8683118378` |
+| iOS | `ca-app-pub-7912148730700666~1768074863` | `ca-app-pub-7912148730700666/9506964083` |
+
+Wired in: `paywall-build/src/androidMain/AndroidManifest.xml` (App ID meta-data),
+`ios-shell/project.yml` (`GADApplicationIdentifier`, real App ID — safe to use even in the CI
+spike, unlike a real *ad unit* ID: the App ID alone doesn't cause invalid-traffic risk),
+`AdUnitIds.kt`/`.android.kt`/`.ios.kt` (`expect/actual`, `paywall-build/src/*Main/kotlin/`) —
+real ad unit ID per platform, used **only** by the real feature below, never by the CI spike.
+
+### Why the ad can't be triggered directly from KorGE
+
+`:game` (the KorGE module) is locked to Kotlin `2.0.20` and has no Compose runtime; `basic-ads`
+needs `2.4.10`+ and is only wired into `paywall-build`'s Compose layer — that's the entire reason
+`paywall-build` exists as an isolated composite build (see "RevenueCat on iOS" above). So
+`GameplayScene.kt` (common KorGE code) cannot call `RewardedAdHandler`/`RewardedAd` directly; the
+request has to cross from `GameMain.framework` to `PaywallModule.framework` via native Swift,
+since those are two separately-compiled Kotlin/Native frameworks with no direct interop.
+
+Checked `basic-ads`' actual iOS source (`RewardedAdHandler.kt` on
+[LexiLabs-App/basic-ads](https://github.com/LexiLabs-App/basic-ads)) before wiring anything:
+`show()` calls `GADRewardedAd.presentFromRootViewController(rootViewController = null, ...)` —
+it presents over whatever the **current** `window.rootViewController` is at call time, not
+whichever view controller composed the call. Confirms the ad can only present reliably once the
+shell has actually swapped to the Compose scene (same reasoning that killed the "second
+ComposeUIViewController" approach in the AdMob spike above) — triggering it while KorGE is still
+the visible root, hoping Compose's detached scene keeps running invisibly, isn't a safe bet.
+
+### Architecture (poll-based bridges, same pattern as `SpikeBridge`/`AdMobVerifyBridge`)
+
+```
+GameplayScene (KorGE)  --[requestContinueAd]-->  GameContinueAdBridge (:game, src@ios, real)
+                                                          |
+                                                   polled by AppDelegate.swift
+                                                          |
+                                              switchToCompose() + ContinueAdTrigger.requestShow()
+                                                          |
+                                          ContinueAdContent() composes RewardedAd(...) (paywall-build)
+                                                          |
+                                          onRewardEarned -> ContinueAdTrigger.markRewardEarned()
+                                                          |
+                                                   polled by AppDelegate.swift
+                                                          |
+                                    GameContinueAdBridge.grantContinue() + switchToKorGE()
+                                                          |
+                        GameplayScene's own updater sees consumeContinueGranted() -> restarts
+                        the level the same way the existing "RETRY INFILTRATION" button already does
+```
+
+Two separate bridge objects, not one, because `:game` and `paywall-build` are separate Kotlin/
+Native frameworks — Swift is the only thing that can see both:
+- `GameContinueAdBridge` (`src/ContinueAdBridge.kt` common `expect`, `src@ios/ContinueAdBridge.ios.kt`
+  real actual, `src@android`/`src@jvm`/`src@js`/`src@wasmJs` deliberate no-op actuals matching the
+  existing `PurchasesBridge` pattern — `consumeContinueGranted()` must return `false`, never `true`,
+  on every platform without a real ad actually watched)
+- `ContinueAdTrigger` (`paywall-build/src/iosMain/kotlin/ContinueAdBridge.kt`) — `showRequested` is
+  a real Compose `MutableState<Boolean>` (not a plain var) so `ContinueAdContent()` recomposes when
+  Swift sets it; `consumeOutcomeFinished()` lets Swift react the instant the ad is dismissed/fails,
+  instead of always waiting out the 30s fallback timeout
+
+### What changed in the real gameplay UI
+
+`GameplayScene.kt`'s existing "MISSION FAILED" (`caughtOverlay`) game-over card gets a third
+button, **CONTINUE (WATCH AD)**, above the existing RETRY INFILTRATION / RETURN TO MENU (which
+keep working independently — tapping CONTINUE only requests the ad, it doesn't hide or disable
+the other two, so a failed/declined ad never strands the player). For now, watching the ad to
+completion just restarts the current level (`sceneContainer.changeTo { GameplayScene(levelData) }`)
+— same as RETRY, just gated behind `getContinueAdBridge().consumeContinueGranted()` in the update
+loop, per the user's explicit "for now even if they play the ad just restart the game" scope.
+
+### Verified so far / not yet
+
+- `compileKotlinJvm` (root `:game`, common code + JVM actual) — **BUILD SUCCESSFUL**.
+- `paywall-build:compileDebugKotlinAndroid` — **BUILD SUCCESSFUL** (real Android App ID/ad unit
+  ID compile clean).
+- `:game`'s own `compileDebugKotlinAndroid` — **not verified locally**: blocked by a pre-existing,
+  unrelated `korge-ldtk` JVM-toolchain-mismatch error in this environment (fails before reaching
+  `:game`'s own Android compile at all) — not caused by this change; the Android actual
+  (`src@android/ContinueAdBridge.android.kt`) is a trivial no-op stub with no Android-specific API
+  surface, same shape as the already-working `PurchasesBridge` Android stub.
+- **iOS: not verified at all locally** — this machine has no Mac/Xcode. The Swift changes
+  (`AppDelegate.swift`: `showContinueAd()`, extended `startObservingLevelEnd()` poll) and the new
+  `paywall-build`/`:game` iOS Kotlin files have not been compiled or run. Needs a CI push to
+  confirm, same as every other iOS change in this file — do not treat this as working until a
+  real CI run proves it, per this file's own "verify version-related claims" rule above.
+- Not yet tested: what happens if the player backgrounds the app mid-ad, or if `RewardedAd`'s
+  `AdState.READY` never resolves within the 30s Swift poll deadline on a slow connection (falls
+  back to `switchToKorGE()` without granting — the level just isn't restarted, player can still
+  use RETRY).
 
 ## RevenueCat version is pinned by iOS klib ABI compatibility, not just Android/JVM metadata
 

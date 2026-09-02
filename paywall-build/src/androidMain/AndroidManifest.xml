@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Google Mobile Ads SDK's required App ID, merged into whatever app manifest
+             consumes this library. Real AdMob Android app ID (see .junie/guidelines.md
+             "AdMob (basic-ads) feasibility spike") - not a test ID. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-7912148730700666~8824437805" />
+    </application>
+</manifest>

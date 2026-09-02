@@ -108,10 +108,11 @@ class GameplayModelTest {
         val startX = world.player.startX
         val startY = world.player.startY
 
-        // Guard starts facing left at 560
-        // Move player into guard's line of sight (e.g. at x = 400)
-        world.player.x = 400.0
-        world.player.y = 380.0 - 96.0
+        // Guard starts facing left at far corner
+        // Move player into guard's line of sight
+        val guardTargetX = world.guard.x
+        world.player.x = guardTargetX - 100.0
+        world.player.y = world.player.startY
 
         assertEquals(0, world.spottedCount)
         assertEquals(0.0, world.alertProgress)
@@ -123,7 +124,7 @@ class GameplayModelTest {
         assertEquals(0.5, world.alertProgress, 0.01, "Alert progress should be at 50% (0.4 / 0.8)")
         assertFalse(world.isSpotted, "Player should not yet be caught during grace period")
         assertEquals(0, world.spottedCount, "Alert count should still be 0")
-        assertEquals(400.0, world.player.x, 0.01, "Player should not have been reset yet")
+        assertEquals(guardTargetX - 100.0, world.player.x, 0.01, "Player should not have been reset yet")
 
         // Step world another 0.5 seconds (total 0.9s > 0.8s threshold)
         world.update(dt = 0.5, moveInput = 0.0, jumpInput = false)
@@ -141,8 +142,8 @@ class GameplayModelTest {
         world.alertDecayRate = 0.5
 
         // Put player in vision for 0.4s -> 50% alertProgress
-        world.player.x = 400.0
-        world.player.y = 380.0 - 96.0
+        world.player.x = world.guard.x - 100.0
+        world.player.y = world.player.startY
         world.update(dt = 0.4, moveInput = 0.0, jumpInput = false)
         assertEquals(0.5, world.alertProgress, 0.01)
 
@@ -257,8 +258,8 @@ class GameplayModelTest {
 
         assertFalse(world.isLevelComplete)
 
-        // Move player to overlap exit zone (x = 730, y = 320)
-        world.player.x = 735.0
+        // Move player to overlap exit zone
+        world.player.x = world.exitZone.x + 5.0
         world.player.y = 284.0
 
         world.update(dt = 1.0 / 60.0, moveInput = 0.0, jumpInput = false)
@@ -446,11 +447,11 @@ class GameplayModelTest {
         world.minDetectionTime = 9999.0
         world.maxDetectionTime = 9999.0
 
-        // Guard at x = 560, facing left (-1.0)
+        // Guard at far corner, facing left (-1.0)
         assertEquals(GuardState.PATROL, world.guard.state)
 
-        // Place player at x = 450 (distance ~110px < 180px walk noise radius)
-        world.player.x = 450.0
+        // Place player at distance ~110px from guard (< 180px walk noise radius)
+        world.player.x = world.guard.x - 110.0
         world.player.y = 284.0
 
         // Player moves while crouching -> SILENT -> Guard remains in PATROL
@@ -518,9 +519,9 @@ class GameplayModelTest {
         world.setUniformDetectionTime(0.8)
         world.alertDecayRate = 0.5
 
-        // Guard facing left at 560
-        // Place player in vision at 400
-        world.player.x = 400.0
+        // Guard facing left at far corner
+        // Place player in vision
+        world.player.x = world.guard.x - 100.0
         world.player.y = 284.0
 
         // Step 0.3s -> alert progress builds up to ~0.375
@@ -1190,24 +1191,24 @@ class GameplayModelTest {
         assertEquals(1, world.cameras.size, "Default level 1 should have 1 camera")
 
         val camera = world.cameras.first()
-        assertEquals(660.0, camera.x)
+        assertEquals(3060.0, camera.x)
         assertEquals(180.0, camera.y)
         assertEquals(240.0, camera.visionRange)
 
-        // 1. When camera is sweeping down-left (120°), standing in the open corridor (e.g. x=580) spots the player
+        // 1. When camera is sweeping down-left (120°), standing in the open corridor (e.g. camera.x - 80) spots the player
         camera.currentAngle = 120.0 * (PI / 180.0)
-        world.player.x = 580.0
+        world.player.x = camera.x - 80.0
         world.player.y = 284.0
-        assertTrue(VisionSystem.isPlayerSpotted(camera, world.player, world.occluders), "Camera pointing down-left should spot player at x=580")
+        assertTrue(VisionSystem.isPlayerSpotted(camera, world.player, world.occluders), "Camera pointing down-left should spot player")
 
-        // 2. When camera is sweeping down-right (60°), standing at x=580 is out of the vision cone
+        // 2. When camera is sweeping down-right (60°), standing at same x is out of the vision cone
         camera.currentAngle = 60.0 * (PI / 180.0)
-        assertFalse(VisionSystem.isPlayerSpotted(camera, world.player, world.occluders), "Camera pointing down-right towards exit leaves x=580 clear")
+        assertFalse(VisionSystem.isPlayerSpotted(camera, world.player, world.occluders), "Camera pointing down-right leaves corridor clear")
 
-        // 3. Timing execution: Start past the guard patrol (e.g. x=600) right as the camera sweeps right
-        world.guard.x = 300.0
+        // 3. Timing execution: Start near the camera as it sweeps right
+        world.guard.x = 2700.0
         world.guard.facing = -1.0
-        world.player.x = 600.0
+        world.player.x = camera.x - 60.0
         camera.currentAngle = 60.0 * (PI / 180.0)
         camera.sweepDirection = 1.0
 
