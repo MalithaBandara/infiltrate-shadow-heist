@@ -18,3 +18,7 @@ src/main/*
 # Raw sprite source material (idle/jump/walk sheets before crop) - not used at runtime,
 # the game loads the processed resources/player/ output instead. 64MB, kept local only.
 /art-source
+
+# SFX working data: ~150MB of re-downloadable third-party packs plus generated
+# payloads. See tools/sfx/README.md.
+tools/sfx/work/

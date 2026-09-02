@@ -2,7 +2,12 @@
 import json
 import os
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.dirname(HERE)
+# Bulky, regenerable data (downloaded packs, slices, generated payloads) lives here, outside the
+# repo. Override with SFX_WORK to point at an existing download instead of re-fetching.
+WORK = os.environ.get("SFX_WORK") or os.path.join(BASE, "work")
+ROOT = WORK
 
 # Where each cue actually fires, read off the source rather than guessed.
 CUES = [
@@ -144,7 +149,7 @@ def main():
     if listed - have:
         print("WARNING cues with no candidates:", listed - have)
 
-    with open(os.path.join(ROOT, "template.html"), encoding="utf-8") as f:
+    with open(os.path.join(HERE, "bench-template.html"), encoding="utf-8") as f:
         html = f.read()
 
     html = html.replace("/*__DATA__*/", json.dumps(slim, separators=(",", ":")))

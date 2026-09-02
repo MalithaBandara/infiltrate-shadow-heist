@@ -14,16 +14,22 @@ BIN = (r"C:\Users\USER\AppData\Local\Microsoft\WinGet\Packages"
        r"\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe"
        r"\ffmpeg-9.0.1-full_build\bin")
 FFMPEG = os.path.join(BIN, "ffmpeg.exe")
-ROOT = os.path.dirname(os.path.abspath(__file__))
-SRC = r"C:\Users\USER\Downloads\charAnimations\jump_new.mp4"
-WORK = os.path.join(ROOT, "jump_work")
-RAW = os.path.join(WORK, "jump_raw.wav")
+HERE = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.dirname(HERE)
+# Bulky, regenerable data (downloaded packs, slices, generated payloads) lives here, outside the
+# repo. Override with SFX_WORK to point at an existing download instead of re-fetching.
+WORK = os.environ.get("SFX_WORK") or os.path.join(BASE, "work")
+ROOT = WORK
+# The owner's animation plate. Override with JUMP_SRC if it moves.
+SRC = os.environ.get("JUMP_SRC") or r"C:\Users\USER\Downloads\charAnimations\jump_new.mp4"
+JUMPDIR = os.path.join(WORK, "jump_work")
+RAW = os.path.join(JUMPDIR, "jump_raw.wav")
 
 FRAME = 0.005  # 5ms envelope resolution
 
 
 def extract():
-    os.makedirs(WORK, exist_ok=True)
+    os.makedirs(JUMPDIR, exist_ok=True)
     subprocess.run(
         [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", SRC,
          "-vn", "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", RAW],

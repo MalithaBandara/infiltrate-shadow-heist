@@ -151,44 +151,54 @@ recorded anywhere in the repo. **Needs establishing before release, or replacing
 
 ## Tooling (`tools/sfx/`)
 
-Copied out of the session scratchpad so this work is reproducible. Delete if unwanted — nothing
-in the build references it.
+Copied out of the session scratchpad so this work is reproducible, and **verified to run from
+its new location** - the full bench regenerates from these scripts alone. Read
+`tools/sfx/README.md` for the layout and the per-script breakdown. Delete the folder if unwanted;
+nothing in the build references it.
 
-- `candidates-manifest.txt` — the full cue → candidate map, `cue|group|pack|file` per line.
-- `jump_cuts/` — all five cuts from the owner's plate.
-- `scripts/jump_analyze.py` — prints a text waveform of `jump_new.mp4`; how the two transients
-  were found.
-- `scripts/jump_cut.py` — produces the five cuts; timings and normalisation live here.
-- `scripts/slice.py` — cuts long raw takes into one-shots via ffmpeg `silencedetect`.
-- `scripts/slice_cloth.py` — cuts *continuous* takes (cloth rustle has no silences, so
-  silencedetect finds nothing) by ranking overlapping windows by RMS.
-- `scripts/probe_owlish.py` — separates one-shots from long takes in a downloaded pack.
-- `scripts/collect.py` — resolves the manifest, measures clips, transcodes WAV→Ogg for the
-  bench payload only, emits `candidates.json`.
-- `scripts/build_page.py` — injects that JSON plus the cue briefs into the bench template.
-  **The cue briefs (what each cue is and where it fires) live in this file** — the most useful
-  single artefact if the bench ever needs rebuilding.
+Reproduce from nothing:
 
-`ffmpeg` 9.0.1 is installed at
-`%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-9.0.1-full_build\bin`
-(not on `PATH`; the scripts hardcode it).
+```bash
+bash tools/sfx/scripts/fetch_packs.sh        # ~150MB, no account needed
+python tools/sfx/scripts/slice.py
+python tools/sfx/scripts/slice_cloth.py
+python tools/sfx/scripts/collect.py
+python tools/sfx/scripts/build_page.py       # -> work/foley-bench.html, then publish to the URL above
+```
+
+Bulk data lands in `tools/sfx/work/` (git-ignored). `SFX_WORK` points that elsewhere - useful to
+reuse an existing download instead of re-fetching.
+
+`ffmpeg` 9.0.1 is required (`winget install Gyan.FFmpeg`); the scripts hardcode the winget path
+because it is not on `PATH`.
+
+**The cue briefs - what each of the 30 cues is and the source line it fires at - live in
+`scripts/build_page.py`.** That is the most valuable single artefact here.
+
+### What is and is not preserved
+
+- **Preserved**: the manifest, all five jump cuts, every script, the bench template with the
+  owner's settled choices baked in, and the published bench itself (which carries all 176
+  candidates as embedded audio and can be re-read via the Artifact tool).
+- **Not preserved**: the ~150MB of downloaded packs and the 68 Owlish slices, both of which live
+  in a session temp directory that will be cleared. `fetch_packs.sh` plus the two slice scripts
+  regenerate them exactly.
 
 ### Re-downloading the source packs
 
-The downloaded audio (~150MB) lives in the session scratchpad and will not survive. All of it is
-free to re-fetch, no account needed:
+`fetch_packs.sh` does this in one command. Sources, all free for commercial use and needing no
+account:
 
-- Kenney (all CC0), 8 packs, 11.4MB total: `interface-sounds`, `ui-audio`, `digital-audio`,
-  `impact-sounds`, `sci-fi-sounds`, `rpg-audio`, `casino-audio`, `music-jingles` — download links
-  are on each `https://kenney.nl/assets/<slug>` page.
-- OwlishMedia "Sound Effects Pack" (CC0, 136MB) —
+- Kenney (all CC0), 8 packs, 11.4MB total. Direct links are in the script; they carry a content
+  hash and can rot, in which case the current link is on `https://kenney.nl/assets/<slug>`.
+- OwlishMedia "Sound Effects Pack" (CC0, 136MB) -
   https://opengameart.org/content/sound-effects-pack
-  **OpenGameArt throttles and drops the connection**; use `curl -C -` with retries, and verify
-  the final size (142,384,346 bytes) — a truncated download still exits 0.
-- congusbongus "Footsteps on different surfaces" (**CC-BY 3.0**, 415KB) —
+  **OpenGameArt throttles and drops the connection**, and a truncated download still exits 0, so
+  the script resumes with `curl -C -` and verifies the final size (142,384,346 bytes).
+- congusbongus "Footsteps on different surfaces" (**CC-BY 3.0**, 415KB) -
   https://opengameart.org/content/footsteps-on-different-surfaces
   If anything from this is ever adopted, the credit must name **both** congusbongus and the
-  original Freesound author per surface — see the chain table in `ATTRIBUTION.md`.
+  original Freesound author per surface - see the chain table in `ATTRIBUTION.md`.
 
-Freesound has the best material but requires an account to download, which Claude cannot create —
+Freesound has the best material but requires an account to download, which Claude cannot create -
 it needs an API token from the owner, or the owner downloading picks themselves.

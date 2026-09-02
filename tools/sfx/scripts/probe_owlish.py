@@ -6,7 +6,12 @@ import subprocess
 FFPROBE = (r"C:\Users\USER\AppData\Local\Microsoft\WinGet\Packages"
            r"\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe"
            r"\ffmpeg-9.0.1-full_build\bin\ffprobe.exe")
-ROOT = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.dirname(HERE)
+# Bulky, regenerable data (downloaded packs, slices, generated payloads) lives here, outside the
+# repo. Override with SFX_WORK to point at an existing download instead of re-fetching.
+WORK = os.environ.get("SFX_WORK") or os.path.join(BASE, "work")
+ROOT = WORK
 OWL = os.path.join(ROOT, "sfx-src", "ex", "owlish")
 
 
