@@ -21,8 +21,13 @@ BIN = (r"C:\Users\USER\AppData\Local\Microsoft\WinGet\Packages"
        r"\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe"
        r"\ffmpeg-9.0.1-full_build\bin")
 FFMPEG = os.path.join(BIN, "ffmpeg.exe")
-ROOT = os.path.dirname(os.path.abspath(__file__))
-RAW = os.path.join(ROOT, "jump_work", "jump_raw.wav")
+HERE = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.dirname(HERE)
+# Bulky, regenerable data (downloaded packs, slices, generated payloads) lives here, outside the
+# repo. Override with SFX_WORK to point at an existing download instead of re-fetching.
+WORK = os.environ.get("SFX_WORK") or os.path.join(BASE, "work")
+ROOT = WORK
+RAW = os.path.join(WORK, "jump_work", "jump_raw.wav")
 OUT = os.path.join(ROOT, "sfx-src", "ex", "jump_src")
 
 # name, start, duration, target peak dBFS, fade-in s

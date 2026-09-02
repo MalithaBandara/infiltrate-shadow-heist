@@ -17,10 +17,15 @@ BIN = (r"C:\Users\USER\AppData\Local\Microsoft\WinGet\Packages"
 FFMPEG = os.path.join(BIN, "ffmpeg.exe")
 FFPROBE = os.path.join(BIN, "ffprobe.exe")
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.dirname(HERE)
+# Bulky, regenerable data (downloaded packs, slices, generated payloads) lives here, outside the
+# repo. Override with SFX_WORK to point at an existing download instead of re-fetching.
+WORK = os.environ.get("SFX_WORK") or os.path.join(BASE, "work")
+ROOT = WORK
 EX = os.path.join(ROOT, "sfx-src", "ex")
 PREVIEW = os.path.join(ROOT, "preview_ogg")
-MANIFEST = os.path.join(ROOT, "manifest.txt")
+MANIFEST = os.path.join(BASE, "candidates-manifest.txt")
 
 
 def duration(path):
