@@ -231,6 +231,12 @@ class GameplayScene(
         var stepAlternate = false
         val sfxVolume = { profileStorage.getProfile().sfxVolume }
 
+        // One click for every pressable thing in the scene. Deliberate presses (pause, the
+        // pause-menu strips, the Mission Failed buttons) use the full weight; the on-screen
+        // D-pad uses the quiet one, because it fires on every movement input and would otherwise
+        // become the loudest recurring sound in a level.
+        val playClick = { gain: Double -> sounds.uiClick.playSfx(sfxContext, gain, sfxVolume()) }
+
         val crouchLastFrame = PlayerAnimations.CROUCH_LAST
         val crouchDownDuration = 0.22
         val crouchUpDuration = 0.18
@@ -311,7 +317,7 @@ class GameplayScene(
 
             btn.onOut { drawState(false, false) }
             btn.onOver { drawState(true, false) }
-            btn.onDown { drawState(true, true) }
+            btn.onDown { drawState(true, true); playClick(GameAudio.UI_CLICK_GAIN) }
             btn.onUp { drawState(true, false) }
             btn.mouse { onClick { onClick() } }
             return btn
@@ -371,7 +377,7 @@ class GameplayScene(
             paint(false, false)
             btn.onOut { paint(false, false) }
             btn.onOver { paint(true, false) }
-            btn.onDown { paint(true, true) }
+            btn.onDown { paint(true, true); playClick(GameAudio.UI_CLICK_GAIN) }
             btn.onUp { paint(true, false) }
             btn.mouse { onClick { onClick() } }
             return btn
@@ -474,7 +480,7 @@ class GameplayScene(
         drawPauseBtn(false, false)
         pauseBtn.onOut { drawPauseBtn(false, false) }
         pauseBtn.onOver { drawPauseBtn(true, false) }
-        pauseBtn.onDown { drawPauseBtn(true, true) }
+        pauseBtn.onDown { drawPauseBtn(true, true); playClick(GameAudio.UI_CLICK_GAIN) }
         pauseBtn.onUp { drawPauseBtn(true, false) }
         pauseBtn.mouse { onClick { isPaused = !isPaused } }
 
@@ -594,18 +600,26 @@ class GameplayScene(
             sub.graphicsRenderer = GraphicsRenderer.GPU
             sub.xy((radius * 2.0 - sub.width) / 2.0, radius + 10.0)
 
-            btn.mouse {
-                onDown {
+            // singleTouch, not mouse - see createImgBtn's comment on the same swap.
+            btn.singleTouch {
+                start {
                     onTouchChange(true)
                     drawState(true)
+                    playClick(GameAudio.HUD_TAP_GAIN)
                 }
-                onUp {
+                end {
                     onTouchChange(false)
                     drawState(false)
                 }
-                onOut {
+                endAnywhere {
                     onTouchChange(false)
                     drawState(false)
+                }
+                moveAnywhere {
+                    if (btn.hitTest(it.global) == null) {
+                        onTouchChange(false)
+                        drawState(false)
+                    }
                 }
             }
             return btn
@@ -639,10 +653,10 @@ class GameplayScene(
         val isControlsSwapped = profileStorage.getProfile().controlsSwapped
         val edgeInset = 46.0                      // clear of the side gesture strips
         val bottomInset = 38.0                    // clear of the home indicator
-        val moveRadius = 42.0
-        val jumpRadius = 44.0
-        val crouchRadius = 38.0
-        val interactRadius = 38.0
+        val moveRadius = 54.0
+        val jumpRadius = 56.0
+        val crouchRadius = 48.0
+        val interactRadius = 48.0
 
         val controlsY = canvasH - bottomInset - moveRadius
 
@@ -652,17 +666,16 @@ class GameplayScene(
         val moveRightX = if (isControlsSwapped) canvasW - edgeInset - moveRadius else edgeInset + moveRadius + moveSpan
 
         // Jump is the hub; crouch and interact hang off it on one arc.
-        val jumpX = if (isControlsSwapped) 180.0 else canvasW - 180.0
+        val jumpX = if (isControlsSwapped) 210.0 else canvasW - 210.0
         val jumpY = canvasH - bottomInset - jumpRadius
         val outward = if (isControlsSwapped) -1.0 else 1.0
 
-        // One radius for both, so neither secondary is a longer reach than the other. 15 degrees
-        // and 70 degrees above horizontal puts 55 degrees between them, which on this radius is
-        // an 87px chord against the 76px their two radii need - the same ~11px breathing room
-        // the rest of the layout uses.
+        // Crouch sits level with jump (0 degrees - same Y, side by side) rather than on the arc
+        // above it; interact moved up to 80 degrees (near-vertical) to keep clear of crouch's
+        // new horizontal slot instead of the two sharing a low arc.
         val actionArcRadius = jumpRadius + crouchRadius + btnGap
-        val crouchAngle = 15.0 * PI / 180.0
-        val interactAngle = 70.0 * PI / 180.0
+        val crouchAngle = 0.0
+        val interactAngle = 80.0 * PI / 180.0
         val crouchX = jumpX + outward * cos(crouchAngle) * actionArcRadius
         val crouchY = jumpY - sin(crouchAngle) * actionArcRadius
         val interactX = jumpX + outward * cos(interactAngle) * actionArcRadius
@@ -673,11 +686,16 @@ class GameplayScene(
             if (bmp != null) {
                 val btn = controlsContainer.container().xy(cx - radius, cy - radius)
                 val img = btn.image(bmp) { size(radius * 2.0, radius * 2.0) }
-                
-                btn.mouse {
-                    onDown { onTouch(true); img.alpha = 0.6 }
-                    onUp { onTouch(false); img.alpha = 1.0 }
-                    onOut { onTouch(false); img.alpha = 1.0 }
+
+                // singleTouch, not mouse: mouse{} tracks one pointer for the whole scene, so
+                // holding this button while a second finger presses another one drops whichever
+                // press came first. singleTouch tracks each finger by its own id, independently
+                // per button, so multiple on-screen controls can be held down at once.
+                btn.singleTouch {
+                    start { onTouch(true); img.alpha = 0.6; playClick(GameAudio.HUD_TAP_GAIN) }
+                    end { onTouch(false); img.alpha = 1.0 }
+                    endAnywhere { onTouch(false); img.alpha = 1.0 }
+                    moveAnywhere { if (btn.hitTest(it.global) == null) { onTouch(false); img.alpha = 1.0 } }
                 }
             } else {
                 createTouchBtn(cx, cy, radius, "", fallbackColor, fallbackDraw, onTouch)
@@ -759,6 +777,7 @@ class GameplayScene(
 
             btnCont.mouse {
                 onClick {
+                    playClick(GameAudio.UI_CLICK_GAIN)
                     tryActivatePowerup(type)
                 }
             }
@@ -1092,7 +1111,7 @@ class GameplayScene(
                     jumpPhase = "launch"
                     jumpPhaseElapsed = 0.0
                     jumpStartY = world.player.y
-                    sounds.impact.playSfx(sfxContext, GameAudio.TAKEOFF_GAIN, sfxVolume())
+                    sounds.takeoff.playSfx(sfxContext, GameAudio.TAKEOFF_GAIN, sfxVolume())
                     playerSprite.playAnimationLooped(playerAnimations.jump, manualFrameTime)
                 } else if (playerAnimState == "jump") {
                     jumpPhaseElapsed += dtSec

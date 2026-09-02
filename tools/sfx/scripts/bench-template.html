@@ -1,0 +1,492 @@
+<title>Shadow Heist Foley Bench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  /* Palette lifted verbatim from the game's own ShadowTheme / UiComponents tokens.
+     Deliberately single-theme: this console mirrors the in-game dark tactical HUD,
+     so every colour is painted explicitly and nothing is left to the host ground. */
+  :root {
+    --bg:        #0E1115;
+    --bg-deep:   #16161D;
+    --bg-card:   #0A0A0B;
+    --bg-rail:   #0B0E12;
+    --text:      #F0F0F5;
+    --muted:     #8A95A5;
+    --dim:       #5A6472;
+    --cyan:      #00E5FF;
+    --gold:      #FFD700;
+    --red:       #FF2A55;
+    --green:     #00E676;
+    --paper:     #F6F4EE;
+    --ink:       #17140F;
+    --line:      rgba(255,255,255,0.12);
+    --line-soft: rgba(255,255,255,0.06);
+    --display: "Bebas Neue", "Oswald", Impact, sans-serif;
+    --body: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    /* The game's TacticalButtonShape: square TL/BR, cut TR/BL. */
+    --cut: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    background-image:
+      radial-gradient(1200px 600px at 15% -10%, rgba(0,229,255,0.05), transparent 60%),
+      linear-gradient(180deg, #12141A 0%, #0E1015 50%, #07080B 100%);
+    background-attachment: fixed;
+    color: var(--text);
+    font-family: var(--body);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell { display: grid; grid-template-columns: 260px minmax(0,1fr); min-height: 100vh; }
+
+  /* ---------- left rail: the cue index ---------- */
+  .rail {
+    background: var(--bg-rail);
+    border-right: 1px solid var(--line-soft);
+    padding: 20px 0 120px;
+    position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  }
+  .brand { padding: 0 18px 16px; border-bottom: 1px solid var(--line-soft); margin-bottom: 14px; }
+  .brand h1 {
+    font-family: var(--display); font-size: 30px; font-weight: 400;
+    letter-spacing: 0.055em; margin: 0; line-height: 1.05; color: var(--paper);
+  }
+  .brand .sub {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--cyan); margin-top: 6px;
+  }
+
+  .railgroup {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--dim);
+    padding: 16px 18px 7px;
+  }
+
+  .cuebtn {
+    display: grid; grid-template-columns: 14px minmax(0,1fr) auto;
+    align-items: center; gap: 9px;
+    width: 100%; text-align: left; cursor: pointer;
+    background: none; border: 0; border-left: 2px solid transparent;
+    padding: 7px 16px 7px 16px; color: var(--muted);
+    font-family: var(--body); font-size: 12.5px;
+  }
+  .cuebtn:hover { background: rgba(255,255,255,0.035); color: var(--text); }
+  .cuebtn.active {
+    background: rgba(0,229,255,0.09); border-left-color: var(--cyan); color: var(--text);
+  }
+  .cuebtn:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+  .cuebtn .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; }
+  .cuebtn .ct { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,0.16); justify-self: center; }
+  .dot.done { background: var(--green); box-shadow: 0 0 7px rgba(0,230,118,0.65); }
+  .dot.skip { background: var(--dim); }
+
+  /* ---------- main ---------- */
+  .main { padding: 26px 30px 150px; max-width: 1080px; }
+
+  .cuehead { border-bottom: 1px solid var(--line); padding-bottom: 16px; margin-bottom: 20px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--cyan); margin-bottom: 8px;
+  }
+  .eyebrow .tag { color: var(--dim); }
+  .cuehead h2 {
+    font-family: var(--display); font-size: 44px; font-weight: 400; letter-spacing: 0.03em;
+    margin: 0 0 10px; line-height: 1; color: var(--paper); text-wrap: balance;
+  }
+  .fires {
+    display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+    max-width: 68ch; color: var(--muted); font-size: 13px;
+  }
+  .fires code {
+    font-family: var(--mono); font-size: 11.5px; color: var(--gold);
+    background: rgba(255,215,0,0.08); padding: 2px 6px; border-radius: 3px;
+  }
+  .note {
+    margin-top: 12px; max-width: 68ch; font-size: 12.5px; color: var(--dim);
+    border-left: 2px solid var(--line); padding-left: 12px;
+  }
+  .note strong { color: var(--muted); font-weight: 600; }
+  .settled {
+    margin-top: 10px; color: var(--green); font-size: 12.5px;
+    font-family: var(--mono); line-height: 1.6;
+  }
+  .settled code {
+    font-family: var(--mono); color: var(--green); font-size: 11.5px;
+    background: rgba(0,230,118,0.10); padding: 2px 6px; border-radius: 3px;
+  }
+
+  /* ---------- candidate rows ---------- */
+  .rows { display: flex; flex-direction: column; gap: 7px; margin-top: 22px; }
+
+  .row {
+    display: grid;
+    grid-template-columns: 40px minmax(0,1fr) 120px 92px 74px;
+    align-items: center; gap: 14px;
+    background: var(--bg-card); border: 1px solid var(--line-soft);
+    clip-path: var(--cut);
+    padding: 11px 16px 11px 12px; cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .row:hover { background: #101319; border-color: rgba(255,255,255,0.14); }
+  .row.playing { background: rgba(0,229,255,0.08); border-color: rgba(0,229,255,0.45); }
+  .row.picked  { background: rgba(0,230,118,0.07); border-color: rgba(0,230,118,0.5); }
+  .row:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+  .play {
+    width: 30px; height: 30px; border-radius: 50%; flex: none;
+    border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.05);
+    color: var(--text); cursor: pointer;
+    display: grid; place-items: center; font-size: 10px; padding: 0;
+  }
+  .row.playing .play { border-color: var(--cyan); color: var(--cyan); background: rgba(0,229,255,0.14); }
+  .play:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+  .fname { font-family: var(--mono); font-size: 12.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fsrc  { font-family: var(--mono); font-size: 10px; color: var(--dim); margin-top: 3px; }
+
+  /* duration bar — length is information, so it is drawn to scale against 5s */
+  .durwrap { display: flex; align-items: center; gap: 8px; }
+  .durbar { flex: 1; height: 3px; background: rgba(255,255,255,0.09); position: relative; }
+  .durbar i { position: absolute; inset: 0 auto 0 0; background: var(--cyan); opacity: 0.55; }
+  .durbar i.long { background: var(--gold); }
+  .durtxt { font-family: var(--mono); font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
+
+  .lic {
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 3px 7px; border-radius: 2px; text-align: center; white-space: nowrap;
+  }
+  .lic.cc0   { color: var(--green); background: rgba(0,230,118,0.11); border: 1px solid rgba(0,230,118,0.3); }
+  .lic.ccby  { color: var(--gold);  background: rgba(255,215,0,0.10); border: 1px solid rgba(255,215,0,0.32); }
+  .lic.own   { color: var(--cyan);  background: rgba(0,229,255,0.10); border: 1px solid rgba(0,229,255,0.35); }
+
+  .pick {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.11em; text-transform: uppercase;
+    padding: 7px 0; cursor: pointer; text-align: center;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.18); color: var(--muted);
+  }
+  .pick:hover { border-color: rgba(255,255,255,0.4); color: var(--text); }
+  .pick:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  .row.picked .pick { background: var(--green); border-color: var(--green); color: #04120A; font-weight: 500; }
+
+  /* ---------- footer console ---------- */
+  .foot {
+    position: fixed; left: 260px; right: 0; bottom: 0; z-index: 20;
+    background: rgba(8,10,13,0.94); backdrop-filter: blur(14px);
+    border-top: 1px solid var(--line);
+    padding: 12px 30px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+  }
+  .prog { display: flex; align-items: center; gap: 12px; }
+  .progbar { width: 200px; height: 4px; background: rgba(255,255,255,0.1); }
+  .progbar i { display: block; height: 100%; background: var(--green); width: 0%; transition: width 200ms ease; }
+  .progtxt { font-family: var(--mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .spacer { flex: 1; }
+
+  .btn {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 9px 16px; cursor: pointer; clip-path: var(--cut);
+    background: var(--paper); border: 0; color: var(--ink); font-weight: 500;
+  }
+  .btn:hover { background: #fff; }
+  .btn.ghost { background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--line); }
+  .btn.ghost:hover { background: rgba(255,255,255,0.12); }
+  .btn:disabled { opacity: 0.32; cursor: default; }
+  .btn:disabled:hover { background: rgba(255,255,255,0.06); }
+  .btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+  .hint { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+  .hint kbd {
+    font-family: var(--mono); background: rgba(255,255,255,0.09); border: 1px solid var(--line);
+    border-radius: 3px; padding: 1px 5px; color: var(--muted); font-size: 10px;
+  }
+
+  /* ---------- export sheet ---------- */
+  .sheet {
+    position: fixed; inset: 0; z-index: 50; display: none;
+    background: rgba(4,5,7,0.86); backdrop-filter: blur(6px);
+    padding: 40px 20px; overflow-y: auto;
+  }
+  .sheet.open { display: block; }
+  .sheetbox {
+    max-width: 720px; margin: 0 auto; background: var(--bg-deep);
+    border: 1px solid var(--line); padding: 26px;
+  }
+  .sheetbox h3 {
+    font-family: var(--display); font-size: 30px; font-weight: 400; letter-spacing: 0.04em;
+    margin: 0 0 6px; color: var(--paper);
+  }
+  .sheetbox p { color: var(--muted); font-size: 13px; margin: 0 0 16px; max-width: 62ch; }
+  textarea {
+    width: 100%; height: 300px; background: #06070A; color: var(--text);
+    border: 1px solid var(--line); font-family: var(--mono); font-size: 12px;
+    padding: 14px; resize: vertical; line-height: 1.65;
+  }
+  textarea:focus-visible { outline: 2px solid var(--cyan); outline-offset: -1px; }
+  .sheetacts { display: flex; gap: 10px; margin-top: 14px; align-items: center; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    .rail { position: static; height: auto; padding-bottom: 20px; }
+    .foot { left: 0; }
+    .main { padding: 20px 16px 190px; }
+    .row { grid-template-columns: 36px minmax(0,1fr) 66px; row-gap: 9px; }
+    .durwrap { display: none; }
+    .lic { grid-column: 2; justify-self: start; }
+    .pick { grid-column: 3; }
+    .cuehead h2 { font-size: 34px; }
+  }
+</style>
+
+<div class="shell">
+  <nav class="rail" id="rail"></nav>
+  <main class="main">
+    <div class="cuehead">
+      <div class="eyebrow" id="eyebrow"></div>
+      <h2 id="cuetitle"></h2>
+      <div class="fires" id="cuefires"></div>
+      <div class="note" id="cuenote"></div>
+    </div>
+    <div class="rows" id="rows"></div>
+  </main>
+</div>
+
+<div class="foot">
+  <div class="prog">
+    <div class="progbar"><i id="progfill"></i></div>
+    <span class="progtxt" id="progtxt">0 / 0 chosen</span>
+  </div>
+  <span class="hint">
+    <kbd>J</kbd><kbd>K</kbd> move &nbsp; <kbd>Space</kbd> play &nbsp; <kbd>Enter</kbd> pick &nbsp; <kbd>N</kbd> next &nbsp; <kbd>U</kbd> next unchosen
+  </span>
+  <span class="spacer"></span>
+  <button class="btn ghost" id="skipbtn">Skip cue</button>
+  <button class="btn ghost" id="nextbtn">Next unchosen</button>
+  <button class="btn" id="exportbtn">Export picks</button>
+</div>
+
+<div class="sheet" id="sheet">
+  <div class="sheetbox">
+    <h3>Your picks</h3>
+    <p>Copy this and paste it back into the chat. I'll convert the winners to WAV, wire them into <code>GameAudio</code> and the new menu SFX bus, and write the attribution file.</p>
+    <textarea id="out" spellcheck="false" readonly></textarea>
+    <div class="sheetacts">
+      <button class="btn" id="copybtn">Copy to clipboard</button>
+      <button class="btn ghost" id="closebtn">Back to auditioning</button>
+      <span class="hint" id="copied"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+const DATA = /*__DATA__*/;
+const CUES = /*__CUES__*/;
+
+const LICENSE = {
+  "kenney_interface-sounds": "CC0", "kenney_ui-audio": "CC0", "kenney_digital-audio": "CC0",
+  "kenney_impact-sounds": "CC0", "kenney_sci-fi-sounds": "CC0", "kenney_rpg-audio": "CC0",
+  "kenney_casino-audio": "CC0", "kenney_music-jingles": "CC0",
+  "owlish": "CC0", "owlish_sliced": "CC0",
+  "footsteps_congusbongus": "CC-BY",
+  "jump_src": "YOURS"
+};
+
+// Where a clip came from, in words rather than in directory names.
+const SOURCE = {
+  "kenney_interface-sounds": "Kenney · Interface", "kenney_ui-audio": "Kenney · UI",
+  "kenney_digital-audio": "Kenney · Digital", "kenney_impact-sounds": "Kenney · Impacts",
+  "kenney_sci-fi-sounds": "Kenney · Sci-fi", "kenney_rpg-audio": "Kenney · RPG",
+  "kenney_casino-audio": "Kenney · Casino", "kenney_music-jingles": "Kenney · Jingles",
+  "owlish": "OwlishMedia", "owlish_sliced": "OwlishMedia · sliced by me",
+  "footsteps_congusbongus": "congusbongus (OGA)",
+  "jump_src": "your plate · jump_new.mp4"
+};
+
+const order = CUES.map(c => c.id);
+const byCue = {};
+for (const c of CUES) byCue[c.id] = DATA.filter(d => d.cue === c.id);
+
+let cueIx = 0, rowIx = 0;
+const picks = {};      // cue -> candidate
+const skipped = new Set();
+let audio = null, playingKey = null;
+
+const $ = id => document.getElementById(id);
+const keyOf = d => d.pack + "/" + d.file;
+
+// Settled: one tap sound across every button and tap surface, chosen from the bench.
+// These arrive pre-picked; changing one here only changes that cue.
+const PRESET = {
+  hud_touch:   "kenney_ui-audio/click3.ogg",
+  ui_click:    "kenney_ui-audio/click3.ogg",
+  ui_tab:      "kenney_ui-audio/click3.ogg",
+  ui_back:     "kenney_ui-audio/click3.ogg",
+  pause_open:  "kenney_ui-audio/click3.ogg",
+  pause_close: "kenney_ui-audio/click3.ogg"
+};
+for (const cue in PRESET) {
+  const hit = (byCue[cue] || []).find(d => keyOf(d) === PRESET[cue]);
+  if (hit) picks[cue] = hit;
+}
+
+// Cues settled by keeping what the game already ships, rather than by choosing a candidate.
+const KEEP = {
+  footstep_run: "the existing plate-cut step_a.wav / step_b.wav stay as they are"
+};
+
+function play(d) {
+  if (audio) { audio.pause(); audio = null; }
+  const k = keyOf(d);
+  if (playingKey === k) { playingKey = null; render(); return; }
+  audio = new Audio("data:audio/ogg;base64," + d.b64);
+  playingKey = k;
+  audio.onended = () => { playingKey = null; render(); };
+  audio.play().catch(() => { playingKey = null; render(); });
+  render();
+}
+
+function renderRail() {
+  const rail = $("rail");
+  rail.innerHTML = '<div class="brand"><h1>Foley Bench</h1>'
+    + '<div class="sub">Infiltrate &middot; Shadow Heist</div></div>';
+  let group = null;
+  CUES.forEach((c, i) => {
+    if (c.group !== group) {
+      group = c.group;
+      const g = document.createElement("div");
+      g.className = "railgroup";
+      g.textContent = group === "GAMEPLAY-REPLACE" ? "Gameplay · replacing"
+                    : group === "GAMEPLAY-NEW" ? "Gameplay · new"
+                    : "Menu · new";
+      rail.appendChild(g);
+    }
+    const b = document.createElement("button");
+    b.className = "cuebtn" + (i === cueIx ? " active" : "");
+    const state = (picks[c.id] || KEEP[c.id]) ? "done" : (skipped.has(c.id) ? "skip" : "");
+    b.innerHTML = '<span class="dot ' + state + '"></span>'
+      + '<span class="nm">' + c.id + '</span>'
+      + '<span class="ct">' + (byCue[c.id] || []).length + '</span>';
+    b.onclick = () => { cueIx = i; rowIx = 0; render(); };
+    rail.appendChild(b);
+  });
+}
+
+function render() {
+  renderRail();
+  const cue = CUES[cueIx];
+  const list = byCue[cue.id] || [];
+
+  $("eyebrow").innerHTML = (cue.group === "MENU" ? "Menu &mdash; Compose" : "Gameplay &mdash; KorGE")
+    + ' &nbsp;<span class="tag">' + (cueIx + 1) + " / " + CUES.length + "</span>";
+  $("cuetitle").textContent = cue.title;
+  $("cuefires").innerHTML = "<span>Fires at</span> <code>" + cue.fires + "</code>";
+  $("cuenote").innerHTML = cue.note
+    + (PRESET[cue.id] ? '<div class="settled">Settled &mdash; locked to <code>'
+        + PRESET[cue.id].split("/")[1] + '</code> across every button and tap. Pick another row to override.</div>' : "")
+    + (KEEP[cue.id] ? '<div class="settled">Settled &mdash; ' + KEEP[cue.id]
+        + '. Candidates below are kept only in case you change your mind.</div>' : "");
+
+  const rows = $("rows");
+  rows.innerHTML = "";
+  list.forEach((d, i) => {
+    const lic = LICENSE[d.pack] || "CC0";
+    const dur = d.dur || 0;
+    const pct = Math.min(100, (dur / 5) * 100);
+    const el = document.createElement("div");
+    el.className = "row"
+      + (playingKey === keyOf(d) ? " playing" : "")
+      + (picks[cue.id] && keyOf(picks[cue.id]) === keyOf(d) ? " picked" : "");
+    el.tabIndex = 0;
+    el.innerHTML =
+      '<button class="play" aria-label="Play">' + (playingKey === keyOf(d) ? "&#9632;" : "&#9654;") + '</button>'
+      + '<div><div class="fname">' + d.file + '</div><div class="fsrc">' + (SOURCE[d.pack] || d.pack) + '</div></div>'
+      + '<div class="durwrap"><div class="durbar"><i class="' + (dur > 2 ? "long" : "") + '" style="width:' + pct + '%"></i></div>'
+      + '<span class="durtxt">' + dur.toFixed(2) + 's</span></div>'
+      + '<div class="lic ' + (lic === "CC0" ? "cc0" : lic === "YOURS" ? "own" : "ccby") + '">' + lic + '</div>'
+      + '<button class="pick">' + (picks[cue.id] && keyOf(picks[cue.id]) === keyOf(d) ? "Chosen" : "Pick") + '</button>';
+    el.onclick = e => {
+      if (e.target.closest(".pick")) {
+        picks[cue.id] = d; skipped.delete(cue.id); render();
+      } else { rowIx = i; play(d); }
+    };
+    el.onkeydown = e => {
+      if (e.key === "Enter") { e.preventDefault(); picks[cue.id] = d; skipped.delete(cue.id); render(); }
+    };
+    rows.appendChild(el);
+  });
+
+  const n = CUES.filter(c => picks[c.id] || KEEP[c.id]).length;
+  const left = CUES.filter(c => !picks[c.id] && !KEEP[c.id] && !skipped.has(c.id)).length;
+  $("progtxt").textContent = n + " / " + CUES.length + " chosen"
+    + (left ? "  ·  " + left + " to go" : "  ·  all done");
+  $("progfill").style.width = (n / CUES.length * 100) + "%";
+  $("nextbtn").disabled = left === 0;
+}
+
+// "Select the remaining ones" is the actual job now, so make skipping to them one key.
+function gotoNextUnchosen() {
+  for (let i = 1; i <= CUES.length; i++) {
+    const j = (cueIx + i) % CUES.length;
+    const id = CUES[j].id;
+    if (!picks[id] && !KEEP[id] && !skipped.has(id)) { cueIx = j; rowIx = 0; render(); return; }
+  }
+}
+
+function exportText() {
+  const lines = ["# Shadow Heist SFX picks", ""];
+  for (const id of order) {
+    if (KEEP[id]) lines.push(id.padEnd(22) + " = KEEP EXISTING");
+    else if (picks[id]) lines.push(id.padEnd(22) + " = " + keyOf(picks[id]));
+    else if (skipped.has(id)) lines.push(id.padEnd(22) + " = SKIP");
+    else lines.push(id.padEnd(22) + " = (not chosen)");
+  }
+  return lines.join("\n");
+}
+
+$("nextbtn").onclick = gotoNextUnchosen;
+$("exportbtn").onclick = () => { $("out").value = exportText(); $("sheet").classList.add("open"); };
+$("closebtn").onclick = () => $("sheet").classList.remove("open");
+$("skipbtn").onclick = () => {
+  const id = CUES[cueIx].id;
+  skipped.add(id); delete picks[id];
+  if (cueIx < CUES.length - 1) { cueIx++; rowIx = 0; }
+  render();
+};
+$("copybtn").onclick = async () => {
+  const ta = $("out");
+  try { await navigator.clipboard.writeText(ta.value); }
+  catch (_) { ta.removeAttribute("readonly"); ta.select(); document.execCommand("copy"); ta.setAttribute("readonly",""); }
+  $("copied").textContent = "Copied.";
+  setTimeout(() => { $("copied").textContent = ""; }, 2000);
+};
+
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "TEXTAREA") return;
+  const list = byCue[CUES[cueIx].id] || [];
+  if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); rowIx = Math.min(list.length - 1, rowIx + 1); focusRow(); }
+  else if (e.key === "k" || e.key === "ArrowUp") { e.preventDefault(); rowIx = Math.max(0, rowIx - 1); focusRow(); }
+  else if (e.key === " ") { e.preventDefault(); if (list[rowIx]) play(list[rowIx]); }
+  else if (e.key === "Enter") { e.preventDefault(); if (list[rowIx]) { picks[CUES[cueIx].id] = list[rowIx]; skipped.delete(CUES[cueIx].id); render(); } }
+  else if (e.key === "n") { e.preventDefault(); if (cueIx < CUES.length - 1) { cueIx++; rowIx = 0; render(); } }
+  else if (e.key === "p") { e.preventDefault(); if (cueIx > 0) { cueIx--; rowIx = 0; render(); } }
+  else if (e.key === "u") { e.preventDefault(); gotoNextUnchosen(); }
+  else if (e.key === "Escape") $("sheet").classList.remove("open");
+});
+
+function focusRow() {
+  const els = document.querySelectorAll(".row");
+  if (els[rowIx]) els[rowIx].focus();
+}
+
+render();
+</script>

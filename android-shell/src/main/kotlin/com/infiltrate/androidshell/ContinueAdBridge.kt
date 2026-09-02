@@ -1,11 +1,14 @@
 package com.sample.demo.ads
 
-// Real (non-spike) Android bridge. Unlike iOS - where :game and paywall-build compile to two
-// separate Kotlin/Native frameworks with no direct interop, forcing a Swift poll-loop
-// middleman - on Android everything runs in the same JVM/APK, so this can just be a plain
-// shared object both android-shell's MainActivity and this GameplayScene talk to directly.
-// android-shell/MainActivity sets [onContinueAdRequested] at startup; GameplayScene's own
-// update loop polls [consumeContinueGranted] every frame, same as every other platform.
+// Same interface/logic as src/ContinueAdBridge.kt + src@android/ContinueAdBridge.android.kt,
+// but without expect/actual: this module isn't a Kotlin Multiplatform project, so those two
+// files can't be srcDir-included together (see android-shell/build.gradle.kts's sourceSets
+// comment) - a single plain implementation is all this module needs.
+interface ContinueAdBridge {
+    fun requestContinueAd()
+    fun consumeContinueGranted(): Boolean
+}
+
 object AndroidContinueAdBridgeState {
     var onContinueAdRequested: (() -> Unit)? = null
 
@@ -32,4 +35,4 @@ private class AndroidContinueAdBridge : ContinueAdBridge {
     override fun consumeContinueGranted(): Boolean = AndroidContinueAdBridgeState.consumeContinueGranted()
 }
 
-actual fun getContinueAdBridge(): ContinueAdBridge = AndroidContinueAdBridge()
+fun getContinueAdBridge(): ContinueAdBridge = AndroidContinueAdBridge()

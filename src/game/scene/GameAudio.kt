@@ -7,9 +7,11 @@ import kotlin.coroutines.CoroutineContext
 /**
  * The movement foley, loaded once per gameplay scene.
  *
- * Every clip here was cut from the audio track of the animation plate it belongs to
+ * Every movement clip here was cut from the audio track of the animation plate it belongs to
  * (`walk_new.mp4`, `crouch_new.mp4`, `jump_new.mp4`, `climb.mp4`), so the sound and the pose it
- * plays under come from the same take. The cuts were made against the waveform rather than by
+ * plays under come from the same take. `ui_click` is the single exception - it is Kenney's
+ * `click3` (CC0), because a button press is not a thing the character does and there is no plate
+ * it could have come from. The cuts were made against the waveform rather than by
  * ear: each source has long silent runs around the action, and the trims sit on the measured
  * onsets. One shared gain was applied across all five instead of normalising each one, because
  * the source set is already balanced the way the game wants it - the crouch foley is genuinely
@@ -27,7 +29,9 @@ class GameSounds(
     val stepB: Sound?,
     val crouch: Sound?,
     val impact: Sound?,
-    val climb: Sound?
+    val climb: Sound?,
+    val takeoff: Sound?,
+    val uiClick: Sound?
 )
 
 object GameAudio {
@@ -35,16 +39,34 @@ object GameAudio {
     /**
      * Relative levels, applied on top of the player's SFX volume setting.
      *
-     * The jump/land impact is one sample used twice: the source clip has a single transient in
-     * it, so rather than invent a take-off sound that was never recorded, the same impact plays
-     * lighter on the push-off and at full weight on the landing. That is also the right emphasis
-     * for this game - landing is the loud, guard-attracting half of a jump.
+     * The take-off and the landing are now two different cuts of `jump_new.mp4`, not one sample
+     * used twice. An earlier pass read that source as holding a single transient and had the
+     * push-off replay the landing at low gain; a per-frame scan of the waveform shows the
+     * push-off is there from 0.49s to 1.10s, it just sits about 34 dB under the landing at
+     * 1.625s (which is itself two impacts, 1.625s and 1.665s - both feet).
+     *
+     * That 34 dB is why each clip is peak-normalised on its own rather than sharing one gain the
+     * way the movement foley does: at its recorded level the push-off is inaudible on a phone
+     * speaker. The balance between them therefore lives here, in the gain table, where it can be
+     * retuned without recutting the assets - the take-off stays clearly the lighter of the two,
+     * because landing is still the loud, guard-attracting half of a jump.
      */
     const val STEP_GAIN = 0.55
     const val CROUCH_GAIN = 0.9
-    const val TAKEOFF_GAIN = 0.35
+    const val TAKEOFF_GAIN = 0.45
     const val LANDING_GAIN = 0.85
     const val CLIMB_GAIN = 0.7
+
+    /**
+     * One click serves every button and tap surface in the game, at two different weights.
+     *
+     * [UI_CLICK_GAIN] is for deliberate presses - the pause button, the pause-menu strips, the
+     * Mission Failed buttons. [HUD_TAP_GAIN] is for the on-screen D-pad, jump and crouch
+     * controls, which fire continuously while the player is moving; the same sample at the same
+     * level would become the loudest recurring thing in a level, so it is mixed well under.
+     */
+    const val UI_CLICK_GAIN = 0.6
+    const val HUD_TAP_GAIN = 0.3
 
     /**
      * Phases within one gait cycle at which a foot reaches the ground, measured off the walk
@@ -64,7 +86,9 @@ object GameAudio {
             stepB = clip("step_b"),
             crouch = clip("crouch"),
             impact = clip("impact"),
-            climb = clip("climb")
+            climb = clip("climb"),
+            takeoff = clip("takeoff"),
+            uiClick = clip("ui_click")
         )
     }
 }

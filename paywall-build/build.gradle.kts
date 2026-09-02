@@ -19,6 +19,26 @@ plugins {
     // into its published klib (unlike RevenueCat 3.x). This module needs to fetch and link that
     // pod itself, the same way basic-ads' own build does.
     id("org.jetbrains.kotlin.native.cocoapods") version "2.4.10"
+    `maven-publish`
+}
+
+// Explicit, so android-shell/ (a genuinely separate Gradle build - Kotlin 2.4.10 here vs the
+// root build's locked 2.0.20, so it can't be a subproject/composite-build dependency of the
+// root build either, see settings.gradle.kts) can depend on this module's Android artifact
+// deterministically via mavenLocal().
+group = "com.infiltrate"
+version = "1.0"
+
+// Pinned because Compose Resources derives the generated Res class's package from the project
+// `group` when this is unset. Setting `group` above therefore silently moved the generated
+// package from `paywall_build.generated.resources` to
+// `com.infiltrate.paywall_build.generated.resources`, while every UI file still imported the
+// short one - which broke `compileKotlinJvm` across all five screens with "Unresolved reference
+// 'paywall_build'". Pinning it here keeps the generated package where the source expects it, so
+// `group` can stay set for the android-shell/mavenLocal() consumption above without dragging the
+// resource package along with it.
+compose.resources {
+    packageOfResClass = "paywall_build.generated.resources"
 }
 
 repositories {
@@ -58,7 +78,14 @@ fun swiftLibPath(platformSdkName: String): String? =
     macDeveloperDir?.let { "$it/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$platformSdkName" }
 
 kotlin {
-    androidTarget()
+    androidTarget {
+        // A plain KMP androidTarget() doesn't auto-register a Maven publication the way KorGE's
+        // own plugin does for :game's - opt in explicitly so android-shell/ can depend on this
+        // module's Android output via mavenLocal(). "release" is real here (unlike :game's own
+        // Android target, which is application-shaped, not library-shaped - see
+        // .junie/guidelines.md "Watch ad to continue"): this module applies com.android.library.
+        publishLibraryVariants("release")
+    }
     jvm()
 
     // Matches basic-ads' own pod versions exactly (its gradle/libs.versions.toml:
