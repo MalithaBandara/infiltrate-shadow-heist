@@ -1,0 +1,9 @@
+package com.sample.demo.ads
+
+// No-op stub - no ad SDK on this platform. See ContinueAdBridge.android.kt.
+class JsContinueAdBridge : ContinueAdBridge {
+    override fun requestContinueAd() {}
+    override fun consumeContinueGranted(): Boolean = false
+}
+
+actual fun getContinueAdBridge(): ContinueAdBridge = JsContinueAdBridge()

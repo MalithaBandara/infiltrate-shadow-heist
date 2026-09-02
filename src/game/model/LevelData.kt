@@ -41,7 +41,9 @@ data class LevelLayout(
     val platforms: List<Rect>,
     val boxes: List<Rect>,
     val guards: List<GuardSpawn>,
-    val cameras: List<CameraSpawn> = emptyList()
+    val cameras: List<CameraSpawn> = emptyList(),
+    val fence1: Rect? = null,
+    val fence2: Rect? = null
 )
 
 data class LevelData(
@@ -55,8 +57,20 @@ data class LevelData(
     val coinRewardBase: Int = 0,
     val coinRewardPerStar: Int = 0,
     val layout: LevelLayout? = null,
-    val cameras: List<CameraSpawn> = emptyList()
+    val cameras: List<CameraSpawn> = emptyList(),
+    val backgroundImage: String? = null
 ) {
+    val resolvedBackgroundImage: String
+        get() {
+            if (backgroundImage != null) return backgroundImage
+            val levelNum = id.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 1
+            return when ((levelNum - 1) % 3) {
+                0 -> "bgmg2.png"
+                1 -> "bgmg3.png"
+                else -> "bgmg4.png"
+            }
+        }
+
     /**
      * Calculates coin reward based on 2-tier progression:
      * Levels 1–5 (Easy): 1★ = 100, 2★ = 200, 3★ = 350 (Lifetime 3★ = 1,750)
@@ -86,14 +100,14 @@ data class LevelData(
         val DEFAULT_LEVEL_1 = LevelData(
             id = "level_1",
             name = "01: Warehouse Infiltration",
-            timeTargetSeconds = 15.0f,
+            timeTargetSeconds = 30.0f,
             description = "Infiltrate the warehouse perimeter, bypass the guard patrol, and reach extraction.",
             guardSpeed = 60.0,
-            guardPatrolMinX = 300.0,
-            guardPatrolMaxX = 600.0,
+            guardPatrolMinX = 2700.0,
+            guardPatrolMaxX = 3050.0,
             cameras = listOf(
                 CameraSpawn(
-                    x = 660.0,
+                    x = 3060.0,
                     y = 180.0,
                     minAngle = (90.0 - 30.0) * (PI / 180.0),
                     maxAngle = (90.0 + 30.0) * (PI / 180.0),
@@ -108,21 +122,21 @@ data class LevelData(
         val DEFAULT_LEVEL_2 = LevelData(
             id = "level_2",
             name = "02: Office Heist",
-            timeTargetSeconds = 14.0f,
+            timeTargetSeconds = 28.0f,
             description = "Navigate through tight security corridors. Stay crouched to avoid noise detection.",
             guardSpeed = 75.0,
-            guardPatrolMinX = 260.0,
-            guardPatrolMaxX = 640.0
+            guardPatrolMinX = 2650.0,
+            guardPatrolMaxX = 3080.0
         )
 
         val DEFAULT_LEVEL_3 = LevelData(
             id = "level_3",
             name = "03: Vault Security",
-            timeTargetSeconds = 12.0f,
+            timeTargetSeconds = 25.0f,
             description = "High alert vault sector with rapid guard sweeps. Quick timing is critical.",
             guardSpeed = 95.0,
-            guardPatrolMinX = 220.0,
-            guardPatrolMaxX = 660.0
+            guardPatrolMinX = 2600.0,
+            guardPatrolMaxX = 3100.0
         )
 
         /**
@@ -150,7 +164,7 @@ data class LevelData(
          */
         val SIDE_SCROLL_LEVEL_LAYOUT = LevelLayout(
             worldWidth = 2800.0,
-            playerStartX = 60.0,
+            playerStartX = 236.0,
             playerStartY = 440.0 - 96.0,
             exitZone = Rect(x = 2700.0, y = 340.0, width = 44.0, height = 100.0),
             platforms = listOf(
@@ -160,7 +174,6 @@ data class LevelData(
                 Rect(x = 1830.0, y = 368.0, width = 830.0, height = 14.0)  // mid tier 2
             ),
             boxes = listOf(
-                Rect(x = 200.0, y = 404.0, width = 70.0, height = 36.0),  // step up from ground
                 Rect(x = 270.0, y = 368.0, width = 60.0, height = 72.0),  // step onto mid tier 1
                 Rect(x = 1070.0, y = 332.0, width = 60.0, height = 36.0), // end of mid tier 1
                 Rect(x = 1280.0, y = 260.0, width = 60.0, height = 36.0), // cover on high tier

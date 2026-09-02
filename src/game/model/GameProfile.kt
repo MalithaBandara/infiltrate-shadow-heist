@@ -5,6 +5,8 @@ data class GameProfile(
     var isPremium: Boolean = false,
     var musicVolume: Float = 0.8f,
     var sfxVolume: Float = 1.0f,
+    var controlsSwapped: Boolean = false,
+    var language: String = "en",
     // level_4 is the side-scrolling sample level; unlocked from the start so it can be
     // played without first clearing the three single-screen levels.
     val unlockedLevelIds: MutableSet<String> = mutableSetOf("level_1", "level_4"),
@@ -79,6 +81,8 @@ interface GameProfileStorage {
     fun spendCoins(amount: Int): Boolean
     fun setMusicVolume(volume: Float)
     fun setSfxVolume(volume: Float)
+    fun setControlsSwapped(swapped: Boolean)
+    fun setLanguage(language: String)
     fun unlockLevel(levelId: String)
     fun isLevelUnlocked(levelId: String, levelRegistry: List<LevelData>, levelStorage: LevelStorage): Boolean
     fun buyPowerup(powerupId: String, cost: Int): Boolean
@@ -102,6 +106,8 @@ class InMemoryGameProfileStorage(
         this.profile.isPremium = profile.isPremium
         this.profile.musicVolume = profile.musicVolume
         this.profile.sfxVolume = profile.sfxVolume
+        this.profile.controlsSwapped = profile.controlsSwapped
+        this.profile.language = profile.language
         this.profile.unlockedLevelIds.clear()
         this.profile.unlockedLevelIds.addAll(profile.unlockedLevelIds)
         this.profile.powerupInventory.clear()
@@ -127,6 +133,14 @@ class InMemoryGameProfileStorage(
 
     override fun setSfxVolume(volume: Float) {
         profile.sfxVolume = volume.coerceIn(0.0f, 1.0f)
+    }
+
+    override fun setControlsSwapped(swapped: Boolean) {
+        profile.controlsSwapped = swapped
+    }
+
+    override fun setLanguage(language: String) {
+        profile.language = language
     }
 
     override fun unlockLevel(levelId: String) {
@@ -186,6 +200,8 @@ class MapBackedGameProfileStorage(
             val isPremiumStr = getRaw("user_is_premium")
             val musicStr = getRaw("user_music_vol")
             val sfxStr = getRaw("user_sfx_vol")
+            val controlsSwappedStr = getRaw("user_controls_swapped")
+            val languageStr = getRaw("user_language")
             val unlockedStr = getRaw("user_unlocked_levels")
             val powerupsStr = getRaw("user_powerups")
 
@@ -194,6 +210,10 @@ class MapBackedGameProfileStorage(
             isPremiumStr?.toBooleanStrictOrNull()?.let { current.isPremium = it }
             musicStr?.toFloatOrNull()?.let { current.musicVolume = it }
             sfxStr?.toFloatOrNull()?.let { current.sfxVolume = it }
+            controlsSwappedStr?.toBooleanStrictOrNull()?.let { current.controlsSwapped = it }
+            if (!languageStr.isNullOrBlank()) {
+                current.language = languageStr
+            }
             if (!unlockedStr.isNullOrBlank()) {
                 current.unlockedLevelIds.addAll(unlockedStr.split(";").filter { it.isNotBlank() })
             }
@@ -219,6 +239,8 @@ class MapBackedGameProfileStorage(
             setRaw("user_is_premium", current.isPremium.toString())
             setRaw("user_music_vol", current.musicVolume.toString())
             setRaw("user_sfx_vol", current.sfxVolume.toString())
+            setRaw("user_controls_swapped", current.controlsSwapped.toString())
+            setRaw("user_language", current.language)
             setRaw("user_unlocked_levels", current.unlockedLevelIds.joinToString(";"))
             setRaw("user_powerups", current.powerupInventory.map { "${it.key}:${it.value}" }.joinToString(";"))
         } catch (_: Throwable) {
@@ -251,6 +273,16 @@ class MapBackedGameProfileStorage(
 
     override fun setSfxVolume(volume: Float) {
         inMemoryFallback.setSfxVolume(volume)
+        persist()
+    }
+
+    override fun setControlsSwapped(swapped: Boolean) {
+        inMemoryFallback.setControlsSwapped(swapped)
+        persist()
+    }
+
+    override fun setLanguage(language: String) {
+        inMemoryFallback.setLanguage(language)
         persist()
     }
 

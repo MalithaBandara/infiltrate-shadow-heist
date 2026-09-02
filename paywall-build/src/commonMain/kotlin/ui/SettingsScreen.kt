@@ -3,6 +3,7 @@ package com.infiltrate.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,13 +49,13 @@ import paywall_build.generated.resources.button1
 import paywall_build.generated.resources.button2
 
 enum class SettingsTab {
-    AUDIO,
+    GENERAL,
     ABOUT
 }
 
 @Composable
 fun SettingsScreen(
-    initialTab: SettingsTab = SettingsTab.AUDIO,
+    initialTab: SettingsTab = SettingsTab.GENERAL,
     onBackClicked: () -> Unit,
     onStoreShortcutClicked: () -> Unit = {}
 ) {
@@ -68,6 +70,8 @@ fun SettingsScreen(
     var currentTab by remember { mutableStateOf(initialTab) }
     var musicVol by remember { mutableStateOf(profile.musicVolume) }
     var sfxVol by remember { mutableStateOf(profile.sfxVolume) }
+    var controlsSwapped by remember { mutableStateOf(profile.controlsSwapped) }
+    var currentLanguage by remember { mutableStateOf(profile.language) }
     val bebasFont = FontFamily(Font(Res.font.bebas_neue_regular))
 
     var toastMessage by remember { mutableStateOf<String?>(null) }
@@ -116,12 +120,12 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     TexturedSidebarTab(
-                        text = "AUDIO",
-                        isSelected = currentTab == SettingsTab.AUDIO,
+                        text = "GENERAL",
+                        isSelected = currentTab == SettingsTab.GENERAL,
                         texture = Res.drawable.button1,
                         font = bebasFont,
-                        iconRenderer = { color -> drawSpeakerIcon(color) },
-                        onClick = { currentTab = SettingsTab.AUDIO },
+                        iconRenderer = { color -> drawGearIcon(color) },
+                        onClick = { currentTab = SettingsTab.GENERAL },
                         tabHeight = (46 * scale).dp
                     )
 
@@ -143,12 +147,19 @@ fun SettingsScreen(
                         .fillMaxHeight()
                 ) {
                     when (currentTab) {
-                        SettingsTab.AUDIO -> {
-                            AudioSettingsPanel(
+                        SettingsTab.GENERAL -> {
+                            GeneralSettingsPanel(
+                                selectedLanguage = currentLanguage,
                                 musicVolume = musicVol,
                                 sfxVolume = sfxVol,
+                                controlsSwapped = controlsSwapped,
                                 font = bebasFont,
                                 scale = scale,
+                                onLanguageChange = { lang ->
+                                    currentLanguage = lang
+                                    profileStorage.setLanguage(lang)
+                                    showToast("LANGUAGE: ENGLISH (ACTIVE)", true)
+                                },
                                 onMusicChange = {
                                     musicVol = it
                                     profileStorage.setMusicVolume(it)
@@ -157,13 +168,25 @@ fun SettingsScreen(
                                     sfxVol = it
                                     profileStorage.setSfxVolume(it)
                                 },
+                                onControlsSwapChange = { swapped ->
+                                    controlsSwapped = swapped
+                                    profileStorage.setControlsSwapped(swapped)
+                                    showToast(
+                                        if (swapped) "CONTROLS: MOVEMENT ON RIGHT (SWAPPED)" else "CONTROLS: MOVEMENT ON LEFT (DEFAULT)",
+                                        true
+                                    )
+                                },
                                 onResetProgress = {
                                     // Reset profile storage
                                     profileStorage.setMusicVolume(0.8f)
                                     profileStorage.setSfxVolume(1.0f)
+                                    profileStorage.setControlsSwapped(false)
+                                    profileStorage.setLanguage("en")
                                     musicVol = 0.8f
                                     sfxVol = 1.0f
-                                    showToast("PROGRESS RESET TO DEFAULT", false)
+                                    controlsSwapped = false
+                                    currentLanguage = "en"
+                                    showToast("SETTINGS & PROGRESS RESET TO DEFAULT", false)
                                 }
                             )
                         }
@@ -180,7 +203,7 @@ fun SettingsScreen(
         }
 
         // Floating Toast Notification at Root Screen Level
-        androidx.compose.animation.AnimatedVisibility(
+        AnimatedVisibility(
             visible = toastMessage != null,
             enter = fadeIn(),
             exit = fadeOut(),
@@ -209,18 +232,22 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun AudioSettingsPanel(
+private fun GeneralSettingsPanel(
+    selectedLanguage: String,
     musicVolume: Float,
     sfxVolume: Float,
+    controlsSwapped: Boolean,
     font: FontFamily,
     scale: Float,
+    onLanguageChange: (String) -> Unit,
     onMusicChange: (Float) -> Unit,
     onSfxChange: (Float) -> Unit,
+    onControlsSwapChange: (Boolean) -> Unit,
     onResetProgress: () -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy((16 * scale).dp)
+        verticalArrangement = Arrangement.spacedBy((14 * scale).dp)
     ) {
         // Section Header
         Row(
@@ -228,7 +255,7 @@ private fun AudioSettingsPanel(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "AUDIO CONFIGURATION",
+                text = "GENERAL CONFIGURATION",
                 color = Color.White,
                 fontSize = (18 * scale).sp,
                 fontFamily = font,
@@ -243,13 +270,102 @@ private fun AudioSettingsPanel(
             )
         }
 
-        // Music Volume Slider Row
+        // 1. Language Row (at top of General)
+        val isEnglish = selectedLanguage == "en"
+        val langInteractionSource = remember { MutableInteractionSource() }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Color(0xFF141416), RoundedCornerShape(8.dp))
                 .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
-                .padding((16 * scale).dp),
+                .padding((14 * scale).dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Language Icon / Badge
+                Box(
+                    modifier = Modifier
+                        .size((32 * scale).dp)
+                        .background(Color(0xFF00E5FF).copy(alpha = 0.15f), CircleShape)
+                        .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.4f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "EN",
+                        color = Color(0xFF00E5FF),
+                        fontSize = (12 * scale).sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = font
+                    )
+                }
+
+                Spacer(modifier = Modifier.width((12 * scale).dp))
+
+                Column {
+                    Text(
+                        text = "LANGUAGE",
+                        color = Color.White,
+                        fontSize = (15 * scale).sp,
+                        fontFamily = font,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        text = "Game UI and operational briefings (English)",
+                        color = Color(0xFF9A9A9E),
+                        fontSize = (12 * scale).sp
+                    )
+                }
+            }
+
+            // Active Language Selector Pill
+            Box(
+                modifier = Modifier
+                    .background(
+                        if (isEnglish) Color(0xFF00E5FF).copy(alpha = 0.15f) else Color(0xFF1C1C20),
+                        RoundedCornerShape(6.dp)
+                    )
+                    .border(
+                        1.dp,
+                        if (isEnglish) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.12f),
+                        RoundedCornerShape(6.dp)
+                    )
+                    .clickable(
+                        interactionSource = langInteractionSource,
+                        indication = null,
+                        onClick = { onLanguageChange("en") }
+                    )
+                    .padding(horizontal = (14 * scale).dp, vertical = (8 * scale).dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy((6 * scale).dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size((6 * scale).dp)
+                            .background(Color(0xFF00E5FF), CircleShape)
+                    )
+                    Text(
+                        text = "ENGLISH",
+                        color = Color(0xFF00E5FF),
+                        fontSize = (12 * scale).sp,
+                        fontFamily = font,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                }
+            }
+        }
+
+        // 2. Music Volume Slider Row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF141416), RoundedCornerShape(8.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                .padding((14 * scale).dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -274,13 +390,13 @@ private fun AudioSettingsPanel(
             )
         }
 
-        // SFX Volume Slider Row
+        // 3. SFX Volume Slider Row
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Color(0xFF141416), RoundedCornerShape(8.dp))
                 .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
-                .padding((16 * scale).dp),
+                .padding((14 * scale).dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -305,9 +421,99 @@ private fun AudioSettingsPanel(
             )
         }
 
+        // 4. Controls Side Orientation Option Row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF141416), RoundedCornerShape(8.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                .padding((14 * scale).dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = (16 * scale).dp)) {
+                Text(
+                    text = "CONTROLS LAYOUT",
+                    color = Color.White,
+                    fontSize = (15 * scale).sp,
+                    fontFamily = font,
+                    letterSpacing = 1.sp
+                )
+                Text(
+                    text = "Choose screen side for movement buttons (Actions on opposite side)",
+                    color = Color(0xFF9A9A9E),
+                    fontSize = (12 * scale).sp
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy((10 * scale).dp)) {
+                // Default: Move Left, Actions Right
+                val defaultInteractionSource = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .background(
+                            if (!controlsSwapped) Color(0xFF00E5FF).copy(alpha = 0.15f) else Color(0xFF1C1C20),
+                            RoundedCornerShape(6.dp)
+                        )
+                        .border(
+                            1.dp,
+                            if (!controlsSwapped) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.12f),
+                            RoundedCornerShape(6.dp)
+                        )
+                        .clickable(
+                            interactionSource = defaultInteractionSource,
+                            indication = null,
+                            onClick = { onControlsSwapChange(false) }
+                        )
+                        .padding(horizontal = (14 * scale).dp, vertical = (8 * scale).dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "DEFAULT (LEFT)",
+                        color = if (!controlsSwapped) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.7f),
+                        fontSize = (12 * scale).sp,
+                        fontFamily = font,
+                        fontWeight = if (!controlsSwapped) FontWeight.Bold else FontWeight.Normal,
+                        letterSpacing = 1.sp
+                    )
+                }
+
+                // Swapped: Move Right, Actions Left
+                val swappedInteractionSource = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .background(
+                            if (controlsSwapped) Color(0xFF00E5FF).copy(alpha = 0.15f) else Color(0xFF1C1C20),
+                            RoundedCornerShape(6.dp)
+                        )
+                        .border(
+                            1.dp,
+                            if (controlsSwapped) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.12f),
+                            RoundedCornerShape(6.dp)
+                        )
+                        .clickable(
+                            interactionSource = swappedInteractionSource,
+                            indication = null,
+                            onClick = { onControlsSwapChange(true) }
+                        )
+                        .padding(horizontal = (14 * scale).dp, vertical = (8 * scale).dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "SWAPPED (RIGHT)",
+                        color = if (controlsSwapped) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.7f),
+                        fontSize = (12 * scale).sp,
+                        fontFamily = font,
+                        fontWeight = if (controlsSwapped) FontWeight.Bold else FontWeight.Normal,
+                        letterSpacing = 1.sp
+                    )
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.weight(1f))
 
-        // Reset Progress (Danger Zone)
+        // 5. Reset Progress (Danger Zone)
         val interactionSource = remember { MutableInteractionSource() }
         Box(
             modifier = Modifier
@@ -319,7 +525,7 @@ private fun AudioSettingsPanel(
                     indication = null,
                     onClick = onResetProgress
                 )
-                .padding((16 * scale).dp)
+                .padding((14 * scale).dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -328,14 +534,14 @@ private fun AudioSettingsPanel(
             ) {
                 Column {
                     Text(
-                        text = "RESET PROGRESS",
+                        text = "RESET PROGRESS & SETTINGS",
                         color = Color(0xFFFF5252),
                         fontSize = (15 * scale).sp,
                         fontFamily = font,
                         letterSpacing = 1.sp
                     )
                     Text(
-                        text = "Clear all mission progress and inventory data",
+                        text = "Clear all mission progress, inventory, and configuration defaults",
                         color = Color(0xFF9A9A9E),
                         fontSize = (12 * scale).sp
                     )

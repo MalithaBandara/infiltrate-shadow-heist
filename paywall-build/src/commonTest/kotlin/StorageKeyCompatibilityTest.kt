@@ -35,12 +35,14 @@ class StorageKeyCompatibilityTest {
     private fun paywallGet(store: FakeNativeDefaults, key: String): String? =
         store.objectForKey(KorgeStorageKey.iosKey(key))
 
-    // The 5 keys MapBackedGameProfileStorage in :game's GameProfile.kt actually persists today.
+    // The discrete keys MapBackedGameProfileStorage in :game's GameProfile.kt actually persists today.
     private val gameProfileKeys = listOf(
         "user_coins" to "150",
         "user_is_premium" to "true",
         "user_music_vol" to "0.8",
         "user_sfx_vol" to "1.0",
+        "user_controls_swapped" to "true",
+        "user_language" to "en",
         "user_unlocked_levels" to "level_1;level_4;level_2",
     )
 

@@ -11,6 +11,7 @@ class PlayerAnimationSet(
     val walk: SpriteAnimation,
     val jump: SpriteAnimation,
     val crouch: SpriteAnimation,
+    val crouchwalk: SpriteAnimation,
     val climb: SpriteAnimation
 )
 
@@ -19,9 +20,16 @@ class PlayerAnimationSet(
  *
  * The files under `resources/player/<clip>` are a processed version of the raw 720x1280 plates
  * kept in `art-source/player`: cropped to a shared 592x1080 box (symmetric about the character
- * centre so horizontal flipping does not shift them), ground line pinned to the bottom edge, and
+ * centre so horizontal flipping does not shift them), the feet pinned to the bottom edge, and
  * scaled to 140x256. The frame indices below were measured off the silhouettes rather than
  * guessed - see the notes on each clip.
+ *
+ * "Feet pinned" means each frame's own lowest opaque row, not one ground line measured once and
+ * reused. The distinction only shows up on crouch and crouchwalk, whose plates are half-resolution
+ * 360x640 (so the same box is 296x540 there) and whose rig lifts the character ~22 full-res units
+ * off the standing ground line the moment it squats: cut against a fixed line, the crouch hovered
+ * ~4px clear of the floor and the crouch-walk bobbed between 4px and 9px of clearance. Every other
+ * clip already had its feet on the bottom row, which is why only these two were wrong.
  */
 object PlayerAnimations {
 
@@ -80,16 +88,55 @@ object PlayerAnimations {
     const val JUMP_LAND_END = JUMP_FRAMES - 1
 
     // ---- crouch ---------------------------------------------------------------------------
-    // The raw plate is standing lowering into a full crouch and settling - a bounding-box scan
-    // of all 96 frames shows the motion is monotonic (head height, torso lean) rather than
-    // cyclic: it never returns near its start, so unlike idle there is no seam to loop through.
-    // It also keeps drifting in tiny (~1px) increments all the way to frame 96 rather than
-    // stopping cleanly, which reads as camera/render noise rather than a deliberate hold pose.
-    // Played once on entering crouch, held on the last frame while crouched, and played in
-    // reverse when standing back up - there is no separate crouch-walk plate, so movement while
-    // crouched keeps this same held pose (see GameplayScene).
-    private const val CROUCH_FRAMES = 96
+    // The raw plate is 96 frames of standing lowering into a crouch. A feet-aligned scan of the
+    // silhouette puts the descent at raw 1-33 (head top travels 11 -> 117 in frame rows, strictly
+    // monotonic) and finds nothing after it: raw 34-96 hold the same pose and drift within a few
+    // rows without ever returning to a seam, so there is no crouched idle to loop. Those 62 frames
+    // are dropped the way walk's anticipation and jump's wind-up were, leaving raw 1-34.
+    //
+    // Raw frame 1 is the standing pose and matches idle frame 1 to within a pixel of bounding box,
+    // so entering the crouch from idle does not pop; raw 34 matches crouchwalk's frame 1 to within
+    // one frame step of motion, so the crouch -> crouch-walk handoff does not either.
+    //
+    // Played once on entering crouch, held on the last frame while crouched, and played in reverse
+    // when standing back up (see GameplayScene).
+    private const val CROUCH_FRAMES = 34
     const val CROUCH_LAST = CROUCH_FRAMES - 1
+
+    // ---- crouchwalk -----------------------------------------------------------------------
+    // 192 raw frames, shot at twice the frame rate of the standing clips (they are 360x1280-scale
+    // plates at half resolution, so a cycle here spans about twice as many frames as walk's).
+    private const val CROUCHWALK_FRAMES = 192
+
+    /**
+     * Raw 1-91: leaning out of the settled crouch and building to a full stride. Raw frame 1 is
+     * the crouch clip's held pose, so this starts exactly where the crouch leaves off. Driven by
+     * distance travelled, not by a fixed duration - scrubbing 91 frames through a fixed 0.4s is
+     * both a blur and a foot-slide, since the footage is already walking from frame 1.
+     */
+    const val CROUCHWALK_TRANSITION_START = 0
+    const val CROUCHWALK_TRANSITION_END = 90
+
+    /**
+     * Raw 92-144: one complete gait cycle. Autocorrelation over the plate puts the period at 53
+     * frames, and of every (start, period) pair in the clip this window has the tightest seam:
+     * frame 145 differs from frame 92 by about two thirds of one frame step, so the wrap does not
+     * read. The window also runs on from the transition's last frame, so that handover is a plain
+     * adjacent-frame step.
+     */
+    const val CROUCHWALK_LOOP_START = 91
+    const val CROUCHWALK_LOOP_END = 143
+    const val CROUCHWALK_LOOP_LENGTH = CROUCHWALK_LOOP_END - CROUCHWALK_LOOP_START + 1
+
+    /**
+     * Ground covered by one crouch gait cycle, as a multiple of the character's on-screen height -
+     * same units as WALK_STRIDE_PER_HEIGHT, i.e. the STANDING silhouette, since the sprite is
+     * scaled off that whatever the stance. Measured the same way: the planted foot tracks backwards
+     * at 2.37 frame-px per frame across its stance phases (2.21 / 2.56 / 2.33 on the three clean
+     * ones), so 53 frames advance the body ~125px against a 244px-tall character. The old 0.65 was
+     * an unmeasured guess and ran the cycle ~30% too slow, which slid the feet forward.
+     */
+    const val CROUCHWALK_STRIDE_PER_HEIGHT = 0.51
 
     // ---- climb ---------------------------------------------------------------------------
     // Raw 1-224 (225 is a stray blank frame, dropped): windup, run-up, leap, ledge grab, mantle,
@@ -144,6 +191,9 @@ object PlayerAnimations {
     /** Where the ground line sits inside a frame: the crop pins it to the bottom edge. */
     const val SOURCE_FEET_Y = 255.76
 
+    /** Where the higher leg rests in idle stance (row 247.0), so both feet connect with the ground. */
+    const val IDLE_FEET_Y = 247.0
+
     /** Height of the standing silhouette in frame pixels, used to scale to the hitbox. */
     const val SOURCE_SILHOUETTE_HEIGHT = 244.36
 
@@ -161,6 +211,7 @@ object PlayerAnimations {
             walk = loadAnimation(atlas, "walk", WALK_FRAMES, frameTimeMs = 40),
             jump = loadAnimation(atlas, "jump", JUMP_FRAMES, frameTimeMs = 33),
             crouch = loadAnimation(atlas, "crouch", CROUCH_FRAMES, frameTimeMs = 33),
+            crouchwalk = loadAnimation(atlas, "crouchwalk", CROUCHWALK_FRAMES, frameTimeMs = 40),
             climb = loadAnimation(atlas, "climb", CLIMB_FRAMES, frameTimeMs = 33)
         )
     }

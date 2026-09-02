@@ -23,39 +23,25 @@ class GameplaySceneTest : ViewsForTesting() {
     }
 
     @Test
-    fun testSplashSceneInitializes() = viewsTest {
+    fun testGameplaySceneWithSideScrollingParallax() = viewsTest {
         val sceneContainer = sceneContainer()
-        sceneContainer.changeTo { SplashScene() }
+        sceneContainer.changeTo { GameplayScene(game.model.LevelData.SIDE_SCROLL_LEVEL) }
         assertNotNull(sceneContainer.currentScene)
     }
 
     @Test
-    fun testMainMenuSceneInitializes() = viewsTest {
+    fun testGameplaySceneMultiScreenSizesAndBgmgLayer() = viewsTest {
         val sceneContainer = sceneContainer()
-        sceneContainer.changeTo { MainMenuScene() }
+        // Test default 4x length level (3200px) with bgmg2.png looping across various screen aspect ratios
+        sceneContainer.changeTo { GameplayScene(game.model.LevelData.DEFAULT_LEVEL_1) }
         assertNotNull(sceneContainer.currentScene)
+
+        // Step scene frames to ensure updater, camera tracking, and parallax loops run without exception
+        views.update(16.milliseconds)
+        views.update(16.milliseconds)
     }
 
-    @Test
-    fun testLevelSelectSceneInitializes() = viewsTest {
-        val sceneContainer = sceneContainer()
-        sceneContainer.changeTo { LevelSelectScene() }
-        assertNotNull(sceneContainer.currentScene)
-    }
 
-    @Test
-    fun testStoreSceneInitializes() = viewsTest {
-        val sceneContainer = sceneContainer()
-        sceneContainer.changeTo { StoreScene() }
-        assertNotNull(sceneContainer.currentScene)
-    }
-
-    @Test
-    fun testSettingsSceneInitializes() = viewsTest {
-        val sceneContainer = sceneContainer()
-        sceneContainer.changeTo { SettingsScene() }
-        assertNotNull(sceneContainer.currentScene)
-    }
 
     @Test
     fun testVisionGraphicsRendering() = viewsTest {

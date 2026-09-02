@@ -358,12 +358,17 @@ object UiComponents {
 
     fun ShapeBuilder.drawSettingsIcon(isHover: Boolean) {
         val color = Colors.BLACK
-        fill(color) {
-            circle(Point(0.0, 0.0), 4.0)
+        // Outer teeth
+        stroke(color, StrokeInfo(thickness = 2.5)) {
             for (i in 0 until 8) {
                 val angle = i * PI / 4.0
-                rect(cos(angle) * 5.0 - 1.5, sin(angle) * 5.0 - 1.5, 3.0, 3.0)
+                moveTo(cos(angle) * 3.5, sin(angle) * 3.5)
+                lineTo(cos(angle) * 6.0, sin(angle) * 6.0)
             }
+        }
+        // Main gear body (thick ring)
+        stroke(color, StrokeInfo(thickness = 3.5)) {
+            circle(Point(0.0, 0.0), 3.5)
         }
     }
 
@@ -377,15 +382,23 @@ object UiComponents {
         }
     }
 
+    // Weighted to sit next to drawPlayIcon's solid triangle: a hairline outline reads much
+    // lighter than a filled shape at the same size, so the stroke is heavy and the arrowhead
+    // is filled rather than drawn as two strokes.
     fun ShapeBuilder.drawQuitIcon(isHover: Boolean) {
         val color = Colors.BLACK
-        stroke(color, StrokeInfo(thickness = 2.0)) {
-            moveTo(0.0, -6.0)
-            lineTo(-6.0, -6.0)
-            lineTo(-6.0, 6.0)
-            lineTo(0.0, 6.0)
-            moveTo(-2.0, 0.0); lineTo(6.0, 0.0)
-            moveTo(3.0, -3.0); lineTo(6.0, 0.0); lineTo(3.0, 3.0)
+        stroke(color, StrokeInfo(thickness = 3.2)) {
+            moveTo(1.0, -8.0)
+            lineTo(-7.0, -8.0)
+            lineTo(-7.0, 8.0)
+            lineTo(1.0, 8.0)
+            moveTo(-1.5, 0.0); lineTo(5.0, 0.0)
+        }
+        fill(color) {
+            moveTo(4.0, -4.6)
+            lineTo(9.5, 0.0)
+            lineTo(4.0, 4.6)
+            close()
         }
     }
 

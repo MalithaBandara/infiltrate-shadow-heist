@@ -92,12 +92,48 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 print("SHELL: Level end consumed -> returning to Compose")
                 self?.switchToCompose()
             }
+            if GameContinueAdBridge.shared.consumeContinueAdRequest() {
+                print("SHELL: Continue-with-ad requested -> showing rewarded ad")
+                self?.showContinueAd()
+            }
         }
     }
 
     private func stopObservingLevelEnd() {
         levelObserverTimer?.invalidate()
         levelObserverTimer = nil
+    }
+
+    // MARK: - Watch Ad to Continue (real feature, not a spike)
+    //
+    // Rewarded ads (like any AdMob fullscreen ad) can only present reliably from whatever view
+    // controller is CURRENTLY the window's rootViewController - not from PaywallModule's
+    // Compose scene while it's sitting detached in the background behind KorGE. So this must
+    // switch to Compose first, then ask it to show the ad, same as the proven switch-spike
+    // mechanism this session already validated. See .junie/guidelines.md "AdMob (basic-ads)
+    // feasibility spike".
+    private var continueAdPollTimer: Timer?
+
+    private func showContinueAd() {
+        stopObservingLevelEnd()
+        switchToCompose()
+        ContinueAdTrigger.shared.requestShow()
+
+        let deadline = Date().addingTimeInterval(30.0)
+        continueAdPollTimer?.invalidate()
+        continueAdPollTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] t in
+            let finished = ContinueAdTrigger.shared.consumeOutcomeFinished()
+            let timedOut = Date() >= deadline
+            if finished || timedOut {
+                t.invalidate()
+                let earned = finished && ContinueAdTrigger.shared.rewardEarned
+                print("SHELL: Continue ad \(earned ? "watched, granting continue" : "not completed") (finished=\(finished), timedOut=\(timedOut))")
+                if earned {
+                    GameContinueAdBridge.shared.grantContinue()
+                }
+                self?.switchToKorGE()
+            }
+        }
     }
 
     // MARK: - Storage Bridge Real Profile Check

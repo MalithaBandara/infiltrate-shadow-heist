@@ -13,6 +13,8 @@ data class GameWorld(
     val boxes: List<Rect> = listOf(crate),
     val worldWidth: Double = 800.0,
     val activePowerups: ActivePowerups = ActivePowerups(),
+    val fence1: Rect? = null,
+    val fence2: Rect? = null,
     var minDetectionTime: Double = 0.3,     // Seconds to catch at point-blank range (~0.3s)
     var maxDetectionTime: Double = 1.5,     // Seconds to catch at outer edge of vision cone (~1.5s)
     var alertDecayRate: Double = 0.6,       // Progress drained per second when outside vision
@@ -25,6 +27,17 @@ data class GameWorld(
     val allGuards: List<Guard> = if (extraGuards.isEmpty()) listOf(guard) else listOf(guard) + extraGuards
 
     var isPlayerInVision: Boolean = false
+        private set
+
+    /**
+     * The guards and cameras that have eyes on the player right now. The alert itself is a single
+     * world-level number (the closest detector fills it), but the HUD draws its detection meter on
+     * whoever is doing the detecting, so it needs to know which entities those are - not just that
+     * someone is. Both are empty whenever the player is unseen.
+     */
+    var detectingGuards: List<Guard> = emptyList()
+        private set
+    var detectingCameras: List<Camera> = emptyList()
         private set
     var alertProgress: Double = 0.0 // 0.0 (unnoticed) to 1.0 (caught)
         private set
@@ -92,6 +105,7 @@ data class GameWorld(
         // Check every guard and camera's vision cone; the closest one with eyes on the player fills the alert.
         val previousAlert = alertProgress
         val seeingGuards = ArrayList<Guard>(allGuards.size)
+        val seeingCameras = ArrayList<Camera>(cameras.size)
         var spottedDist: Double? = null
         var detectorRange: Double = guard.visionRange
 
@@ -116,6 +130,7 @@ data class GameWorld(
                 for (c in cameras) {
                     val d = VisionSystem.getPlayerSpottedDistance(c, player, occluders)
                     if (d != null) {
+                        seeingCameras.add(c)
                         if (spottedDist == null || d < spottedDist) {
                             spottedDist = d
                             detectorRange = c.visionRange
@@ -127,6 +142,8 @@ data class GameWorld(
 
         val inVision = spottedDist != null
         isPlayerInVision = inVision
+        detectingGuards = if (inVision) seeingGuards.toList() else emptyList()
+        detectingCameras = if (inVision) seeingCameras.toList() else emptyList()
 
         if (inVision && spottedDist != null) {
             recentlySeeingGuards.addAll(seeingGuards)
@@ -182,6 +199,8 @@ data class GameWorld(
             isLevelComplete = true
             isPlayerInVision = false
             alertProgress = 0.0
+            detectingGuards = emptyList()
+            detectingCameras = emptyList()
             onLevelComplete?.invoke()
             onLevelCompleteResult?.invoke(getLevelResult())
             return
@@ -207,32 +226,59 @@ data class GameWorld(
             val layout = levelData.layout
             if (layout != null) return createFromLayout(levelData, layout)
 
-            val ground = Rect(x = 0.0, y = 380.0, width = 800.0, height = 100.0)
-            val leftWall = Rect(x = -30.0, y = 0.0, width = 30.0, height = 480.0)
-            val rightWall = Rect(x = 800.0, y = 0.0, width = 30.0, height = 480.0)
-            // Height 100 sits well outside a normal jump's ~45 unit apex (jumpSpeed^2 / 2*gravity)
-            // but inside the climb's reach (apex + player height, ~141) - the crate square in the
-            // player's path can only be surmounted with the climb move, not a jump.
-            val crate = Rect(x = 320.0, y = 280.0, width = 60.0, height = 100.0)
-            val exitZone = Rect(x = 730.0, y = 320.0, width = 40.0, height = 60.0)
+            val worldWidth = 3200.0
+            val groundY = 410.0
+            val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
+            val leftWall = Rect(x = -30.0, y = 0.0, width = 30.0, height = 520.0)
+            val rightWall = Rect(x = worldWidth, y = 0.0, width = 30.0, height = 520.0)
 
-            val platforms = listOf(ground, leftWall, rightWall, crate)
-            val occluders = listOf(crate)
+            // 0. Security perimeter fences at the start of each level (solid impassable boundary blocking leftward movement)
+            val fenceHeight = 140.0
+            val fence2Width = 172.0
+            val fence1Width = 151.0
+            val fence2 = Rect(x = -80.0, y = groundY - fenceHeight, width = fence2Width, height = fenceHeight)
+            val fence1 = Rect(x = 70.0, y = groundY - fenceHeight, width = fence1Width, height = fenceHeight)
+
+            // 1. Initial ground walking area (x = 235 to 580)
+            // 2. Step crate (tightly cropped to visual bounds: 48px high, 68px wide)
+            val crateHeight = 48.0
+            val crateWidth = 68.0
+            val stepCrate = Rect(x = 580.0, y = groundY - crateHeight, width = crateWidth, height = crateHeight)
+
+            // 3. Long elevated platform (96px high, starting right at crate edge)
+            val longPlatform = Rect(x = stepCrate.right, y = groundY - 96.0, width = 900.0, height = 96.0)
+
+            // 4. Chained crate hanging above long platform (blocks standing player at x = 1050, crouch to pass under)
+            // Clearance above the platform is 66px. It has to clear the crouch SILHOUETTE, not the 56px
+            // crouch collision height: the tallest crouch-walk frame measures 57.4px on screen, so 66
+            // leaves ~9px of daylight - enough that nothing clips, tight enough that the squeeze reads.
+            // (80px, the previous value, left 23px of headroom and looked like the player could walk
+            // under it standing; 54px, the value before that, was shorter than the crouch itself.)
+            val hangingChainedCrate = Rect(x = 1050.0, y = 0.0, width = 174.0, height = (groundY - 96.0) - 66.0)
+
+            // Further terrain blocks along the 3200px infiltration corridor
+            val block2 = Rect(x = 1800.0, y = groundY - 95.0, width = 340.0, height = 95.0)
+            val block3 = Rect(x = 2350.0, y = groundY - 95.0, width = 300.0, height = 95.0)
+            val boxes = listOf(fence2, fence1, stepCrate, longPlatform, hangingChainedCrate, block2, block3)
+            val exitZone = Rect(x = 3130.0, y = groundY - 60.0, width = 40.0, height = 60.0)
+
+            val platforms = listOf(ground, leftWall, rightWall) + boxes
+            val occluders = boxes
 
             val player = Player(
-                x = 60.0,
-                y = 380.0 - 96.0,
-                startX = 60.0,
-                startY = 380.0 - 96.0
+                x = 235.0,
+                y = groundY - 96.0,
+                startX = 235.0,
+                startY = groundY - 96.0
             )
 
             val guard = Guard(
                 x = (levelData.guardPatrolMaxX - 20.0).coerceIn(levelData.guardPatrolMinX, levelData.guardPatrolMaxX),
-                y = 380.0 - 48.0,
+                y = groundY - 48.0,
                 patrolMinX = levelData.guardPatrolMinX,
                 patrolMaxX = levelData.guardPatrolMaxX,
                 speed = levelData.guardSpeed,
-                facing = -1.0 // Start facing left towards the crate
+                facing = -1.0 // Start facing left towards the corridor
             )
 
             val cameras = levelData.cameras.map { spawn ->
@@ -252,12 +298,16 @@ data class GameWorld(
             return GameWorld(
                 player = player,
                 guard = guard,
-                crate = crate,
+                crate = stepCrate,
                 platforms = platforms,
                 occluders = occluders,
                 exitZone = exitZone,
                 levelData = levelData,
-                cameras = cameras
+                cameras = cameras,
+                boxes = boxes,
+                worldWidth = worldWidth,
+                fence1 = fence1,
+                fence2 = fence2
             )
         }
 
@@ -266,9 +316,22 @@ data class GameWorld(
             val leftWall = Rect(x = -30.0, y = -400.0, width = 30.0, height = 1200.0)
             val rightWall = Rect(x = layout.worldWidth, y = -400.0, width = 30.0, height = 1200.0)
 
-            val platforms = layout.platforms + layout.boxes + listOf(leftWall, rightWall)
+            val groundY = layout.platforms.firstOrNull { it.y > 300.0 }?.y ?: 440.0
+            val fenceHeight = 140.0
+            val fence2Width = 172.0
+            val fence1Width = 151.0
+            val fence2 = layout.fence2 ?: Rect(x = -80.0, y = groundY - fenceHeight, width = fence2Width, height = fenceHeight)
+            val fence1 = layout.fence1 ?: Rect(x = 70.0, y = groundY - fenceHeight, width = fence1Width, height = fenceHeight)
+
+            val allBoxes = if (layout.boxes.contains(fence1) || layout.boxes.contains(fence2)) {
+                layout.boxes
+            } else {
+                listOf(fence2, fence1) + layout.boxes
+            }
+
+            val platforms = layout.platforms + allBoxes + listOf(leftWall, rightWall)
             // Floors and boxes both block sight, so no guard can see through a storey.
-            val occluders = layout.platforms + layout.boxes
+            val occluders = layout.platforms + allBoxes
 
             val player = Player(
                 x = layout.playerStartX,
@@ -314,8 +377,10 @@ data class GameWorld(
                 levelData = levelData,
                 extraGuards = guards.drop(1),
                 cameras = cameras,
-                boxes = layout.boxes,
-                worldWidth = layout.worldWidth
+                boxes = allBoxes,
+                worldWidth = layout.worldWidth,
+                fence1 = fence1,
+                fence2 = fence2
             )
         }
     }

@@ -29,7 +29,7 @@ data class Player(
 
     var moveSpeed: Double = 132.0
     var crouchSpeed: Double = 65.0
-    var jumpSpeed: Double = -300.0
+    var jumpSpeed: Double = -320.0
     var gravity: Double = 1000.0
     var maxFallSpeed: Double = 600.0
 
@@ -153,9 +153,9 @@ data class Player(
                 box.right <= x + 1.0 && box.right >= x - reach
             }
             if (!adjacent) continue
-            // The box must rest on roughly the same ground the player is standing on - not a
-            // ledge floating far overhead or a pit far below.
-            if (box.bottom < feetY - 4.0 || box.bottom > feetY + 20.0) continue
+            
+            // The box must provide a face to brace against (cannot be a floating ledge whose bottom is above player's feet).
+            if (box.bottom < feetY - 4.0) continue
 
             val climbHeight = feetY - box.top
             if (climbHeight <= climbMinHeight || climbHeight > climbMaxHeight) continue
