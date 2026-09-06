@@ -51,6 +51,8 @@ jobs:
           echo "keystore.password=$KEYSTORE_PASSWORD" >> android-shell/local.properties
           echo "key.alias=$KEY_ALIAS" >> android-shell/local.properties
           echo "key.password=$KEY_PASSWORD" >> android-shell/local.properties
+      - name: Publish paywall-build to Maven Local
+        run: ./gradlew :paywall-build:publishToMavenLocal
       - name: Build Android App Bundle
         run: cd android-shell && ./gradlew bundleRelease
       - name: Upload Artifact
