@@ -22,6 +22,9 @@ repositories {
     mavenLocal()
 }
 
+import java.util.Properties
+import java.io.FileInputStream
+
 android {
     namespace = "com.infiltrate.androidshell"
     compileSdk = 37
@@ -35,14 +38,14 @@ android {
         versionName = "1.0"
     }
 
-    val localProperties = java.util.Properties()
-    val localPropertiesFile = rootProject.file("local.properties")
-    if (localPropertiesFile.exists()) {
-        localProperties.load(java.io.FileInputStream(localPropertiesFile))
-    }
-
     signingConfigs {
         create("release") {
+            val localProperties = Properties()
+            val localPropertiesFile = rootProject.file("local.properties")
+            if (localPropertiesFile.exists()) {
+                localProperties.load(FileInputStream(localPropertiesFile))
+            }
+            
             storeFile = file(localProperties.getProperty("keystore.file") ?: "upload-key.keystore")
             storePassword = localProperties.getProperty("keystore.password")
             keyAlias = localProperties.getProperty("key.alias")
