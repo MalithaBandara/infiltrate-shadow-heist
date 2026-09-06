@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     // android-shell is a genuinely separate Gradle build (its own settings.gradle.kts) - nothing
     // is pre-resolved on a shared classpath here, unlike when this was briefly a subproject of
@@ -22,8 +25,7 @@ repositories {
     mavenLocal()
 }
 
-import java.util.Properties
-import java.io.FileInputStream
+
 
 android {
     namespace = "com.infiltrate.androidshell"
