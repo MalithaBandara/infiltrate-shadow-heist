@@ -88,7 +88,8 @@ android {
             // functions in the same compilation ("expect/actual only in multiplatform projects",
             // "overload resolution ambiguity"). This module supplies its own plain (non-expect)
             // com.sample.demo.ads.getContinueAdBridge() instead - see ContinueAdBridge.kt here.
-            kotlin.srcDirs("../src/game/model", "../src/game/scene")
+            // src/game/model is already provided by paywall-build
+            kotlin.srcDirs("../src/game/scene")
             // GameplayScene loads its sprites/fonts/sounds/level data via KorGE's resourcesVfs,
             // which on Android reads from the APK's assets/ folder. :game's own Android build
             // (via KorGE's targetAndroid()) copies the repo's resources/ directory there
