@@ -32,11 +32,11 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.infiltrate.androidshell"
+        applicationId = "com.infiltrate.shadowheist"
         // Must be >= paywall-build's own minSdk (24) - AGP fails the merge otherwise.
         minSdk = 24
         targetSdk = 37
-        versionCode = 1
+        versionCode = 2
         versionName = "1.0"
     }
 
