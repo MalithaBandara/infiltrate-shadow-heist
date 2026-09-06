@@ -35,19 +35,31 @@ fun NavigationRoot(
             setRaw = { k, v -> PlatformStorage.setRaw(k, v) }
         )
     }
-    // Re-read on every screen change so a move of the Settings slider takes effect on the way
-    // back out, without the music needing to observe storage itself.
-    val musicVolume = remember(currentScreen) { profileStorage.getProfile().musicVolume }
+    // Real state, not `remember(currentScreen) { profileStorage.getProfile()... }` - the latter
+    // was the actual bug behind "the Settings sliders don't do anything": it only re-read storage
+    // when currentScreen itself changed, so dragging a slider while still on the Settings screen
+    // had no audible effect at all until the player navigated away and back. Read once here at
+    // NavigationRoot's own creation (which already happens fresh every time the host reveals the
+    // menu again - see MainActivity.kt's `if (!gameplayVisible)`), and from here on both are
+    // updated directly by SettingsScreen's callbacks, so a slider drag recomposes MenuMusic/
+    // rememberUiClick on the same frame instead of waiting for a screen change.
+    var musicVolume by remember { mutableStateOf(profileStorage.getProfile().musicVolume) }
+    var sfxVolume by remember { mutableStateOf(profileStorage.getProfile().sfxVolume) }
     MenuMusic(volume = musicVolume)
 
     // The click is provided here, alongside the music, and for the same reason: every menu
     // screen needs it, and mounting it per-screen would rebuild the voice pool on every
-    // navigation. Re-read on screen change so the Settings SFX slider applies on the way back
-    // out, matching how musicVolume behaves.
-    val sfxVolume = remember(currentScreen) { profileStorage.getProfile().sfxVolume }
-    val uiClick = rememberUiClick(volume = sfxVolume)
+    // navigation. UI_CLICK_RELATIVE_GAIN/MENU_CLIP_RELATIVE_GAIN keep these from playing at the
+    // player's full raw SFX level - see their doc comment in MenuSfx.kt.
+    val uiClick = rememberUiClick(volume = sfxVolume * UI_CLICK_RELATIVE_GAIN)
+    val toastSuccess = rememberMenuClip(MenuClip.TOAST_SUCCESS, volume = sfxVolume * MENU_CLIP_RELATIVE_GAIN)
+    val toastError = rememberMenuClip(MenuClip.TOAST_ERROR, volume = sfxVolume * MENU_CLIP_RELATIVE_GAIN)
 
-    CompositionLocalProvider(LocalUiClick provides uiClick) {
+    CompositionLocalProvider(
+        LocalUiClick provides uiClick,
+        LocalToastSuccess provides toastSuccess,
+        LocalToastError provides toastError
+    ) {
         ShadowHeistTheme {
             when (currentScreen) {
                 AppScreen.MainMenu -> {
@@ -89,6 +101,16 @@ fun NavigationRoot(
                 AppScreen.Settings -> {
                     SettingsScreen(
                         initialTab = settingsInitialTab,
+                        musicVolume = musicVolume,
+                        sfxVolume = sfxVolume,
+                        onMusicVolumeChange = {
+                            musicVolume = it
+                            profileStorage.setMusicVolume(it)
+                        },
+                        onSfxVolumeChange = {
+                            sfxVolume = it
+                            profileStorage.setSfxVolume(it)
+                        },
                         onBackClicked = { currentScreen = AppScreen.MainMenu },
                         onStoreShortcutClicked = {
                             storeInitialTab = StoreTab.COINS

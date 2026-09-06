@@ -25,3 +25,36 @@ jobs:
       - { name: Prepare Gradle, uses: gradle/actions/setup-gradle@417ae3ccd767c252f5661f1ace9f835f9654f2b5 } # v3.1.0
       - { name: Make gradlew executable, run: chmod +x ./gradlew }
       - { name: Build with Gradle, run: ./gradlew jvmTest }
+
+  android-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: "zulu"
+          java-version: "21"
+      - name: Prepare Gradle
+        uses: gradle/actions/setup-gradle@417ae3ccd767c252f5661f1ace9f835f9654f2b5
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+      - name: Securely Inject Keystore & Passwords
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo $KEYSTORE_BASE64 | base64 --decode > android-shell/upload-key.keystore
+          echo "keystore.file=upload-key.keystore" > android-shell/local.properties
+          echo "keystore.password=$KEYSTORE_PASSWORD" >> android-shell/local.properties
+          echo "key.alias=$KEY_ALIAS" >> android-shell/local.properties
+          echo "key.password=$KEY_PASSWORD" >> android-shell/local.properties
+      - name: Build Android App Bundle
+        run: ./gradlew -p android-shell bundleRelease
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-aab
+          path: android-shell/build/outputs/bundle/release/android-shell-release.aab

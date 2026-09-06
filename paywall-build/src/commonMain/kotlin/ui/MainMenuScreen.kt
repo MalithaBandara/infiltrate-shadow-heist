@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -38,6 +39,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -279,11 +281,15 @@ fun MainMenuScreen(
                 )
             }
 
-            // Bottom-Right: Classified Mission Dossier Card
+            // Bottom-Right: Classified Mission Dossier Card. Nudged down from the plain
+            // bottom-alignment by a fraction of the card's own scale, per real device feedback
+            // that it was sitting noticeably higher than the screen's bottom edge would allow -
+            // a first pass at 16dp wasn't enough, per a second round of the same feedback.
             MissionDossierCard(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(bottom = 8.dp, end = 8.dp),
+                    .padding(bottom = 4.dp, end = 8.dp)
+                    .offset(y = (30 * dossierScale).dp),
                 missionNumber = missionNumber,
                 storyTitle = storyTitle,
                 missionTitle = missionTitle,
@@ -486,11 +492,13 @@ private fun MissionDossierCard(
     // chapter and mission name are back where they were. 20 is its ceiling rather than a
     // preference, and the ceiling is set by wrapping, not by the space available.
     //
-    // The block has to hold exactly three lines, so the column has to land between about 31 and 35
-    // characters: below 31 the second briefing loses a word and spills to four, above 35 the first
-    // one pulls up to two and stops matching the rest. At 18 the 351dp column takes 32.5 characters
-    // on nominal metrics, 31.5 on the widest and 33.6 on the narrowest, so all four briefings hold
-    // three lines whatever the platform's monospace measures.
+    // Originally tuned so all four (pre-12-level) briefings held exactly three lines at column
+    // widths of 31-35 characters. The 12-level shipyard story's briefings run longer (91-105
+    // characters vs. the old 58-85) and were kept verbatim rather than cut to re-fit that budget,
+    // so `overflow = TextOverflow.Ellipsis` below is the safety net for whichever ones land on the
+    // narrow side of that 31-35 char/line range and would otherwise need a clipped-off fourth line.
+    // Not verified against every platform's actual monospace metrics - if a briefing visibly
+    // ellipsizes on a real device, either the text needs trimming or bodySize needs to drop a point.
     //
     // The size tracks the column, and the column narrowed twice getting here: once pulling it back
     // inside the sheet's right tear, and again moving the whole block right off the tear on the
@@ -537,11 +545,12 @@ private fun MissionDossierCard(
                 text = missionNumber,
                 color = inkStrong,
                 fontSize = numberSize.sp,
+                lineHeight = numberSize.sp,
                 fontFamily = font,
                 letterSpacing = (2 * scale).sp
             )
 
-            Spacer(modifier = Modifier.height((4 * scale).dp))
+            Spacer(modifier = Modifier.height((6 * scale).dp))
 
             // Upper rule, ending in a dashed tail short of the paperclip.
             Row(
@@ -567,24 +576,29 @@ private fun MissionDossierCard(
                 }
             }
 
-            // Almost all of the sheet's spare height now goes to the foot rather than being split
-            // with this gap, which is what lifts the chapter, name and briefing up under the rule
-            // instead of leaving a hole below it. The foot keeps the larger share because it is
-            // doing real work: the block is rotated about the card's centre, so the last line of
-            // the briefing hangs roughly 17dp lower at its left end than it is laid out, and that
-            // has to clear the bottom tear and the ink splatters sitting on it.
-            Spacer(modifier = Modifier.height((5 * scale).dp))
-            Spacer(modifier = Modifier.weight(0.15f))
+            // All of the sheet's spare height now goes to the single flexible spacer at the very
+            // foot (below the briefing) rather than any of it landing here. Real-device feedback
+            // has moved these gaps 6dp -> 2dp -> a 4dp/7dp mix -> now a uniform-ish 6-8dp across
+            // the whole block, after "add a little more space between lines and text" came back
+            // even with the rule-adjacent gaps already at 7dp - so this pass also lifts the two
+            // gaps that weren't singled out before (after "01", between the two title lines)
+            // rather than leaving them behind at the old tighter value. The foot absorbs the
+            // leftover height regardless of how these five add up, which is real work it's suited
+            // for: the block is rotated about the card's centre, so the last line of the briefing
+            // hangs roughly 17dp lower at its left end than it is laid out, and that has to clear
+            // the bottom tear and the ink splatters sitting on it.
+            Spacer(modifier = Modifier.height((8 * scale).dp))
 
             Text(
                 text = storyTitle,
                 color = inkFaint,
                 fontSize = labelSize.sp,
+                lineHeight = labelSize.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = (2.2f * scale).sp
             )
 
-            Spacer(modifier = Modifier.height((3 * scale).dp))
+            Spacer(modifier = Modifier.height((6 * scale).dp))
 
             Text(
                 text = missionTitle,
@@ -596,7 +610,7 @@ private fun MissionDossierCard(
                 maxLines = 1
             )
 
-            Spacer(modifier = Modifier.height((9 * scale).dp))
+            Spacer(modifier = Modifier.height((8 * scale).dp))
 
             Box(
                 modifier = Modifier
@@ -615,10 +629,14 @@ private fun MissionDossierCard(
                 fontFamily = FontFamily.Monospace,
                 fontSize = bodySize.sp,
                 lineHeight = bodyLineHeight.sp,
-                maxLines = 3
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
             )
 
-            Spacer(modifier = Modifier.weight(0.85f))
+            // The one remaining flexible spacer - now absorbs all of the card's spare height,
+            // not just the share left over after an earlier mid-content gap (see the comment
+            // above the upper rule's fixed spacer).
+            Spacer(modifier = Modifier.weight(1f))
         }
     }
 }

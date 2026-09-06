@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -23,6 +24,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -78,7 +81,6 @@ private data class CoinPackItem(
     val title: String,
     val amount: Int,
     val price: String,
-    val badge: String? = null,
     val isAd: Boolean = false
 )
 
@@ -123,9 +125,13 @@ fun StoreScreen(
         }
     }
 
+    val toastSuccessSound = LocalToastSuccess.current
+    val toastErrorSound = LocalToastError.current
+
     fun showToast(msg: String, isSuccess: Boolean) {
         toastMessage = msg
         toastIsSuccess = isSuccess
+        if (isSuccess) toastSuccessSound() else toastErrorSound()
     }
 
     val powerupItems = remember {
@@ -155,7 +161,6 @@ fun StoreScreen(
                 title = "SPONSORED INTEL",
                 amount = 500,
                 price = "WATCH AD",
-                badge = "FREE REWARD",
                 isAd = true
             ),
             CoinPackItem(
@@ -168,29 +173,25 @@ fun StoreScreen(
                 id = "coins_tier_2",
                 title = "SMUGGLER'S POUCH",
                 amount = 2500,
-                price = "$1.99",
-                badge = "+25% BONUS"
+                price = "$1.99"
             ),
             CoinPackItem(
                 id = "coins_tier_3",
                 title = "TACTICAL BRIEFCASE",
                 amount = 4000,
-                price = "$2.99",
-                badge = "+33% BONUS"
+                price = "$2.99"
             ),
             CoinPackItem(
                 id = "coins_tier_4",
                 title = "HEIST DUFFLE BAG",
                 amount = 7500,
-                price = "$4.99",
-                badge = "MOST POPULAR"
+                price = "$4.99"
             ),
             CoinPackItem(
                 id = "coins_tier_5",
                 title = "BLACK MARKET VAULT",
                 amount = 20000,
-                price = "$9.99",
-                badge = "BEST VALUE"
+                price = "$9.99"
             )
         )
     }
@@ -224,11 +225,12 @@ fun StoreScreen(
                     .padding(horizontal = (24 * scale).dp, vertical = (12 * scale).dp),
                 horizontalArrangement = Arrangement.spacedBy((20 * scale).dp)
             ) {
-                // --- Sidebar ---
+                // --- Sidebar --- (scrollable: the inventory list has no fixed length)
                 Column(
                     modifier = Modifier
                         .width((220 * scale).dp)
-                        .fillMaxHeight(),
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     TexturedSidebarTab(
@@ -380,7 +382,9 @@ private fun PowerupsGrid(
     onBuy: (PowerupItem) -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy((10 * scale).dp)
     ) {
         // Section Header
@@ -404,12 +408,14 @@ private fun PowerupsGrid(
             )
         }
 
-        // 2x3 Grid of Powerup Cards
+        // 2x3 Grid of Powerup Cards. Row height comes from the cards' own content
+        // (IntrinsicSize.Min), not weight(1f) - a weight has no bounded height to distribute
+        // inside this now-scrollable column.
         for (chunk in items.chunked(3)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .height(IntrinsicSize.Min),
                 horizontalArrangement = Arrangement.spacedBy((10 * scale).dp)
             ) {
                 for (item in chunk) {
@@ -547,7 +553,9 @@ private fun CoinsGrid(
     onPurchase: (CoinPackItem) -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy((10 * scale).dp)
     ) {
         // Section Header
@@ -571,12 +579,14 @@ private fun CoinsGrid(
             )
         }
 
-        // 2x3 Grid of Coin Packs
+        // 2x3 Grid of Coin Packs. Row height comes from the cards' own content
+        // (IntrinsicSize.Min), not weight(1f) - a weight has no bounded height to distribute
+        // inside this now-scrollable column.
         for (chunk in items.chunked(3)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .height(IntrinsicSize.Min),
                 horizontalArrangement = Arrangement.spacedBy((10 * scale).dp)
             ) {
                 for (pack in chunk) {
@@ -606,21 +616,12 @@ private fun CoinPackCard(
     onPurchase: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isHighlight = pack.badge != null
-    val accentColor = when {
-        pack.isAd -> Color(0xFF00E5FF)
-        pack.badge == "BEST VALUE" -> Color(0xFFFFD54F)
-        pack.badge == "MOST POPULAR" -> Color(0xFFFF9800)
-        isHighlight -> Color(0xFF00E676)
-        else -> Color.White.copy(alpha = 0.08f)
-    }
-
     Box(
         modifier = modifier
             .background(Color(0xFF141416), RoundedCornerShape(8.dp))
             .border(
                 1.dp,
-                if (isHighlight) accentColor.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.08f),
+                if (pack.isAd) Color(0xFF00E5FF).copy(alpha = 0.35f) else Color.White.copy(alpha = 0.08f),
                 RoundedCornerShape(8.dp)
             )
             .padding((10 * scale).dp)
@@ -630,34 +631,18 @@ private fun CoinPackCard(
             verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            if (pack.badge != null) {
-                Box(
-                    modifier = Modifier
-                        .background(accentColor, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = pack.badge,
-                        color = Color(0xFF0A0A0C),
-                        fontSize = (9 * scale).sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.sp
-                    )
-                }
-            } else {
-                Spacer(modifier = Modifier.height((12 * scale).dp))
-            }
+            Spacer(modifier = Modifier.height((2 * scale).dp))
 
             // Graphic + Title + Amount
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Canvas(modifier = Modifier.size((26 * scale).dp)) {
+                Canvas(modifier = Modifier.size((28 * scale).dp)) {
                     if (pack.isAd) {
                         drawBoltIcon(Color(0xFF00E5FF))
                     } else {
                         drawCoinStackIcon(Color(0xFFFFD54F))
                     }
                 }
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height((4 * scale).dp))
                 Text(
                     text = pack.title,
                     color = Color(0xFFB7B7BC),
@@ -666,6 +651,7 @@ private fun CoinPackCard(
                     letterSpacing = 0.5.sp,
                     maxLines = 1
                 )
+                Spacer(modifier = Modifier.height((2 * scale).dp))
                 Text(
                     text = "${pack.amount} CREDITS",
                     color = Color.White,
@@ -682,11 +668,7 @@ private fun CoinPackCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        when {
-                            pack.isAd -> Color(0xFF00E5FF)
-                            pack.badge == "BEST VALUE" -> Color(0xFFFFD54F)
-                            else -> Color(0xFFECE7DA)
-                        },
+                        if (pack.isAd) Color(0xFF00E5FF) else Color(0xFFECE7DA),
                         RoundedCornerShape(5.dp)
                     )
                     .clickable(

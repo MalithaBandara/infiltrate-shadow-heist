@@ -300,7 +300,8 @@ fun TexturedSidebarTab(
 fun VolumeSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onValueChangeFinished: (() -> Unit)? = null
 ) {
     Row(
         modifier = modifier,
@@ -309,6 +310,7 @@ fun VolumeSlider(
         Slider(
             value = value,
             onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
             valueRange = 0f..1f,
             colors = SliderDefaults.colors(
                 thumbColor = Color.White,
@@ -330,15 +332,35 @@ fun VolumeSlider(
 
 // --- Icons & Drawing Helpers ---
 
+// Every icon-drawing function below plots its shape in fixed-looking literal coordinates (a
+// radius of "7f", an offset of "8f"), but those literals are pixels in the DrawScope's own
+// coordinate space, which tracks the Canvas's actual rendered pixel size, not its dp size - two
+// very different numbers on any real device, where density is essentially never 1. A `Modifier
+// .size(16.dp)` Canvas is 16 pixels wide only at density 1 (a JVM/desktop preview); on a real
+// phone at density ~2.5-3x it is 40-48 pixels wide, so a shape whose points never move past
+// radius 7-9 keeps occupying the same ~16px patch in the middle of a box that grew around it -
+// it reads as a small icon lost in a big empty pill, worse the denser the screen. `size
+// .minDimension / REFERENCE_DESIGN_PX` converts back into a multiplier for the Canvas's *actual*
+// pixel size, where REFERENCE_DESIGN_PX is the box each function's literals were originally
+// eyeballed against - so a real device (`size.minDimension` larger) scales the shape up
+// proportionally instead of leaving it pinned at its design-time pixel count. `drawInkPlay`/
+// `drawInkTarget`/`drawInkCart`/`drawInkGear` (MainMenuScreen.kt) and `drawCoinIcon`/
+// `drawCoinStackIcon`/`drawGearIcon` below already did this (some form of `size.width / Nf`),
+// which is why the main-menu button icons and coin icons were never part of this problem - this
+// applies the same pattern to the ones that weren't.
+private const val CHEVRON_REFERENCE_PX = 16f
+private const val STAR_REFERENCE_PX = 16f
+
 fun DrawScope.drawBackChevron(c: Color) {
+    val d = size.minDimension / CHEVRON_REFERENCE_PX
     val cx = size.width / 2f
     val cy = size.height / 2f
     val path = Path().apply {
-        moveTo(cx + 4f, cy - 8f)
-        lineTo(cx - 4f, cy)
-        lineTo(cx + 4f, cy + 8f)
+        moveTo(cx + 4f * d, cy - 8f * d)
+        lineTo(cx - 4f * d, cy)
+        lineTo(cx + 4f * d, cy + 8f * d)
     }
-    drawPath(path, color = c, style = Stroke(width = 2.4f))
+    drawPath(path, color = c, style = Stroke(width = 2.4f * d))
 }
 
 fun DrawScope.drawStar(
@@ -348,10 +370,11 @@ fun DrawScope.drawStar(
     innerR: Float,
     color: Color = Color(0xFFFFD54F)
 ) {
+    val d = size.minDimension / STAR_REFERENCE_PX
     val path = Path()
     val points = 5
     for (i in 0 until points * 2) {
-        val r = if (i % 2 == 0) outerR else innerR
+        val r = (if (i % 2 == 0) outerR else innerR) * d
         val angle = i * PI.toFloat() / points - PI.toFloat() / 2f
         val x = cx + r * cos(angle)
         val y = cy + r * sin(angle)
@@ -390,20 +413,23 @@ fun DrawScope.drawPadlockIcon(c: Color) {
     drawLockIcon(c, 1.1f)
 }
 
+// `s` is the caller's own design-scale factor (e.g. the game's screen-height scale, ~0.55-1.4) -
+// unrelated to the density fix below, which multiplies on top of it via `d`.
 fun DrawScope.drawLockIcon(c: Color, s: Float = 1.0f) {
+    val d = size.minDimension / 18f * s
     val cx = size.width / 2f
     val cy = size.height / 2f
     drawCircle(
         color = c,
-        radius = 4f * s,
-        center = Offset(cx, cy - 2.5f * s),
-        style = Stroke(width = 1.8f * s)
+        radius = 4f * d,
+        center = Offset(cx, cy - 2.5f * d),
+        style = Stroke(width = 1.8f * d)
     )
     drawRoundRect(
         color = c,
-        topLeft = Offset(cx - 6f * s, cy - 1.5f * s),
-        size = Size(12f * s, 9f * s),
-        cornerRadius = CornerRadius(2f * s, 2f * s)
+        topLeft = Offset(cx - 6f * d, cy - 1.5f * d),
+        size = Size(12f * d, 9f * d),
+        cornerRadius = CornerRadius(2f * d, 2f * d)
     )
 }
 
@@ -473,15 +499,16 @@ fun DrawScope.drawCoinIcon(c: Color = Color(0xFFFFD54F)) {
 }
 
 fun DrawScope.drawBoltIcon(c: Color) {
+    val d = size.minDimension / 16f
     val cx = size.width / 2f
     val cy = size.height / 2f
     val path = Path().apply {
-        moveTo(cx + 2f, cy - 8f)
-        lineTo(cx - 5f, cy + 1f)
-        lineTo(cx - 1f, cy + 1f)
-        lineTo(cx - 2f, cy + 8f)
-        lineTo(cx + 5f, cy - 1f)
-        lineTo(cx + 1f, cy - 1f)
+        moveTo(cx + 2f * d, cy - 8f * d)
+        lineTo(cx - 5f * d, cy + 1f * d)
+        lineTo(cx - 1f * d, cy + 1f * d)
+        lineTo(cx - 2f * d, cy + 8f * d)
+        lineTo(cx + 5f * d, cy - 1f * d)
+        lineTo(cx + 1f * d, cy - 1f * d)
         close()
     }
     drawPath(path, color = c, style = Fill)
@@ -528,53 +555,57 @@ fun DrawScope.drawCoinStackIcon(c: Color) {
 }
 
 fun DrawScope.drawSmokeIcon(c: Color) {
+    val d = size.minDimension / 20f
     val cx = size.width / 2f
     val cy = size.height / 2f
-    drawCircle(color = c, radius = 6.5f, center = Offset(cx, cy + 3f))
-    drawLine(c, Offset(cx - 5f, cy - 2f), Offset(cx - 8f, cy - 7f), strokeWidth = 1.6f)
-    drawLine(c, Offset(cx, cy - 4f), Offset(cx, cy - 10f), strokeWidth = 1.6f)
-    drawLine(c, Offset(cx + 5f, cy - 2f), Offset(cx + 8f, cy - 7f), strokeWidth = 1.6f)
+    drawCircle(color = c, radius = 6.5f * d, center = Offset(cx, cy + 3f * d))
+    drawLine(c, Offset(cx - 5f * d, cy - 2f * d), Offset(cx - 8f * d, cy - 7f * d), strokeWidth = 1.6f * d)
+    drawLine(c, Offset(cx, cy - 4f * d), Offset(cx, cy - 10f * d), strokeWidth = 1.6f * d)
+    drawLine(c, Offset(cx + 5f * d, cy - 2f * d), Offset(cx + 8f * d, cy - 7f * d), strokeWidth = 1.6f * d)
 }
 
 fun DrawScope.drawCloakIcon(c: Color) {
+    val d = size.minDimension / 18f
     val cx = size.width / 2f
     val cy = size.height / 2f
     val path = Path().apply {
-        moveTo(cx, cy - 9f)
-        lineTo(cx + 7f, cy - 3f)
-        lineTo(cx + 8f, cy + 8f)
-        lineTo(cx + 3f, cy + 6f)
-        lineTo(cx, cy + 9f)
-        lineTo(cx - 3f, cy + 6f)
-        lineTo(cx - 8f, cy + 8f)
-        lineTo(cx - 7f, cy - 3f)
+        moveTo(cx, cy - 9f * d)
+        lineTo(cx + 7f * d, cy - 3f * d)
+        lineTo(cx + 8f * d, cy + 8f * d)
+        lineTo(cx + 3f * d, cy + 6f * d)
+        lineTo(cx, cy + 9f * d)
+        lineTo(cx - 3f * d, cy + 6f * d)
+        lineTo(cx - 8f * d, cy + 8f * d)
+        lineTo(cx - 7f * d, cy - 3f * d)
         close()
     }
     drawPath(path, color = c)
-    drawLine(Color.Black.copy(alpha = 0.35f), Offset(cx, cy - 9f), Offset(cx, cy + 9f), strokeWidth = 1.4f)
+    drawLine(Color.Black.copy(alpha = 0.35f), Offset(cx, cy - 9f * d), Offset(cx, cy + 9f * d), strokeWidth = 1.4f * d)
 }
 
 fun DrawScope.drawInvisIcon(c: Color) {
+    val d = size.minDimension / 18f
     val cx = size.width / 2f
     val cy = size.height / 2f
-    drawOval(color = c, topLeft = Offset(cx - 9f, cy - 5f), size = Size(18f, 10f), style = Stroke(width = 1.6f))
-    drawLine(c, Offset(cx - 8f, cy + 6f), Offset(cx + 8f, cy - 6f), strokeWidth = 1.6f)
-    drawCircle(color = c, radius = 2.8f, center = Offset(cx, cy))
+    drawOval(color = c, topLeft = Offset(cx - 9f * d, cy - 5f * d), size = Size(18f * d, 10f * d), style = Stroke(width = 1.6f * d))
+    drawLine(c, Offset(cx - 8f * d, cy + 6f * d), Offset(cx + 8f * d, cy - 6f * d), strokeWidth = 1.6f * d)
+    drawCircle(color = c, radius = 2.8f * d, center = Offset(cx, cy))
 }
 
 fun DrawScope.drawBootIcon(c: Color) {
+    val d = size.minDimension / 20f
     val cx = size.width / 2f
     val cy = size.height / 2f
     val path = Path().apply {
-        moveTo(cx - 3f, cy - 10f)
-        lineTo(cx + 3f, cy - 10f)
-        lineTo(cx + 3f, cy + 2f)
-        lineTo(cx + 10f, cy + 4f)
-        lineTo(cx + 11f, cy + 7f)
-        lineTo(cx + 9f, cy + 9f)
-        lineTo(cx - 7f, cy + 9f)
-        lineTo(cx - 7f, cy + 5f)
-        lineTo(cx - 3f, cy + 2f)
+        moveTo(cx - 3f * d, cy - 10f * d)
+        lineTo(cx + 3f * d, cy - 10f * d)
+        lineTo(cx + 3f * d, cy + 2f * d)
+        lineTo(cx + 10f * d, cy + 4f * d)
+        lineTo(cx + 11f * d, cy + 7f * d)
+        lineTo(cx + 9f * d, cy + 9f * d)
+        lineTo(cx - 7f * d, cy + 9f * d)
+        lineTo(cx - 7f * d, cy + 5f * d)
+        lineTo(cx - 3f * d, cy + 2f * d)
         close()
     }
     drawPath(path, color = c)
@@ -637,14 +668,15 @@ fun DrawScope.drawSpeakerIcon(c: Color) {
 }
 
 fun DrawScope.drawInfoIcon(c: Color) {
+    val d = size.minDimension / 16f
     val cx = size.width / 2f
     val cy = size.height / 2f
-    drawCircle(color = c, radius = 7.5f, center = Offset(cx, cy), style = Stroke(width = 1.5f))
-    drawCircle(color = c, radius = 1.3f, center = Offset(cx, cy - 3.5f))
+    drawCircle(color = c, radius = 7.5f * d, center = Offset(cx, cy), style = Stroke(width = 1.5f * d))
+    drawCircle(color = c, radius = 1.3f * d, center = Offset(cx, cy - 3.5f * d))
     drawRoundRect(
         color = c,
-        topLeft = Offset(cx - 1f, cy - 1f),
-        size = Size(2f, 5.5f),
-        cornerRadius = CornerRadius(0.8f, 0.8f)
+        topLeft = Offset(cx - 1f * d, cy - 1f * d),
+        size = Size(2f * d, 5.5f * d),
+        cornerRadius = CornerRadius(0.8f * d, 0.8f * d)
     )
 }

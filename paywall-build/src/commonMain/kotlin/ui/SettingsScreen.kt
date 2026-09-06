@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -56,6 +58,14 @@ enum class SettingsTab {
 @Composable
 fun SettingsScreen(
     initialTab: SettingsTab = SettingsTab.GENERAL,
+    // Owned by NavigationRoot, not here - it's the one already holding the live volume state that
+    // MenuMusic/rememberUiClick actually play at, so a drag on either slider has to reach it
+    // immediately rather than only being picked up on the way back out of this screen. See
+    // NavigationRoot.kt's own comment on why that used to not work.
+    musicVolume: Float,
+    sfxVolume: Float,
+    onMusicVolumeChange: (Float) -> Unit,
+    onSfxVolumeChange: (Float) -> Unit,
     onBackClicked: () -> Unit,
     onStoreShortcutClicked: () -> Unit = {}
 ) {
@@ -68,8 +78,6 @@ fun SettingsScreen(
 
     var profile by remember { mutableStateOf(profileStorage.getProfile()) }
     var currentTab by remember { mutableStateOf(initialTab) }
-    var musicVol by remember { mutableStateOf(profile.musicVolume) }
-    var sfxVol by remember { mutableStateOf(profile.sfxVolume) }
     var controlsSwapped by remember { mutableStateOf(profile.controlsSwapped) }
     var currentLanguage by remember { mutableStateOf(profile.language) }
     val bebasFont = FontFamily(Font(Res.font.bebas_neue_regular))
@@ -84,9 +92,13 @@ fun SettingsScreen(
         }
     }
 
+    val toastSuccessSound = LocalToastSuccess.current
+    val toastErrorSound = LocalToastError.current
+
     fun showToast(msg: String, isSuccess: Boolean) {
         toastMessage = msg
         toastIsSuccess = isSuccess
+        if (isSuccess) toastSuccessSound() else toastErrorSound()
     }
 
     BoxWithConstraints(
@@ -116,7 +128,8 @@ fun SettingsScreen(
                 Column(
                     modifier = Modifier
                         .width((220 * scale).dp)
-                        .fillMaxHeight(),
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     TexturedSidebarTab(
@@ -150,8 +163,8 @@ fun SettingsScreen(
                         SettingsTab.GENERAL -> {
                             GeneralSettingsPanel(
                                 selectedLanguage = currentLanguage,
-                                musicVolume = musicVol,
-                                sfxVolume = sfxVol,
+                                musicVolume = musicVolume,
+                                sfxVolume = sfxVolume,
                                 controlsSwapped = controlsSwapped,
                                 font = bebasFont,
                                 scale = scale,
@@ -160,14 +173,8 @@ fun SettingsScreen(
                                     profileStorage.setLanguage(lang)
                                     showToast("LANGUAGE: ENGLISH (ACTIVE)", true)
                                 },
-                                onMusicChange = {
-                                    musicVol = it
-                                    profileStorage.setMusicVolume(it)
-                                },
-                                onSfxChange = {
-                                    sfxVol = it
-                                    profileStorage.setSfxVolume(it)
-                                },
+                                onMusicChange = onMusicVolumeChange,
+                                onSfxChange = onSfxVolumeChange,
                                 onControlsSwapChange = { swapped ->
                                     controlsSwapped = swapped
                                     profileStorage.setControlsSwapped(swapped)
@@ -177,13 +184,13 @@ fun SettingsScreen(
                                     )
                                 },
                                 onResetProgress = {
-                                    // Reset profile storage
-                                    profileStorage.setMusicVolume(0.8f)
-                                    profileStorage.setSfxVolume(1.0f)
+                                    // Music/SFX go through the callbacks (NavigationRoot owns
+                                    // that state and persists it) - controls/language are still
+                                    // local to this screen, so they're reset directly.
+                                    onMusicVolumeChange(0.8f)
+                                    onSfxVolumeChange(1.0f)
                                     profileStorage.setControlsSwapped(false)
                                     profileStorage.setLanguage("en")
-                                    musicVol = 0.8f
-                                    sfxVol = 1.0f
                                     controlsSwapped = false
                                     currentLanguage = "en"
                                     showToast("SETTINGS & PROGRESS RESET TO DEFAULT", false)
@@ -248,7 +255,9 @@ private fun GeneralSettingsPanel(
     val click = LocalUiClick.current
 
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy((14 * scale).dp)
     ) {
         // Section Header
@@ -285,25 +294,6 @@ private fun GeneralSettingsPanel(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Language Icon / Badge
-                Box(
-                    modifier = Modifier
-                        .size((32 * scale).dp)
-                        .background(Color(0xFF00E5FF).copy(alpha = 0.15f), CircleShape)
-                        .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.4f), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "EN",
-                        color = Color(0xFF00E5FF),
-                        fontSize = (12 * scale).sp,
-                        fontWeight = FontWeight.Black,
-                        fontFamily = font
-                    )
-                }
-
-                Spacer(modifier = Modifier.width((12 * scale).dp))
-
                 Column {
                     Text(
                         text = "LANGUAGE",
@@ -388,7 +378,8 @@ private fun GeneralSettingsPanel(
             VolumeSlider(
                 value = musicVolume,
                 onValueChange = onMusicChange,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                onValueChangeFinished = click
             )
         }
 
@@ -419,7 +410,8 @@ private fun GeneralSettingsPanel(
             VolumeSlider(
                 value = sfxVolume,
                 onValueChange = onSfxChange,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                onValueChangeFinished = click
             )
         }
 
@@ -513,7 +505,10 @@ private fun GeneralSettingsPanel(
             }
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        // weight(1f) doesn't work here now that the panel scrolls (no bounded height to
+        // distribute) - a fixed gap keeps Reset Progress visually separated from the options
+        // above it instead of jammed directly underneath.
+        Spacer(modifier = Modifier.height((28 * scale).dp))
 
         // 5. Reset Progress (Danger Zone)
         val interactionSource = remember { MutableInteractionSource() }
@@ -573,7 +568,9 @@ private fun AboutSettingsPanel(
     onActionToast: (String) -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy((14 * scale).dp)
     ) {
         // Section Header
@@ -598,9 +595,11 @@ private fun AboutSettingsPanel(
         }
 
         // Links
+        var creditsExpanded by remember { mutableStateOf(false) }
         val links = listOf("PRIVACY POLICY", "TERMS OF SERVICE", "CREDITS & LICENSES")
         for (link in links) {
             val interactionSource = remember { MutableInteractionSource() }
+            val isCredits = link == "CREDITS & LICENSES"
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -609,7 +608,10 @@ private fun AboutSettingsPanel(
                     .clickable(
                         interactionSource = interactionSource,
                         indication = null,
-                        onClick = { onActionToast("$link OPENED") }
+                        onClick = {
+                            if (isCredits) creditsExpanded = !creditsExpanded
+                            else onActionToast("$link OPENED")
+                        }
                     )
                     .padding((16 * scale).dp)
             ) {
@@ -626,15 +628,32 @@ private fun AboutSettingsPanel(
                         letterSpacing = 1.sp
                     )
                     Text(
-                        text = "▶",
+                        text = if (isCredits && creditsExpanded) "▼" else "▶",
                         color = Color(0xFF6E6E72),
                         fontSize = (12 * scale).sp
                     )
                 }
             }
+
+            if (isCredits) {
+                AnimatedVisibility(visible = creditsExpanded, enter = fadeIn(), exit = fadeOut()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = (8 * scale).dp),
+                        verticalArrangement = Arrangement.spacedBy((10 * scale).dp)
+                    ) {
+                        for (credit in SOUND_CREDITS) {
+                            SoundCreditRow(credit = credit, font = font, scale = scale)
+                        }
+                    }
+                }
+            }
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        // weight(1f) doesn't work here now that the panel scrolls (no bounded height to
+        // distribute) - a fixed gap keeps the version line separated from the links above it.
+        Spacer(modifier = Modifier.height((28 * scale).dp))
 
         Text(
             text = "INFILTRATE: SHADOW HEIST • VERSION 1.0.0 (BUILD 2026.1)",
@@ -642,6 +661,37 @@ private fun AboutSettingsPanel(
             fontSize = (11 * scale).sp,
             fontWeight = FontWeight.Medium,
             letterSpacing = 1.sp
+        )
+    }
+}
+
+/** One third-party sound credited under "CREDITS & LICENSES" - see `ATTRIBUTION.md` for the full record. */
+private data class SoundCredit(val cue: String, val creditLine: String)
+
+private val SOUND_CREDITS = listOf(
+    SoundCredit("Menu music", "Nikita Kondrashev, via Pixabay"),
+    SoundCredit("Button tap", "Kenney (kenney.nl), Creative Commons Zero"),
+    SoundCredit("Success chime", "Sjonas88, via Freesound, Creative Commons Zero"),
+    SoundCredit("Error tone", "Kastenfrosch, via Freesound, Creative Commons Zero"),
+    SoundCredit("Guard alert", "Sadiquecat, via Freesound, Creative Commons Zero"),
+    SoundCredit("Camera alert", "ryanconway, via Freesound, Creative Commons Zero"),
+    SoundCredit("Mission music", "DELOSound, via Pixabay"),
+)
+
+@Composable
+private fun SoundCreditRow(credit: SoundCredit, font: FontFamily, scale: Float) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = (4 * scale).dp)) {
+        Text(
+            text = credit.cue.uppercase(),
+            color = Color.White.copy(alpha = 0.85f),
+            fontSize = (12 * scale).sp,
+            fontFamily = font,
+            letterSpacing = 0.5.sp
+        )
+        Text(
+            text = credit.creditLine,
+            color = Color(0xFF6E6E72),
+            fontSize = (11 * scale).sp
         )
     }
 }

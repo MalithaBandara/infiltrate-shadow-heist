@@ -26,6 +26,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.infiltrate.shellapp
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # GameMain.framework and PaywallModule.framework are both built from the Kotlin/Native
         # iosSimulatorArm64 target only (arm64, no x86_64 slice). Without this, a plain
         # `xcodebuild -sdk iphonesimulator` build (no -destination given) defaults to building

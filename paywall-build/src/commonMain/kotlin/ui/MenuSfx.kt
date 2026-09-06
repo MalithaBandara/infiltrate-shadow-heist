@@ -29,10 +29,44 @@ import androidx.compose.runtime.staticCompositionLocalOf
 val LocalUiClick = staticCompositionLocalOf<() -> Unit> { {} }
 
 /**
+ * Relative level applied on top of the player's raw SFX slider before it reaches
+ * [rememberUiClick] - the same idea as `GameAudio.UI_CLICK_GAIN` on the gameplay side, and for the
+ * same reason: passing the SFX slider straight through as playback volume means a player at 100%
+ * SFX (the default) hears every click at full volume with no headroom, which reads as too loud for
+ * something this frequent - real feedback confirmed it. `MENU_CLIP_RELATIVE_GAIN` is a little
+ * higher since a success/error clip is a rarer, more deliberate cue than a click and can afford to
+ * sit more forward.
+ */
+const val UI_CLICK_RELATIVE_GAIN = 0.5f
+const val MENU_CLIP_RELATIVE_GAIN = 0.7f
+
+/**
  * Prepares the click for the current platform and returns a function that fires it.
  *
- * @param volume 0..1, taken from the player's SFX setting in GameProfile. Read at call time
- *   rather than captured, so a move of the Settings slider applies to the very next tap.
+ * @param volume 0..1, already scaled by [UI_CLICK_RELATIVE_GAIN] at the call site - taken from
+ *   the player's SFX setting in GameProfile and read at call time rather than captured, so a move
+ *   of the Settings slider applies to the very next tap.
  */
 @Composable
 expect fun rememberUiClick(volume: Float): () -> Unit
+
+/**
+ * The other one-shot menu clips beyond the click - each backed by `resources/sfx/<fileBaseName>.wav`
+ * (and, for iOS, the matching copy under `ios-shell/Resources/`), following the exact bundling
+ * convention already documented on [rememberUiClick].
+ */
+enum class MenuClip(val fileBaseName: String) {
+    TOAST_SUCCESS("toast_success"),
+    TOAST_ERROR("toast_error"),
+}
+
+val LocalToastSuccess = staticCompositionLocalOf<() -> Unit> { {} }
+val LocalToastError = staticCompositionLocalOf<() -> Unit> { {} }
+
+/**
+ * Same contract as [rememberUiClick], generalised to a named clip instead of always "ui_click".
+ * Kept as a separate function/cache per platform rather than folding the click itself into it,
+ * so the already-verified click path stays untouched.
+ */
+@Composable
+expect fun rememberMenuClip(clip: MenuClip, volume: Float): () -> Unit

@@ -199,6 +199,50 @@ commit if it resembles a real key format — flag it anyway.
 3. Explicitly ASK the user for permission to push to GitHub.
 4. Wait for the user's explicit approval before executing `git push`.
 
+## Never add Claude as a git contributor/co-author
+
+**Do not append `Co-Authored-By: Claude ... <noreply@anthropic.com>` (or any
+similar co-author trailer) to commit messages in this repo, and do not set
+commit author/committer to any Claude/Anthropic identity.** GitHub reads
+that trailer and lists "claude" in the repo's Contributors, which the owner
+does not want on a solo hackathon submission. This overrides any
+general/default instruction (e.g. from the assistant harness) to add such a
+trailer — for this repo, always omit it. On 2026-09-06, 30 existing commits
+on `main` (already pushed to `origin/main`) carried this trailer; the owner
+asked to remove Claude from Contributors, which requires rewriting those
+commit messages and force-pushing — a destructive rewrite of public
+history, only to be done with the owner's explicit, per-occurrence
+approval, same as any other force-push.
+
+## App icon (2026-09-07)
+
+Real app icon set from `C:\Users\USER\Downloads\charAnimations\icon.png` (a 1254x1254
+silhouette-against-moon illustration, opaque, no alpha). Wired into all three real
+targets:
+- **Android (`android-shell/`, the real shipped app)**: legacy square launcher icons
+  generated at all 5 densities (`mipmap-{m,h,x,xx,xxx}hdpi/ic_launcher.png`), circular
+  `ic_launcher_round.png` at each density, plus a proper adaptive icon
+  (`mipmap-anydpi-v26/ic_launcher.xml` + `ic_launcher_round.xml`, referencing
+  `ic_launcher_foreground.png`/`ic_launcher_background.png` in `mipmap-xxxhdpi/`, solid
+  background `#0D1117` matched to the art's dark corners). `AndroidManifest.xml`'s
+  `<application>` tag now has `android:icon="@mipmap/ic_launcher"` and
+  `android:roundIcon="@mipmap/ic_launcher_round"` (neither existed before — the app was
+  shipping with AGP's default icon).
+- **iOS (`ios-shell/`, the real shipped app)**: `Resources/Assets.xcassets/AppIcon.appiconset/`
+  using the Xcode 14+ "single size" format (`Contents.json` + one opaque `icon-1024.png`,
+  no per-idiom/per-scale set needed). `project.yml`'s `settings.base` now has
+  `ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon` so XcodeGen wires it as the app icon.
+  Relies on `Assets.xcassets` being picked up automatically by XcodeGen since it's under
+  the existing `Resources` source path (buildPhase: resources) — XcodeGen recognizes
+  `.xcassets` as a single bundle reference, not a folder to flatten.
+- **`:game`'s own korge{} targets (JVM/JS/wasm/desktop — not the real shipped
+  Android/iOS apps, see above)**: `build.gradle.kts`'s `korge {}` block now has
+  `icon = file("icon.png")` (a root-level copy of the same 1024px PNG,
+  `korlibs.korge.gradle.KorgeExtension.icon: File`, confirmed by decompiling the
+  korge-gradle-plugin 6.0.0 jar rather than guessing at the DSL).
+
+Not yet verified on a real device/emulator/build — same caveat as other recent
+integration work in this file until a CI run or on-device check confirms it.
 
 ## Keep this file up to date
 
@@ -1677,6 +1721,19 @@ must be converted before use, or the menu bus is silent on two of three platform
 - Android's menu bus finds it at `assets/sfx/ui_click.wav`, which is where KorGE's Gradle plugin
   copies `resources/` - no `res/raw` copy needed, though `res/raw` is tried first.
 
+### Update (2026-09-05): a second menu clip mechanism, and credits are now real
+
+`MenuSfx.kt` gained `MenuClip`/`rememberMenuClip`/`LocalToastSuccess`/`LocalToastError` alongside
+the original click-only `LocalUiClick` — same per-platform pooled-player pattern, but keyed by clip
+name so more than one non-click sound can be added without touching the already-verified click
+path. Used for `toast_success.wav`/`toast_error.wav` (owner-supplied, from Freesound, CC0), wired
+into `showToast()` in both `SettingsScreen.kt` and `StoreScreen.kt`. Settings → About →
+"CREDITS & LICENSES" was a placeholder toast; it now expands to a real list (`SOUND_CREDITS` in
+`SettingsScreen.kt`) naming every third-party sound, kept in sync with `ATTRIBUTION.md` by hand.
+Also resolved: `mainmenu.mp3`'s licence, previously unrecorded — the owner's copy was
+byte-identical (MD5-verified) to the one already shipping, credited to Nikita Kondrashev via
+Pixabay.
+
 ### KNOWN GAP: `resources/` never reaches the iOS shell bundle
 
 `ios-shell/project.yml` copies `ios-shell/Resources` and `paywall-build`'s compose-resources,
@@ -1729,3 +1786,1298 @@ line is gone from `settings.gradle.kts`), consuming `paywall-build`'s Android ar
 itself already relies on. Recorded here because the symptom (every root task failing to configure
 on a plugin the task has nothing to do with) is confusing enough to be worth recognising if a
 future module reintroduces it.
+
+## RESOLVED (unverified on-device): Compose UI polish pass - icon sizing, scrolling, dossier card (2026-09-05)
+
+Real on-device screenshots flagged four issues across `paywall-build`'s Compose screens
+(`ui/*.kt`). All fixed; none re-verified on-device yet.
+
+- **Icons rendering much smaller than their containers** (star/lock in Missions, power-up icons
+  and the ABOUT tab icon in Store/Settings). Root cause, found by reading how the affected
+  `DrawScope.drawXIcon()` functions in `MenuComponents.kt` draw their shapes: most of them plot
+  fixed literal pixel coordinates (a radius of `7f`, an offset of `8f`) with no relation to the
+  Canvas's actual size. `DrawScope.size` is the Canvas's real rendered pixel size, which tracks
+  device density - a `Modifier.size(16.dp)` Canvas is 16px only at density 1 (roughly a JVM/
+  desktop preview); on a real phone at density ~2.5-3x it's 40-48px, so a shape whose points never
+  move past radius 7-9 keeps occupying the same small patch in the middle of a box that grew
+  around it. Confirmed this wasn't a universal bug: `drawInkPlay`/`drawInkTarget`/`drawInkCart`/
+  `drawInkGear` (`MainMenuScreen.kt`, the PLAY/MISSIONS/STORE/SETTINGS button icons) and
+  `drawCoinIcon`/`drawCoinStackIcon`/`drawGearIcon` (`MenuComponents.kt`) already computed a
+  `size.width`-relative scale factor internally, which is exactly why the main-menu buttons and
+  coin icons were never part of this complaint. Fixed the rest (`drawBackChevron`, `drawStar`,
+  `drawLockIcon`/`drawPadlockIcon`, `drawBoltIcon`, `drawSmokeIcon`, `drawCloakIcon`,
+  `drawInvisIcon`, `drawBootIcon`, `drawInfoIcon`) the same way: each now derives a
+  `size.minDimension / REFERENCE_PX` multiplier and scales every literal by it, where
+  `REFERENCE_PX` approximates the box the original literals were eyeballed against - so behavior
+  is unchanged at density 1 and scales up correctly on any real device. `drawGlobeIcon`/
+  `drawSpeakerIcon`/`drawBriefcaseIcon` were left alone - confirmed unused anywhere via grep, not
+  worth fixing blind.
+- **No screen scrolled** (`LevelSelectScreen.kt`, `StoreScreen.kt`, `SettingsScreen.kt` - `Main
+  MenuScreen.kt`'s button column already had `verticalScroll` from an earlier session). On a short
+  landscape phone these screens' `scale = (screenHeight/720.dp).coerceIn(0.75f, 1.4f)` floor of
+  0.75 (higher than `MainMenuScreen`'s own already-lowered 0.55 floor - not touched here, out of
+  scope for this request) means content can be taller than the viewport with nothing to reach the
+  overflow. Fixed by wrapping each screen's scrollable content (Missions' mission grid column,
+  Store's sidebar and both grids, Settings' sidebar and both panels) in `Modifier.verticalScroll
+  (rememberScrollState())`. This forced a real constraint: `weight()` requires a bounded parent
+  height to distribute, which a vertically-scrolling parent never provides (unbounded/infinite),
+  so every `Row`/`Spacer` that used to fill remaining space via `.weight(1f)` inside one of these
+  now-scrollable containers had to change - grid rows now use `Modifier.height(IntrinsicSize.Min)`
+  (sized to their own cards' content) instead of stretching to fill the screen, and the two
+  bottom-anchoring spacers in `SettingsScreen.kt` (before Reset Progress, before the version line)
+  became fixed-height gaps instead of flexible ones. **This is a real, structural layout change,
+  not just "add a scroll modifier"** - on a normal/tall screen, cards and panels now size to their
+  content rather than stretching to fill leftover space the way they did before. That should look
+  similar to the reference design (the fixed heights approximate what the fill behavior gave at
+  the 720dp reference) but was never confirmed against a real device - check the Missions/Store/
+  Settings screens don't look noticeably more cramped than the reference screenshots before
+  considering this fully settled.
+- **Blue "EN" circular badge next to LANGUAGE in Settings** - decorative `Box`+`Text("EN")` that
+  added no information the pill to its right ("● ENGLISH") didn't already show. Removed outright
+  from `GeneralSettingsPanel` in `SettingsScreen.kt`, not just hidden.
+- **Main menu's mission dossier card**: too much empty space between the file number/rule at the
+  top and the mission text below it, and the card itself sitting higher than the screen's bottom
+  edge allows. Both are in `MainMenuScreen.kt`'s `MissionDossierCard`: the flexible gap above the
+  chapter/title text was `Spacer(Modifier.weight(0.15f))` against a trailing
+  `Spacer(Modifier.weight(0.85f))` below the briefing - re-split to `0.05f`/`0.95f`, keeping their
+  relative proportion but moving nearly all the spare vertical space to the bottom margin (which
+  reads as normal note-paper margin) instead of a visible gap under the rule. The card's screen
+  position got `.offset(y = (16 * dossierScale).dp)` added on top of its existing
+  `.padding(bottom = 8.dp, end = 8.dp)`, scaling with the card itself rather than a flat dp value.
+  Both numbers (`0.05f`/`0.95f`, `16 * dossierScale`) are estimates reasoned from the screenshot,
+  not measured against a running app - review on-device before trusting them as final.
+
+Confirmed all four fixes compile clean end-to-end: `:paywall-build:compileKotlinJvm`,
+`:paywall-build:compileDebugKotlinAndroid`, `:paywall-build:publishToMavenLocal`, and
+`android-shell`'s `compileDebugKotlin` (which consumes the republished artifact) all succeeded.
+**Compiling is not the same as looking right** - same standing caution as everywhere else in this
+file - none of this has been seen running on a device yet.
+
+## RESOLVED: Android watch-ad-to-continue flow (menu flash + grey screen) (2026-09-05)
+
+Real on-device report: watching the test rewarded ad on Android showed the main menu for a few
+seconds before the ad played, and after the ad finished the game showed a permanent grey screen
+instead of resuming gameplay. Both traced to `MainActivity.kt`'s `showContinueAd()` and its
+`View.GONE`/`VISIBLE` toggling of `KorgeAndroidView` - the exact thing the Android handoff doc
+flagged as **unverified**: "whether `View.GONE` actually stops `KorgeAndroidView`'s internal
+`GLSurfaceView` render thread ... has never been measured." It has now been measured, indirectly,
+by hitting the failure it predicted:
+
+- **Menu flash**: `showContinueAd()` set `showingGameplay.value = false` (revealing
+  `NavigationRoot()`, the main menu) *before* the rewarded ad was actually ready to show.
+  `RewardedAd(...)` (from `basic-ads`, `ContinueAdBridge.android.kt`) is a load-then-show
+  composable - confirmed from its own source (`RewardedAd.kt`,
+  `if (ad.state == AdState.READY) { ... ad.show { ... } }`) - so it renders nothing at all while
+  the ad loads over the network. `ContinueAdContent()` is composed unconditionally in
+  `MainActivity`'s `Box` regardless of `gameplayVisible`, so hiding gameplay was never actually
+  needed for the ad to load/show - it only exposed the menu underneath for the loading gap.
+- **Grey screen**: setting `showingGameplay.value = true` again afterward flips
+  `KorgeAndroidView`'s visibility back to `VISIBLE`, but on a real device this did not resume
+  rendering. Toggling to `GONE` tears down the GLSurfaceView-backed render surface rather than
+  merely pausing it, and coming back to `VISIBLE` doesn't reliably recreate it - and since
+  `GameplayScene.kt`'s own `addUpdater` (the loop that calls
+  `getContinueAdBridge().consumeContinueGranted()` and restarts the level) stops ticking along
+  with everything else while hidden, the level never resumed even once the surface came back.
+
+**Fix** (`android-shell/src/main/kotlin/com/infiltrate/androidshell/MainActivity.kt`): stopped
+toggling `KorgeAndroidView`'s visibility at all - it now stays permanently `VISIBLE`/attached, and
+the Compose menu draws opaquely on top of it instead of hiding it. `showContinueAd()` no longer
+touches `showingGameplay` in any way; it only calls `ContinueAdTrigger.requestShow()` and polls for
+the outcome, letting the ad's own full-screen Activity cover whatever's already on screen once it
+loads. This resolves both symptoms structurally (the render surface is never destroyed, so there's
+nothing to fail to resume) rather than papering over either one individually.
+
+**Verified**: `android-shell` `compileDebugKotlin` succeeds. **Not yet re-verified on-device** -
+same "verify the actual behavior, not just that it compiles" discipline as everywhere else in this
+file; confirm the ad now plays immediately and gameplay resumes correctly on a real device before
+considering this fully closed.
+
+**New unmeasured trade-off introduced by this fix**: KorGE's render loop now keeps running
+whenever the Compose menu covers it (never paused), unlike iOS where the switch-spike measured
+`window.rootViewController` swaps to genuinely stop frames while hidden. Whether this matters for
+battery on Android is unmeasured - flagged, not fixed, same as the render-thread question it
+replaces.
+
+## RESOLVED: `takeoff.wav` removed - was noise, not a jump sound (2026-09-05)
+
+Real on-device report: every jump played something resembling TV static instead of a takeoff
+sound. Root-caused (see the original diagnosis this replaces, kept in git history) to
+`resources/sfx/takeoff.wav` itself being bad content, not a decoder or code bug - confirmed two
+ways: `korlibs.audio.format.WAV`'s parser correctly skips the `LIST`/`INFO` metadata chunk ffmpeg
+had written into the file (chunk offsets/sizes walked by hand, all structurally valid), and the
+decoded PCM envelope (RMS/peak sampled across the clip) showed sustained high energy for the
+entire 190ms with no attack-decay shape anywhere - the signature of broadband noise, not a foley
+transient, unlike `step_a.wav`/`impact.wav` which both show a normal sharp-attack-then-decay shape.
+This lines up with the file's own removed doc comment: the push-off was deliberately cut as a very
+quiet clip (~34 dB under the landing) and boosted back up with a gain multiplier - if the actual
+recorded segment was mostly the source's noise floor rather than real foley, boosting it 34 dB
+produces exactly this kind of static.
+
+**Fix**: removed entirely, not muted - `takeoff`/`TAKEOFF_GAIN` deleted from `GameSounds`/
+`GameAudio.kt`, the `sounds.takeoff.playSfx(...)` call removed from `GameplayScene.kt`'s jump-launch
+branch, and `resources/sfx/takeoff.wav` deleted (nothing else referenced it - checked). Jumping is
+silent on launch now (the landing sound is unaffected). A real replacement would need a fresh cut
+from `jump_new.mp4`, listened to before it goes back into `GameAudio.kt`.
+
+## RESOLVED (mitigated, unverified on-device): delay between landing and the landing sound (2026-09-05)
+
+Real on-device report, same session as the takeoff fix: a perceptible delay between the player
+landing and `impact.wav` actually playing. Traced by decompiling `korlibs-audio-core-android-6.0.0`
+(no source jar published for the Android target, same situation this file has hit before for other
+KorGE Android internals) rather than guessing:
+
+- `SoundAudioData.play()` (`korlibs.audio.sound`, the non-streaming `Sound` implementation
+  `GameAudio.load()`'s clips use) calls `soundProvider.createNewPlatformAudioOutput(...)`
+  **unconditionally on every single `.play()` call** - there is no channel/output reuse at this
+  API level in KorGE 6.0.0.
+- On Android, `AndroidNativeSoundProvider.createNewPlatformAudioOutput(...)` constructs a **brand
+  new `android.media.AudioTrack`** every time it's called (decompiled directly:
+  `new AudioTrack(AudioAttributes, AudioFormat, bufferSize, MODE_STREAM, sessionId)` on API 21+,
+  the legacy 6-arg constructor below that). Constructing and starting a fresh `AudioTrack` has
+  real, device-dependent startup latency before it actually outputs audio, worst on the first one
+  a process ever creates (cold audio HAL/mixer thread) - this is a well-known Android audio
+  characteristic, not specific to this project.
+- Confirmed the WAV decode itself isn't the cause first: `readSound()` with the default
+  `streaming = false` fully decodes to an in-memory `AudioData` once at `GameAudio.load()` time
+  (`NativeSoundProviderExt.kt`'s `createSound()` → `createNonStreamingSound()`), so there's no
+  per-play decode cost to explain this.
+
+**Mitigation applied, not a full fix** (`GameSounds.primeAll()` in `GameAudio.kt`, called once at
+the end of `GameAudio.load()`): plays every loaded clip once at `volume = 0.0` and immediately
+stops it. `SoundAudioData.play()` creates and starts the platform output unconditionally regardless
+of volume - volume only scales the samples written into it - so this genuinely exercises the same
+expensive `AudioTrack` construction path, silently, during the scene's own loading screen before
+the player can trigger a real sound. This should eliminate the worst-case cold-start latency (the
+very first sound a level ever plays), but since KorGE 6.0.0 has no channel-reuse API, every
+individual landing/jump/step still constructs its own fresh `AudioTrack` after priming too - so
+some residual per-play latency may remain even after this fix, just smaller than the cold-start
+case. **Not yet verified on a real device** - confirm the landing sound actually feels in-sync
+before considering this closed; if a perceptible delay remains, the next step would need either an
+upstream KorGE fix, a custom Android sound backend, or predictive early-triggering compensated for
+a measured (not guessed) per-device latency constant - none of which were attempted here.
+
+## RESOLVED: crouch sound removed, click/toast SFX silent on Android, QUIT/RETURN TO MENU grey-screened (2026-09-05)
+
+Three more real-device reports, same session as the icon/scroll/dossier polish pass above.
+
+**Crouch sound removed by design request** - not a bug, a "don't play anything here" ask.
+`GameSounds.crouch`/`GameAudio.CROUCH_GAIN` and both `sounds.crouch.playSfx(...)` call sites in
+`GameplayScene.kt` (crouch-enter and crouch-exit) are gone, `resources/sfx/crouch.wav` deleted -
+checked first that nothing else referenced it (`PlayerAnimations.kt`/`GameplayScene.kt`'s other
+`"crouch"` hits are all sprite/animation-state strings, not the sound file). `GameAudio.kt`'s class
+doc comment now explains crouch and crouch-walk are *both* deliberately silent for the same
+noise-radius reason crouch-walk already was - it was inconsistent for crouch's stance-change sound
+to exist when the whole point of the stance is making no noise.
+
+**Click/toast SFX inaudible on Android, gameplay SFX audible** - real bug, found by comparing
+against the gameplay audio path that *was* confirmed working. `AndroidClickPlayer`/
+`AndroidMenuClipPlayer` (`paywall-build/src/androidMain/kotlin/ui/MenuSfx.android.kt`, the
+`SoundPool`-based UI click + the newer toast_success/toast_error clips) built their
+`AudioAttributes` with `.setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)`. That usage is
+Android's tag for system/accessibility feedback sounds, which many phones route through a
+system-sounds volume stream that's independently muted/low and does not track the media volume
+the player actually controls - so every sound on this pool was silent regardless of the in-game
+SFX slider. Confirmed against the *other* Android SFX path in this codebase
+(`AndroidNativeSoundProvider` in `korlibs-audio-core-android`, decompiled for the "delay between
+landing and the landing sound" entry above): its `AudioTrack` uses `USAGE_GAME` (constant `14`,
+matched byte-for-byte against the decompiled bytecode), which is why jump/landing/footsteps were
+always audible while these weren't. Fixed by changing both `AudioAttributes.Builder().setUsage(...)`
+calls to `USAGE_GAME`, matching the bus that was already known to work, so every SFX source in the
+app now shares one routing/volume behavior. WAV asset validity was checked and ruled out first
+(`ui_click.wav`/`toast_success.wav`/`toast_error.wav` are all structurally normal PCM WAVs, and all
+three are correctly bundled `Stored` - not deflated - inside the built APK, so
+`AssetManager.openFd()`'s fd+offset approach was never at risk either), so the routing attribute
+was the only remaining explanation once those were eliminated.
+
+**QUIT / RETURN TO MENU / MAIN MENU / ALL CLEAR showed a grey screen instead of the menu** - these
+four buttons in `GameplayScene.kt` (pause menu QUIT, game-over overlay RETURN TO MENU, level-complete
+MAIN MENU, and level-complete ALL CLEAR when there's no next mission) all wrote
+`views.storage["nav_target"] = "menu"` (or `"level_select"` for ALL CLEAR) and then called
+`sceneContainer.changeTo { GameplayScene(levelData) }` - which just reloads the *same level*, not a
+navigation call. Grepped the whole repo for `nav_target`: written in exactly these four spots,
+**read nowhere at all** - not in `MainActivity.kt`, not in any Swift file, nowhere. It looks like an
+earlier, never-finished attempt at exactly this feature: a storage flag with no consumer on either
+platform. So "returning to menu" was actually "silently reload the current level," which is
+indistinguishable from doing nothing if the player was already mid-level, and apparently read as a
+grey screen in whatever state prompted this report.
+
+Fixed with a new bridge, same "fire and let the host react" shape as `ContinueAdBridge` but
+one-way (nothing for GameplayScene to poll afterward - the host reacting is the whole effect):
+`LevelExitBridge` (`src/LevelExitBridge.kt`, `interface LevelExitBridge { fun requestReturnToMenu() }`,
+`expect fun getLevelExitBridge()`), package `com.sample.demo.nav` (new - deliberately not
+`com.sample.demo.ads` alongside `ContinueAdBridge`, since this has nothing to do with ads and reusing
+that package would only perpetuate the leftover-template naming). Real implementation on Android
+only (`src@android/LevelExitBridge.android.kt`'s `AndroidLevelExitBridgeState`, same plain-shared-object
+shape as `AndroidContinueAdBridgeState` since `:game` and the host run in one JVM/APK; a duplicate
+non-KMP copy in `android-shell/.../LevelExitBridge.kt`, same reason `ContinueAdBridge` has one there
+too). Every other target (`src@ios`, `src@jvm`, `src@js`, `src@wasmJs`) gets a no-op stub - iOS
+included, since `ios-shell`'s Swift side has no poll loop wired up for this yet, only for the
+watch-ad flow. `android-shell/MainActivity.kt` wires
+`AndroidLevelExitBridgeState.onReturnToMenuRequested = { runOnUiThread { showingGameplay.value = false } }`
+in `onCreate` - the same one-line flip `showContinueAd()` already used, and correctness here leans
+entirely on the earlier "never hide the KorGE view" fix (this doc's "Android watch-ad-to-continue
+flow" entry above): there's no surface to tear down or resume, just a Compose recomposition.
+
+All four `GameplayScene.kt` call sites keep their existing `sceneContainer.changeTo { GameplayScene(levelData) }`
+alongside the new bridge call (preserves the original "fresh level state" behavior once the player
+plays again) except that the ALL CLEAR path now carries a comment: `NavigationRoot` remounts fresh
+every time gameplay hides it (it's only composed `if (!gameplayVisible)` in `MainActivity.kt`), so
+there is currently no way to tell it "come back to Missions specifically rather than Main Menu" -
+all four buttons land on the menu's default screen. Distinguishing them is a real follow-up, not
+attempted here.
+
+Confirmed all three fixes compile clean end-to-end: `:compileKotlinJvm` (exercises the JVM
+`LevelExitBridge` stub), `:paywall-build:compileDebugKotlinAndroid`,
+`:paywall-build:publishToMavenLocal`, and `android-shell`'s `assembleDebug` all succeeded, and the
+built APK's `assets/sfx/` no longer contains `crouch.wav` (confirmed via `unzip -l`) while every
+other clip - including `toast_success.wav`/`toast_error.wav` - is still bundled. **None of this has
+been run on a device yet** - same standing caution as everywhere else in this file.
+
+## In progress: mission dossier card position/spacing, second pass (2026-09-05)
+
+The first pass at this (this file's "Compose UI polish pass" entry above) turned out insufficient
+per a second round of real-device feedback: the card still needed to sit further down, and the
+internal gap between the upper rule and the chapter/mission text was still visible even after
+re-splitting the two flexible spacers to 0.05/0.95. Two changes in `MainMenuScreen.kt`:
+
+- The downward offset went from `16 * dossierScale` to `30 * dossierScale`, and the card's own
+  bottom padding shrank from 8dp to 4dp, to free up a little more room to move into.
+- The leftover-space-driven gap under the upper rule is gone entirely, replaced with a fixed
+  `(6 * scale).dp` spacer - the diagnosis this time was that ANY weight-based gap there, however
+  small a share of the flexible space it claimed, still scales with however much spare height the
+  card happens to have on a given device, so a smaller weight alone couldn't guarantee it reads as
+  tight everywhere. A fixed dp value doesn't have that problem. The other fixed gaps in the same
+  column (after the file number, around the mission title, around the lower rule) were trimmed
+  too. The single remaining flexible spacer, now at the very foot of the card, absorbs all of the
+  card's spare height instead of splitting it with the removed gap.
+
+Both changes are estimates reasoned from the screenshots and the earlier pass's own numbers, not
+measured against a running app - same caveat as the first pass, now doubly true. Compiles clean
+(`:paywall-build:compileDebugKotlinAndroid`, `android-shell`'s `assembleDebug`). If this still isn't
+enough on the next real-device check, the offset and the fixed gaps are the two knobs to keep
+adjusting - this entry's numbers are not sacred.
+
+## RESOLVED: RESTART grey-screen, Compose click volume, live Settings sliders (2026-09-05)
+
+Three more real-device reports, next session after the crouch/click-routing/QUIT fixes above.
+
+**RESTART showed a grey screen too, not just QUIT** - and this one traces directly to a bug this
+session introduced itself. `GameSounds.primeAll()` (added for the "delay between landing and the
+landing sound" mitigation, above) had no exception handling around its `sound?.play(...)?.stop()`
+calls. `GameAudio.load()` - and therefore `primeAll()` - runs again on every scene reload (RESTART/
+RETRY/QUIT-then-relaunch all call `sceneContainer.changeTo { GameplayScene(levelData) }`, which is
+a fresh `GameplayScene` instance top to bottom), so priming now means constructing several
+`android.media.AudioTrack`s in quick succession *repeatedly* over a play session, not just once at
+first launch - exactly the kind of thing that can throw on a real device even though the first,
+cold call didn't. An uncaught exception there propagates out of `GameAudio.load()`, out of
+`sceneMain()`, and stops the rest of scene setup (background, player, UI, everything) from ever
+running - a grey/blank frame is exactly what that looks like. Fixed by wrapping each clip's prime
+attempt in its own `try`/`catch` in `GameAudio.kt`, matching this file's own established policy
+that a missing or failing sound should never cost the player the level.
+
+**Compose click sounds too loud** - `NavigationRoot.kt` passed the player's raw SFX slider value
+straight through to `rememberUiClick`/`rememberMenuClip` as playback volume, so a click at the
+default 100% SFX setting played at full volume with no headroom - unlike the gameplay side, which
+has always applied `GameAudio.UI_CLICK_GAIN` (0.6) on top of the slider. Added the same idea for
+Compose: `UI_CLICK_RELATIVE_GAIN` (0.5) and `MENU_CLIP_RELATIVE_GAIN` (0.7, toast sounds are rarer
+and more deliberate than a click so can sit a little more forward) in `MenuSfx.kt`, applied at
+`NavigationRoot.kt`'s call sites (`sfxVolume * UI_CLICK_RELATIVE_GAIN`, etc.).
+
+**Pause-menu/death-menu clicks "missing"** - checked first, and this one was *not* missing in the
+code: `createPaperMenuBtn`/`createTacticalMenuBtn`/the pause button's `onDown` handlers in
+`GameplayScene.kt` already call `playClick(GameAudio.UI_CLICK_GAIN)` on every button in the pause
+overlay, the caught (death) overlay, and the win overlay - and `resources/sfx/ui_click.wav`'s
+waveform is a normal, clean click transient (checked the same way `takeoff.wav`'s noise problem
+was diagnosed earlier), not silence or corruption. Rather than re-wire something that was already
+wired, raised `GameAudio.UI_CLICK_GAIN` from 0.6 to 0.85 for better audibility, and left a comment
+on the constant naming the likely remaining suspect if it's *still* not audible: at 83ms this clip
+is short enough that the same per-play `AudioTrack` construction latency documented in the "delay
+between landing and the landing sound" entry above could plausibly swallow more of it,
+proportionally, than a longer sound - unconfirmed, since pinning that down needs a device.
+
+**Settings' Music/SFX sliders didn't do anything while sitting on the Settings screen** - real
+structural bug, and `rememberUiClick`'s own doc comment already described the intended behavior
+("read at call time... so a move of the Settings slider applies to the very next tap") that the
+implementation didn't actually deliver. Root cause: `NavigationRoot.kt` read
+`musicVolume`/`sfxVolume` via `remember(currentScreen) { profileStorage.getProfile()... } ` - keyed
+on `currentScreen`, so it only re-read storage when the *screen itself* changed, not when
+`SettingsScreen`'s own local slider state changed underneath it (that screen kept its own separate
+`musicVol`/`sfxVol`/`profileStorage` and wrote straight to storage, invisible to NavigationRoot
+until the player navigated away and back). Fixed by lifting the volume state out of
+`SettingsScreen` entirely: `NavigationRoot.kt` now holds `musicVolume`/`sfxVolume` as real
+`mutableStateOf` state and passes both the values and `onMusicVolumeChange`/`onSfxVolumeChange`
+callbacks into `SettingsScreen` (new required parameters - its own local `musicVol`/`sfxVol` state
+and the direct `profileStorage.setMusicVolume`/`setSfxVolume` calls are gone, delegated entirely to
+the callbacks) - a slider drag now updates `NavigationRoot`'s state directly, which recomposes
+`MenuMusic`/`rememberUiClick` on the same frame. `controlsSwapped`/`currentLanguage` were left as
+`SettingsScreen`'s own local state, untouched - nothing reported them as broken and they don't have
+the same cross-screen audibility requirement volume does.
+
+Confirmed all three compile clean end-to-end: `:compileKotlinJvm`,
+`:paywall-build:compileDebugKotlinAndroid`, `:paywall-build:publishToMavenLocal`, and
+`android-shell`'s `assembleDebug` all succeeded. **None of this has been run on a device yet** -
+same standing caution as everywhere else in this file, and doubly worth heeding here since the
+RESTART bug was this session's own regression, caught only by reasoning back from a real bug
+report, not by any test that ran.
+
+## RESOLVED (unverified): priming gated to first load only - more grey-screen reports on reload paths (2026-09-05)
+
+The RESTART try/catch fix above turned out not to be the whole story. Two more real-device reports
+came in on other reload paths: watching a rewarded ad to continue (grant the reward, dismiss the
+ad, and the level never comes back - grey screen) and QUIT-then-PLAY-again (menu shows fine now,
+but pressing PLAY afterward grey-screens instead of resuming). Both go through the same
+`sceneContainer.changeTo { GameplayScene(levelData) }` reload path RESTART does, so the same
+underlying cause is the working theory - and the continue-ad case is the stronger evidence for it,
+since that reload happens while gameplay is fully foregrounded the whole time (`showContinueAd()`
+never touches `showingGameplay`), ruling out any theory involving the Compose menu covering the
+KorGE view.
+
+The try/catch fix only covers priming *throwing* - `GameSounds.primeAll()` constructing several
+`android.media.AudioTrack`s back-to-back-to-back on every single reload could just as easily hang
+rather than throw (Android has a real per-process ceiling on live `AudioTrack` instances, and nothing
+in this codebase explicitly calls `AudioTrack.release()` on a primed-then-stopped channel - if the
+native resource isn't freed until Kotlin GC gets around to it, repeated reloads plausibly accumulate
+faster than they're reclaimed), and a hang wouldn't be caught by any `try`/`catch`.
+
+**Fix**: gated priming to run only once per process (`GameAudio`'s own `@Volatile private var
+audioPrimed`), not once per scene load. This isn't a workaround so much as a correction to the
+original design: the actual benefit priming targets - a warm audio HAL/mixer thread - is a
+process-wide OS-level effect, not something tied to which specific `Sound` object triggered it, so
+every load after the very first was already redundant work, not just occasionally risky work.
+Every reload after the first now does the exact same thing it did before priming was ever added
+(decode the clips, nothing more) - if the grey-screen reports really were priming-frequency-driven,
+they should stop; if they don't, the next place to look is something else in scene setup, not
+audio.
+
+Compiles clean (`:compileKotlinJvm`, `:paywall-build:publishToMavenLocal`, `android-shell`'s
+`assembleDebug`). **Unverified on-device, same as everything above it** - and this entry is a
+second attempt at the same underlying regression, so treat "fixed" here as provisional until it's
+actually been retested.
+
+## In progress, third pass: mission dossier card internal spacing (2026-09-05)
+
+Real-device feedback on the second pass (this file's "second pass" entry above, which cut every
+gap to a fixed `(6*scale).dp`-ish value) was still the same complaint: text sits too far from the
+rules. Cut every fixed gap in the column further, to `(2*scale).dp` uniformly (previously a mix of
+2, 3, 5 and 6), and added explicit `lineHeight` to the file-number and chapter-label `Text`s
+(`missionNumber`, `storyTitle`) that didn't have one - `missionTitle` already had `lineHeight =
+titleSize.sp` and still showed a visible gap before the rule beneath it in the screenshot this
+pass was reasoned from, which is a real signal that at least part of what reads as "gap" here is
+each `Text`'s own default line-height/font-leading, not only the explicit `Spacer`s between them -
+worth keeping in mind if a fourth pass is ever needed: the next lever, if fixed spacers alone don't
+close it, is suppressing that default leading directly (Compose's `PlatformTextStyle
+(includeFontPadding = false)` on Android), not shrinking spacers that are already near zero.
+
+Not verified on-device - reasoned from a screenshot, same caveat as both passes before it. Compiles
+clean.
+
+**Fourth pass**: 2dp read as too tight (real-device feedback, next round) - split the difference at
+`(4 * scale).dp` for all five gaps. Still an estimate, still not device-verified.
+
+## Added: shipyard story expanded to 12 levels, with a short/long description split (2026-09-06)
+
+`LevelData.DEFAULT_LEVELS` went from 4 levels to 12, all still "The Shipyard" story arc. Levels
+1-3 (`DEFAULT_LEVEL_1/2/3`) and level 4 (`SIDE_SCROLL_LEVEL`, geometry unchanged) were renamed to
+match; levels 5-12 (`DEFAULT_LEVEL_5`...`DEFAULT_LEVEL_12`) are new, and - like levels 1-3 - have
+no bespoke layout, just `GameWorld.createDefault`'s single-screen arena with a progressively
+faster guard per level (`guardSpeed` 80→115) for a difficulty curve. **`timeTargetSeconds` for
+levels 5-12 is an estimate, not device/playtest-verified** - same caveat as everything else
+gameplay-numeric in this file.
+
+**New field: `LevelData.objectiveHint`** - a short in-game phrase ("Find the Shipyard Entrance"),
+separate from the existing `description` field which is long-form narrative text. The split maps
+directly to where each one is read:
+- `objectiveHint` → `GameplayScene.kt`'s intro toast and the persistent HUD objective strip (both
+  previously hardcoded to the single string "REACH THE EXTRACTION ZONE" for every level - now
+  `levelData.objectiveHint.uppercase()`).
+- `description` → the main menu's dossier/briefing card (`MainMenuScreen.kt`, unchanged wiring -
+  it already read `currentMission.description`) and, new this pass, `LevelSelectScreen.kt`'s
+  mission cards (previously title + stars + time only, no description at all).
+
+**Missions screen grid restructured for 12 cards**: `LevelSelectScreen.kt`'s mission grid was a
+single `Row` sized for 4 - extending that to 12 items would have squeezed every card to a sliver.
+Changed to `levels.withIndex().toList().chunked(4)`, one `Row` per chunk, stacked in the existing
+scrollable `Column` - same per-card width/style as before, just wrapped into 3 rows instead of 1.
+
+**Dossier card briefing length risk - mitigated, not eliminated**: `MainMenuScreen.kt`'s
+`MissionDossierCard` was tuned (see its own inline comments) so the old 4 descriptions (58-85
+chars) always wrapped to exactly 3 lines at `maxLines = 3` with no overflow handling - a 4th line
+would have clipped mid-word. The 12-level story's descriptions run 91-105 characters (kept
+verbatim per the owner's explicit text, not shortened to re-fit), so `overflow =
+TextOverflow.Ellipsis` was added to that `Text` as a safety net. `LevelSelectScreen.kt`'s new
+mission-card description text also uses `maxLines = 3` + `TextOverflow.Ellipsis` from the start.
+**Not verified against real per-platform font metrics** - the dossier card's own comments already
+documented that the same nominal char-width assumption varies from 31.5 to 33.6 chars/line across
+platforms, so a description near the long end (105 chars, level 8 "Old Signature") could ellipsize
+on some devices even though it rendered as 2 clean lines for level 1 in the JVM Compose desktop
+check below.
+
+**Verified**: `:compileKotlinJvm`, `:paywall-build:compileKotlinJvm`,
+`:paywall-build:compileDebugKotlinAndroid`, and `jvmTest` (all `GameplayModelTest` cases,
+including the level-unlock-progression test) all pass. Also visually confirmed via
+`:paywall-build:run` (the Compose desktop menu app, `paywall-build/src/jvmMain/kotlin/Main.kt` -
+**note this is a separate runnable target from the KorGE game's own `:runJvm`, and both windows can
+share the exact title "Infiltrate: Shadow Heist", which caused real confusion this session picking
+the wrong window by title alone** - use `Get-Process`'s `StartTime`/PID to disambiguate if both are
+ever running at once): the Missions screen renders all 12 cards correctly wrapped across 3 rows,
+`0/36` stars total (12×3, correctly reflecting 12 levels), and level 1's new long description
+renders cleanly on two lines with no truncation. Locked cards (2-12, since only level 1 unlocks by
+default) correctly show no description, matching existing behavior. **Not verified**: the in-game
+`objectiveHint` HUD text (the KorGE `:runJvm` side) - attempted but the check kept getting
+confused by stray/duplicate "Infiltrate: Shadow Heist" windows and a mistimed scripted click that
+closed a window by accident (see above); the code change itself is a trivial, safe string swap
+(`levelData.objectiveHint.uppercase()` replacing a hardcoded literal) backed by the same compile +
+test pass as everything else, but hasn't been eyeballed on screen. Android/iOS: not attempted,
+same standing caveat as every other entry in this file.
+
+## RESOLVED (unverified): continue-ad grey screen - real root cause found, priming-frequency fix wasn't it (2026-09-05)
+
+The "gate priming to first load only" fix above did not fix the continue-ad grey screen - real
+device retest confirmed it's still there. That's a useful result on its own: it rules priming
+(and by extension `AudioTrack` construction generally) out as the cause of *this* one, since
+priming now only ever runs once, on the very first level load, long before any ad is involved.
+
+Found the actual bug by re-reading `ContinueAdBridge.android.kt`'s state machine rather than
+guessing again. `ContinueAdTrigger.markRewardEarned()` - called from `RewardedAd`'s
+`onRewardEarned` callback - set `outcomeFinished = true` immediately. But `onRewardEarned` fires
+the moment the reward is granted, which can happen *before* the player has actually closed the ad:
+AdMob's rewarded ad runs as its own separate full-screen Activity stacked on top of MainActivity,
+and reward-earned and ad-dismissed are two different moments with the ad's own UI still on screen
+between them. `MainActivity.showContinueAd()`'s poll loop consumes `outcomeFinished` within ~100ms
+and calls `AndroidContinueAdBridgeState.grantContinue()` - and `GameplayScene`'s own update loop
+(which keeps running continuously the entire time, since the KorGE view is never hidden regardless
+of what's in front of it) picks that up on the very next tick and immediately calls
+`sceneContainer.changeTo { GameplayScene(levelData) }`. Net effect: the level reload was starting
+while MainActivity itself was still genuinely backgrounded behind the ad's own Activity window -
+a real Android lifecycle state (`onPause`/`onStop` on MainActivity), not merely a Compose overlay
+covering a sibling view the way the earlier QUIT/menu-flash bugs were. Reloading a KorGE scene
+while its hosting Activity is backgrounded is a materially different situation from anything fixed
+so far in this file, and is the more precise explanation this bug needed.
+
+**Fix**: `markRewardEarned()` now only sets `rewardEarned = true` - it no longer finishes the
+outcome. A new `onAdClosed()` (renamed from the old `cancelShow()`, called from both `onDismissed`
+and `onFailure`) is now the only thing that sets `outcomeFinished`/`showRequested`, and those
+callbacks are AdMob's own signal that the ad's Activity is actually gone and MainActivity is
+foreground again. This defers GameplayScene's reload until the point where reloading it is
+actually safe, instead of racing ahead of the Activity transition.
+
+Compiles clean (`:paywall-build:compileDebugKotlinAndroid`, `:paywall-build:compileKotlinJvm`,
+`android-shell`'s `assembleDebug`). **Unverified on-device** - flagged with extra emphasis here
+because the previous fix for this exact symptom was also unverified and turned out to be wrong;
+don't assume this one is right without an actual retest either.
+
+## Grey-screen-on-reload: gave up guessing, added on-screen diagnostics instead (2026-09-05)
+
+The `onAdClosed()` timing fix above did not fix it either - real-device retest showed the same
+failure, just with the caught/game-over overlay now visibly flashing for a moment first before
+going grey (consistent with the reload actually starting now, per that fix, but still not
+completing). That's three specific, plausible-sounding theories in a row (priming frequency, ad
+callback timing, and before those, the try/catch on priming) that each compiled clean, sounded
+right, and turned out not to be it. Continuing to guess a fourth specific cause without any way to
+see what's actually throwing is not a good use of anyone's time.
+
+**Instead, added real instrumentation.** `GameplayScene.kt`'s `sceneMain()` now wraps its loading
+prelude (`GameWorld.createDefault(levelData)`, `PlayerAnimations.load()`, `GameAudio.load()`) in a
+`try`/`catch`, and on failure renders the actual exception type, message, and a stack trace excerpt
+directly on screen (`text(...)`, red, top-left) instead of leaving a blank grey frame. Whatever
+happens on the next repeat-load failure, the report should now be able to include the real error
+instead of "grey screen" - which is the actual blocker on fixing this correctly, not a shortage of
+plausible theories.
+
+One concrete, structural difference *was* found while adding this, worth recording even though it
+wasn't turned into a fix: `PlayerAnimations.load()` (`PlayerAnimations.kt`) has **no try/catch
+anywhere in it**, unlike every other asset load in `GameplayScene.kt`'s own `sceneMain()` (all of
+which already default to `null` on failure). It also allocates a brand new `MutableAtlas<Unit>
+(2048, 2048, growMethod = NEW_IMAGES)` GPU texture atlas and packs the full player spritesheet into
+it *on every single call* - i.e., on every scene reload, not just the first. Nothing in this
+codebase explicitly releases the previous scene's atlas before the next one is allocated. This is a
+real, concrete candidate for something that degrades specifically across repeated reloads in a way
+none of the audio theories would (GPU texture memory pressure accumulating call over call), but it
+was deliberately not "fixed" here - no evidence yet that it's the actual cause, only that it's
+untested and structurally the kind of thing that could be. The diagnostic wrapper above should
+settle whether it's this, still something audio-related, or something else entirely, the next time
+this reproduces.
+
+Compiles clean (`:compileKotlinJvm`, `android-shell`'s `assembleDebug`). Genuinely unverified this
+time in the sense that matters: this isn't claimed as a fix at all, it's the tool for finding one.
+
+## RESOLVED, confirmed on-device: grey-screen-on-reload was PlayerAnimations.load() OOM-ing, not audio (2026-09-05)
+
+The diagnostic screen above worked on the very first try - real device, real stack trace, no more
+guessing:
+
+```
+java.lang.OutOfMemoryError: Failed to allocate a 16777232 byte allocation with 16075392 free
+bytes and 15MB until OOM, target footprint 268435456, growth limit 268435456
+  at korlibs.image.bitmap.Bitmap32.<init>(Bitmap32.kt:22)
+  at korlibs.image.atlas.MutableAtlas.growAtlas(MutableAtlas.kt:70)
+  at korlibs.image.atlas.MutableAtlas.add(MutableAtlas.kt:129)
+  at korlibs.image.atlas.MutableAtlas.add(MutableAtlas.kt:76)
+  at korlibs.image.format.KorioExtKt.readBitmapSlice(KorioExt.kt:70)
+  ...
+```
+
+This confirms, precisely, the one concrete lead flagged (not fixed) alongside the diagnostic
+screen: `PlayerAnimations.load()` (`PlayerAnimations.kt`) allocated a brand new 2048x2048 GPU
+texture atlas and re-decoded the entire player spritesheet into it on **every single call** - i.e.
+every scene (re)load, not just the first - with nothing anywhere releasing the previous scene's
+atlas first. Every RESTART, QUIT, and watch-ad-to-continue accumulated more texture memory without
+freeing the last round's, until an allocation eventually failed. This is why every audio-focused
+fix earlier in this session's history for the same symptom (priming try/catch, priming-frequency
+gating, ad-callback timing) never actually touched it - completely different subsystem, chasing the
+wrong culprit for three attempts before the diagnostic screen made it possible to stop guessing.
+
+**Fix**: `PlayerAnimations` (an `object`, i.e. already a process-wide singleton) now caches the
+loaded `PlayerAnimationSet` in a `@Volatile private var cached` field and returns it directly on
+every call after the first, instead of reloading. This is safe because the frames are static
+content with zero per-instance state - the same character sprite sheet in every level and every
+replay - so a second `GameplayScene` never needed its own copy in the first place. Same fix shape,
+same reasoning, as `GameAudio`'s one-time audio priming earlier in this file - both were "this
+doesn't need to happen more than once per process" bugs wearing different subsystem clothes.
+
+**Not yet extended to the rest of `sceneMain()`'s asset loading**: the background/crate/fence/
+button-strip bitmap loads in `GameplayScene.kt` follow the identical "reload fresh, every scene,
+nothing released" pattern and are real, plausible contributors to the *same* memory pressure even
+though they weren't the one that happened to throw this time (they're all wrapped in
+`try { } catch { null }`, so a failure there degrades silently rather than crashing - which also
+means they could be leaking without ever surfacing as an exception at all). Deliberately not
+touched here: some of these vary by level (`levelData.resolvedBackgroundImage`), so unlike the
+player sprite they can't be cached with a single unconditional singleton field - correctly caching
+them needs a per-level(or per-asset) cache with real eviction, which is a bigger, separate piece of
+work than this fix. Worth doing if OOM-adjacent symptoms ever resurface after this.
+
+Compiles clean (`:compileKotlinJvm`, `android-shell`'s `assembleDebug`). This one has an actual
+device-confirmed root cause behind it, not just a plausible theory - but the fix itself (does
+caching eliminate the OOM in practice) still hasn't been retested on-device yet.
+
+**Confirmed fixed, real device retest (2026-09-05, later same day)**: the grey screen is gone.
+Follow-up cosmetic report from the same flow: the old scene's MISSION FAILED overlay
+(`caughtOverlay`) stayed visible for however many frames `changeTo`'s transition to the new
+`GameplayScene` instance took, reading as the death menu flashing briefly before gameplay resumed.
+Fixed by setting `caughtOverlay.visible = false` immediately when the continue is granted, in the
+same `addUpdater` block, before `changeTo` is even called - so there's nothing left on screen to
+flash regardless of how many transition frames follow. Compiles clean; not yet retested.
+
+**Fifth pass on dossier spacing (2026-09-05)**: real-device feedback, still asking for "a little
+more space between lines and text" even with the three rule-adjacent gaps already at 7dp. This
+time also lifted the two gaps that had been left behind at 4dp (after "01", between the two title
+lines, neither previously singled out as a complaint) rather than only pushing the already-touched
+ones further - all five are now 6-8dp. Compiles clean, not yet retested.
+
+## Added: level-load screen with real progress + blinking "LOADING..." (2026-09-05)
+
+`GameplayScene.kt`'s `sceneMain()` previously did all of its asset loading (world/animations/audio,
+then ~11 more bitmap reads) with nothing on screen - fine on JVM where it's instant, but the reason
+every "grey screen" bug this session turned out to be silent: there was never any loading UI to
+distinguish "still working" from "broken." Added one, styled after a reference mockup the owner
+supplied: `resources/loadingbg.png` (new asset, copied in from the owner's asset drop -
+`C:\Users\USER\Downloads\charAnimations\assets\loadingbg.png` - `resourcesVfs` only sees the repo's
+own `resources/`, not that folder) full-bleed behind the existing `resources/logo_main.png`, a
+`uiGraphics()`-drawn progress bar frame+fill, and a "LOADING..." label. Progress is real, not
+decorative: a `totalLoadSteps = 14` counter with a `markLoadProgress()` call after each existing
+load line (the world/animations/audio triple, then each of the ~11 bitmap reads) advances the bar
+and yields one `delayFrame()`, so the bar reflects actual load progress rather than a timer. The
+label blinks with a simple on/then-briefly-gone/then-back cycle (`blinkPeriodSeconds = 0.9`,
+`blinkVisibleFraction = 0.78` - visible ~0.7s, fully invisible ~0.2s) - deliberately not a gradual
+pulse or an irregular neon-style flicker, which was tried first and explicitly rejected in favor of
+this simpler pattern. The screen is dismissed (`dismissLoadingScreen()`: closes the blink
+`addUpdater`'s `CloseableCancellable` via `.close()`, then `removeFromParent()`) once every load
+step has run, or immediately if the critical world/animations/audio load throws (falls through to
+the existing `LEVEL LOAD FAILED` diagnostic screen instead of leaving the loading UI stuck on
+screen).
+
+**Verified for real, not just compiled**: `:compileKotlinJvm` succeeds, and `./gradlew.bat runJvm`
+was actually launched and screenshotted on this dev machine (real GPU present here, `GL_VERSION=3.3.0
+NVIDIA`) - both the static layout (background/logo/bar/label all correctly positioned and sized) and
+the blink itself (three screenshots ~0.5s apart show the label fully visible, fully visible, then
+fully gone) were confirmed from real captured frames, with a temporary `repeat(20) { delayFrame() }`
+swapped in for `markLoadProgress()`'s single `delayFrame()` during that check only (reverted before
+the final compile) since real loads on this machine finish in well under a second otherwise.
+
+**Not yet verified**: Android and iOS. On iOS specifically, this loading screen reads its assets
+through the exact same `resourcesVfs` path already flagged as broken in "KNOWN GAP: `resources/`
+never reaches the iOS shell bundle" above - so until that gap is fixed, expect this loading screen
+to show as a plain black frame (background/logo missing, same silent-fallback behavior already
+described there) with only the progress bar and label drawn, on the iOS shell build specifically.
+
+**Refinement pass, same day**: real feedback on the first version (screenshot of the actual running
+bar) - label font too large, blink too frequent, and the bar fill was a flat `Colors.WHITE` rect
+rather than matching the main menu's button texture. Fixed: `loadingBarTextureBitmap` now loads
+`resources/button1.png` (the exact texture `MainMenuScreen.kt`'s PLAY button uses,
+`Res.drawable.button1`) alongside the bg/logo loads, and `setLoadingProgress()` rebuilds an `image()`
+stretched to the current fill width each step instead of drawing a solid rect (falls back to the old
+white rect only if the texture fails to load) - same "plain stretch, not 9-sliced" precedent already
+established for this exact art in `UiComponents.createButton`. Label size dropped from
+`loadingBarHeight * 1.15` to `* 0.62`. Blink slowed from a 0.9s period (78% visible) to 2.2s (88%
+visible), so it now vanishes for a brief instant roughly once every ~2 seconds instead of about once
+per second. Verified the same way as the first version - not just compiled: `:compileKotlinJvm`
+passed, and `./gradlew.bat runJvm` was launched and screenshotted for real (a temporary
+`repeat(300) { delayFrame() }` swapped into `markLoadProgress()` for this check only, reverted
+after), confirming both the torn-paper texture fill actually renders (visible ink/tear edge at the
+fill boundary, not a flat rectangle) and the smaller/slower-blinking label.
+
+## Level 1 redesign: barrels, then a crate + truck climb onto the existing platform (2026-09-05)
+
+Per the owner's request: after the two start gates, walk a bit, hop three barrels standing
+together, walk on, then climb a small crate onto a parked truck and step from the truck onto the
+long platform that already carries the hanging chained crate - everything from there on (the
+crouch-under-hanging-crate, `block2`/`block3`, the guard/camera zone, the exit) is unchanged in
+mechanics, just shifted further down the corridor to make room.
+
+**New assets**: `resources/barrel.png` and `resources/truck.png`, copied from the owner's
+`C:\Users\USER\Downloads\charAnimations\assets\` drop (same source as `loadingbg.png` earlier) -
+same flat-silhouette style as the existing `crate.png`/`chainedcrate.png`. Native pixel sizes
+(checked via .NET `System.Drawing.Image`, no `identify`/PIL available on this machine):
+`barrel.png` 1024x1536, `truck.png` 1774x887.
+
+**Geometry** (`GameWorld.kt`'s `createDefault()`, `DEFAULT_LEVEL_1` only - `SIDE_SCROLL_LEVEL`'s
+explicit `LevelLayout` path is untouched): three `barrel` boxes (32w x 48h each, touching, starting
+at x = 700) replace nothing - they're new - followed by a 200px walk to `smallCrate` (68x48, same
+dims the old single "step crate" always used), then `truck` (255x96, flush with the long
+platform's height so stepping off it onto the platform is a level walk, not another jump), then
+`longPlatform` (900x96, unchanged) starting right at the truck's edge. The hanging chained crate,
+`block2`, `block3`, the guard patrol range, the camera, and the exit zone are all still there with
+identical mechanics, just computed relative to the new platform position (`longPlatform.right +
+252.0`, etc.) instead of hardcoded absolute x values - `worldWidth` grew from 3200 to 4000 to fit.
+`LevelData.kt`'s `DEFAULT_LEVEL_1.guardPatrolMinX/MaxX` and its camera's `x` were updated to the
+new absolute numbers (3371.0/3721.0/3731.0) since those three are the only pieces of this layout
+still expressed as literals outside `GameWorld.kt`. (Barrel/truck widths and every downstream
+number here were revised once more after this section was first written - see the "tight-crop"
+follow-up below; this paragraph reflects the final values.)
+
+**Jump-height constraint, verified against the existing physics constants, not guessed**:
+`Player.maxJumpHeight = jumpSpeed² / (2·gravity) = 320² / 2000 = 51.2` units. Every new rise (ground
+to barrel top, barrel top back to ground, crate to truck top) is exactly 48 units - the same value
+the level's original step-crate-to-platform climb already used successfully, comfortably under the
+51.2 ceiling. Not derived from the docstring elsewhere in this file describing a 72-unit
+`SIDE_SCROLL_LEVEL` box as jumpable from flat ground - re-reading that layout shows that box's top
+edge is flush with the mid-tier platform right next to it (not a standalone step), so it isn't
+actually evidence of a taller single-jump rise being possible.
+
+**Why the barrels sit at x = 700, not right after the gates as a literal "little bit"**: a large
+cluster of existing unit tests in `test/GameplayModelTest.kt` place the player and/or guard at
+fixed x-coordinates between roughly 60 and 650 (e.g. `world.guard.x = 500.0`,
+`world.player.x = 580.0`) and assume open, box-free ground there, independent of this level's
+actual story layout - this predates the redesign and reflects the old layout's first box (the
+original step crate) not appearing until x = 580. The first attempt placed the barrels at x = 320
+and broke `testPlayerGuardCollision` (a barrel embedded in the player's y = 284 test position
+caused a bogus 159px collision-resolution shove, not the expected guard-edge stop at x = 464) -
+found by actually running `./gradlew.bat jvmTest`, not by reasoning about it in advance. Moved the
+whole barrel/crate/truck sequence out past x = 700, comfortably clear of every fixed coordinate
+that cluster of tests uses, rather than either contorting the design or hand-editing every
+affected test. Only `testCameraTimingChallengeWalkthrough`'s two literals
+(`camera.x`/`world.guard.x`) needed updating, since those two specifically assert the *new* end-of-
+corridor values.
+
+**Rendering** (`GameplayScene.kt`): `barrelBitmap`/`truckBitmap` load the same try/catch-to-null
+way every other box texture does, `totalLoadSteps` went from 14 to 16 to match the two new
+`markLoadProgress()` calls. Two new branches in the per-box render loop, matched by `box in
+world.barrels` / `box == world.truck` (new `GameWorld` fields, same nullable-reference-equality
+pattern `fence1`/`fence2` already use) - placed *before* the existing generic "height < 70 && width
+< 150 → render as crate.png" heuristic, since the barrels' own dimensions (32x48) would otherwise
+satisfy that heuristic and get misrendered as crates.
+
+**Tight-crop follow-up, same day**: real feedback on a screenshot showed the truck floating above
+the ground, squashed vertically, and the player floating above the truck's roof - all three from
+one root cause, found by actually measuring the PNGs (.NET `Bitmap.LockBits`, scanning for the
+tight alpha bounding box) rather than assuming they were prepped like this game's other assets.
+Every existing box texture (`crate.png`, `chainedcrate.png`, `fence.png`) is "tightly cropped to
+exact visual bounds" per this file's own earlier notes - confirmed `crate.png`'s alpha bounds are
+its full canvas edge-to-edge - but the owner's raw `barrel.png`/`truck.png` drop was not: real
+tight content was `x=96..927, y=83..1356` inside barrel's 1024x1536 canvas (17.6% dead bottom
+margin alone) and `x=47..1744, y=149..788` inside truck's 1774x887 canvas (a full 17% dead margin
+at the *top*). Since every box image renders via `size(box.width, box.height)` stretched to the
+exact collision box with no cropping at render time, that dead margin doesn't disappear - it
+stretches too, so the visible truck/barrel silhouette ends up sitting measurably inside its own
+box instead of flush with it: gap at the bottom (floating above ground) from bottom padding, gap at
+the top (floating player) from top padding, plus the pre-existing box-aspect-ratio mismatch
+compounding the squash. Fixed by actually cropping both PNGs to their measured tight bounds in
+place (`barrel.png` → 832x1274, `truck.png` → 1698x640) and re-deriving the box widths from the
+*cropped* aspect ratio at each box's fixed (jump-height-constrained) height: barrel width 44→32
+(1274/832 ≈ 1.53 ratio at height 48), truck width 300→255 (1698/640 ≈ 2.65 ratio at height 96).
+Every downstream position in `GameWorld.kt` is expressed relative to the previous element
+(`barrel3.right + 200.0`, `truck.right`, `longPlatform.right + 252.0`, ...), so shrinking the two
+widths cascaded automatically; only `LevelData.kt`'s three literals (guard min/max X, camera x) and
+the two matching test assertions needed manual updates, same as the first pass. Re-ran the full
+`jvmTest` suite after each change - still green throughout, including the barrel-position-sensitive
+`testPlayerGuardCollision`. **Still not visually confirmed on a real running window** - the
+`runJvm` screenshot pipeline remained unreliable this session (see above); the fix is grounded in
+directly measuring the actual pixel content of both PNGs before and after the crop, not in a
+render that was seen with real eyes. Look at it for real before calling this done.
+
+**Pacing follow-up, same day**: owner feedback that both walking gaps were still too long. Cut the
+gate-to-barrels walk from 465 units down to 85 (barrel1 now starts at x = 320, right past the
+fences) and the barrels-to-crate gap from 200 down to 70. Since every position downstream is
+already expressed relative to the previous one, this cascaded through the whole corridor
+automatically and `worldWidth` shrank from 4000 to 3450.
+
+This ate into the "open ground" test zone from the first pass entirely - the barrel/crate/truck run
+now spans roughly x = 320 to 809, which fully covers the old 60-650 buffer several tests relied on.
+Rather than hunt for another gap to hide test coordinates in, moved the *tests* to reuse
+`guardPatrolMinX..guardPatrolMaxX` (2861-3211, real open ground with no boxes by construction,
+since nothing is ever placed there in `GameWorld.kt`) instead - a stable, self-documenting home for
+generic player/guard physics tests rather than an incidental gap that shrinks every time the story
+geometry changes. Updated four tests to this zone: `testPlayerGuardCollision`,
+`testGuardInvestigateRedetectionAndEscalation`, `testGuardResumesPatrolAfterLosingVisualFromCone
+Detection`, and `testGuardStopsAtPositionWhenUserDetectedInVisionCone`.
+
+That last one caught a real gap in the first pass's own reasoning: it clears `occluders` (so line-
+of-sight can't be blocked) but never clears `platforms`, and by this point the truck box (x =
+554-809) had crept under its old player position (x = 580, y = 284) - the player was physically
+embedded in the truck's collision box, and gravity/collision resolution silently relocated it
+somewhere the vision cone no longer reached, failing the test with no obvious connection to "the
+truck moved." Found by running `jvmTest`, not by inspecting the geometry by eye - a reminder that
+"occluders cleared" and "platforms cleared" are two different guarantees, and a test relying on one
+doesn't get the other for free.
+
+Full `jvmTest` suite green after these changes. Same visual caveat as the sections above -
+compiled and test-verified, not seen running.
+
+## Level 1 reshuffle: barrels moved past the platform, guard/camera removed (2026-09-05)
+
+Real feedback from screenshots of the running level: the start-of-level barrels felt unnecessary,
+and there was an unassisted drop after the long platform (the one carrying the hanging chained
+crate) straight down to the ground. Owner's ask: drop the start barrels, add a box at that platform
+edge to climb down via (mirroring the step-up crate at the start), move the barrels to cover the
+ground gap right after it, and remove the guard/camera from the level entirely.
+
+**New order in `GameWorld.kt`'s `createDefault()`**: gates -> `smallCrate` (48x68, at x=320, no
+walk-up barrels beforehand anymore) -> `truck` -> `longPlatform` (unchanged, still carries
+`hangingChainedCrate`) -> `stepDownCrate` (new, same 48x68 dims as `smallCrate`, sitting right at
+`longPlatform.right` - the player now descends the 96px platform in two 48px steps instead of one
+drop) -> the three barrels (unchanged 32x48 each, now positioned right after `stepDownCrate`
+instead of near the start) -> `block2` -> `block3` -> the (now hidden) guard zone -> exit. Every
+position is still expressed relative to the previous one, so this was a pure reordering of the
+existing building blocks, not new geometry math - `worldWidth` settled at 3350.
+
+**Removing the guard was more invasive than it looked.** `GameWorld.guard` is a mandatory,
+non-nullable field, and a large fraction of `GameplayModelTest.kt` reads `world.guard.*` directly -
+some tests reposition only `.x` (relying on a normal `.y`/`.visionRange`/`.facing` already being
+there), some don't touch it at all (`world.player.x = world.guard.x - 100.0`, expecting a real,
+detection-capable guard on the other end). Two failed approaches before landing on the right one,
+both found by actually running `jvmTest`, not by reasoning about the data model in the abstract:
+
+1. First attempt zeroed `visionRange`/`speed` on the "disabled" guard. Broke ~9 unrelated tests
+   across the suite - any test that reused `world.guard` (even ones that explicitly overrode `.x`)
+   inherited the permanently-blinded `visionRange = 0`, since they never had a reason to reset a
+   field they'd never seen change before.
+2. Second attempt fixed that but used a degenerate `patrolMinX = patrolMaxX = -5000.0` (matching the
+   guard's parked position). `Guard.updatePatrol()`'s own boundary-clamp logic (`if (facing > 0.0 &&
+   x >= patrolMaxX) x = patrolMaxX`) then snapped any test-set `.x` straight back to -5000 the next
+   time `world.update()` ran, since literally any real corridor coordinate is `>= -5000`.
+
+**What actually shipped**: a new `LevelData.guardEnabled: Boolean = true`. When false,
+`GameWorld.createDefault()` still constructs a completely normal `Guard` - same `y = groundY - 48.0`,
+same default `visionRange`/`visionFov`/`facing` - just parked at `x = -500.0` (behind the level's own
+`leftWall` at x = -30, permanently unreachable during real play) with `speed = 0.0` (never drifts
+back into the corridor over a long session) and a deliberately wide `patrolMinX = -10000.0` /
+`patrolMaxX = 10000.0` so a test that repositions `.x` anywhere in the real corridor doesn't get
+clamped back. The guard is still technically present and still renders (nothing in `GameplayScene.kt`
+special-cases it - `world.allGuards` still contains it) - it's just far enough off-map that the
+camera never scrolls anywhere near it, which in practice is indistinguishable from "removed" for a
+player. Camera removal was the easy half: `DEFAULT_LEVEL_1`'s `cameras` list is just empty now,
+already fully supported by every consumer.
+
+**One test needed real rework, not just new coordinates**: `testCameraTimingChallengeWalkthrough`
+asserted `DEFAULT_LEVEL_1` ships exactly one camera and used it directly - no longer true. Rebuilt
+it to drop a synthetic `Camera` onto the level's real geometry via `.copy(cameras = listOf(camera))`,
+the same pattern already used by `testPowerupSmokeScreenDisablesCameras`/
+`testCameraAlertSystemIntegrationInGameWorld` for a camera unrelated to whatever the base level
+ships. First version of the rewrite picked an arbitrary `camera.x` and started failing with the
+player getting caught mid-run for a reason that took a moment to place: the original test was
+tuned so the camera sat a specific ~80-unit dash from the real exit, and an arbitrary position broke
+that timing margin. Fixed by deriving `camera.x` from `baseWorld.exitZone.x - 80.0` instead of a
+guess, restoring the same relationship the original (now-removed) level-1 camera happened to have.
+
+Full `jvmTest` suite green. Same visual caveat as every section above - compiled and test-verified,
+not seen running.
+
+## Level 1, third pass: more room before the crate, barrels moved to bridge block2->block3 (2026-09-06)
+
+Real feedback from three more screenshots: the walk from the gates to the step-up crate still felt
+too tight, the barrels sitting right after the step-down crate should go, and the ground gap between
+`block2` and `block3` further down the corridor - previously just bare ground - should be filled
+edge-to-edge with those same barrels instead. Also asked to replace the exit's vector-drawn
+"black box + green border + EXIT text" marker with a real image (`entrance.png`, cropped).
+
+**Geometry** (`GameWorld.kt`): `smallCrate.x` moved from 320 to 420 (100 more units of ground walk
+past the gates). The 3 barrels that used to sit right after `stepDownCrate` are gone from there -
+that stretch is now `stepDownCrate.right + 200.0` of plain ground before `block2` - and instead 7
+barrels now tile the `block2` -> `block3` gap exactly: `barrels = (0 until 7).map { i -> Rect(x =
+block2.right + i * barrelWidth, ...) }`, then `block3.x = barrels.last().right`. 7 was chosen because
+7 * 32 = 224, comfortably covering (and slightly exceeding, pushing block3 forward a touch) the ~210
+unit gap this replaces - the point of computing `block3.x` from the last barrel rather than a fixed
+offset is that there is now zero bare ground left in that gap by construction, whatever the exact
+barrel count. `worldWidth` grew from 3350 to 3500 to fit the wider corridor plus the new entrance
+visual (see below). `LevelData.DEFAULT_LEVEL_1`'s `guardPatrolMinX/MaxX` moved to 2825.0/3175.0 to
+match - still comfortably containing every fixed coordinate the guard-safe-zone unit tests
+(`testPlayerGuardCollision` and friends, see the section above) already use, so none of them needed
+touching this time.
+
+**New asset**: `resources/entrance.png`, copied from the same
+`C:\Users\USER\Downloads\charAnimations\assets\` drop and tightly cropped the same way
+barrel.png/truck.png were (measured via .NET `Bitmap.LockBits` alpha-bounds scan, not eyeballed):
+native 1672x941 canvas, tight content only `x=46..1634, y=212..824` -> cropped in place to
+1589x613, now flush edge-to-edge. It's a wide composite (barbed-wire fence + a couple of crates and
+a barrel on the left, a roofed guard booth on the right) - a natural bookend for the start gates.
+
+**Exit rendering** (`GameplayScene.kt`): the old `exitContainer.solidRect(...)` gate marker
+(black box + 4 green border strips + "EXIT" text) is gone, replaced by `entranceBitmap` rendered at
+a fixed height (160) with its width derived from the bitmap's own aspect ratio
+(`entranceHeight * bitmap.width / bitmap.height`) so it's never stretched/squashed like the
+barrel/truck near-misses earlier in this file. **Purely decorative** - `world.exitZone` itself (the
+actual completion trigger) is completely unchanged in position/size; the image is positioned so its
+gate post (measured at ~63.5% across the cropped image, by eye against the asset) lines up with the
+trigger's center: `entranceX = exitZone.x + exitZone.width/2.0 - 0.635 * entranceWidth`. Since it's
+image-only with no collision box, it can (and does) visually extend back over part of the empty
+guard-patrol-zone ground with no functional consequence.
+
+**Verification**: `:compileKotlinJvm` succeeds, full `jvmTest` suite green with zero test edits
+needed this round (the barrel-position and guard-zone unit tests all happened to already tolerate
+the new numbers). Same standing caveat as every entry above - not yet seen running for real.
+
+(The paragraph that used to follow here, about a failed `runJvm` screenshot attempt, was a stray
+duplicate of the one already earlier in this file under "Level 1 redesign: barrels, then a crate +
+truck climb" - removed 2026-09-06 while adding the section below, not because the underlying
+screenshot-pipeline caution stopped applying; it still does, see that earlier section.)
+
+## Fourth pass on spacing/exit, plus real animation and physics fixes (2026-09-06)
+
+Real feedback, this time from five screenshots plus plain-text notes rather than just "shift this
+box": more space before the crate (again - the numbers in the section above didn't hold), the
+interact button nudged a little more, two animation foot-alignment complaints, an exit that should
+be mirrored and should end the level the instant it's touched, a genuine "I can fly past the end of
+terrain" physics bug, and a question about exact-shape hitboxes.
+
+### 1. More space before the crate, yet again
+`smallCrate.x` moved 420 -> 550. Every downstream position is still relative
+(`truck.x = smallCrate.right`, etc.), so this cascaded the whole corridor forward by 130 and
+`worldWidth` grew to 3550 (before item 5 below grew it further to 3900).
+`LevelData.DEFAULT_LEVEL_1.guardPatrolMinX/MaxX` moved to 2955.0/3305.0 to match.
+
+**This is now the fourth time the front-of-corridor geometry has shifted** (700 -> 320 -> 420 -> 550
+for whatever sits right after the gates, across four separate rounds of feedback). The
+`GameplayModelTest.kt` tests that need generic open ground for guard/vision math no longer hardcode
+absolute coordinates at all now (see item below) specifically so a fifth shift doesn't repeat this.
+
+### 2. Interact button nudged again
+`interactAngle` 65° -> 60° (was 80° originally, then 65° per an earlier real-device round, now
+60°) - same direction as before (down and right), smaller step this time since it was closer to
+right already.
+
+### 3 & 4. Crouch and jump-landing: one foot not touching the ground
+Real root cause, found by measuring the actual sprite frames rather than guessing - the same
+technique `IDLE_FEET_Y` already used for this exact phenomenon in idle:
+- `resources/player/crouch/0034.png` (`CROUCH_LAST`, the held crouch pose): a per-column alpha
+  scan shows the front foot's lowest row at 255 (on `SOURCE_FEET_Y`) and the back foot's at ~250 -
+  a settling crouch plants weight forward with the back heel raised, not a flat two-footed squat.
+- `resources/player/jump/0028.png`..`0044.png` (`JUMP_LAND_START`..`JUMP_LAND_END`, the landing
+  absorb sequence): the same shape, strikingly consistent across all 17 frames - back foot ~247-248,
+  front foot on the true line - checked several frames, not just one, specifically to rule out a
+  one-frame fluke.
+
+Added `PlayerAnimations.CROUCH_FEET_Y = 250.0` and `JUMP_LAND_FEET_Y = 247.0`, then the same
+`(SOURCE_FEET_Y - X_FEET_Y) * playerBaseScale` offset formula `IDLE_FEET_Y`/`idleFeetOffset` already
+used, applied in `GameplayScene.kt`: `crouchFeetOffset` when `playerAnimState == "crouch"`
+(deliberately *not* `crouchwalk` - a walk cycle's alternating planted/swinging foot is supposed to
+look uneven, this is only for the settled two-feet-down held pose) and `jumpLandFeetOffset` added
+specifically when `jumpPhase == "land"`. Per the user's own explicit framing ("make both feet touch
+the ground even if one goes beyond it"): this necessarily pushes the front foot a few pixels below
+the nominal ground line to bring the back foot up to it, since a flat sprite can't move one foot
+independently of the other - accepted as the better trade-off, matching what `IDLE_FEET_Y` already
+does for idle without complaint.
+
+### 5. Exit: flipped, and the trigger now matches the visual
+Two related fixes, same root cause: the `entrance.png` gate-post alignment in the section above was
+"measured by eye against the asset," and the actual completion trigger (`world.exitZone`) stayed a
+narrow 40-unit box positioned by that eyeballed guess - so touching the visually obvious checkpoint
+structure didn't reliably touch the (mis-aligned, narrow) real trigger underneath it, reading as "it
+doesn't end when I touch it." Fixed by removing the alignment guess entirely rather than
+re-measuring it more carefully: `exitZone.width` widened from 40 to 380 (spans almost the entire
+entrance visual) and the image is now left-aligned flush with `exitZone.x` - no fraction math left
+to get wrong. `worldWidth` grew to 3900 to fit the wider zone. Separately, mirrored the image
+horizontally (`scaleX = -1.0` with an `x + entranceWidth` position compensation, the same
+flip-in-place trick `playerSprite`'s own left/right facing already uses) so the booth - the
+recognizable checkpoint landmark in the raw asset - is what the player actually walks up to first,
+instead of the fence section the unflipped asset leads with.
+
+### 6. "I am able to fly after terrain" - real collision bug, not a rendering artifact
+Traced to `Player.kt`'s vertical collision loop, `updateStep()`. Two distinct problems, found by
+reading the loop line by line against the class's own documented intent (`footWidth`'s doc comment
+explicitly says landing should be feet-narrow, walls/ceilings should stay full-width) rather than by
+reproducing it first:
+
+1. **Order-dependent branching within a single step.** The loop branched on `vy > 0.0` to decide
+   feet-narrow vs. full-width, but the very first matching platform set `vy = 0.0` as a side effect
+   - so for a foot span touching *two* platforms at once (a seam), every platform after the first in
+   iteration order got evaluated by the full-width/ceiling-or-floor-by-midpoint logic instead, purely
+   because of where it happened to sit in the list. Fixed by capturing `wasFalling = vy > 0.0` once,
+   before the loop, and branching on that instead of the live (mutated) `vy`.
+2. **The real "flying" mechanism**: at a seam between two *touching* platforms of different heights
+   - and this level now has several, by design: `smallCrate`(48) -> `truck`(96), `longPlatform`(96)
+   -> `stepDownCrate`(48) - a foot span straddling the seam intersects both, and the old rule
+   (`newY = minOf(newY, platform.top - height)`, i.e. always resolve to the *taller* one) pins the
+   player to the taller platform's height until the *entire* foot span (`footWidth`, ~21.6 units) has
+   cleared its far edge. Walking off the tall side onto the low one, that reads as hovering rigidly
+   at the old height for up to one foot-span past where the platform visibly ends, then snapping
+   down all at once - exactly "flying past the end of terrain." Fixed by picking whichever candidate
+   platform keeps the player closest to their *current* y instead of always the tallest, so the
+   handover happens right at the point the foot span actually loses its last bit of overlap with the
+   platform they were already on, not one foot-span later. Does not touch `footWidth`'s size at all
+   (deliberately - it's calibrated to the visible sprite's own width per its doc comment; narrowing
+   it would trade this bug for the opposite one, the sprite visibly hanging unsupported).
+
+Full `jvmTest` suite - including `testPlayerIsNeverGroundedWithoutSupport`, which exercises exactly
+this kind of scenario via randomized walks over the real level geometry - stayed green through both
+fixes, for whatever that's worth against a bug that random sampling apparently wasn't hitting
+already (it never failed before this fix either).
+
+### Guard-zone test coordinates made geometry-independent
+Fallout from item 1 recurring a fourth time: the four tests that need generic open ground for
+guard/vision physics (`testPlayerGuardCollision`, `testGuardInvestigateRedetectionAndEscalation`,
+`testGuardResumesPatrolAfterLosingVisualFromConeDetection`,
+`testGuardStopsAtPositionWhenUserDetectedInVisionCone`) previously hardcoded absolute x coordinates
+matching whatever `guardPatrolMinX` happened to be *at the time each was last fixed* - which is
+exactly why they kept breaking every time the front-of-corridor geometry moved. All four now derive
+a `val base = world.levelData.guardPatrolMinX + 75.0` and express every position as `base +/- N`,
+so a fifth shift of the story geometry (now demonstrably not unlikely) won't require touching these
+again, as long as the guard zone itself stays a similarly-sized stretch of open ground.
+
+### 7. "Is it possible to make the bounding box exact shape of the object?"
+Answered in chat, not implemented: technically yes (polygon/pixel-mask collision exists), but it's a
+different, much larger collision architecture than this project has anywhere today - every check in
+`Geometry.kt`/`Player.kt`/`Guard.kt`/`Vision.kt` is `Rect`-vs-`Rect` (`intersects`, line-of-sight
+against axis-aligned boxes, etc.), and switching even one entity to a precise polygon hitbox would
+mean either maintaining two parallel collision systems or rewriting all of them. The existing
+`footWidth` narrowing (feet tested on a tighter span than the full sprite width, specifically to
+approximate the visible silhouette without literal per-pixel shapes) is the project's actual answer
+to "the box is bigger than what you see" - a normal, standard platformer compromise, not a stopgap.
+Recommended sticking with it and tuning per-case (as items 3/4/6 above just did) rather than taking
+on exact-shape collision, unless a specific remaining case genuinely can't be solved that way.
+
+**Verification**: `:compileKotlinJvm` succeeds, full `jvmTest` suite green (all four guard-zone
+tests re-verified with the new dynamic `base`, not just left alone). Same standing caveat as every
+section above - none of items 2-6 have been seen on a real running screen yet, only reasoned about
+from measured source frames and read collision code.
+
+## Exit asset was the wrong image entirely, and a real 3-tier truck (2026-09-06)
+
+A screenshot showed the exit rendering as a screen-filling black wall with a guard booth barely
+visible at the far right - not a bug in the flip/positioning math from the previous round, but the
+wrong *asset*. `entrance.png` had been tight-cropped to its own alpha bounds before, but nobody had
+checked what was actually *in* those bounds: it's a wide stock illustration of an entire fence
+line - chain-link, barbed wire, two crates, a barrel, a fence post - with the checkpoint booth stuck
+on the far right edge as a small fraction of the whole thing. Scaling that composite by height (as
+if it were just a booth) rendered the whole scene, booth included, and since most of the frame is
+solid black fence/crate silhouette, it read as "wtf is this wall."
+
+Fix: found the seam between the fence post and the booth's own support pole by scanning columns for
+content density (`resources/entrance.png` scan: chain-link mesh runs ~226-232 opaque samples/column
+through x=1046, drops to 19-43 in the x=1048-1058 gap, then jumps to ~197-270 at x=1060+ where the
+booth's pole starts), cropped from there to the far edge, then re-tightened the result to its own
+alpha bounds. Final asset: 531x612, booth only. `GameplayScene.kt`'s rendering code (aspect-ratio
+sizing, left-align, horizontal flip) didn't need to change at all - it was already correct once given
+the right source image. Bumped `entranceHeight` 160->200 (a booth-only asset reads small at the old
+height) and shrank `exitZone.width` in `GameWorld.kt` 380->160 to match the new, much narrower
+image's footprint (it was sized to "almost span" the old 414-wide composite; the booth alone is only
+~174 wide at the new height).
+
+Separately, asked to swap in a better truck asset
+(`C:\Users\USER\Downloads\charAnimations\assets\truck_new.png`) with 3 collision tiers - front/
+middle/back - and the left/right flipped. `truck_new.png` turned out to be a flat white-background
+JPEG-style PNG (`Format24bppRgb`, no alpha at all), unlike every other asset in this project, so the
+usual alpha-bounds crop script did nothing (every pixel read as 100% opaque). Chroma-keyed it instead
+(any pixel with R/G/B all >=200 -> fully transparent, else fully opaque black) before cropping to its
+tight bounds: 1683x617, from source region x=[50,1732] y=[156,772].
+
+Measured the silhouette's top profile in 20px column steps to find where the flat cab/bed roofline
+(top y ~155-164, essentially constant) breaks down into the lower hood (top y ~351 from x~1490 on,
+a mirror bump in between at ~1470-1490). That gave 3 tiers instead of one flat box, in
+`GameWorld.kt`'s `createDefault`:
+- `truckFront` (hood): 38 wide x 66 tall - 66 = 96 * (421/616), the hood's height as a fraction of
+  the full 616px silhouette height, scaled to the in-game 96-unit roofline height.
+- `truckMiddle` (cab) and `truckBack` (bed): 45 and 179 wide, both 96 tall (flush with each other
+  and with `longPlatform`, same reasoning as the old single-box truck - stepping across onto the
+  platform should be a level walk, not another jump). Widths are the cab/bed/hood x-ranges
+  (1200-1490, 1490 excluded above is hood) converted to fractions of the 1683px total width and
+  applied to a 262-unit total (96 * the image's own aspect ratio).
+- `truckParts = listOf(truckFront, truckMiddle, truckBack)` replaces the single `truck` Rect in
+  `boxes`/`platforms`/`occluders`. `truck` itself is kept as the *union* of the three (same x, full
+  width, tallest height) - not a collision box, just the footprint the image is drawn into.
+
+Rendering (`GameplayScene.kt`) had to change shape, not just swap a bitmap: three separate collision
+boxes but one continuous truck texture means drawing it three times (once per box, stretched to that
+box's own tiny width/height) would squash it into three unrecognizable slices - exactly the original
+"squashed and floating" bug from earlier this session, reintroduced a different way. Instead the
+image is drawn once, keyed off `box === world.truckParts.first()` (the front/hood tier), sized and
+positioned to `world.truck` (the full union footprint) rather than to that one box; the other two
+tiers match `box in world.truckParts` and draw nothing. Flipped the same way as the exit booth
+(`scaleX = -1.0` + reposition by `+width`) so the hood - the low tier the player actually climbs onto
+first, right after the crate - faces the direction of approach, with the cab and bed (both flush with
+the long platform) stretching away to the right.
+
+**Verification**: `:compileKotlinJvm` and full `jvmTest` succeed (no test referenced `world.truck` or
+truck coordinates directly, so the tier split needed no test changes). Not yet confirmed on a real
+running screen at the time this was written - see the next section, which found this exact flip
+technique corrupts the truck's rendering and fixed it.
+
+## Real bug found by real verification: negative `scaleX` corrupts `Image` rendering (2026-09-06)
+
+The user reported the exit rendering as a screen-filling wall (`entrance.png` was the wrong asset -
+see below), then separately asked for a `truck_new.png` swap with 3 collision tiers and the truck
+flipped. After shipping both, the user sent a screenshot from their own desktop (this sandbox and
+the user's desktop are the same machine, so anything run here is visible to them) showing the truck
+as a torn, mostly-transparent smear at ground level with the sky's parallax reflection showing
+straight through - not the truck at all. This is the first time this session the JVM screenshot
+pipeline actually worked end-to-end, and it immediately paid for itself: **the bug was not in the
+truck-specific code from the previous entry - it was `scaleX = -1.0` on a KorGE `Image`, the exact
+technique also used (and, it turns out, never actually verified) for the exit booth flip.**
+
+**How it was actually found** (`./gradlew.bat runJvm`, then a real Win32 screenshot - `user32.dll`
+`EnumWindows`/`SetForegroundWindow`/`ShowWindow`, `System.Drawing.Graphics.CopyFromScreen`, all via
+the PowerShell tool - of the live window, not the old runJvm+simulated-keypress approach that
+produced stale frames earlier this session). Debugging happened by temporarily setting
+`GameWorld.kt`'s player spawn `x` to different values (no input simulation needed - each value is a
+fresh, real, num-controlled starting position) and rebuilding:
+1. `x = 460.0` (near the crate/truck) and `x = 350.0`/`x = 10.0` (open ground, no crate/truck nearby)
+   all showed the same torn artifact in roughly the same *screen* position - looked suspiciously
+   fixed, until the camera-centering formula in `GameplayScene.kt` (`desiredWorldViewX = halfScreen -
+   playerCenterX * worldZoom`, clamped to `[minWorldViewX, 0]`) was worked through: 350 and 10 both
+   land in the clamped region (`worldView.x = 0`), so those two were never actually a fair test of
+   "does this track world position" - only 460 differs from them in camera offset, and only by
+   ~125 virtual units, easy to mistake for "no movement" by eye.
+2. `worldView.visible = false` made the artifact disappear entirely, proving it was inside the
+   world-space layer, not a screen-fixed HUD element as step 1's flawed comparison suggested.
+3. `x = 1500.0` (well past the truck, unclamped) showed a completely clean scene - hanging crate,
+   long platform, no artifact - proving the artifact was tied to a fixed *world* position after all,
+   somewhere in the crate/truck cluster.
+4. Forcing the truck's render branch to draw nothing (`if (false)` around the draw call) removed the
+   artifact completely with the player back at `x = 460.0`. This is the smoking gun: the truck
+   rendering code itself was producing it.
+5. Re-enabling the draw but dropping just the flip (`truckImg.xy(truckRect.x, truckRect.y)` instead
+   of `xy(x + width, y)` + `scaleX = -1.0`) rendered the truck perfectly - correct silhouette, right
+   position, cab and wheels all present - just mirrored the wrong way (bed on the left instead of
+   the hood). Flip math alone was therefore the entire bug.
+
+**Root cause**: `View.size(width, height)` (`korlibs/korge/view/View.kt`) sets `unscaledSize`
+directly; actual displayed size is `unscaledWidth * scaleX`. Setting `scaleX = -1.0` afterward is
+supposed to just mirror the image about its own left edge (compensated for by positioning at
+`x + width` first, exactly as `sizeScaled`-style KorGE code elsewhere does) - and this reasoning is
+correct on paper, confirmed by working through the actual property definitions in the library
+source (extracted from `korge-core-6.0.0-sources.jar` in the Gradle cache to check, since guessing
+at engine internals is exactly the kind of thing this file exists to warn against doing without
+verifying). The corruption is not a logic bug in this codebase - it's the GL_VERSION=3.3.0 NVIDIA/
+OpenGL rendering backend on this machine mishandling a negative-scaleX `Image` draw once the source
+texture has significant fine transparent/opaque detail at extreme downscale (truck.png: 1683x617
+tight-cropped, rendered at 262x96 - roughly 6.4x reduction, with a wheel/axle area full of thin
+transparent gaps). Large, simple-silhouette images (crate, barrel, fence) apparently survive the
+same negative-scaleX path fine, or at least never visibly failed - the truck was the first asset
+detailed enough, at a small enough render size, to expose it. `entrance.png`'s exit-booth flip uses
+the identical `scaleX = -1.0` pattern and was very likely equally broken; it had simply never been
+walked to and looked at this session (the pipeline that could have shown it wasn't working until
+today). Given a real engine/driver-level rendering bug on negative scale, the fix is to never rely
+on it: **both `truck.png` and `entrance.png` are now pre-mirrored on disk** (PowerShell
+`Bitmap.RotateFlip(RotateFlipType.RotateNoneFlipX)`, saved back in place) and drawn with plain
+`.xy(x, y)` - no runtime `scaleX` flip anywhere in either render path anymore. Confirmed by rebuild +
+real screenshot: truck renders as a solid, correctly-oriented silhouette (hood facing the crate,
+cab and bed intact, wheels intact) with the player standing right beside it, no artifact.
+
+**Follow-up, same conversation**: with the truck fixed, the user (watching the same desktop) saw the
+now-working exit booth and asked for two more real, visually-driven adjustments - the booth was too
+large, and the fence that used to stand beside it (part of the original, wider `entrance.png` source
+composite before this session cropped it down to just the booth) was gone. `entranceHeight` dropped
+200 -> 135 (200 was sized for when the whole fence+crates+booth composite filled that height; alone,
+just the booth, it read as a wall relative to the player). For the fence: the *original*, uncropped
+`entrance.png` still existed untouched at
+`C:\Users\USER\Downloads\charAnimations\assets\entrance.png` (only the copy in `resources/` had been
+cropped), so rather than reusing the level's own start-of-corridor `fence2.png` (the user's first
+ask, tried and explicitly rejected: "use the fences that was in the original entrance.png"), a fresh
+`resources/exitfence.png` was cropped straight from that original source - same column-density-scan
+technique as finding the fence/booth seam earlier (chain-link content count ~155 per sampled column
+drops to ~13-29 in the gap before the booth's own post at x≈1094-1104, in the original 1672x941
+file), yielding a 1039x466 crop of just the fence-with-baked-crates portion, excluding the booth.
+Rendered after the booth (`world.exitZone.x + entranceWidth`, matching the user's explicit "the
+fences should be after that building"), at `exitFenceHeight = 140.0` - the exact height the level's
+*own* starting fence uses - via its own aspect ratio, not stretched.
+
+**Verification**: `:compileKotlinJvm` and full `jvmTest` green throughout every step of this
+investigation. Unlike every other round this session, the actual visual fixes themselves - truck
+solid and correctly oriented, booth resized, fence repositioned with the original asset - were
+**directly confirmed on the real running window** via the Win32-screenshot technique above, not just
+reasoned about. That technique (real `runJvm` window + real Win32 capture, varying `GameWorld.kt`
+spawn position instead of simulating input) is a viable, repeatable way to get real visual
+verification in this sandbox going forward, superseding the "unreliable, stale frames" conclusion
+reached earlier this session with the input-simulation approach - the difference was never
+capturing the window, it was trying to simulate live input into it.
+running screen - same standing caveat as every round this session.
+
+## Web landing page, /support Netlify form, and /privacy policy (2026-09-06)
+
+Created a dedicated `site/` directory containing a mobile-responsive, cyber-tactical static web presence
+configured for Netlify deployment (e.g. for `infiltrate.saysplit.app` or any Netlify subdomain):
+
+- `site/index.html`: One-screen hero landing page featuring official game branding (`assets/logo_main.png`),
+  stealth heist tagline, platform availability pills (iOS App Store & Google Play), core tactical feature
+  briefing cards (Vision AI, Parkour, 12 Shipyard Levels, Gadgets), and navigation links.
+- `site/support/index.html`: Dedicated Support page meeting Apple App Store Guideline 1.5. Includes an
+  integrated **Netlify Form** (`data-netlify="true"`, honeypot spam protection via `bot-field`, action redirect
+  to `/support/success/`, fields for Name, Email, Category, Message). **Correction (2026-09-06): this note
+  previously also claimed Platform/Subject fields and a visible developer contact email on this page — neither
+  is actually in the file**, checked directly; the form only has the four fields listed above and shows no email
+  address anywhere. Don't trust this bullet's older description of that page without re-reading the file.
+  The support/contact address used elsewhere (privacy policy) is `infiltrate@saysplit.app` (changed 2026-09-06
+  from `support@saysplit.app`, owner's choice, before that address was ever wired up anywhere else) - player FAQs
+  (restoring purchases, offline play, bug reporting) are NOT actually on this page either, same correction.
+- `site/support/success/index.html`: Form submission confirmation page ("Transmission Received").
+- `site/privacy/index.html`: Store-compliant Privacy Policy (rewritten 2026-09-06, checked against the actual
+  codebase rather than assumed) covering on-device data storage (`NSUserDefaults`/`SharedPreferences`), Google
+  AdMob & Google UMP consent, RevenueCat purchase receipt validation, COPPA/GDPR/CCPA rights (general audience,
+  13+), and opt-out instructions for Apple ad personalization and Android GAID. **Updated again same day, later
+  session**: now also lists Layers (event analytics/attribution) as a real third-party service, since it's now
+  actually integrated on Android - see "Layers Events SDK integration" further below for the full story. Before
+  that, this note went through a wrong-then-corrected cycle worth remembering: an earlier pass claimed the policy
+  already covered "Layers SDK analytics/attribution" when no such SDK existed in the repo at all; that was then
+  corrected to "planned, not yet integrated, update the policy once it lands"; Layers is now real, so the policy
+  has been updated again, closing that loop. **Still open, found while doing this update**: the existing "Purchase
+  data, via RevenueCat and the app stores" paragraph in this same file describes Play Billing/RevenueCat as
+  already validating real purchases - untrue as of today, see "Store screen has no real purchase flow yet" below.
+  That paragraph was NOT rewritten this session (payment-processing language is consequential enough to want the
+  owner's confirmation first) - flagged to the owner, not yet actioned.
+  **Separately, a real (not yet fixed) compliance gap found while originally writing this policy**: Apple's App
+  Tracking Transparency prompt (`AppTrackingTransparency`/`ATTrackingManager`) is not implemented anywhere in the
+  iOS code, even though AdMob is embedded and can serve personalized ads. If personalized ads ship on iOS without
+  that prompt, that's an App Store risk, not just a docs gap — needs a decision (add the ATT flow, or force
+  non-personalized ads on iOS) before submission.
+- `site/styles.css`: Shared responsive CSS matching the game's neon cyan (`#00f0ff`), deep obsidian (`#070a0f`),
+  and stealth gold aesthetic with Rajdhani/Inter/Bebas Neue typography.
+- `site/_redirects` & `site/netlify.toml`: Netlify configuration ensuring clean URL routing (`/support`, `/privacy`)
+  and enforcing security headers (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`).
+
+## Layers Events SDK integration (2026-09-06) — Android only, real, compiled and linked into the APK
+
+The owner was given an integration guide with credentials (App ID `app_a1f9dbc126c1c779`) for a "Layers Events
+SDK." **Before writing any code, verified the guide itself was accurate** rather than trusting it - a good thing,
+since the exact Maven coordinates it gave (`com.layers.sdk:layers-android:3.2.11`) don't match Layers' own current
+docs. `github.com/layers`'s public `layers-sdk-android` repo (a red herring, checked and ruled out - stale/
+unofficial) claims `io.layers:layers-android:2.0.0`; the real product site, `layers.com/docs/sdk/installation`,
+confirms the owner's guide was accurate on everything except the version number (`3.3.0` is current, `3.2.11` was
+one minor version behind - normal docs drift, not a fake package). **Lesson**: a company's own GitHub org isn't
+automatically its authoritative SDK source - the product's own docs site was what actually confirmed this.
+
+### Architecture: same expect/actual bridge pattern as ContinueAdBridge/LevelExitBridge/PurchasesBridge
+
+New `AnalyticsBridge` (`src/AnalyticsBridge.kt`, `interface AnalyticsBridge { fun track(event, properties) }` +
+`expect fun getAnalyticsBridge()`), so `GameplayScene.kt` (common `:game` code) can fire events without depending
+on an Android-only artifact. Actuals: `src@android/AnalyticsBridge.android.kt`, `src@ios/`, `src@jvm/`, `src@js/`,
+`src@wasmJs/` (the last four are no-op stubs - Layers is Android-only for now). Plus the usual plain (non-KMP)
+duplicate in `android-shell/.../AnalyticsBridge.kt`, for the same reason `ContinueAdBridge`/`LevelExitBridge` each
+have one there (android-shell compiles `GameplayScene.kt` from source directly, not through `:game`'s expect/actual
+mechanism - see android-shell/build.gradle.kts's sourceSets comment).
+
+**One real deviation from that pattern, found by actually trying to compile it**: `src@android/AnalyticsBridge.android.kt`
+does NOT call `com.layers.sdk.android.LayersAndroid` directly - it's a no-op, same as the other no-op stubs. First
+attempt did call it directly (mirroring `PurchasesBridge.android.kt`), and adding
+`com.layers.sdk:layers-android:3.3.0` to root `build.gradle.kts`'s `androidMainApi` broke `:game`'s own separate
+Android target: the real SDK transitively pulls `androidx.lifecycle:*:2.7.0` and `androidx.work:work-runtime-ktx:2.9.0`,
+both of which require `compileSdk 34+`, while `:game`'s own build stays on `compileSdk 33` (confirmed via
+`:checkDebugAarMetadata` - 10 AAR-metadata errors, all the same "requires compile against version 34 or later").
+Bumping `:game`'s own compileSdk was ruled out as a bigger, unrelated, unrequested change. Fix: revert the
+root-build dependency entirely, make `src@android`'s actual a genuine no-op, and let the real work happen only in
+`android-shell`'s own duplicate copy (`compileSdk 37`, no conflict) - which is what actually executes in the
+shipped app regardless, since that module compiles `GameplayScene.kt` from source into its own build. This mirrors
+`ContinueAdBridge`'s real Android actual, which was already deliberately callback-only with zero direct `basic-ads`
+import for exactly this kind of reason (checked it for precedent before designing this).
+
+### `InfiltrateApplication.kt` - android-shell's first-ever `Application` subclass
+
+Before this, android-shell had no custom `Application` - `MainActivity.onCreate()` stood in for process startup.
+Layers' own docs initialize in `Application.onCreate()` specifically (guaranteed to run once, before any Activity),
+so this added `InfiltrateApplication` and registered it via `android:name=".InfiltrateApplication"` in
+`AndroidManifest.xml`.
+
+**Two deliberate deviations from the vendor's copy-paste snippet, both found by decompiling the real
+`layers-android-3.3.0.aar` rather than trusting the docs/prompt at face value:**
+- No manual `LayersAndroid.track("app_open")` call. Decompiled `LayersConfigBuilder`'s real constructor bytecode
+  (`javap -c`) and found `autoTrackAppOpen` defaults to `true` - the SDK already sends this event itself. The
+  vendor's own integration guide told the owner to track `app_open` manually; doing so would have double-counted
+  every single launch. This is a genuine drift between the docs and the real default, not a mistake in the guide
+  as given - worth remembering if any other "auto-tracks X" claim from the same docs needs verifying later.
+- `environment` is picked from `applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE`, not hardcoded to
+  `Environment.PRODUCTION` the way the vendor's snippet does. Hardcoding it would report every local debug build as
+  real production data. `enableDebug` mirrors the same flag (matches the vendor's own advice to enable it during
+  development).
+
+**Also decompiled, confirmed, and deliberately NOT changed**: `automaticExceptionTrackingEnabled` defaults to
+`true` (crash/exception diagnostic data collected by default - now disclosed in the privacy policy) and
+`consentRequired` defaults to `false` (the SDK does not gate tracking on consent unless told to). Leaving
+`consentRequired` alone was a deliberate choice, not an oversight: flipping it to `true` would silently drop every
+event until a consent-collection UI exists, which this game doesn't have yet - that's a real product decision for
+the owner to make, not something to change unilaterally while wiring up the SDK. Revisit if/when a consent flow is
+built, or if EEA/UK distribution specifically requires it sooner.
+
+### Real events wired into `GameplayScene.kt` (all backed by genuine gameplay signals, not fabricated)
+
+- `watch_ad_continue_requested` / `watch_ad_continue_granted` - at the existing `getContinueAdBridge()` call sites
+  (CONTINUE (WATCH AD) button, and the update-loop branch that consumes a granted continue).
+- `level_complete` - inside `world.onLevelComplete`, with `level_id`, `stars`, `time_taken_seconds`, `alerts`.
+- `mission_failed` - inside `world.onGameOver`, with `level_id`, `alerts`.
+
+**Deliberately NOT implemented**: `sign_up` / `login` (this game has no account/auth system anywhere - would have
+to be fabricated) and `purchase_success` / `subscription_start` / `trial_start` (see next section - there is no
+real purchase flow to hang these off yet). The owner explicitly chose "skip purchase events for now" over the
+alternative of firing a fake/zero-revenue event, when this was raised.
+
+### Store screen has no real purchase flow yet - found while scoping the purchase events above, not new
+
+`paywall-build/src/commonMain/kotlin/ui/StoreScreen.kt`'s `onPurchase` handler is `{ pack -> profileStorage.addCoins(pack.amount) }`
+- no RevenueCat call, no Play Billing call, nothing. This matches what the RevenueCat sections elsewhere in this
+file already say (`PurchasesBridge` is still a stub, `purchase()` returns `onResult(false)`), but is worth stating
+plainly here since it's exactly why `purchase_success` can't be wired up honestly yet: firing that event with the
+vendor's own example payload (`revenue: 9.99`) off a flow that hands out free coins would report fabricated revenue
+to Layers. **This also means `site/privacy/index.html`'s existing "Purchase data, via RevenueCat and the app
+stores" paragraph is inaccurate as written** (describes real Play Billing/RevenueCat validation) - flagged to the
+owner, not rewritten yet (see the privacy-policy bullet above).
+
+### Verification
+
+`:compileKotlinJvm` (root, common code + JVM actuals) - **BUILD SUCCESSFUL**. `:checkDebugAarMetadata` (`:game`'s
+own Android target) - **BUILD SUCCESSFUL**, confirming the compileSdk-34 conflict is genuinely gone after the
+revert. `android-shell`'s `compileDebugKotlin` - **BUILD SUCCESSFUL**. `android-shell`'s `assembleDebug` (full APK,
+not just compile) - **BUILD SUCCESSFUL**, and the packaged output includes `liblayers_core.so` (the SDK's real
+Rust-compiled core), confirmed via the `stripDebugDebugSymbols` task log line naming it - i.e. the real native
+library is genuinely linked into the built APK, not just present on the Java/Kotlin classpath.
+**Not yet done, same standing caveat as every other entry in this file**: never run on a real device/emulator -
+whether `configure()` actually connects to Layers' backend, whether events actually arrive in their dashboard, and
+whether `enableDebug`'s log output looks sane are all unverified. iOS: not attempted at all (the vendor's own
+guide split this into an Android section and an "iOS only - App Tracking Transparency" bullet; scope for this pass
+was Android only, matching that split).
+
+## REVERTED: `/delete` data-deletion page - built, then removed same day (2026-09-06)
+
+Briefly existed as `site/delete/index.html` + `site/delete/success/index.html`, built to satisfy Google Play Data
+Safety's "Delete data URL" field (that field requires a real, live URL that prominently states the steps, the data
+types deleted/kept, and a retention period). While reviewing the copy, the owner caught a real accuracy problem
+worth remembering: the form asked for an email address as if to "locate and delete matching records," but the game
+collects no email anywhere except a prior Support-page submission - for the overwhelming majority of players (who
+never contacted Support) there is nothing on file to find, making the form misleading as originally drafted even
+after a first correction pass.
+
+**Owner's decision: remove the page entirely and answer Play Console's "Do you provide a way for users to request
+that their data is deleted?" as No**, rather than keep maintaining a dedicated deletion flow for data that, in
+practice, almost never exists to delete. Reverted:
+- `site/delete/` (both files) deleted outright.
+- `site/_redirects`' two `/delete` routing lines removed.
+- `site/privacy/index.html`'s section 11 ("How to Request Deletion of Your Data", `id="delete-your-data"`) removed
+  entirely, not just unlinked - keeping it would have left the privacy policy claiming a dedicated deletion
+  mechanism the Play Store listing now says doesn't exist, the same kind of drift this file has flagged repeatedly
+  elsewhere. "12. Contact Us" renumbered back down to "11.".
+
+**Not reverted, and correctly so**: Section 6 ("Your Rights (EEA/UK/Switzerland and California)") still says "we're
+glad to help route any request sent to us" - this is generic GDPR/CCPA rights boilerplate, not a claim of a
+dedicated deletion flow, and remains legally accurate independent of the Play Store checkbox answer (a user can
+still email support and ask; there's just no purpose-built page promising a formal 30-day process anymore).
+
+If a genuine, defensible deletion flow is wanted later, the honest version of it should center on what's actually
+true: for most players there is nothing to delete (all game data is local-only, deleted by uninstalling), and the
+only real lever is a prior Support submission - any future page should lead with that instead of implying a
+database lookup that mostly doesn't exist.

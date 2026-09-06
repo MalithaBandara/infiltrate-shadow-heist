@@ -22,3 +22,12 @@ src/main/*
 # SFX working data: ~150MB of re-downloadable third-party packs plus generated
 # payloads. See tools/sfx/README.md.
 tools/sfx/work/
+
+site/
+
+# Android Keystore files
+*.jks
+*.keystore
+keystore.properties
+
+keystore_base64.txt

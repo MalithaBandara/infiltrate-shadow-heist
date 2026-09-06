@@ -32,7 +32,7 @@ class GameplaySceneTest : ViewsForTesting() {
     @Test
     fun testGameplaySceneMultiScreenSizesAndBgmgLayer() = viewsTest {
         val sceneContainer = sceneContainer()
-        // Test default 4x length level (3200px) with bgmg2.png looping across various screen aspect ratios
+        // Test default long-corridor level (3500px) with bgmg2.png looping across various screen aspect ratios
         sceneContainer.changeTo { GameplayScene(game.model.LevelData.DEFAULT_LEVEL_1) }
         assertNotNull(sceneContainer.currentScene)
 
@@ -63,5 +63,13 @@ class GameplaySceneTest : ViewsForTesting() {
         }
         val leftPressed = views.input.keys[Key.LEFT] || views.input.keys[Key.A]
         assertFalse(leftPressed)
+    }
+
+    @Test
+    fun testClimbAnimationStart() {
+        // Raw frame 70 (0-indexed 69) skips the foot-plant stride and starts with hands on top
+        assertEquals(69, PlayerAnimations.CLIMB_START)
+        assertEquals(223, PlayerAnimations.CLIMB_END)
+        assertTrue(PlayerAnimations.CLIMB_START < PlayerAnimations.CLIMB_END)
     }
 }

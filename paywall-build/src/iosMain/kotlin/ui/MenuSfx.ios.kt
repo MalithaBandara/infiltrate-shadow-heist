@@ -69,3 +69,55 @@ actual fun rememberUiClick(volume: Float): () -> Unit {
     // slider affects the next tap without this composable having to recompose the pool.
     return { IosClickPlayer.play(volume) }
 }
+
+/**
+ * Same pooled-AVAudioPlayer approach as [IosClickPlayer], generalised to hold a pool per named
+ * clip instead of always "ui_click.wav".
+ */
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
+private object IosMenuClipPlayer {
+    private const val VOICES = 4
+    private val pools = mutableMapOf<String, List<AVAudioPlayer>>()
+    private val nextIndex = mutableMapOf<String, Int>()
+
+    fun prepare(clip: String, url: NSURL) {
+        if (pools.containsKey(clip)) return
+        val players = (0 until VOICES).mapNotNull {
+            try {
+                AVAudioPlayer(contentsOfURL = url, error = null).also { it.prepareToPlay() }
+            } catch (_: Throwable) {
+                null
+            }
+        }
+        if (players.isNotEmpty()) {
+            pools[clip] = players
+            nextIndex[clip] = 0
+        }
+    }
+
+    fun play(clip: String, volume: Float) {
+        val players = pools[clip] ?: return
+        val i = nextIndex[clip] ?: 0
+        val p = players[i % players.size]
+        nextIndex[clip] = (i + 1) % players.size
+        try {
+            p.volume = volume.coerceIn(0f, 1f)
+            p.currentTime = 0.0
+            p.play()
+        } catch (_: Throwable) {
+        }
+    }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+@Composable
+actual fun rememberMenuClip(clip: MenuClip, volume: Float): () -> Unit {
+    val url = remember(clip) {
+        NSBundle.mainBundle.URLForResource(name = clip.fileBaseName, withExtension = "wav")
+    }
+    remember(url) {
+        if (url != null) IosMenuClipPlayer.prepare(clip.fileBaseName, url)
+        Unit
+    }
+    return { IosMenuClipPlayer.play(clip.fileBaseName, volume) }
+}

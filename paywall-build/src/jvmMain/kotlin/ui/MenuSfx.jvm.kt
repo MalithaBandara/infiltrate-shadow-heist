@@ -61,3 +61,47 @@ actual fun rememberUiClick(volume: Float): () -> Unit {
 
     return remember(volume) { { DesktopClickPlayer.play(volume) } }
 }
+
+/**
+ * Same JavaFX AudioClip approach as [DesktopClickPlayer], generalised to hold several named clips
+ * instead of always "ui_click".
+ */
+private object DesktopMenuClipPlayer {
+    private val clips = mutableMapOf<String, AudioClip>()
+
+    fun prepare(name: String, file: File) {
+        if (clips.containsKey(name)) return
+        try {
+            clips[name] = AudioClip(file.toURI().toString())
+        } catch (t: Throwable) {
+            println("[MenuSfx] desktop load failed for $name: ${t.message}")
+        }
+    }
+
+    fun play(name: String, volume: Float) {
+        val v = volume.coerceIn(0f, 1f)
+        if (v <= 0.001f) return
+        try { clips[name]?.play(v.toDouble()) } catch (_: Throwable) {}
+    }
+}
+
+@Composable
+actual fun rememberMenuClip(clip: MenuClip, volume: Float): () -> Unit {
+    remember {
+        try { JFXPanel() } catch (_: Throwable) {}
+    }
+
+    val clipFile = remember(clip) {
+        listOf(
+            File("resources/sfx/${clip.fileBaseName}.wav"),
+            File("../resources/sfx/${clip.fileBaseName}.wav")
+        ).firstOrNull { it.exists() }
+    }
+
+    remember(clipFile) {
+        if (clipFile != null) DesktopMenuClipPlayer.prepare(clip.fileBaseName, clipFile)
+        Unit
+    }
+
+    return remember(volume, clip) { { DesktopMenuClipPlayer.play(clip.fileBaseName, volume) } }
+}

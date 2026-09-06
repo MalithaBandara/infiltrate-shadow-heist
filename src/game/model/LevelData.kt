@@ -43,17 +43,33 @@ data class LevelLayout(
     val guards: List<GuardSpawn>,
     val cameras: List<CameraSpawn> = emptyList(),
     val fence1: Rect? = null,
-    val fence2: Rect? = null
+    val fence2: Rect? = null,
+    // Jump-crate gap crossings: each rect here must also be included in [boxes] (so it collides
+    // and can be landed on) - this just tags which boxes get the hanging-crate look (a decorative
+    // grey chain down to a normal-colored box) and which of the two crate art variants to use.
+    // See GameplayScene.kt's box-rendering loop.
+    val hangingCrateVariant1: List<Rect> = emptyList(),
+    val hangingCrateVariant2: List<Rect> = emptyList(),
+    val barrels: List<Rect> = emptyList()
 )
 
 data class LevelData(
     val id: String = "level_1",
     val name: String = "Infiltration",
     val timeTargetSeconds: Float = 15.0f,
+    // Long form: the mission-select card and the main menu's dossier/briefing card.
     val description: String = "Infiltrate the perimeter and reach the extraction zone undetected.",
+    // Short form: the in-game objective toast and the persistent HUD objective strip.
+    val objectiveHint: String = "Reach the extraction zone.",
     val guardSpeed: Double = 60.0,
     val guardPatrolMinX: Double = 300.0,
     val guardPatrolMaxX: Double = 600.0,
+    // When false, GameWorld.createDefault() still constructs a Guard (the field is non-nullable
+    // and dozens of existing tests read world.guard.* directly), but parks it off-map with zero
+    // vision/speed so it's never visible, never blocks movement, and never detects the player -
+    // guardPatrolMinX/MaxX above still take effect as plain corridor waypoints (e.g. exitZone's
+    // position is still derived from guardPatrolMaxX) even though no guard actually patrols there.
+    val guardEnabled: Boolean = true,
     val coinRewardBase: Int = 0,
     val coinRewardPerStar: Int = 0,
     val layout: LevelLayout? = null,
@@ -74,13 +90,13 @@ data class LevelData(
     /**
      * Calculates coin reward based on 2-tier progression:
      * Levels 1–5 (Easy): 1★ = 100, 2★ = 200, 3★ = 350 (Lifetime 3★ = 1,750)
-     * Levels 6–10 (Hard): 1★ = 200, 2★ = 400, 3★ = 700 (Lifetime 3★ = 3,500)
-     * Total lifetime earn across 10 levels = 5,250 coins.
+     * Levels 6–12 (Hard): 1★ = 200, 2★ = 400, 3★ = 700 (Lifetime 3★ = 4,900)
+     * Total lifetime earn across 12 levels = 6,650 coins.
      */
     fun getCoinReward(starCount: Int): Int {
         if (starCount <= 0) return 0
         val levelNum = id.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 1
-        val isHard = levelNum in 6..10 || id.contains("hard") || id.contains("dlc")
+        val isHard = levelNum in 6..12 || id.contains("hard") || id.contains("dlc")
         return if (isHard) {
             when (starCount) {
                 1 -> 200
@@ -99,41 +115,129 @@ data class LevelData(
     companion object {
         val DEFAULT_LEVEL_1 = LevelData(
             id = "level_1",
-            name = "01: Warehouse Infiltration",
+            name = "01: Night Arrival",
             timeTargetSeconds = 30.0f,
-            description = "Infiltrate the warehouse perimeter, bypass the guard patrol, and reach extraction.",
+            description = "Follow the robbery trail to the shipyard and find a way inside to begin your investigation.",
+            objectiveHint = "Find the Shipyard Entrance",
             guardSpeed = 60.0,
-            guardPatrolMinX = 2700.0,
-            guardPatrolMaxX = 3050.0,
-            cameras = listOf(
-                CameraSpawn(
-                    x = 3060.0,
-                    y = 180.0,
-                    minAngle = (90.0 - 30.0) * (PI / 180.0),
-                    maxAngle = (90.0 + 30.0) * (PI / 180.0),
-                    startAngle = (90.0 - 30.0) * (PI / 180.0),
-                    sweepSpeed = 0.7,
-                    visionRange = 240.0,
-                    visionFov = 45.0 * (PI / 180.0)
-                )
-            )
+            guardPatrolMinX = 2955.0,
+            guardPatrolMaxX = 3305.0,
+            guardEnabled = false
         )
+
+        /**
+         * A short vertical-then-horizontal platforming level: hop onto a crate, climb from it
+         * onto an elevated terrain block, then cross a gap in that terrain by jumping between
+         * three suspended crates before dropping back to the ground and reaching the exit.
+         *
+         * Surfaces (top edge): ground 440, crate1/rescue crate 392-400, terrain/hanging crates
+         * 280. crate1 and the rescue crate use the exact same footprint as the small crate in
+         * GameWorld.createDefault() (68x48) - short enough (48 < Player.maxJumpHeight 51.2) that
+         * a normal jump clears them; nothing climbs here. The step up from either of them onto the
+         * terrain block, though (112/120 units), sits inside Player's climbable window
+         * (51.2..147.2 - maxJumpHeight..maxJumpHeight+height, from jumpSpeed=-320/gravity=1000),
+         * so the engine forces the climb animation there instead of letting a jump clear it.
+         *
+         * The three hanging crates sit at the same 280 height as the terrain, 70 units apart edge
+         * to edge - comfortably inside the ~84 unit horizontal range a full jump arc covers at
+         * full run speed (moveSpeed 132 over the ~0.64s flight time), matching the "no gap
+         * exceeds the ~72 units covered during a full jump arc" budget SIDE_SCROLL_LEVEL_LAYOUT
+         * already established. Their collision boxes are NOT some arbitrary thin platform sitting
+         * under the art - each box's height is exactly the crate's own real height as it appears
+         * in that art (see GameplayScene.kt's box-rendering loop, which crops the crate out of the
+         * source image and scales it by box.width alone, so box.height comes out equal to the
+         * crop's real height rather than being forced to it), so the ground the player actually
+         * lands on lines up with where the crate visually is. hangingCrate1 reuses chainedcrate.png
+         * at the same width as level 1's ceiling-hung crate (174, the "same sizing as level 1"
+         * this was explicitly asked for) - the other two use chainedcrate2.png at a visibly
+         * smaller width (120), i.e. the same asset/approach, deliberately smaller. The chain above
+         * each crate is not that same image stretched to whatever the drop happens to be (tried
+         * first - either distorts the chain or, scaled by width alone, leaves such a long thin
+         * stretch of it that the whole thing reads as floating); it's real tiled copies of a short
+         * chain segment cropped from the same source art, repeated up to the ceiling - the same
+         * fix as a tiled floor texture, and just as immune to the crate/gap size changing later.
+         *
+         * A player who falls short lands on the ground below (it runs the full width of the
+         * level, so a drop is never fatal) and can climb back up via the rescue crate parked at
+         * the gap's near/left edge, flush against the terrain block's own right face and clear of
+         * hangingCrate1's own much taller footprint (15 units of horizontal clearance to its left
+         * edge - the two boxes never overlap in x, so the crate's height above it is irrelevant):
+         * ground -> rescue crate is a plain jump (40 tall), rescue crate -> terrain a 120 unit
+         * climb.
+         *
+         * Walkthrough (see GameplayModelTest.testLevel2HangingCratesGapIsBeatable):
+         *   1. Walk from the start fences to crate1 (x 400-468), jump onto it.
+         *   2. Climb from crate1's top straight onto the terrain block (x 468-868).
+         *   3. Walk to the terrain's right edge and jump the three hanging crates
+         *      (938-1112, 1182-1302, 1372-1492) onto the far terrain block (1562-1962).
+         *   4. Walk off the far terrain's end, drop to the ground, and continue to the exit.
+         */
+        val LEVEL_2_LAYOUT = run {
+            val groundY = 440.0
+            val ground = Rect(x = 0.0, y = groundY, width = 2600.0, height = 100.0)
+
+            // 1. First step: ground -> crate1, a plain jump (same 68x48 footprint as the small
+            // crate in GameWorld.createDefault(), so it renders and behaves the same way).
+            val crate1 = Rect(x = 400.0, y = 392.0, width = 68.0, height = 48.0)
+
+            // 2. The climb: crate1's top -> the elevated terrain block. Terrain height (144) is
+            // 3 times the crate height (48), putting the top edge at y=296.0 - exactly at the player's
+            // head level (392 - 96 = 296) when standing on crate1, so the climb/vault feels natural.
+            val terrain = Rect(x = 468.0, y = 296.0, width = 400.0, height = 144.0)
+
+            // 3. Rescue barrel: sits on the ground flush against the terrain block's right face.
+            // Sized at 32x48 (matching barrel.png aspect ratio), sitting on ground at y=392.0.
+            // Players who fall into the gap can jump onto the barrel and climb back up onto the terrain.
+            val rescueBarrel = Rect(x = 868.0, y = 392.0, width = 32.0, height = 48.0)
+
+            // 4. The gap crossing: three crates suspended over open air, landing at y=296.0 (matching terrain).
+            // Only the rectangular crate body is interactable (collidable).
+            // hangingCrate1 is chainedcrate.png (width 174, rectangular crate height 38).
+            // hangingCrate2/3 are chainedcrate2.png at smaller size (width 76, height 38, matching crate1 height).
+            val hangingCrate1 = Rect(x = 946.0, y = 296.0, width = 174.0, height = 38.0)
+            val hangingCrate2 = Rect(x = 1190.0, y = 296.0, width = 76.0, height = 38.0)
+            val hangingCrate3 = Rect(x = 1336.0, y = 296.0, width = 76.0, height = 38.0)
+
+            // 5. Far side: landing terrain block at y=296.0, same height as the near one.
+            val farTerrain = Rect(x = 1482.0, y = 296.0, width = 480.0, height = 144.0)
+
+            val boxes = listOf(crate1, terrain, rescueBarrel, hangingCrate1, hangingCrate2, hangingCrate3, farTerrain)
+
+            LevelLayout(
+                worldWidth = 2600.0,
+                playerStartX = 236.0,
+                playerStartY = groundY - 96.0,
+                exitZone = Rect(x = 2440.0, y = 340.0, width = 44.0, height = 100.0),
+                platforms = listOf(ground),
+                boxes = boxes,
+                guards = listOf(
+                    GuardSpawn(
+                        startX = 2360.0, surfaceY = groundY,
+                        patrolMinX = 2050.0, patrolMaxX = 2380.0,
+                        speed = 75.0, facing = -1.0, visionRange = 220.0
+                    )
+                ),
+                hangingCrateVariant1 = listOf(hangingCrate1),
+                hangingCrateVariant2 = listOf(hangingCrate2, hangingCrate3),
+                barrels = listOf(rescueBarrel)
+            )
+        }
 
         val DEFAULT_LEVEL_2 = LevelData(
             id = "level_2",
-            name = "02: Office Heist",
-            timeTargetSeconds = 28.0f,
-            description = "Navigate through tight security corridors. Stay crouched to avoid noise detection.",
-            guardSpeed = 75.0,
-            guardPatrolMinX = 2650.0,
-            guardPatrolMaxX = 3080.0
+            name = "02: Cargo Yard",
+            timeTargetSeconds = 32.0f,
+            description = "Search the outer yard for clues and find a route toward the areas connected to the stolen cargo.",
+            objectiveHint = "Find a Way Through the Yard",
+            layout = LEVEL_2_LAYOUT
         )
 
         val DEFAULT_LEVEL_3 = LevelData(
             id = "level_3",
-            name = "03: Vault Security",
+            name = "03: Blind Spot",
             timeTargetSeconds = 25.0f,
-            description = "High alert vault sector with rapid guard sweeps. Quick timing is critical.",
+            description = "The shipyard is guarded. Slip through security and continue searching for signs of your old crew.",
+            objectiveHint = "Get Past the Guards",
             guardSpeed = 95.0,
             guardPatrolMinX = 2600.0,
             guardPatrolMaxX = 3100.0
@@ -201,19 +305,120 @@ data class LevelData(
 
         val SIDE_SCROLL_LEVEL = LevelData(
             id = "level_4",
-            name = "04: Rooftop Approach",
+            name = "04: Restricted Zone",
             timeTargetSeconds = 60.0f,
-            description = "A long perimeter run. Use the upper walkways to cross over the patrols below.",
+            description = "The trail leads into a guarded cargo section. Get inside and discover what they are protecting.",
+            objectiveHint = "Get Into the Restricted Area",
             coinRewardBase = 90,
             coinRewardPerStar = 40,
             layout = SIDE_SCROLL_LEVEL_LAYOUT
+        )
+
+        // Levels 5-12 continue the shipyard story on the same single-screen arena
+        // (GameWorld.createDefault) levels 1-3 already use - no layout of their own yet, just a
+        // progressively faster/tighter guard per level for a difficulty curve. timeTargetSeconds
+        // is an estimate carried forward from that same pattern, not device/playtest-verified.
+        val DEFAULT_LEVEL_5 = LevelData(
+            id = "level_5",
+            name = "05: Missing Container",
+            timeTargetSeconds = 26.0f,
+            description = "Container 17 appears in the records from your crew's final job. Find it and learn where it went.",
+            objectiveHint = "Find Container 17",
+            guardSpeed = 80.0,
+            guardPatrolMinX = 2700.0,
+            guardPatrolMaxX = 3150.0
+        )
+
+        val DEFAULT_LEVEL_6 = LevelData(
+            id = "level_6",
+            name = "06: Stolen Manifest",
+            timeTargetSeconds = 25.0f,
+            description = "The container is missing. Search the offices for records that reveal who moved it and where it went.",
+            objectiveHint = "Find the Shipping Records",
+            guardSpeed = 85.0,
+            guardPatrolMinX = 2650.0,
+            guardPatrolMaxX = 3120.0
+        )
+
+        val DEFAULT_LEVEL_7 = LevelData(
+            id = "level_7",
+            name = "07: Cold Trail",
+            timeTargetSeconds = 24.0f,
+            description = "The records point deeper into the shipyard. Follow the trail and uncover evidence of recent activity.",
+            objectiveHint = "Follow the Cargo Trail",
+            guardSpeed = 90.0,
+            guardPatrolMinX = 2600.0,
+            guardPatrolMaxX = 3100.0
+        )
+
+        val DEFAULT_LEVEL_8 = LevelData(
+            id = "level_8",
+            name = "08: Old Signature",
+            timeTargetSeconds = 23.0f,
+            description = "You find your crew's signature at the shipyard. Follow the clues to prove someone from the crew survived.",
+            objectiveHint = "Find Your Crew's Mark",
+            guardSpeed = 95.0,
+            guardPatrolMinX = 2600.0,
+            guardPatrolMaxX = 3080.0
+        )
+
+        val DEFAULT_LEVEL_9 = LevelData(
+            id = "level_9",
+            name = "09: Open Yard",
+            timeTargetSeconds = 24.0f,
+            description = "The trail continues across an exposed yard. Cross it unseen and stay close to the evidence.",
+            objectiveHint = "Cross the Yard Undetected",
+            guardSpeed = 100.0,
+            guardPatrolMinX = 2550.0,
+            guardPatrolMaxX = 3050.0
+        )
+
+        val DEFAULT_LEVEL_10 = LevelData(
+            id = "level_10",
+            name = "10: Ghost Chase",
+            timeTargetSeconds = 23.0f,
+            description = "A mysterious figure appears ahead, moving like one of your old crew. Follow them before they vanish.",
+            objectiveHint = "Follow the Stranger",
+            guardSpeed = 105.0,
+            guardPatrolMinX = 2550.0,
+            guardPatrolMaxX = 3030.0
+        )
+
+        val DEFAULT_LEVEL_11 = LevelData(
+            id = "level_11",
+            name = "11: Hidden Cargo",
+            timeTargetSeconds = 22.0f,
+            description = "You finally reach Container 17. Open it and uncover what links the cargo to your crew's disappearance.",
+            objectiveHint = "Open Container 17",
+            guardSpeed = 110.0,
+            guardPatrolMinX = 2500.0,
+            guardPatrolMaxX = 3000.0
+        )
+
+        val DEFAULT_LEVEL_12 = LevelData(
+            id = "level_12",
+            name = "12: Final Proof",
+            timeTargetSeconds = 22.0f,
+            description = "The final evidence may reveal the truth about that night and which member of your crew survived.",
+            objectiveHint = "Recover the Evidence",
+            guardSpeed = 115.0,
+            guardPatrolMinX = 2500.0,
+            guardPatrolMaxX = 2980.0
         )
 
         val DEFAULT_LEVELS: List<LevelData> = listOf(
             DEFAULT_LEVEL_1,
             DEFAULT_LEVEL_2,
             DEFAULT_LEVEL_3,
-            SIDE_SCROLL_LEVEL
+            SIDE_SCROLL_LEVEL,
+            DEFAULT_LEVEL_5,
+            DEFAULT_LEVEL_6,
+            DEFAULT_LEVEL_7,
+            DEFAULT_LEVEL_8,
+            DEFAULT_LEVEL_9,
+            DEFAULT_LEVEL_10,
+            DEFAULT_LEVEL_11,
+            DEFAULT_LEVEL_12
         )
     }
 }

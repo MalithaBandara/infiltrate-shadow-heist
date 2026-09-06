@@ -3,57 +3,85 @@ package game.scene
 import korlibs.audio.sound.*
 import korlibs.io.file.std.*
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.coroutineContext
 
 /**
  * The movement foley, loaded once per gameplay scene.
  *
  * Every movement clip here was cut from the audio track of the animation plate it belongs to
- * (`walk_new.mp4`, `crouch_new.mp4`, `jump_new.mp4`, `climb.mp4`), so the sound and the pose it
- * plays under come from the same take. `ui_click` is the single exception - it is Kenney's
- * `click3` (CC0), because a button press is not a thing the character does and there is no plate
- * it could have come from. The cuts were made against the waveform rather than by
- * ear: each source has long silent runs around the action, and the trims sit on the measured
- * onsets. One shared gain was applied across all five instead of normalising each one, because
- * the source set is already balanced the way the game wants it - the crouch foley is genuinely
- * quiet and the jump impact is genuinely the loudest thing in the set, and per-clip
- * normalisation would have flattened exactly that difference.
+ * (`walk_new.mp4`, `jump_new.mp4`, `climb.mp4`), so the sound and the pose it plays under come
+ * from the same take. `ui_click` is the single exception - it is Kenney's `click3` (CC0), because
+ * a button press is not a thing the character does and there is no plate it could have come from.
+ * The cuts were made against the waveform rather than by ear: each source has long silent runs
+ * around the action, and the trims sit on the measured onsets. One shared gain is applied across
+ * all four instead of normalising each one, because the source set is already balanced the way
+ * the game wants it, and per-clip normalisation would flatten that.
  *
- * Deliberately absent: a crouch-walk sound. `Player.currentNoiseRadius` reports SILENT while
- * crouched, guards cannot hear the player in that stance, and the whole reason to crouch-walk is
- * that it makes no noise - so putting a footstep on it would contradict the mechanic it exists
- * to serve. The crouch clip plays on the stance change into a crouch and then nothing until the
- * player stands back up. `crouchwalk.mp4` does carry an audio track; it is not used.
+ * Deliberately silent: crouch and crouch-walk both have no sound at all, by design - not a
+ * missing asset. `Player.currentNoiseRadius` reports SILENT in both stances, guards cannot hear
+ * the player, and the whole reason to crouch is that it makes no noise, so playing anything on
+ * the stance change or the crouch-walk cycle would contradict the mechanic it exists to serve.
+ * There used to be a crouch-entry/exit clip here (cut from `crouch_new.mp4`); removed once that
+ * contradiction was pointed out, not because the clip itself was broken.
  */
 class GameSounds(
     val stepA: Sound?,
     val stepB: Sound?,
-    val crouch: Sound?,
     val impact: Sound?,
     val climb: Sound?,
-    val takeoff: Sound?,
-    val uiClick: Sound?
-)
+    val uiClick: Sound?,
+    val guardInvestigate: Sound?,
+    val toastSuccess: Sound?,
+    val cameraDetect: Sound?,
+    val bgMusic: Sound?
+) {
+    /**
+     * Plays every loaded clip once at zero volume, immediately, then stops it - this is a
+     * warm-up, not a sound. On Android, `Sound.play()` (`SoundAudioData.play()` in
+     * korlibs-audio-core-android) constructs a brand new `android.media.AudioTrack` on every
+     * single call - confirmed by decompiling the dependency, not assumed - and a freshly
+     * constructed `AudioTrack` has real, device-dependent startup latency before it actually
+     * produces sound, worst on the first one a process ever creates (cold audio HAL/mixer
+     * thread). Paying that cost once here, silently, during the scene's own loading (before the
+     * player can do anything that would trigger a real sound) means the first real jump/landing
+     * in a level isn't the one that eats it. Volume 0 still exercises the real construction path
+     * - `SoundAudioData.play()` creates and starts the platform output unconditionally; volume
+     * only scales the samples written into it - so this isn't a no-op.
+     *
+     * Each clip is primed inside its own `try`/`catch`: this runs again on every RESTART/RETRY
+     * (a fresh `GameplayScene` means a fresh `GameAudio.load()`, so there's nothing to prime
+     * ahead of time the way the very first load could), and constructing several `AudioTrack`s in
+     * quick succession is exactly the kind of thing that can fail on a real device even though it
+     * didn't on the first, cold call - if it does, this must not take the rest of scene setup down
+     * with it. Priming is a latency optimization; the scene loading at all is not optional.
+     */
+    fun primeAll(context: CoroutineContext) {
+        for (sound in listOf(stepA, stepB, impact, climb, uiClick, guardInvestigate, toastSuccess, cameraDetect)) {
+            try {
+                sound?.play(context, PlaybackParameters(volume = 0.0))?.stop()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+}
 
 object GameAudio {
 
     /**
      * Relative levels, applied on top of the player's SFX volume setting.
      *
-     * The take-off and the landing are now two different cuts of `jump_new.mp4`, not one sample
-     * used twice. An earlier pass read that source as holding a single transient and had the
-     * push-off replay the landing at low gain; a per-frame scan of the waveform shows the
-     * push-off is there from 0.49s to 1.10s, it just sits about 34 dB under the landing at
-     * 1.625s (which is itself two impacts, 1.625s and 1.665s - both feet).
+     * [LANDING_GAIN] is peak-normalised on its own rather than sharing [STEP_GAIN]'s single
+     * level, the way the rest of the movement foley does, because landing is the loud,
+     * guard-attracting half of a jump and needs its own headroom.
      *
-     * That 34 dB is why each clip is peak-normalised on its own rather than sharing one gain the
-     * way the movement foley does: at its recorded level the push-off is inaudible on a phone
-     * speaker. The balance between them therefore lives here, in the gain table, where it can be
-     * retuned without recutting the assets - the take-off stays clearly the lighter of the two,
-     * because landing is still the loud, guard-attracting half of a jump.
+     * There used to be a take-off/push-off clip and gain here too, cut from the same
+     * `jump_new.mp4` source as the landing. Removed (not just muted) after it turned out to be
+     * unusable: measuring its waveform showed sustained high energy across the whole clip with no
+     * attack-decay shape anywhere, the signature of broadband noise rather than a real transient -
+     * it played back as static, not a sound effect. A future replacement would need a real recut
+     * from source, listened to before landing back in this table.
      */
     const val STEP_GAIN = 0.55
-    const val CROUCH_GAIN = 0.9
-    const val TAKEOFF_GAIN = 0.45
     const val LANDING_GAIN = 0.85
     const val CLIMB_GAIN = 0.7
 
@@ -64,9 +92,44 @@ object GameAudio {
      * Mission Failed buttons. [HUD_TAP_GAIN] is for the on-screen D-pad, jump and crouch
      * controls, which fire continuously while the player is moving; the same sample at the same
      * level would become the loudest recurring thing in a level, so it is mixed well under.
+     *
+     * Was 0.6, raised to 0.85 after real-device feedback that presses on the pause/death-menu
+     * buttons weren't audible - then brought back down to 0.65 after further feedback that 0.85
+     * overshot into too loud. The wiring (`playClick(UI_CLICK_GAIN)` in this file's
+     * `createPaperMenuBtn`/`createTacticalMenuBtn`/pause-button `onDown` handlers) has not changed
+     * across any of these three values - the pause and Mission Failed buttons have played this
+     * exact click since it was first added; only the level has moved.
      */
-    const val UI_CLICK_GAIN = 0.6
+    const val UI_CLICK_GAIN = 0.65
     const val HUD_TAP_GAIN = 0.3
+
+    /**
+     * Owner-supplied clip (Downloads/charAnimations/music/guard_investigate.wav), peak-normalised
+     * to -3dBFS. Fires once on the rising edge of `GuardState.PATROL -> INVESTIGATING` - see the
+     * `guardWasInvestigating` edge-detection in `GameplayScene.kt`'s update loop - not on every
+     * frame a guard stays investigating, and not on the frame it returns to patrol.
+     */
+    const val GUARD_INVESTIGATE_GAIN = 0.8
+
+    /**
+     * Same clip and file as the menu bus's success toast (`toast_success.wav`, shared out of
+     * `resources/sfx/` - the menu bus and this one just reach it through different loaders). Used
+     * for the "continue granted" moment when a rewarded ad is watched successfully - the owner's
+     * call was not to source a distinct reward stinger, and reuse the one success sound everywhere
+     * instead.
+     */
+    const val TOAST_SUCCESS_GAIN = 0.8
+
+    /**
+     * One-beat alert sound cut from Downloads/charAnimations/music/camera.mp3, played when a
+     * security camera's vision cone detects the player.
+     */
+    const val CAMERA_DETECT_GAIN = 0.85
+
+    /**
+     * Level background music track (Downloads/charAnimations/music/bgmusic.mp3).
+     */
+    const val BG_MUSIC_GAIN = 0.65
 
     /**
      * Phases within one gait cycle at which a foot reaches the ground, measured off the walk
@@ -78,18 +141,43 @@ object GameAudio {
      */
     val STEP_PHASES = doubleArrayOf(0.16, 0.70)
 
+    // Real-device regression, not just theory: after primeAll() started running on every load,
+    // "restart", "quit then play again", and "watch ad to continue" all started grey-screening
+    // instead of loading the level. RESTART's crash (an uncaught exception from priming, since a
+    // fresh GameplayScene means a fresh round of AudioTrack construction on every single reload,
+    // not just the first) is fixed by primeAll()'s own try/catch above - but a hang, as opposed to
+    // a thrown exception, wouldn't be caught by that, and the other two reports came from reload
+    // paths where the try/catch fix alone didn't seem to be enough. Gating priming to the first
+    // load only removes the repetition that made it risky, while keeping the one case the whole
+    // optimization actually targets: the cold, first-ever AudioTrack a process constructs, which
+    // is the expensive one. Every load after the first already benefits from whatever priming did
+    // for the audio HAL/mixer thread - that's a process-wide effect, not tied to which specific
+    // Sound object triggered it - so repeating it on every subsequent level (re)load was always
+    // redundant work, not just occasionally risky work.
+    @Volatile
+    private var audioPrimed = false
+
     suspend fun load(): GameSounds {
         suspend fun clip(name: String): Sound? =
             try { resourcesVfs["sfx/$name.wav"].readSound() } catch (_: Throwable) { null }
-        return GameSounds(
+        suspend fun music(name: String): Sound? =
+            try { resourcesVfs["music/$name.mp3"].readMusic() } catch (_: Throwable) { null }
+        val sounds = GameSounds(
             stepA = clip("step_a"),
             stepB = clip("step_b"),
-            crouch = clip("crouch"),
             impact = clip("impact"),
             climb = clip("climb"),
-            takeoff = clip("takeoff"),
-            uiClick = clip("ui_click")
+            uiClick = clip("ui_click"),
+            guardInvestigate = clip("guard_investigate"),
+            toastSuccess = clip("toast_success"),
+            cameraDetect = clip("camera_detect"),
+            bgMusic = music("bgmusic")
         )
+        if (!audioPrimed) {
+            audioPrimed = true
+            sounds.primeAll(coroutineContext)
+        }
+        return sounds
     }
 }
 

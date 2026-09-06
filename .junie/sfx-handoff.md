@@ -25,6 +25,15 @@ clicks, success and error feedback — across both UI layers.
    and the pause buttons "are anyway just a button click".
 5. **Jump comes from the owner's own animation plate**, `C:\Users\USER\Downloads\charAnimations\jump_new.mp4`,
    not from a library. Library candidates for those two cues were deliberately removed.
+6. **One success sound, one error sound, everywhere** (2026-09-05): no bespoke "bigger" success
+   stinger for purchases, no separate reward sound for the ad-continue, no separate denial sound
+   for a locked mission — `toast_success.wav`/`toast_error.wav` cover every success/error-flavoured
+   cue in the game, gameplay and menu alike. Do not source additional success/error variants.
+7. **Several cues get no sound at all, by design** (2026-09-05): `powerup_activate`,
+   `powerup_denied`, `powerup_expire`, and `mission_start`. Don't add sound to these later without
+   the owner reopening the question — this isn't a placeholder gap, it's a decision.
+8. **The toggle switch is just the primary click** (2026-09-05) — no dedicated mechanical
+   two-state sound, despite what the original bench brief asked for.
 
 ## The audition bench
 
@@ -34,22 +43,64 @@ A published Artifact with **all candidates embedded as base64 audio**, so it pla
 with no local files. It can be re-read with the Artifact tool (`action: "read"`, that URL) and
 republished to the same URL. Source template: `tools/sfx/scripts/bench-template.html`.
 
-- 30 cues, each showing where it fires in the source so the owner can judge fit.
+- 19 cues (down from the original 30 — see "Cues removed" below), each showing where it fires in
+  the source so the owner can judge fit.
 - `J`/`K` move, `Space` plays, `Enter` picks, `N` next cue, `U` next *unchosen*.
 - **Export picks** produces a paste-back text block (`cue = pack/file`).
 - Cues already settled show a green "Settled" note: the six click cues, and `footstep_run`
   (marked KEEP EXISTING).
 
-**6 of 30 cues are settled. 24 remain unchosen.**
+**7 of 19 cues are settled. 12 remain unchosen.**
 
 Still open: `crouch_stance`, `vault_climb`, `detection_rising`, `alert_spotted`, `mission_failed`,
-`guard_investigating`, `beacon_ambient`, `level_complete`, `star_reveal`, `coin_bounty`,
-`powerup_activate`, `powerup_denied`, `powerup_expire`, `ad_reward`, `toast_success`,
-`toast_error`, `purchase_success`, `locked_denied`, `mission_start`, `slider_tick`,
-`toggle_switch` — plus `jump_takeoff` and `land_impact`, where defaults were shipped but the
-owner has not confirmed the cut (see below).
+`beacon_ambient`, `level_complete`, `star_reveal`, `coin_bounty`, `slider_tick` — plus
+`jump_takeoff` and `land_impact`, where defaults were shipped but the owner has not confirmed the
+cut (see below).
 
-Two notes worth raising when the owner returns to it:
+### Cues removed from the bench entirely (2026-09-05) — owner decisions, not bench picks
+
+Eleven cues that once needed auditioning no longer do, either because the owner supplied a real
+file directly or decided no sound belongs there at all. Removed from both the published bench and
+`tools/sfx/scripts/build_page.py` (the regeneratable source), including their now-unused candidate
+audio, so nobody re-auditions a decision that's already final:
+
+- **`toast_success` / `toast_error`** — owner supplied `success.wav`/`error.ogg` directly
+  (Freesound, CC0: Sjonas88 and Kastenfrosch). Shipped as `resources/sfx/toast_{success,error}.wav`
+  (+ the iOS duplicate under `ios-shell/Resources/`), wired into `showToast()` in both
+  `SettingsScreen.kt` and `StoreScreen.kt` via `MenuClip.TOAST_SUCCESS`/`TOAST_ERROR` in
+  `MenuSfx.kt`. Credited at Settings → About → Credits & Licenses and in `ATTRIBUTION.md`.
+- **`guard_investigating`** — owner supplied `guard_investigate.wav` directly (from
+  `Downloads\charAnimations\music\`, no licence info given — this is the owner's own recording,
+  same status as the jump/footstep/climb plates; flag if that's wrong). Converted to the project's
+  mono/44.1kHz/PCM WAV format, peak-normalised to -3dBFS (no silence to trim — the source was
+  already a tight 0.35s clip), shipped as `resources/sfx/guard_investigate.wav`. Wired into
+  `GameAudio.kt` (`GameSounds.guardInvestigate`, `GUARD_INVESTIGATE_GAIN = 0.8`) and fired from
+  `GameplayScene.kt`'s per-guard update loop on the rising edge of `GuardState.PATROL ->
+  INVESTIGATING` (a new `guardWasInvestigating: BooleanArray`, one bool per guard) — so it fires
+  once when a guard first gets suspicious, not on every frame it stays that way.
+- **`powerup_activate` / `powerup_denied` / `powerup_expire`** — owner decided none of these need a
+  sound. Never wired in code (they never had a call site to begin with), so no code change; just
+  removed from the bench.
+- **`mission_start`** — owner decided it needs no sound. Same as above: never wired, removed from
+  the bench only.
+- **`toggle_switch`** — owner decided it's just the primary click, no separate sound. Already
+  wired that way in `SettingsScreen.kt`'s controls-layout toggle (`click()` on both segments) from
+  earlier work — nothing left to do, removed from the bench.
+- **`purchase_success` / `locked_denied` / `ad_reward`** — owner decided not to source distinct
+  success/error sounds for these; reuse the two that already exist everywhere.
+  - `purchase_success` (`StoreScreen.kt`'s coin/power-up purchase flows) was **already** wired
+    through the same `showToast()` used by `toast_success`/`toast_error`, so this one needed no
+    code change at all — it's been reusing the right sound since `showToast` first got wired.
+  - `locked_denied` needed real wiring: tapping a locked/gated mission card in
+    `LevelSelectScreen.kt` used to swallow the tap in total silence. Now fires `LocalToastError`
+    on that tap (no new toast banner UI was added — just the sound, since that's all that was
+    asked for).
+  - `ad_reward` (continue-granted, in `GameplayScene.kt` — the KorGE gameplay bus, not Compose)
+    needed a new load path: `GameSounds.toastSuccess` now also loads `resources/sfx/toast_success.wav`
+    on the gameplay side (`GameAudio.TOAST_SUCCESS_GAIN = 0.8`) and plays it the instant
+    `ContinueAdBridge.consumeContinueGranted()` returns true.
+
+Two notes worth raising when the owner returns to what's left:
 - `pause_open` / `pause_close` are now both click3, so that pairing question is closed.
 - `detection_rising` is the highest-value gap in the game: the "spotted" banner was deliberately
   deleted from `GameplayScene`, so once wired, audio is the *only* channel telling the player
@@ -62,31 +113,89 @@ Two notes worth raising when the owner returns to it:
 | File | What it is |
 |---|---|
 | `ui_click.wav` | Kenney `click3`, CC0 — every button and tap |
-| `takeoff.wav` | `jump_new.mp4` 0.765–0.955s ("cut B"), normalised +35.6 dB |
 | `impact.wav` | `jump_new.mp4` 1.612–1.952s, full two-foot landing (**replaced** the old cut) |
+| `toast_success.wav` | Owner-supplied `success.wav` (Freesound, CC0, Sjonas88), trimmed to the real transient (0.30–1.00s of the source) and peak-normalised to -3dBFS. Also loaded gameplay-side now, for `ad_reward` — see Code below |
+| `toast_error.wav` | Owner-supplied `error.ogg` (Freesound, CC0, Kastenfrosch), trimmed to the real transient (0–0.55s of the source) and peak-normalised to -3dBFS |
+| `guard_investigate.wav` | Owner-supplied, from `Downloads/charAnimations/music/`. No silence to trim (already a tight 0.35s clip) — just format-converted and peak-normalised to -3dBFS |
 
 `ios-shell/Resources/ui_click.wav` is a **deliberate second copy** — the iOS menu bus reads it
 through `NSBundle`, and `project.yml` already copies that directory. Same pattern as
 `mainmenu.mp3`.
 
+**`takeoff.wav` was removed after this handoff was written** — a concurrent on-device debugging
+pass (2026-09-05, see `guidelines.md`'s "RESOLVED: `takeoff.wav` removed" section) found it played
+as TV static, not a jump sound: the waveform showed sustained broadband noise with no attack-decay
+shape anywhere, not the quiet-but-real transient this handoff originally described. Removed
+entirely from `GameAudio.kt`/`GameSounds`/`GameplayScene.kt`, not muted. **Jump take-off is
+currently silent** — one of the five candidate cuts in `tools/sfx/jump_cuts/` would need a fresh
+listen (Claude cannot hear audio) before any of them go back in.
+
 ### Code
 
-- `src/game/scene/GameAudio.kt` — added `takeoff` + `uiClick` to `GameSounds`; added
-  `UI_CLICK_GAIN` (0.6) and `HUD_TAP_GAIN` (0.3); `TAKEOFF_GAIN` 0.35 → 0.45.
+- `src/game/scene/GameAudio.kt` — added `uiClick` to `GameSounds`; added `UI_CLICK_GAIN` (now 0.65,
+  see the click-volume history in its own doc comment) and `HUD_TAP_GAIN` (0.3). (`takeoff`/
+  `TAKEOFF_GAIN` were added then later removed — see above.) Also gained `GameSounds.primeAll()`,
+  called once at the end of `load()`, unrelated to this handoff: it plays every clip once at zero
+  volume to pay Android's `AudioTrack`-construction latency during the loading screen instead of on
+  the first real jump/landing. 2026-09-05: added `guardInvestigate` (`GUARD_INVESTIGATE_GAIN =
+  0.8`) and a second load of `toast_success.wav` on this bus (`TOAST_SUCCESS_GAIN = 0.8`, for
+  `ad_reward` — the menu bus's `toast_success` load is separate and unrelated, they just share a
+  source file).
 - `src/game/scene/GameplayScene.kt` — a local `playClick(gain)` helper; clicks on both modal
-  button builders, the pause button, both touch-control builders, and the powerup dock; jump
-  take-off switched from replaying `impact` to the real `takeoff` clip.
+  button builders, the pause button, both touch-control builders, and the powerup dock.
+  2026-09-05: a `guardWasInvestigating: BooleanArray` added next to `guardBadges`, checked in the
+  same per-guard loop that already updates visor colour/vision cones, firing `guardInvestigate` on
+  the `PATROL -> INVESTIGATING` rising edge only. Also, `ad_reward`'s success sound fires right
+  before `caughtOverlay.visible = false` in the `consumeContinueGranted()` branch of the main
+  update loop.
 - `paywall-build/src/commonMain/kotlin/ui/MenuSfx.kt` **(new)** + `iosMain`/`androidMain`/`jvmMain`
   actuals — the menu SFX bus, which did not exist before. Delivered via a `LocalUiClick`
   CompositionLocal provided once in `NavigationRoot`.
 - Click wired into `MenuComponents` (back, coin-pill plus, sidebar tabs), `MainMenuScreen`,
   `LevelSelectScreen`, `StoreScreen`, `SettingsScreen`.
+- `MenuSfx.kt` generalised (2026-09-05) with a second, parallel mechanism —
+  `MenuClip`/`rememberMenuClip`/`LocalToastSuccess`/`LocalToastError` — so `toast_success.wav` and
+  `toast_error.wav` could be added without touching the already-verified click path. Each platform
+  actual gained a second, keyed-by-clip-name player object (`AndroidMenuClipPlayer`,
+  `IosMenuClipPlayer`, `DesktopMenuClipPlayer`) alongside its existing click-only one, rather than
+  generalising the click player itself. Wired into both `showToast()` sites in `SettingsScreen.kt`
+  and `StoreScreen.kt`, which fire the success or error clip depending on the toast's own
+  `isSuccess` flag.
+- Settings → About → "CREDITS & LICENSES" (`SettingsScreen.kt`, `AboutSettingsPanel`) was a
+  placeholder toast before this pass. It now expands in place to a real credits list
+  (`SOUND_CREDITS`) naming all four third-party sounds — kept in sync with `ATTRIBUTION.md` by
+  hand, not generated from it.
+- 2026-09-05: `LevelSelectScreen.kt`'s mission-card tap handler used to silently swallow taps on
+  locked/gated missions (`if (canPlay) onStartMission(levelData)`, no `else`). Now
+  `else toastError()`, reusing `LocalToastError` — no new toast banner UI, just the sound the
+  owner asked for.
+- `tools/sfx/scripts/build_page.py`'s `CUES` list (the regeneratable source for the bench) trimmed
+  from 30 to 19 entries — see "Cues removed from the bench entirely" above for exactly which and
+  why. The published bench itself was edited and republished to match (same URL), by parsing the
+  live artifact's embedded `DATA`/`CUES` JSON, filtering out the 11 resolved cue ids, and
+  re-publishing — not by re-running the fetch/slice pipeline from scratch, since nothing about the
+  remaining candidates changed.
 
 ### Verified
 
 - `:game` `compileKotlinJvm` + `jvmTest` — BUILD SUCCESSFUL
 - `paywall-build` `compileKotlinJvm` — BUILD SUCCESSFUL
 - `paywall-build` `jvmTest` — 7 tests, 0 failures
+- 2026-09-05, after the toast-sound work: `paywall-build` `compileKotlinJvm`, `jvmTest`,
+  `compileDebugKotlinAndroid`, and `compileKotlinIosSimulatorArm64` (klib only, no link — same
+  Windows-can't-link-iOS constraint as everywhere else in this project) all BUILD SUCCESSFUL.
+  Toast sounds not heard by ear (Claude cannot hear audio) — the owner already supplied and named
+  them, so no bench audition was needed for these two.
+- Same session, also re-ran root `:game` `compileKotlinJvm` + `jvmTest` — BUILD SUCCESSFUL, all
+  tests passing — since a concurrent session had touched `GameAudio.kt`/`GameplayScene.kt`
+  (the `takeoff.wav` removal, see the updated item 2 below) after this handoff's original
+  verification. Confirms the working tree builds clean as a whole, not just the parts this pass
+  touched.
+- 2026-09-05, after the guard-investigate/click-volume/toast-reuse work: `:game`
+  `compileKotlinJvm` + `jvmTest` and `paywall-build` `compileKotlinJvm` + `jvmTest` both BUILD
+  SUCCESSFUL again. `guard_investigate.wav`'s trigger (the guard-state edge detection) is exercised
+  by the existing `GameplayModelTest` suite indirectly (guards do transition to `INVESTIGATING` in
+  several tests) but not asserted on directly — nobody has heard this sound either.
 
 Build `paywall-build` **directly**: `./gradlew.bat -p paywall-build <task>`.
 Always `export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.12.101-hotspot"` first.
@@ -114,19 +223,27 @@ Always `export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.12.101-hots
 else**. Every gameplay asset — sprites, backgrounds, the Bebas font, all of `sfx/` — loads via
 `resourcesVfs`, which resolves against the app bundle. Nothing copies `resources/` there.
 
-The menu click is fine on iOS (it has its own bundled copy). Gameplay audio is not.
+The menu click is fine on iOS (it has its own bundled copy) — and so are the two new toast sounds,
+for the same reason: both are duplicated into `ios-shell/Resources/`. Gameplay audio is not.
 
 Likely a one-line addition to `project.yml`, but that file is the hard-won working iOS config,
 so it was **deliberately left untouched pending explicit approval**. Unverified on device —
 confirm against a CI run.
 
-### 2. Jump cut not confirmed by ear
+### 2. Jump take-off is silent — needs a fresh cut, `takeoff_B_transient` was defective
 
-Three take-off cuts and two landing cuts were produced; `takeoff_B_transient` and `landing_full`
-were shipped as defaults so the game works now. All five are kept in `tools/sfx/jump_cuts/`.
-Swapping is a file copy into `resources/sfx/`.
+**Updates the old "jump cut not confirmed by ear" item — that framing is stale.** Three take-off
+cuts and two landing cuts were originally produced; `takeoff_B_transient` and `landing_full` were
+shipped as defaults. A later on-device pass (2026-09-05, not this session — see `guidelines.md`'s
+"RESOLVED: `takeoff.wav` removed") found `takeoff_B_transient` played back as TV static, not a
+jump sound, and root-caused it to the clip itself being broadband noise (sustained high energy,
+no attack-decay shape anywhere) rather than a decode/code bug. It was removed from
+`GameAudio.kt`/`GameSounds`/`GameplayScene.kt` entirely — **jump take-off is currently silent**,
+and the landing sound (`impact.wav`) is unaffected.
 
-Measured structure of `jump_new.mp4` (4.01s, 48kHz stereo):
+The other two take-off candidates (`takeoff_A_windup`, `takeoff_C_footleave`) are unverified — it's
+unknown whether they have the same noise problem or whether it was specific to the `B` cut's
+narrower time window. All three still live in `tools/sfx/jump_cuts/`, cut from the same source at:
 
 | Time | What |
 |---|---|
@@ -134,20 +251,25 @@ Measured structure of `jump_new.mp4` (4.01s, 48kHz stereo):
 | 1.10–1.55s | airborne, decaying to near silence |
 | **1.625s** | landing at **−5.8 dBFS**, and it is **two impacts** (1.625 and 1.665) — both feet |
 
-The push-off sits ~34 dB below the landing. That is why an earlier pass recorded this file as
-having "a single transient" and made the take-off replay the landing sample — it was there, just
-inaudible. Each cut is peak-normalised individually; the take-off/landing balance lives in
-`GameAudio`'s gain table so it stays tunable without recutting.
+The push-off sits ~34 dB below the landing, which is quiet but should not be *pure noise* at any
+gain — if `A` and `C` turn out to have the same broadband-noise signature as `B`, the source
+recording's push-off segment itself may need to be treated as unusable, and take-off would need a
+genuinely new recording rather than a different cut of the same footage. **Before trying either
+remaining candidate, re-run the same waveform check that caught `B`** (RMS/peak envelope across
+the clip, looking for a real attack-decay shape vs. sustained energy) rather than assuming a
+different cut is automatically fine.
 
 The three take-off candidates bracket where the foot actually leaves the ground, which could not
 be settled from the envelope alone: **A** = whole wind-up from 0.600s, **B** = hard onto the
-sharpest transient at 0.775s, **C** = last ground contact before the airborne decay.
+sharpest transient at 0.775s (the one now known to be bad), **C** = last ground contact before the
+airborne decay.
 
-### 3. `mainmenu.mp3` has no recorded licence
+### 3. `mainmenu.mp3` licence — RESOLVED 2026-09-05
 
-It predates this work and ships in both `resources/` and `ios-shell/Resources/`. Origin is not
-recorded anywhere in the repo. **Needs establishing before release, or replacing.** Flagged in
-`ATTRIBUTION.md` rather than guessed at.
+Was previously flagged as having no recorded origin. The owner supplied a file that is
+byte-identical (MD5-verified) to the one already shipping, with its credit: Nikita Kondrashev, via
+Pixabay. `ATTRIBUTION.md` and the in-app Credits panel are both updated. No file changes needed —
+only the credit was missing.
 
 ## Tooling (`tools/sfx/`)
 

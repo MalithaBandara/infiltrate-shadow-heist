@@ -1,7 +1,6 @@
 package com.infiltrate.androidshell
 
 import android.os.Bundle
-import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
@@ -20,6 +19,7 @@ import com.infiltrate.ads.ContinueAdContent
 import com.infiltrate.ads.ContinueAdTrigger
 import com.infiltrate.ui.NavigationRoot
 import com.sample.demo.ads.AndroidContinueAdBridgeState
+import com.sample.demo.nav.AndroidLevelExitBridgeState
 import game.model.LevelData
 import game.scene.GameplayScene
 import korlibs.image.color.Colors
@@ -44,14 +44,23 @@ private val virtualSize = Size(480.0 * (windowSize.width / windowSize.height), 4
 /**
  * Real Android host - the Android equivalent of ios-shell/Sources/AppDelegate.swift. Single
  * Activity, Compose (paywall-build's NavigationRoot) owns the menu, an embedded KorgeAndroidView
- * owns gameplay; both stay alive the whole time, only visibility toggles - matching the
- * "Android Warm Engine Symmetry" candidate architecture in .junie/guidelines.md and the
- * already-proven-on-iOS "never destroy the warm engine" pattern from the switch-spike.
+ * owns gameplay; both stay alive the whole time - matching the "Android Warm Engine Symmetry"
+ * candidate architecture in .junie/guidelines.md and the already-proven-on-iOS "never destroy the
+ * warm engine" pattern from the switch-spike.
  *
- * UNVERIFIED: whether View.GONE actually stops KorgeAndroidView's internal GLSurfaceView render
- * thread (as opposed to merely hiding it while it keeps rendering invisibly) has not been
- * measured here the way the iOS switch-spike measured it for KorGE's iOS GLKViewController -
- * see .junie/guidelines.md.
+ * RESOLVED (was UNVERIFIED): an earlier version toggled the KorgeAndroidView's own
+ * `View.visibility` between VISIBLE and GONE to show/hide it behind the Compose menu. Confirmed
+ * on a real device this does NOT just pause rendering the way the iOS switch-spike's
+ * `window.rootViewController` swap does - going GONE tears down the GLSurfaceView-backed render
+ * surface, and coming back to VISIBLE does not reliably bring it back: symptom was gameplay
+ * staying a blank grey screen after returning from the "watch ad to continue" flow, since the
+ * scene's own update loop (which is what notices a granted continue and restarts the level -
+ * GameplayScene.kt's addUpdater) never got to run again either. Fixed by never hiding the view at
+ * all: it stays permanently attached/rendering, and the Compose menu is layered opaquely on top
+ * of it instead. Trade-off, not yet measured: KorGE's render loop keeps ticking while covered by
+ * the menu, unlike the iOS side where hiding via rootViewController swap was measured to
+ * genuinely stop frames - so this may cost more battery while the menu is showing. Correctness
+ * over that unmeasured cost was the right call here since the GONE path was observably broken.
  */
 class MainActivity : ComponentActivity() {
     private var korgeView: KorgeAndroidView? = null
@@ -67,6 +76,15 @@ class MainActivity : ComponentActivity() {
             runOnUiThread { showContinueAd() }
         }
 
+        // QUIT / RETURN TO MENU / MAIN MENU / ALL CLEAR in GameplayScene.kt all call this.
+        // Previously nothing was wired up at all - those buttons wrote to a storage key nothing
+        // ever read, so the game just silently stayed on the KorGE view. Since the KorGE view is
+        // never hidden (see the class doc comment), showing the menu again is exactly this one
+        // flag flip - no surface teardown/recreation involved.
+        AndroidLevelExitBridgeState.onReturnToMenuRequested = {
+            runOnUiThread { showingGameplay.value = false }
+        }
+
         setContent {
             // Google Mobile Ads SDK requires this before any ad request will succeed - matches
             // where AdMobVerifyContent() calls it once on iOS. Without it, RewardedAd(...) below
@@ -76,10 +94,12 @@ class MainActivity : ComponentActivity() {
 
             val gameplayVisible by showingGameplay
             Box(Modifier.fillMaxSize()) {
+                // Always attached and rendering - see the class doc comment above for why this
+                // is never set to View.GONE. The Compose menu below draws opaquely over it
+                // instead of it being hidden.
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
-                    factory = { ctx -> KorgeAndroidView(ctx).also { korgeView = it } },
-                    update = { view -> view.visibility = if (gameplayVisible) View.VISIBLE else View.GONE }
+                    factory = { ctx -> KorgeAndroidView(ctx).also { korgeView = it } }
                 )
                 if (!gameplayVisible) {
                     NavigationRoot(onStartLevel = { levelId -> startLevel(levelId) })
@@ -124,7 +144,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showContinueAd() {
-        showingGameplay.value = false
+        // Deliberately does not touch showingGameplay: gameplay is never hidden (see the class
+        // doc comment), and ContinueAdContent() is composed unconditionally below, so the ad can
+        // load in the background and its own full-screen Activity will cover whatever's on
+        // screen once it's ready. Flipping to the main menu here used to be what the player saw
+        // for the few seconds the ad spent loading, before it appeared.
         ContinueAdTrigger.requestShow()
         lifecycleScope.launch {
             val deadlineMs = System.currentTimeMillis() + 30_000
@@ -137,7 +161,6 @@ class MainActivity : ComponentActivity() {
                 }
                 delay(100)
             }
-            showingGameplay.value = true
         }
     }
 

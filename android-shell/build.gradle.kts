@@ -35,6 +35,27 @@ android {
         versionName = "1.0"
     }
 
+    val localProperties = java.util.Properties()
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localProperties.load(java.io.FileInputStream(localPropertiesFile))
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file(localProperties.getProperty("keystore.file") ?: "upload-key.keystore")
+            storePassword = localProperties.getProperty("keystore.password")
+            keyAlias = localProperties.getProperty("key.alias")
+            keyPassword = localProperties.getProperty("key.password")
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
     // JVM 21, not 17: com.soywiz.korge:korge:6.0.0's own compiled classes contain inline
     // functions built against JVM target 21 - compiling this module at 17 fails every call site
     // that inlines into KorGE code ("Cannot inline bytecode built with JVM target 21 into
@@ -96,6 +117,12 @@ dependencies {
     // BasicAds.Initialize() directly (same as AdMobVerifyContent() does on iOS), so it needs its
     // own explicit reference to the same version.
     implementation("app.lexilabs.basic:basic-ads:1.2.1")
+    // Layers Events SDK (layers.com/docs/sdk/installation) - InfiltrateApplication.kt configures
+    // it once at process startup; AnalyticsBridge.kt (this module's plain, non-KMP copy) forwards
+    // GameplayScene.kt's track() calls to it. Version confirmed against Layers' own current docs
+    // 2026-09-06 (the integration guide the owner was given pinned 3.2.11, one minor version
+    // behind) - re-check layers.com/docs/sdk/installation before bumping further.
+    implementation("com.layers.sdk:layers-android:3.3.0")
 
     implementation(compose.runtime)
     implementation(compose.foundation)

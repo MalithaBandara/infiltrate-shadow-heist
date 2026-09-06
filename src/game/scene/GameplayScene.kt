@@ -1,12 +1,13 @@
 package game.scene
 
 import com.sample.demo.ads.getContinueAdBridge
+import com.sample.demo.analytics.getAnalyticsBridge
+import com.sample.demo.nav.getLevelExitBridge
 import game.model.*
 import game.scene.UiComponents.COLOR_PRIMARY
 import game.scene.UiComponents.COLOR_ACCENT_CYAN
 import game.scene.UiComponents.COLOR_ACCENT_GOLD
 import game.scene.UiComponents.COLOR_ACCENT_GREEN
-import game.scene.UiComponents.COLOR_ACCENT_RED
 import game.scene.UiComponents.COLOR_BORDER_CYAN
 import game.scene.UiComponents.COLOR_BORDER_GOLD
 import game.scene.UiComponents.COLOR_BORDER_GREEN
@@ -14,11 +15,11 @@ import game.scene.UiComponents.COLOR_BORDER_RED
 import game.scene.UiComponents.COLOR_TEXT_LIGHT
 import game.scene.UiComponents.COLOR_TEXT_MUTED
 import game.scene.UiComponents.createButton
-import game.scene.UiComponents.createTacticalCard
 import game.scene.UiComponents.drawPlayIcon
 import game.scene.UiComponents.drawQuitIcon
 import game.scene.UiComponents.drawStar
 import game.scene.UiComponents.uiGraphics
+import korlibs.audio.sound.*
 import korlibs.event.*
 import korlibs.image.bitmap.*
 import korlibs.image.color.*
@@ -28,6 +29,7 @@ import korlibs.image.vector.*
 import korlibs.io.async.*
 import korlibs.io.file.std.*
 import korlibs.korge.input.*
+import korlibs.korge.time.*
 import korlibs.math.geom.vector.*
 import korlibs.korge.scene.*
 import korlibs.korge.service.storage.*
@@ -41,10 +43,143 @@ class GameplayScene(
     val levelData: LevelData = LevelData.DEFAULT_LEVEL_1
 ) : Scene() {
 
+    private var bgMusicChannel: SoundChannel? = null
+
+    override suspend fun sceneDestroy() {
+        super.sceneDestroy()
+        try {
+            bgMusicChannel?.stop()
+            bgMusicChannel = null
+        } catch (_: Throwable) {}
+    }
+
     override suspend fun SContainer.sceneMain() {
-        val world = GameWorld.createDefault(levelData)
-        val playerAnimations = PlayerAnimations.load()
-        val sounds = GameAudio.load()
+        val canvasW = sceneWidth.toDouble().coerceAtLeast(800.0)
+        val canvasH = sceneHeight.toDouble().coerceAtLeast(480.0)
+
+        // --- Loading screen -------------------------------------------------------------
+        // Shown immediately, before any load below runs, and dismissed only once every load
+        // in this function has actually finished - so a slow cold load (mobile, first launch)
+        // shows real progress instead of a blank/grey frame.
+        val loadingBgBitmap = try { resourcesVfs["loadingbg.png"].readBitmap() } catch (_: Throwable) { null }
+        val loadingLogoBitmap = try { resourcesVfs["logo_main.png"].readBitmap() } catch (_: Throwable) { null }
+        // Same torn-paper texture as the main menu's PLAY button (Res.drawable.button1 there) -
+        // stretched to fit, matching the existing precedent for these button textures elsewhere
+        // in this file (UiComponents.createButton's heistStyle path): plain stretch, not 9-sliced,
+        // since 9-slicing this exact art was already tried and reverted for visible seams.
+        val loadingBarTextureBitmap = try { resourcesVfs["button1.png"].readBitmap() } catch (_: Throwable) { null }
+        val loadingFont = try { resourcesVfs["BebasNeue-Regular.ttf"].readTtfFont() } catch (_: Throwable) { DefaultTtfFont }
+
+        val loadingRoot = container()
+        if (loadingBgBitmap != null) {
+            loadingRoot.image(loadingBgBitmap) { size(canvasW, canvasH) }
+        } else {
+            loadingRoot.solidRect(canvasW, canvasH, Colors.BLACK)
+        }
+
+        val loadingLogoWidth = canvasW * 0.34
+        if (loadingLogoBitmap != null) {
+            val logoScale = loadingLogoWidth / loadingLogoBitmap.width
+            loadingRoot.image(loadingLogoBitmap) { scale(logoScale) }
+                .xy((canvasW - loadingLogoBitmap.width * logoScale) / 2.0, canvasH * 0.26)
+        }
+
+        val loadingBarWidth = canvasW * 0.30
+        val loadingBarHeight = canvasH * 0.045
+        val loadingBarX = (canvasW - loadingBarWidth) / 2.0
+        val loadingBarY = canvasH * 0.58
+
+        // Fill container holds just the (re-created-per-step) texture image; the frame is drawn
+        // separately, after/on top of it, so the border stays crisp instead of being covered by
+        // the fill each time it's rebuilt.
+        val loadingBarFillContainer = loadingRoot.container().xy(loadingBarX, loadingBarY)
+        var loadingBarFillView: View? = null
+        fun setLoadingProgress(fraction: Double) {
+            val fillWidth = loadingBarWidth * fraction.coerceIn(0.0, 1.0)
+            loadingBarFillView?.removeFromParent()
+            loadingBarFillView = if (fillWidth <= 0.0) {
+                null
+            } else if (loadingBarTextureBitmap != null) {
+                loadingBarFillContainer.image(loadingBarTextureBitmap) { size(fillWidth, loadingBarHeight) }
+            } else {
+                loadingBarFillContainer.solidRect(fillWidth, loadingBarHeight, Colors.WHITE)
+            }
+        }
+        setLoadingProgress(0.0)
+        loadingRoot.uiGraphics().xy(loadingBarX, loadingBarY).updateShape {
+            stroke(Colors.WHITE.withAd(0.85), StrokeInfo(thickness = 1.5)) {
+                rect(0.0, 0.0, loadingBarWidth, loadingBarHeight)
+            }
+        }
+
+        val loadingLabel = loadingRoot.text(
+            "L O A D I N G . . .",
+            textSize = loadingBarHeight * 0.62,
+            font = loadingFont,
+            color = Colors.WHITE
+        )
+        loadingLabel.graphicsRenderer = GraphicsRenderer.GPU
+        loadingLabel.xy((canvasW - loadingLabel.width) / 2.0, loadingBarY + loadingBarHeight + canvasH * 0.035)
+
+        // Standard loading-text blink: visible for most of the cycle, then gone for a brief
+        // instant, then straight back - not a gradual pulse or an irregular flicker. Period
+        // lengthened (and the visible share raised) so it vanishes much less often than before.
+        val blinkPeriodSeconds = 2.2
+        val blinkVisibleFraction = 0.88
+        var loadingFlickerT = 0.0
+        val loadingFlickerHandle = loadingLabel.addUpdater { dt ->
+            loadingFlickerT += dt.seconds
+            val phase = (loadingFlickerT % blinkPeriodSeconds) / blinkPeriodSeconds
+            alpha = if (phase < blinkVisibleFraction) 1.0 else 0.0
+        }
+
+        fun dismissLoadingScreen() {
+            loadingFlickerHandle.close()
+            loadingRoot.removeFromParent()
+        }
+
+        // One full frame so the loading screen is actually painted before the (synchronous,
+        // potentially slow) loads below ever get a chance to block the render loop.
+        delayFrame()
+
+        val totalLoadSteps = 19
+        var loadStepsDone = 0
+        suspend fun markLoadProgress() {
+            loadStepsDone++
+            setLoadingProgress(loadStepsDone.toDouble() / totalLoadSteps)
+            delayFrame()
+        }
+
+        // Every reported "grey screen, nothing loads" bug this session has turned out to be an
+        // uncaught exception somewhere in this setup, on a repeat load (RESTART/QUIT/continue-ad)
+        // rather than the first one - each fix so far targeted a specific guessed cause (audio
+        // priming frequency, ad-callback timing) and none of them were confirmed to be the actual
+        // one, because a silent failure here leaves nothing to diagnose from except "it's grey."
+        // This catches whatever actually throws and puts the real exception on screen instead of
+        // guessing again - PlayerAnimations.load() in particular has no try/catch anywhere in it
+        // (unlike every other asset load in this function, which already defaults to null on
+        // failure) and allocates a brand new GPU texture atlas on every single call, which is a
+        // real, concrete candidate for something that degrades across repeated reloads in a way
+        // audio never would - but this is deliberately not a fix aimed at that one theory, it's
+        // instrumentation so the next report says what actually failed.
+        val (world, playerAnimations, sounds) = try {
+            val loadedWorld = GameWorld.createDefault(levelData)
+            markLoadProgress()
+            val loadedAnimations = PlayerAnimations.load()
+            markLoadProgress()
+            val loadedSounds = GameAudio.load()
+            markLoadProgress()
+            Triple(loadedWorld, loadedAnimations, loadedSounds)
+        } catch (e: Throwable) {
+            dismissLoadingScreen()
+            solidRect(sceneWidth, sceneHeight, Colors["#16161d"])
+            text(
+                "LEVEL LOAD FAILED\n\n${e::class.simpleName}: ${e.message}\n\n${e.stackTraceToString().take(1200)}",
+                textSize = 14.0,
+                color = Colors.RED
+            ).xy(16.0, 16.0)
+            return
+        }
         val sfxContext = coroutineContext
         val levelStorage: LevelStorage = MapBackedLevelStorage(
             getRaw = { views.storage[it] },
@@ -57,28 +192,48 @@ class GameplayScene(
 
         var isPaused = false
 
-        val canvasW = sceneWidth.toDouble().coerceAtLeast(800.0)
-        val canvasH = sceneHeight.toDouble().coerceAtLeast(480.0)
-
         val worldZoom = 1.35
         val baseGroundY = 410.0
 
         val bgFileName = levelData.resolvedBackgroundImage
         val bgmgBitmap = try { resourcesVfs[bgFileName].readBitmap() } catch (_: Throwable) { null }
+        markLoadProgress()
         val crateBitmap = try { resourcesVfs["crate.png"].readBitmap() } catch (_: Throwable) { null }
+        markLoadProgress()
         val chainedCrateBitmap = try { resourcesVfs["chainedcrate.png"].readBitmap() } catch (_: Throwable) { null }
+        markLoadProgress()
+        val chainedCrate2Bitmap = try { resourcesVfs["chainedcrate2.png"].readBitmap() } catch (_: Throwable) { null }
+        markLoadProgress()
         val fenceBitmap = try { resourcesVfs["fence.png"].readBitmap() } catch (_: Throwable) { null }
+        markLoadProgress()
         val fence2Bitmap = try { resourcesVfs["fence2.png"].readBitmap() } catch (_: Throwable) { null }
+        markLoadProgress()
+        val barrelBitmap = try { resourcesVfs["barrel.png"].readBitmap() } catch (_: Throwable) { null }
+        markLoadProgress()
+        val truckBitmap = try { resourcesVfs["truck.png"].readBitmap() } catch (_: Throwable) { null }
+        markLoadProgress()
+        val entranceBitmap = try { resourcesVfs["entrance.png"].readBitmap() } catch (_: Throwable) { null }
+        markLoadProgress()
+        val exitFenceBitmap = try { resourcesVfs["exitfence.png"].readBitmap() } catch (_: Throwable) { null }
+        markLoadProgress()
         val leftBtnBitmap = try { resourcesVfs["left.png"].readBitmap() } catch (_: Throwable) { null }
+        markLoadProgress()
         val rightBtnBitmap = try { resourcesVfs["right.png"].readBitmap() } catch (_: Throwable) { null }
+        markLoadProgress()
         val crouchBtnBitmap = try { resourcesVfs["crouch.png"].readBitmap() } catch (_: Throwable) { null }
+        markLoadProgress()
         val jumpBtnBitmap = try { resourcesVfs["jump.png"].readBitmap() } catch (_: Throwable) { null }
+        markLoadProgress()
         val interactBtnBitmap = try { resourcesVfs["interact.png"].readBitmap() } catch (_: Throwable) { null }
+        markLoadProgress()
         // The main menu's torn-paper button strips. They already live in resources/ (the Compose
         // menu reads its own copies out of composeResources), so the pause menu can be built from
         // the very same art rather than a lookalike drawn in vectors.
         val paperBtnBitmaps = listOf("button1.png", "button2.png", "button3.png", "button4.png")
             .map { name -> try { resourcesVfs[name].readBitmap() } catch (_: Throwable) { null } }
+        markLoadProgress()
+
+        dismissLoadingScreen()
 
         // Combined background & midground layer container (parallax rate 0.2x, looping, unzoomed at native screen height)
         val bgmgContainer = container()
@@ -114,14 +269,41 @@ class GameplayScene(
             renderRoughBlock(platCont, platform.width, platform.height, seed = (platform.x * 47.0 + platform.y).toLong())
         }
 
-        // Exit Point / Extraction Zone (Black gate with emerald neon highlight)
-        val exitContainer = worldView.container().xy(world.exitZone.x, world.exitZone.y)
-        exitContainer.solidRect(world.exitZone.width, world.exitZone.height, Colors.BLACK)
-        exitContainer.solidRect(world.exitZone.width, 3.0, COLOR_BORDER_GREEN).xy(0.0, 0.0)
-        exitContainer.solidRect(world.exitZone.width, 3.0, COLOR_BORDER_GREEN).xy(0.0, world.exitZone.height - 3.0)
-        exitContainer.solidRect(3.0, world.exitZone.height, COLOR_BORDER_GREEN).xy(0.0, 0.0)
-        exitContainer.solidRect(3.0, world.exitZone.height, COLOR_BORDER_GREEN).xy(world.exitZone.width - 3.0, 0.0)
-        exitContainer.text("EXIT", textSize = 10.0, color = COLOR_BORDER_GREEN).xy(6.0, 6.0)
+        // Exit Point / Extraction Zone - a checkpoint booth image (entrance.png, tightly cropped
+        // to just the booth silhouette) plus the fence segment that stood beside it in the
+        // original, wider source composite (exitfence.png - cropped straight from the same
+        // original entrance.png source asset in Downloads/charAnimations/assets, at the seam
+        // where its own fence posts end and the booth's begin, so it's the exact fence the booth
+        // was originally drawn next to, baked-in crates and all - not the level's starting fence
+        // texture). Both are purely decorative (no collision box of their own) - world.exitZone is
+        // still the real trigger the player has to touch to complete the level, sized to span
+        // almost the booth's own width instead of a narrow strip somewhere inside it, and the
+        // booth is left-aligned flush with it, so there's no separate alignment guess to get
+        // wrong: touching any part of the visible structure ends the level. Both are sized by
+        // height with their own aspect ratio so neither is stretched/squashed; the booth's 135
+        // keeps it a small guard booth rather than the towering wall 200 rendered as once it was
+        // just the booth silhouette and not the whole cropped scene, and the fence's 140 matches
+        // the level's own starting fence height for visual consistency. The fence sits after the
+        // booth (the player reaches the booth first, then the fence behind it) rather than before
+        // it. entrance.png is pre-mirrored on disk (not flipped with scaleX = -1 at render time -
+        // a negative scaleX on an Image corrupts the draw into a torn, mostly-transparent mess on
+        // this KorGE/OpenGL backend, discovered via the identical bug on the truck below) so the
+        // roof overhang leans out towards the player's approach.
+        if (entranceBitmap != null) {
+            val entranceHeight = 135.0
+            val entranceWidth = entranceHeight * (entranceBitmap.width.toDouble() / entranceBitmap.height.toDouble())
+            val entranceY = baseGroundY - entranceHeight
+            worldView.image(entranceBitmap) {
+                size(entranceWidth, entranceHeight)
+            }.xy(world.exitZone.x, entranceY)
+            if (exitFenceBitmap != null) {
+                val exitFenceHeight = 140.0
+                val exitFenceWidth = exitFenceHeight * (exitFenceBitmap.width.toDouble() / exitFenceBitmap.height.toDouble())
+                worldView.image(exitFenceBitmap) {
+                    size(exitFenceWidth, exitFenceHeight)
+                }.xy(world.exitZone.x + entranceWidth, baseGroundY - exitFenceHeight)
+            }
+        }
 
         // Tactical boxes, step crates, hanging chained crates, and perimeter fences
         for (box in world.boxes) {
@@ -140,19 +322,93 @@ class GameplayScene(
                     size(box.width, box.height + 2.0)
                 }.xy(0.0, 0.0)
             }
-            // 3. Hanging Chained Crate (matches bounding box exactly)
+            // 3. Barrels (three together, just past the start gates - jump on, walk across, jump off)
+            else if (box in world.barrels && barrelBitmap != null) {
+                boxContainer.image(barrelBitmap) {
+                    size(box.width, box.height)
+                }.xy(0.0, 0.0)
+            }
+            // 4. Truck (parked next to the small crate, climbed onto en route to the long platform).
+            // Collision is 3 separate tiers (front/middle/back, see GameWorld.kt) but the image is
+            // one continuous truck, so it's drawn once - against the first tier - spanning the
+            // whole footprint (world.truck, the union of all 3 parts); the other two tiers get no
+            // separate visual of their own so the image isn't stretched into 3 squashed copies.
+            // truck.png is pre-mirrored on disk so the hood (the low front tier the player climbs
+            // onto first) faces the crate, with the cab and bed stretching away towards the long
+            // platform - NOT flipped with scaleX = -1 at render time. That was the original
+            // approach (matching how entrance.png's flip used to work) and it corrupted the whole
+            // image into a torn, mostly see-through mess: fine detail like the wheel/axle lattice
+            // survived here and there, but the solid cab/bed silhouette almost entirely vanished,
+            // letting the sky and its parallax reflection show straight through where a solid
+            // black truck should have been - a negative-scaleX bug in this KorGE/OpenGL backend,
+            // confirmed by A/B testing the exact same image and position with only the sign of
+            // scaleX changed. Pre-flipping the source PNG sidesteps the bug entirely.
+            else if (box in world.truckParts && truckBitmap != null) {
+                if (box === world.truckParts.first()) {
+                    val truckRect = world.truck ?: box
+                    worldView.image(truckBitmap) {
+                        size(truckRect.width, truckRect.height)
+                    }.xy(truckRect.x, truckRect.y)
+                }
+            }
+            // 5. Hanging Chained Crate (matches bounding box exactly)
             else if (box.y <= 0.0 && box.height > 150.0 && chainedCrateBitmap != null) {
                 boxContainer.image(chainedCrateBitmap) {
                     size(box.width, box.height)
                 }.xy(0.0, 0.0)
             }
-            // 4. Step Crate (matches bounding box exactly)
+            // 5b. Hanging jump-crate (a gap crossing, not the ceiling obstacle above):
+            // Only the rectangular part (the crate body) is interactable/collidable with the user.
+            // The chain and diagonal rigging above it are drawn in light black to visually show they
+            // are non-collidable background elements.
+            // Variant 1 uses chainedcrate.png (wide container), Variant 2 uses chainedcrate2.png (shorter crates).
+            else if (box in world.hangingCrateVariant1 || box in world.hangingCrateVariant2) {
+                val isVariant1 = box in world.hangingCrateVariant1
+                val sourceBmp = if (isVariant1) chainedCrateBitmap else chainedCrate2Bitmap
+                if (sourceBmp != null) {
+                    val cropX = if (isVariant1) 26 else 235
+                    val cropY = if (isVariant1) 1222 else 1134
+                    val cropW = if (isVariant1) 971 else 555
+                    val cropH = if (isVariant1) 226 else 287
+                    val scale = box.width / cropW.toDouble()
+
+                    // 1. Crate: the solid rectangular platform at the bottom of the asset.
+                    // Fits the interactive boxContainer (box.width, box.height) exactly.
+                    val crateSlice = sourceBmp.slice(RectangleInt(cropX, cropY, cropW, cropH))
+                    boxContainer.image(crateSlice) {
+                        size(box.width, box.height)
+                    }.xy(0.0, 0.0)
+
+                    // 2. Chain & rigging: the light-black chain above the crate up to image top.
+                    // Purely visual in worldView with NO collision box, so the player can freely jump
+                    // onto and stand on the crate without getting blocked by chains.
+                    val chainDrawH = cropY * scale
+                    val chainTopY = box.y - chainDrawH
+                    val chainSlice = sourceBmp.slice(RectangleInt(cropX, 0, cropW, cropY))
+                    worldView.image(chainSlice) {
+                        size(box.width, chainDrawH)
+                    }.xy(box.x, chainTopY)
+
+                    // 3. Tiled vertical chain extending up to the ceiling (-400.0)
+                    val linkSrcH = 160
+                    val linkDrawH = linkSrcH * scale
+                    val linkSlice = sourceBmp.slice(RectangleInt(cropX, 0, cropW, linkSrcH))
+                    var tileY = chainTopY - linkDrawH
+                    while (tileY >= -400.0) {
+                        worldView.image(linkSlice) {
+                            size(box.width, linkDrawH)
+                        }.xy(box.x, tileY)
+                        tileY -= linkDrawH
+                    }
+                }
+            }
+            // 6. Step Crate (matches bounding box exactly)
             else if (box.height < 70.0 && box.width < 150.0 && crateBitmap != null) {
                 boxContainer.image(crateBitmap) {
                     size(box.width, box.height)
                 }.xy(0.0, 0.0)
             }
-            // 5. Long Structural Platforms and Blocks (Solid blocks with tiny rough edge irregularities)
+            // 7. Long Structural Platforms and Blocks (Solid blocks with tiny rough edge irregularities)
             else {
                 renderRoughBlock(boxContainer, box.width, box.height, seed = (box.x * 101.0 + box.y).toLong())
             }
@@ -169,6 +425,12 @@ class GameplayScene(
             guardContainers[i].text("?", textSize = 16.0, color = COLOR_BORDER_GOLD).xy(8.0, -22.0)
                 .also { it.visible = false }
         }
+        // Edge-detected per guard rather than played on every frame a guard stays INVESTIGATING -
+        // this cue is "a guard just noticed something", not an ambient loop. Starts false for every
+        // guard, which is correct even if a level ever spawned one already investigating: the first
+        // frame would then read as "returned to patrol, still investigating" (a no-edge no-op), not
+        // a false trigger.
+        val guardWasInvestigating = BooleanArray(world.allGuards.size)
 
         // Cameras: vision cones first beneath bodies
         val cameraCones = world.cameras.map { worldView.graphics() }
@@ -179,6 +441,7 @@ class GameplayScene(
             cameraContainers[i].solidRect(c.width - 4.0, c.height - 4.0, Colors["#2c3e50"]).xy(2.0, 2.0)
             cameraContainers[i].solidRect(6.0, 6.0, Colors["#e74c3c"]).xy((c.width - 6.0) / 2.0, (c.height - 6.0) / 2.0)
         }
+        val cameraWasDetecting = BooleanArray(world.cameras.size)
 
         // Player View
         val playerContainer = worldView.container().xy(world.player.x, world.player.y)
@@ -189,6 +452,8 @@ class GameplayScene(
         val playerBaseScale = playerVisualHeight / playerSourceSilhouetteHeight
         val playerFeetAnchorY = playerSourceFeetY / playerSourceFrameHeight
         val idleFeetOffset = (playerSourceFeetY - PlayerAnimations.IDLE_FEET_Y) * playerBaseScale
+        val crouchFeetOffset = (playerSourceFeetY - PlayerAnimations.CROUCH_FEET_Y) * playerBaseScale
+        val jumpLandFeetOffset = (playerSourceFeetY - PlayerAnimations.JUMP_LAND_FEET_Y) * playerBaseScale
         val playerSprite = playerContainer.sprite(playerAnimations.idle, Anchor2D(0.5, playerFeetAnchorY))
         playerSprite.scaleX = playerBaseScale
         playerSprite.scaleY = playerBaseScale
@@ -230,6 +495,31 @@ class GameplayScene(
         // timer that drifts against the animation whenever speed changes.
         var stepAlternate = false
         val sfxVolume = { profileStorage.getProfile().sfxVolume }
+        val musicVolume = { profileStorage.getProfile().musicVolume }
+
+        fun syncBgMusicVolume() {
+            val baseVol = GameAudio.BG_MUSIC_GAIN * musicVolume().toDouble()
+            val effectiveVol = if (isPaused || world.isGameOver || world.isLevelComplete) {
+                baseVol * 0.35
+            } else {
+                baseVol
+            }
+            val channel = bgMusicChannel
+            if (channel == null) {
+                if (effectiveVol > 0.001 && sounds.bgMusic != null) {
+                    try {
+                        bgMusicChannel = sounds.bgMusic.playForever(coroutineContext).also {
+                            it.volume = effectiveVol.coerceIn(0.0, 1.0)
+                        }
+                    } catch (_: Throwable) {}
+                }
+            } else {
+                try {
+                    channel.volume = effectiveVol.coerceIn(0.0, 1.0)
+                } catch (_: Throwable) {}
+            }
+        }
+        syncBgMusicVolume()
 
         // One click for every pressable thing in the scene. Deliberate presses (pause, the
         // pause-menu strips, the Mission Failed buttons) use the full weight; the on-screen
@@ -273,55 +563,6 @@ class GameplayScene(
         val manualFrameTime = 1_000_000.milliseconds
 
         val bebasFont = try { resourcesVfs["BebasNeue-Regular.ttf"].readTtfFont() } catch (_: Throwable) { DefaultTtfFont }
-
-        // Modern Button Builder for In-Game Overlay Modals
-        fun Container.createTacticalMenuBtn(
-            text: String,
-            width: Double,
-            height: Double,
-            x: Double,
-            y: Double,
-            primary: Boolean = false,
-            accentColor: RGBA = COLOR_ACCENT_CYAN,
-            onClick: suspend () -> Unit
-        ): Container {
-            val btn = container().xy(x, y)
-            val bg = btn.uiGraphics()
-            fun drawState(hover: Boolean, down: Boolean) {
-                bg.updateShape {
-                    clear()
-                    val fillCol = when {
-                        primary && down -> accentColor.withAd(0.75)
-                        primary && hover -> accentColor
-                        primary -> Colors.WHITE
-                        down -> accentColor.withAd(0.35)
-                        hover -> Colors["#222630"].withAd(0.95)
-                        else -> Colors["#12151B"].withAd(0.85)
-                    }
-                    val strokeCol = if (primary) Colors.TRANSPARENT else (if (hover || down) accentColor else Colors.WHITE.withAd(0.18))
-                    fill(fillCol) {
-                        roundRect(0.0, 0.0, width, height, 8.0, 8.0)
-                    }
-                    if (!primary) {
-                        stroke(strokeCol, StrokeInfo(thickness = 1.2)) {
-                            roundRect(0.0, 0.0, width, height, 8.0, 8.0)
-                        }
-                    }
-                }
-            }
-            drawState(false, false)
-            val fontCol = if (primary) Colors["#0A0C10"] else COLOR_PRIMARY
-            val label = btn.text(text.uppercase(), textSize = height * 0.42, font = bebasFont, color = fontCol)
-            label.graphicsRenderer = GraphicsRenderer.GPU
-            label.xy((width - label.width) / 2.0, (height - label.height) / 2.0 - 1.0)
-
-            btn.onOut { drawState(false, false) }
-            btn.onOver { drawState(true, false) }
-            btn.onDown { drawState(true, true); playClick(GameAudio.UI_CLICK_GAIN) }
-            btn.onUp { drawState(true, false) }
-            btn.mouse { onClick { onClick() } }
-            return btn
-        }
 
         // A pause-menu button in the main menu's language: a torn white paper strip with the
         // label and icon stamped on it in ink. Same textures, same ink colour, same Bebas face,
@@ -413,7 +654,7 @@ class GameplayScene(
         missionTitleLabel.xy(20.0, 8.0)
 
         val objectiveLabel = introToast.text(
-            "REACH THE EXTRACTION ZONE", textSize = 12.0, font = bebasFont, color = COLOR_TEXT_LIGHT
+            levelData.objectiveHint.uppercase(), textSize = 12.0, font = bebasFont, color = COLOR_TEXT_LIGHT
         )
         objectiveLabel.graphicsRenderer = GraphicsRenderer.GPU
         objectiveLabel.alpha = 0.78
@@ -440,7 +681,7 @@ class GameplayScene(
         val objectiveHud = hudLayer.container().xy(24.0, 20.0)
         val objectiveScrim = objectiveHud.uiGraphics()
         val objectiveText = objectiveHud.text(
-            "OBJECTIVE: REACH THE EXTRACTION ZONE",
+            "OBJECTIVE: ${levelData.objectiveHint.uppercase()}",
             textSize = 11.0, font = bebasFont, color = COLOR_TEXT_LIGHT
         )
         objectiveText.graphicsRenderer = GraphicsRenderer.GPU
@@ -640,12 +881,11 @@ class GameplayScene(
         //    is a failed gap - so it takes the thumb's resting position, the largest radius, and
         //    the shortest reach, inboard of the screen edge rather than out at it.
         //
-        //    Crouch and interact ride a circle centred on jump, both swept outward and upward:
-        //    crouch low on the arc (held for long stretches, so the nearer of the two) and
-        //    interact high on it (contextual, pressed least, furthest reach). An arc rather than
-        //    a column because the thumb travels in one - every secondary button is then the same
-        //    distance from where the thumb already is, instead of one being twice as far as the
-        //    other.
+        //    Crouch sits level with jump (the base of the triangle) and interact sits centred
+        //    above the midpoint between them (the apex) - all three the same distance apart, so
+        //    the three centres form an equilateral triangle, apex up, all three buttons the same
+        //    size (unlike the old fan-shaped arc, which had crouch and interact at two different
+        //    angles off a bigger jump button).
         //
         //    Gaps between neighbouring buttons are 12px - tight enough that each cluster reads as
         //    one control surface, wide enough that a thumb pad landing between two of them still
@@ -654,9 +894,10 @@ class GameplayScene(
         val edgeInset = 46.0                      // clear of the side gesture strips
         val bottomInset = 38.0                    // clear of the home indicator
         val moveRadius = 54.0
-        val jumpRadius = 56.0
-        val crouchRadius = 48.0
-        val interactRadius = 48.0
+        val actionRadius = 48.0                   // uniform size for jump/crouch/interact - the old crouch button's size
+        val jumpRadius = actionRadius
+        val crouchRadius = actionRadius
+        val interactRadius = actionRadius
 
         val controlsY = canvasH - bottomInset - moveRadius
 
@@ -670,12 +911,13 @@ class GameplayScene(
         val jumpY = canvasH - bottomInset - jumpRadius
         val outward = if (isControlsSwapped) -1.0 else 1.0
 
-        // Crouch sits level with jump (0 degrees - same Y, side by side) rather than on the arc
-        // above it; interact moved up to 80 degrees (near-vertical) to keep clear of crouch's
-        // new horizontal slot instead of the two sharing a low arc.
+        // Equilateral triangle: crouch is level with jump (0 degrees) at the gap-clearing
+        // distance; interact is that same distance from jump at 60 degrees, which puts it
+        // exactly above the midpoint of the jump-crouch base, the same distance from crouch too -
+        // all three buttons pairwise equidistant.
         val actionArcRadius = jumpRadius + crouchRadius + btnGap
         val crouchAngle = 0.0
-        val interactAngle = 80.0 * PI / 180.0
+        val interactAngle = 60.0 * PI / 180.0
         val crouchX = jumpX + outward * cos(crouchAngle) * actionArcRadius
         val crouchY = jumpY - sin(crouchAngle) * actionArcRadius
         val interactX = jumpX + outward * cos(interactAngle) * actionArcRadius
@@ -828,6 +1070,8 @@ class GameplayScene(
             "RESTART", paperBtnBitmaps[1], pauseBtnW, pauseBtnH, pauseBtnX, pauseBtnY0 + pauseBtnH + pauseBtnGap,
             iconDrawer = { drawRestartIcon(paperInk) }
         ) {
+            bgMusicChannel?.stop()
+            bgMusicChannel = null
             sceneContainer.changeTo { GameplayScene(levelData) }
         }
 
@@ -835,123 +1079,208 @@ class GameplayScene(
             "QUIT", paperBtnBitmaps[2], pauseBtnW, pauseBtnH, pauseBtnX, pauseBtnY0 + 2 * (pauseBtnH + pauseBtnGap),
             iconDrawer = { drawQuitIcon(false) }
         ) {
-            views.storage["nav_target"] = "menu"
+            bgMusicChannel?.stop()
+            bgMusicChannel = null
+            getLevelExitBridge().requestReturnToMenu()
             sceneContainer.changeTo { GameplayScene(levelData) }
         }
 
         pauseOverlay.visible = false
 
         // ==========================================
-        // 2. CAUGHT / GAME OVER OVERLAY
+        // 2. CAUGHT / GAME OVER OVERLAY (Heist Dossier styling, own content)
         // ==========================================
+        // Takes the pause overlay's STYLE - full-bleed near-black scrim, stacked Bebas
+        // typography with no card/badge chrome, torn-paper buttons instead of glassy tactical
+        // pills - without collapsing this screen's own content into pause's. Every label and the
+        // recon tip keep their original wording; only the chrome changed. Buttons are wider than
+        // pause's (480 vs 300) because "CONTINUE (WATCH AD)" doesn't fit at pause's width without
+        // either shrinking the text below the paper button's usual scale or renaming it - this
+        // keeps the actual label and just gives it the room it needs.
         val caughtOverlay = container()
-        val caughtDimBg = caughtOverlay.solidRect(canvasW, canvasH, Colors.BLACK.withAd(0.88))
-        val caughtPanelW = 420.0
-        val caughtPanelH = 340.0
-        val caughtPanel = caughtOverlay.createTacticalCard((canvasW - caughtPanelW) / 2.0, (canvasH - caughtPanelH) / 2.0, caughtPanelW, caughtPanelH, accentColor = COLOR_BORDER_RED)
+        caughtOverlay.solidRect(canvasW, canvasH, Colors["#07080A"].withAd(0.92))
 
-        caughtPanel.solidRect(caughtPanelW, 28.0, Colors.BLACK.withAd(0.5)).xy(0.0, 0.0)
-        caughtPanel.solidRect(caughtPanelW, 1.0, COLOR_BORDER_RED.withAd(0.5)).xy(0.0, 27.0)
-        val caughtBadge = caughtPanel.text("OPERATIVE COMPROMISED // MISSION FAILED", textSize = 11.0, font = bebasFont, color = COLOR_BORDER_RED).xy(14.0, 7.0)
-        caughtBadge.graphicsRenderer = GraphicsRenderer.GPU
+        val caughtBtnW = 480.0
+        val caughtBtnH = pauseBtnH
+        val caughtBtnGap = pauseBtnGap
+        val caughtBlockH = 150.0 + 3 * caughtBtnH + 2 * caughtBtnGap
+        val caughtBlockTop = (canvasH - caughtBlockH) / 2.0
+        val caughtBtnX = (canvasW - caughtBtnW) / 2.0
 
-        val caughtTitle = caughtPanel.text("MISSION FAILED", textSize = 28.0, font = bebasFont, color = COLOR_BORDER_RED)
+        val caughtTitle = caughtOverlay.text("MISSION FAILED", textSize = 52.0, font = bebasFont, color = COLOR_BORDER_RED)
         caughtTitle.graphicsRenderer = GraphicsRenderer.GPU
-        caughtTitle.xy((caughtPanelW - caughtTitle.width) / 2.0, 36.0)
+        caughtTitle.xy((canvasW - caughtTitle.width) / 2.0, caughtBlockTop)
 
-        val caughtSub = caughtPanel.text("SPOTTED AND APPREHENDED BY GUARD PATROL", textSize = 12.0, font = bebasFont, color = COLOR_TEXT_MUTED)
-        caughtSub.graphicsRenderer = GraphicsRenderer.GPU
-        caughtSub.xy((caughtPanelW - caughtSub.width) / 2.0, 68.0)
+        val caughtSubtitle = caughtOverlay.text(
+            "SPOTTED AND APPREHENDED BY GUARD PATROL", textSize = 14.0, font = bebasFont, color = COLOR_TEXT_MUTED
+        )
+        caughtSubtitle.graphicsRenderer = GraphicsRenderer.GPU
+        caughtSubtitle.xy((canvasW - caughtSubtitle.width) / 2.0, caughtBlockTop + 62.0)
 
-        val tipBox = caughtPanel.container().xy(24.0, 98.0)
-        tipBox.solidRect(372.0, 68.0, Colors.BLACK.withAd(0.6))
-        tipBox.solidRect(3.0, 68.0, COLOR_BORDER_GOLD).xy(0.0, 0.0)
-        val tipTitle = tipBox.text("TACTICAL RECON INTEL", textSize = 12.0, font = bebasFont, color = COLOR_BORDER_GOLD).xy(12.0, 8.0)
-        tipTitle.graphicsRenderer = GraphicsRenderer.GPU
-        tipBox.text("Crouch-walk [SNEAK] to eliminate movement noise.\nStay out of guard vision cones and use shipping crates as cover.", textSize = 10.0, color = COLOR_TEXT_MUTED).xy(12.0, 28.0)
+        // Same recon tip as before the redesign, just unboxed: a small gold heading over the
+        // original two lines of advice, instead of the bordered "TACTICAL RECON INTEL" panel.
+        val caughtTipHeading = caughtOverlay.text("TACTICAL RECON INTEL", textSize = 11.0, font = bebasFont, color = COLOR_BORDER_GOLD)
+        caughtTipHeading.graphicsRenderer = GraphicsRenderer.GPU
+        caughtTipHeading.xy((canvasW - caughtTipHeading.width) / 2.0, caughtBlockTop + 90.0)
+
+        val caughtTipLine1 = caughtOverlay.text(
+            "Crouch-walk to eliminate movement noise.", textSize = 10.0, font = bebasFont, color = COLOR_TEXT_MUTED
+        )
+        caughtTipLine1.graphicsRenderer = GraphicsRenderer.GPU
+        caughtTipLine1.alpha = 0.85
+        caughtTipLine1.xy((canvasW - caughtTipLine1.width) / 2.0, caughtBlockTop + 106.0)
+
+        val caughtTipLine2 = caughtOverlay.text(
+            "Stay out of guard vision cones and use shipping crates as cover.",
+            textSize = 10.0, font = bebasFont, color = COLOR_TEXT_MUTED
+        )
+        caughtTipLine2.graphicsRenderer = GraphicsRenderer.GPU
+        caughtTipLine2.alpha = 0.85
+        caughtTipLine2.xy((canvasW - caughtTipLine2.width) / 2.0, caughtBlockTop + 120.0)
+
+        val caughtBtnY0 = caughtBlockTop + 150.0
 
         // Watch a rewarded ad to continue the same run. Only requests the ad here - the actual
         // restart happens in the update loop below, gated on the bridge reporting the ad was
         // genuinely watched, so a failed/declined ad just leaves this overlay's other buttons
         // usable instead of stranding the player. See .junie/guidelines.md "AdMob (basic-ads)
         // feasibility spike" and src/ContinueAdBridge.kt.
-        caughtPanel.createTacticalMenuBtn("CONTINUE (WATCH AD)", width = 240.0, height = 44.0, x = 90.0, y = 186.0, primary = true, accentColor = COLOR_ACCENT_GOLD) {
+        caughtOverlay.createPaperMenuBtn(
+            "CONTINUE (WATCH AD)", paperBtnBitmaps[0], caughtBtnW, caughtBtnH, caughtBtnX, caughtBtnY0,
+            iconDrawer = { drawPlayIcon(false) }
+        ) {
             getContinueAdBridge().requestContinueAd()
+            getAnalyticsBridge().track("watch_ad_continue_requested", mapOf("level_id" to levelData.id))
         }
 
-        caughtPanel.createTacticalMenuBtn("RETRY INFILTRATION", width = 240.0, height = 40.0, x = 90.0, y = 234.0, accentColor = COLOR_ACCENT_RED) {
+        caughtOverlay.createPaperMenuBtn(
+            "RETRY INFILTRATION", paperBtnBitmaps[1], caughtBtnW, caughtBtnH, caughtBtnX, caughtBtnY0 + caughtBtnH + caughtBtnGap,
+            iconDrawer = { drawRestartIcon(paperInk) }
+        ) {
+            bgMusicChannel?.stop()
+            bgMusicChannel = null
             sceneContainer.changeTo { GameplayScene(levelData) }
         }
 
-        caughtPanel.createTacticalMenuBtn("RETURN TO MENU", width = 240.0, height = 38.0, x = 90.0, y = 278.0) {
-            views.storage["nav_target"] = "menu"
+        caughtOverlay.createPaperMenuBtn(
+            "RETURN TO MENU", paperBtnBitmaps[2], caughtBtnW, caughtBtnH, caughtBtnX, caughtBtnY0 + 2 * (caughtBtnH + caughtBtnGap),
+            iconDrawer = { drawQuitIcon(false) }
+        ) {
+            bgMusicChannel?.stop()
+            bgMusicChannel = null
+            getLevelExitBridge().requestReturnToMenu()
             sceneContainer.changeTo { GameplayScene(levelData) }
         }
 
         caughtOverlay.visible = false
 
         // ==========================================
-        // 3. LEVEL COMPLETE OVERLAY
+        // 3. LEVEL COMPLETE OVERLAY (Heist Dossier styling, own content)
         // ==========================================
-        val winPanelW = 560.0
-        val winPanelH = 390.0
-        val winContainer = container().xy((canvasW - winPanelW) / 2.0, (canvasH - winPanelH) / 2.0)
-        val winPanel = winContainer.createTacticalCard(0.0, 0.0, winPanelW, winPanelH, accentColor = COLOR_BORDER_GOLD)
+        // Takes the pause overlay's STYLE - full-bleed near-black scrim, stacked Bebas
+        // typography with no card/badge chrome, torn-paper buttons instead of glassy tactical
+        // pills - without collapsing this screen's own content into pause's. The original badge
+        // line, star breakdown, bounty stats and all three original button labels are unchanged;
+        // only the chrome (card panel, boxed badge/bounty box, pill buttons) is gone. Buttons are
+        // wider than pause's (420 vs 300) so "NEXT MISSION"/"ALL CLEAR!" still fit at the paper
+        // button's usual text scale instead of needing to be renamed. Title stays green to read
+        // as a success state, mirroring caught's red, and is sized down from pause's 52 to 36
+        // since this screen carries far more content (stars, breakdown, stats) that still needs
+        // to fit one screen with no scrolling - reasoned from the same screenshot dimensions the
+        // rest of this file's UI passes work from, not measured on a real device.
+        val winContainer = container()
+        winContainer.solidRect(canvasW, canvasH, Colors["#07080A"].withAd(0.92))
 
-        winPanel.solidRect(winPanelW, 28.0, Colors.BLACK.withAd(0.5)).xy(0.0, 0.0)
-        winPanel.solidRect(winPanelW, 1.0, COLOR_BORDER_GOLD.withAd(0.5)).xy(0.0, 27.0)
-        val winBadge = winPanel.text("MISSION ACCOMPLISHED // EXTRACTION SUCCESS", textSize = 11.0, font = bebasFont, color = COLOR_BORDER_GOLD).xy(14.0, 7.0)
-        winBadge.graphicsRenderer = GraphicsRenderer.GPU
+        val winBtnW = 420.0
+        val winBtnH = pauseBtnH
+        val winBtnGap = pauseBtnGap
+        val winBtnX = (canvasW - winBtnW) / 2.0
+        val winColumnW = 480.0
+        val winColumnX = (canvasW - winColumnW) / 2.0
 
-        val winTitle = winPanel.text("HEIST COMPLETED!", textSize = 28.0, font = bebasFont, color = COLOR_BORDER_GREEN)
+        val winBlockH = 463.0
+        val winBlockTop = (canvasH - winBlockH) / 2.0
+
+        val winTitle = winContainer.text("HEIST COMPLETED!", textSize = 36.0, font = bebasFont, color = COLOR_BORDER_GREEN)
         winTitle.graphicsRenderer = GraphicsRenderer.GPU
-        winTitle.xy((winPanelW - winTitle.width) / 2.0, 36.0)
+        winTitle.xy((canvasW - winTitle.width) / 2.0, winBlockTop)
 
-        val winStarsGraphics = winPanel.uiGraphics().xy(0.0, 0.0)
+        val winSubtitle = winContainer.text(
+            "MISSION ACCOMPLISHED // EXTRACTION SUCCESS", textSize = 13.0, font = bebasFont, color = COLOR_BORDER_GOLD
+        )
+        winSubtitle.graphicsRenderer = GraphicsRenderer.GPU
+        winSubtitle.xy((canvasW - winSubtitle.width) / 2.0, winBlockTop + 44.0)
 
-        val star1Label = winPanel.text("Star 1: Extraction Complete", textSize = 13.0, font = bebasFont, color = COLOR_TEXT_LIGHT).xy(45.0, 118.0)
+        val winStarsGraphics = winContainer.uiGraphics().xy(0.0, 0.0)
+        val winStarsCy = winBlockTop + 107.0
+
+        val star1Label = winContainer.text("Star 1: Extraction Complete", textSize = 11.0, font = bebasFont, color = COLOR_TEXT_LIGHT)
         star1Label.graphicsRenderer = GraphicsRenderer.GPU
-        val star2Label = winPanel.text("Star 2: Undetected (Ghost)", textSize = 13.0, font = bebasFont, color = COLOR_TEXT_LIGHT).xy(45.0, 140.0)
+        star1Label.xy(winColumnX, winBlockTop + 148.0)
+        val star2Label = winContainer.text("Star 2: Undetected (Ghost)", textSize = 11.0, font = bebasFont, color = COLOR_TEXT_LIGHT)
         star2Label.graphicsRenderer = GraphicsRenderer.GPU
-        val star3Label = winPanel.text("Star 3: Fast Time (≤ ${levelData.timeTargetSeconds.toInt()}s)", textSize = 13.0, font = bebasFont, color = COLOR_TEXT_LIGHT).xy(45.0, 162.0)
+        star2Label.xy(winColumnX, winBlockTop + 163.0)
+        val star3Label = winContainer.text("Star 3: Fast Time (≤ ${levelData.timeTargetSeconds.toInt()}s)", textSize = 11.0, font = bebasFont, color = COLOR_TEXT_LIGHT)
         star3Label.graphicsRenderer = GraphicsRenderer.GPU
+        star3Label.xy(winColumnX, winBlockTop + 178.0)
 
-        // Bounty Box
-        val bountyBox = winPanel.container().xy(40.0, 192.0)
-        bountyBox.solidRect(480.0, 72.0, Colors.BLACK.withAd(0.6))
-        bountyBox.solidRect(480.0, 1.0, COLOR_BORDER_CYAN.withAd(0.5)).xy(0.0, 0.0)
-
-        val statsLabel = bountyBox.text("", textSize = 13.0, font = bebasFont, color = COLOR_BORDER_CYAN).xy(14.0, 8.0)
+        val statsLabel = winContainer.text("", textSize = 12.0, font = bebasFont, color = COLOR_BORDER_CYAN)
         statsLabel.graphicsRenderer = GraphicsRenderer.GPU
-        val coinsEarnedLabel = bountyBox.text("", textSize = 15.0, font = bebasFont, color = COLOR_BORDER_GOLD).xy(14.0, 28.0)
+        statsLabel.xy(winColumnX, winBlockTop + 211.0)
+        val coinsEarnedLabel = winContainer.text("", textSize = 13.0, font = bebasFont, color = COLOR_BORDER_GOLD)
         coinsEarnedLabel.graphicsRenderer = GraphicsRenderer.GPU
-        val bestLabel = bountyBox.text("", textSize = 12.0, font = bebasFont, color = COLOR_BORDER_GREEN).xy(14.0, 48.0)
+        coinsEarnedLabel.xy(winColumnX, winBlockTop + 227.0)
+        val bestLabel = winContainer.text("", textSize = 11.0, font = bebasFont, color = COLOR_BORDER_GREEN)
         bestLabel.graphicsRenderer = GraphicsRenderer.GPU
+        bestLabel.xy(winColumnX, winBlockTop + 243.0)
 
-        // Buttons Container
-        val winBtnRow = winPanel.container().xy(40.0, 285.0)
+        val winBtnY0 = winBlockTop + 279.0
 
         val allLevels = LevelData.DEFAULT_LEVELS
         val currentLevelIndex = allLevels.indexOfFirst { it.id == levelData.id }
         val nextLevel = if (currentLevelIndex >= 0 && currentLevelIndex + 1 < allLevels.size) allLevels[currentLevelIndex + 1] else null
 
         if (nextLevel != null) {
-            winBtnRow.createTacticalMenuBtn("NEXT MISSION", width = 150.0, height = 44.0, x = 0.0, y = 0.0, primary = true, accentColor = COLOR_ACCENT_GREEN) {
+            winContainer.createPaperMenuBtn(
+                "NEXT MISSION", paperBtnBitmaps[0], winBtnW, winBtnH, winBtnX, winBtnY0,
+                iconDrawer = { drawPlayIcon(false) }
+            ) {
+                bgMusicChannel?.stop()
+                bgMusicChannel = null
                 sceneContainer.changeTo { GameplayScene(nextLevel) }
             }
         } else {
-            winBtnRow.createTacticalMenuBtn("ALL CLEAR!", width = 150.0, height = 44.0, x = 0.0, y = 0.0, primary = true, accentColor = COLOR_ACCENT_GOLD) {
-                views.storage["nav_target"] = "level_select"
+            winContainer.createPaperMenuBtn(
+                "ALL CLEAR!", paperBtnBitmaps[0], winBtnW, winBtnH, winBtnX, winBtnY0,
+                iconDrawer = { drawPlayIcon(false) }
+            ) {
+                // Lands on the menu's default screen (MainMenu), not Missions specifically -
+                // NavigationRoot remounts fresh every time gameplay hides it, so there is
+                // currently no way to tell it which screen to come back to. See
+                // getLevelExitBridge()'s doc comment.
+                bgMusicChannel?.stop()
+                bgMusicChannel = null
+                getLevelExitBridge().requestReturnToMenu()
                 sceneContainer.changeTo { GameplayScene(levelData) }
             }
         }
 
-        winBtnRow.createTacticalMenuBtn("RETRY", width = 140.0, height = 44.0, x = 165.0, y = 0.0) {
+        winContainer.createPaperMenuBtn(
+            "RETRY", paperBtnBitmaps[1], winBtnW, winBtnH, winBtnX, winBtnY0 + winBtnH + winBtnGap,
+            iconDrawer = { drawRestartIcon(paperInk) }
+        ) {
+            bgMusicChannel?.stop()
+            bgMusicChannel = null
             sceneContainer.changeTo { GameplayScene(levelData) }
         }
 
-        winBtnRow.createTacticalMenuBtn("MAIN MENU", width = 140.0, height = 44.0, x = 320.0, y = 0.0) {
-            views.storage["nav_target"] = "menu"
+        winContainer.createPaperMenuBtn(
+            "MAIN MENU", paperBtnBitmaps[2], winBtnW, winBtnH, winBtnX, winBtnY0 + 2 * (winBtnH + winBtnGap),
+            iconDrawer = { drawQuitIcon(false) }
+        ) {
+            bgMusicChannel?.stop()
+            bgMusicChannel = null
+            getLevelExitBridge().requestReturnToMenu()
             sceneContainer.changeTo { GameplayScene(levelData) }
         }
 
@@ -961,6 +1290,16 @@ class GameplayScene(
             val result = world.getLevelResult()
             levelStorage.saveResult(result)
             val bestResult = levelStorage.getBestResult(result.levelId) ?: result
+
+            getAnalyticsBridge().track(
+                "level_complete",
+                mapOf(
+                    "level_id" to result.levelId,
+                    "stars" to result.starCount,
+                    "time_taken_seconds" to result.timeTaken,
+                    "alerts" to world.spottedCount
+                )
+            )
 
             // Calculate and award coins
             val multiplier = if (profileStorage.getProfile().isPremium) 2 else 1
@@ -976,12 +1315,12 @@ class GameplayScene(
 
             // Render 3 Stars
             winStarsGraphics.updateShape {
-                val starPositions = listOf(220.0, 280.0, 340.0)
+                val starPositions = listOf(canvasW / 2.0 - 60.0, canvasW / 2.0, canvasW / 2.0 + 60.0)
                 val starsEarned = listOf(result.star1, result.star2, result.star3)
 
                 for (i in 0 until 3) {
                     val cx = starPositions[i]
-                    val cy = 84.0
+                    val cy = winStarsCy
                     val isEarned = starsEarned[i]
                     val fillColor = if (isEarned) COLOR_BORDER_GOLD else Colors["#182334"]
                     drawStar(cx, cy, outerR = 18.0, innerR = 7.5, fillColor = fillColor)
@@ -1006,6 +1345,10 @@ class GameplayScene(
 
         world.onGameOver = {
             caughtOverlay.visible = true
+            getAnalyticsBridge().track(
+                "mission_failed",
+                mapOf("level_id" to levelData.id, "alerts" to world.spottedCount)
+            )
         }
 
         var totalElapsedSeconds = 0.0
@@ -1017,6 +1360,15 @@ class GameplayScene(
             // this scene stayed alive in the background, and grants the continue once the player
             // actually watched it. Restarts the same way "RETRY INFILTRATION" already does.
             if (getContinueAdBridge().consumeContinueGranted()) {
+                getAnalyticsBridge().track("watch_ad_continue_granted", mapOf("level_id" to levelData.id))
+                sounds.toastSuccess.playSfx(sfxContext, GameAudio.TOAST_SUCCESS_GAIN, sfxVolume())
+                bgMusicChannel?.stop()
+                bgMusicChannel = null
+                // Hidden immediately, not left for changeTo to sort out: this scene (with its
+                // MISSION FAILED overlay still visible) stays on screen for however many frames
+                // the transition to the new GameplayScene instance takes, which is exactly the
+                // "continue menu flashes for a split second" the ad-continue flow was showing.
+                caughtOverlay.visible = false
                 sceneContainer.stage?.launchImmediately { sceneContainer.changeTo { GameplayScene(levelData) } }
                 return@addUpdater
             }
@@ -1028,6 +1380,8 @@ class GameplayScene(
             }
 
             pauseOverlay.visible = isPaused
+
+            syncBgMusicVolume()
 
             if (isPaused || world.isLevelComplete || world.isGameOver) {
                 return@addUpdater
@@ -1111,7 +1465,6 @@ class GameplayScene(
                     jumpPhase = "launch"
                     jumpPhaseElapsed = 0.0
                     jumpStartY = world.player.y
-                    sounds.takeoff.playSfx(sfxContext, GameAudio.TAKEOFF_GAIN, sfxVolume())
                     playerSprite.playAnimationLooped(playerAnimations.jump, manualFrameTime)
                 } else if (playerAnimState == "jump") {
                     jumpPhaseElapsed += dtSec
@@ -1160,7 +1513,6 @@ class GameplayScene(
                         if (playerAnimState != "crouch" && playerAnimState != "crouchwalk") {
                             playerAnimState = "crouch"
                             crouchPhase = "entering"
-                            sounds.crouch.playSfx(sfxContext, GameAudio.CROUCH_GAIN, sfxVolume())
                             playerSprite.playAnimationLooped(playerAnimations.crouch, manualFrameTime)
                         } else if (playerAnimState == "crouch" && crouchPhase == "exiting") {
                             crouchPhase = "entering"
@@ -1180,10 +1532,6 @@ class GameplayScene(
                     } else if ((playerAnimState == "crouch" || playerAnimState == "crouchwalk") && crouchPhase != "exiting") {
                         playerAnimState = "crouch"
                         crouchPhase = "exiting"
-                        // Same foley on the way up, lighter. There is no separate stand-up take
-                        // in the source, but it is the same cloth and joints in reverse, and
-                        // leaving the exit silent when the entry is not reads as a missed cue.
-                        sounds.crouch.playSfx(sfxContext, GameAudio.CROUCH_GAIN * 0.6, sfxVolume())
                         playerSprite.playAnimationLooped(playerAnimations.crouch, manualFrameTime)
                     }
 
@@ -1281,7 +1629,14 @@ class GameplayScene(
             // skip the lean-in whenever walk is next entered, possibly much later.
 
 
-            playerSprite.y = world.player.height + (if (playerAnimState == "idle") idleFeetOffset else 0.0)
+            playerSprite.y = world.player.height + when {
+                playerAnimState == "idle" -> idleFeetOffset
+                // Only the held/entering/exiting stance, not crouchwalk - the walk cycle's
+                // alternating planted/swinging foot is supposed to look uneven, this offset is
+                // only for the settled two-feet-down pose.
+                playerAnimState == "crouch" -> crouchFeetOffset
+                else -> 0.0
+            }
             if (playerAnimState == "jump") {
                 val maxJumpHeight =
                     (world.player.jumpSpeed * world.player.jumpSpeed) / (2.0 * world.player.gravity)
@@ -1303,6 +1658,9 @@ class GameplayScene(
                     }
                 }
                 playerSprite.setFrame(frameIndex.coerceIn(0, jumpLastFrame))
+                if (jumpPhase == "land") {
+                    playerSprite.y += jumpLandFeetOffset
+                }
 
                 val holdFactor = when (jumpPhase) {
                     "launch" -> 1.0
@@ -1355,13 +1713,17 @@ class GameplayScene(
             }
 
             // Flip sprite to face direction
-            if (moveInput < 0) {
+            if (world.player.isClimbing) {
+                playerFacingLeft = world.player.facing < 0.0
+            } else if (moveInput < 0) {
                 playerFacingLeft = true
             } else if (moveInput > 0) {
                 playerFacingLeft = false
             }
             playerSprite.scaleX = playerBaseScale * (if (playerFacingLeft) -1.0 else 1.0)
             playerSprite.scaleY = playerBaseScale
+
+            playerSprite.x = world.player.width / 2.0
 
             // Invisibility visual effect on player
             playerSprite.alpha = if (world.activePowerups.isInvisibilityActive) 0.35 else 1.0
@@ -1382,6 +1744,12 @@ class GameplayScene(
                     guardVisors[i].color =
                         if (g.state == GuardState.INVESTIGATING) COLOR_BORDER_GOLD else Colors["#e74c3c"]
                 }
+
+                val isInvestigating = g.state == GuardState.INVESTIGATING
+                if (isInvestigating && !guardWasInvestigating[i]) {
+                    sounds.guardInvestigate.playSfx(sfxContext, GameAudio.GUARD_INVESTIGATE_GAIN, sfxVolume())
+                }
+                guardWasInvestigating[i] = isInvestigating
             }
 
             val alertProgress = world.alertProgress
@@ -1576,10 +1944,15 @@ class GameplayScene(
                 )
             }
             for (i in world.cameras.indices) {
+                val isDetecting = world.cameras[i] in world.detectingCameras
+                if (isDetecting && !cameraWasDetecting[i]) {
+                    sounds.cameraDetect.playSfx(sfxContext, GameAudio.CAMERA_DETECT_GAIN, sfxVolume())
+                }
+                cameraWasDetecting[i] = isDetecting
                 paintPip(
                     cameraPips[i],
                     if (world.activePowerups.isSmokeScreenActive) 0.0
-                    else pipFor(world.cameras[i] in world.detectingCameras, false)
+                    else pipFor(isDetecting, false)
                 )
             }
         }

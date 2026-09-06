@@ -16,20 +16,30 @@ tell at a glance which sounds are ours and which are not.
 |---|---|---|---|---|
 | `resources/sfx/step_a.wav` | Running footstep A | `walk_new.mp4` audio track | This project | Own work |
 | `resources/sfx/step_b.wav` | Running footstep B | `walk_new.mp4` audio track | This project | Own work |
-| `resources/sfx/crouch.wav` | Crouch stance change | `crouch_new.mp4` audio track | This project | Own work |
 | `resources/sfx/climb.wav` | Vault / climb | `climb.mp4` audio track | This project | Own work |
-| `resources/sfx/takeoff.wav` | Jump take-off | `jump_new.mp4` audio track, 0.765–0.955 s | This project | Own work |
 | `resources/sfx/impact.wav` | Landing | `jump_new.mp4` audio track, 1.612–1.952 s | This project | Own work |
+| `resources/sfx/guard_investigate.wav` | Guard starts investigating | `Downloads/charAnimations/music/guard_investigate.wav` | This project | Own work |
+| `resources/sfx/camera_detect.wav` | Camera starts detecting player | `Downloads/charAnimations/music/camera.mp3` (one-beat pulse) | This project | Own work |
+| `resources/music/bgmusic.mp3` | Gameplay background music | `Downloads/charAnimations/music/bgmusic.mp3` | This project | Own work |
 | `resources/sfx/ui_click.wav` | Every button and tap | [Kenney UI Audio](https://kenney.nl/assets/ui-audio) (`click3.ogg`) | [Kenney](https://kenney.nl) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | `ios-shell/Resources/ui_click.wav` | Menu buttons on iOS | Same file as above, duplicated for bundling | [Kenney](https://kenney.nl) | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
-| `resources/mainmenu.mp3` | Menu music | *Not yet documented — see "Unresolved" below* | — | — |
+| `resources/sfx/toast_success.wav` | Success toast (Settings/Store) | [Sound effect](https://freesound.org/s/538554/) | Sjonas88 | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `ios-shell/Resources/toast_success.wav` | Same, iOS menu bus | Same file as above, duplicated for bundling | Sjonas88 | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `resources/sfx/toast_error.wav` | Error toast (Settings/Store) | [Sound effect](https://freesound.org/s/521973/) | Kastenfrosch | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `ios-shell/Resources/toast_error.wav` | Same, iOS menu bus | Same file as above, duplicated for bundling | Kastenfrosch | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `resources/mainmenu.mp3` | Menu music | [Track](https://pixabay.com/music/) via Pixabay | Nikita Kondrashev | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
+| `ios-shell/Resources/mainmenu.mp3` | Same, iOS menu bus | Same file as above, duplicated for bundling | Nikita Kondrashev | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
+| `resources/sfx/alert_guard.wav` | Guard detects player | ["Huh 5"](https://freesound.org/s/812300/) | Sadiquecat | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `resources/sfx/alert_camera.wav` | Camera detects player | ["Missile Lock Detected"](https://freesound.org/s/165504/) | ryanconway | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `resources/missionmusic.mp3` | In-mission background music | [Track](https://pixabay.com/music/) via Pixabay | DELOSound | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
 
 ### Notes on the plate cuts
 
-`takeoff.wav` and `impact.wav` are two different moments of the same take. The take-off sits
-about 34 dB below the landing in the source recording, so each was peak-normalised on its own
-rather than sharing one gain; the intended balance between them is restored in
-`GameAudio`'s gain table (`TAKEOFF_GAIN` / `LANDING_GAIN`) instead of being baked into the files.
+`crouch.wav` and `takeoff.wav` were both removed after this file was first written — `crouch.wav`
+because playing anything on the crouch stance change contradicts the mechanic it exists to serve
+(crouching is silent movement), and `takeoff.wav` because on-device testing found the cut itself
+was defective (broadband noise, not a real transient — see `.junie/guidelines.md`'s "RESOLVED:
+`takeoff.wav` removed"). Jump take-off is currently silent; see the SFX handoff's open items.
 
 ---
 
@@ -67,9 +77,17 @@ All under [CC-BY 3.0](http://creativecommons.org/licenses/by/3.0/), compiled by 
 
 ---
 
-## Unresolved
+## In-app credits
 
-- **`resources/mainmenu.mp3`** — this track predates the current sound work and its origin is
-  not recorded anywhere in the repo. It ships in both `resources/` and `ios-shell/Resources/`.
-  Its licence needs establishing before release; if it cannot be established, it needs replacing.
-  This is flagged rather than guessed at, because a wrong guess here is the expensive kind.
+All seven third-party sounds above (`ui_click`, `toast_success`, `toast_error`, `mainmenu`,
+`alert_guard`, `alert_camera`, `missionmusic`) are also credited inside the app, at
+**Settings → About → Credits & Licenses** — see
+`SOUND_CREDITS` in `paywall-build/src/commonMain/kotlin/ui/SettingsScreen.kt`. Keep the two lists
+in sync: this file is the detailed record (source links, exact licence), the in-app panel is the
+short player-facing version.
+
+## Resolved
+
+- **`resources/mainmenu.mp3`** — previously undocumented. Confirmed 2026-09-05: the owner supplied
+  the same file (byte-identical, checked by hash) with its Pixabay credit, resolving the gap this
+  section used to flag.

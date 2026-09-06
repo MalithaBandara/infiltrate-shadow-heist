@@ -13,6 +13,7 @@ version = "1.0"
 
 korge {
 	id = "com.sample.demo"
+	icon = file("icon.png")
 
 // To enable all targets at once
 
@@ -63,7 +64,11 @@ dependencies {
 
 tasks.withType<JavaExec>().configureEach {
     if (project.hasProperty("startLevel")) {
-        systemProperty("startLevel", project.property("startLevel") as String)
+        // main.kt reads this via korlibs.io.lang.Environment["startLevel"], which is backed by
+        // real OS environment variables (System.getenv), NOT JVM system properties - a plain
+        // systemProperty(...) here (as this used to be) is invisible to it, so every launch
+        // silently fell back to level_1 no matter which mission was actually picked.
+        environment("startLevel", project.property("startLevel") as String)
     }
 }
 

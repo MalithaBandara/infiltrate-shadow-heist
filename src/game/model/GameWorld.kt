@@ -15,6 +15,16 @@ data class GameWorld(
     val activePowerups: ActivePowerups = ActivePowerups(),
     val fence1: Rect? = null,
     val fence2: Rect? = null,
+    val barrels: List<Rect> = emptyList(),
+    // Jump-crate gap crossings, tagged by which of the two hanging-crate art variants each box
+    // renders with - see LevelLayout.hangingCrateVariant1/2 and GameplayScene.kt's box loop.
+    val hangingCrateVariant1: List<Rect> = emptyList(),
+    val hangingCrateVariant2: List<Rect> = emptyList(),
+    /** Union of [truckParts] (front+middle+back) - the footprint the truck image is drawn into. */
+    val truck: Rect? = null,
+    /** Truck collision split into 3 tiers matching its silhouette: hood (front, low), cab roof
+     *  (middle) and tarp-covered bed (back) - see GameWorld.createDefault for the measurements. */
+    val truckParts: List<Rect> = emptyList(),
     var minDetectionTime: Double = 0.3,     // Seconds to catch at point-blank range (~0.3s)
     var maxDetectionTime: Double = 1.5,     // Seconds to catch at outer edge of vision cone (~1.5s)
     var alertDecayRate: Double = 0.6,       // Progress drained per second when outside vision
@@ -226,7 +236,7 @@ data class GameWorld(
             val layout = levelData.layout
             if (layout != null) return createFromLayout(levelData, layout)
 
-            val worldWidth = 3200.0
+            val worldWidth = 3900.0
             val groundY = 410.0
             val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
             val leftWall = Rect(x = -30.0, y = 0.0, width = 30.0, height = 520.0)
@@ -239,28 +249,70 @@ data class GameWorld(
             val fence2 = Rect(x = -80.0, y = groundY - fenceHeight, width = fence2Width, height = fenceHeight)
             val fence1 = Rect(x = 70.0, y = groundY - fenceHeight, width = fence1Width, height = fenceHeight)
 
-            // 1. Initial ground walking area (x = 235 to 580)
-            // 2. Step crate (tightly cropped to visual bounds: 48px high, 68px wide)
+            // 1. Ground walk past the gates to a small step crate (tightly cropped to visual bounds:
+            // 48px high, 68px wide) parked next to a flatbed truck.
             val crateHeight = 48.0
             val crateWidth = 68.0
-            val stepCrate = Rect(x = 580.0, y = groundY - crateHeight, width = crateWidth, height = crateHeight)
+            val smallCrate = Rect(x = 550.0, y = groundY - crateHeight, width = crateWidth, height = crateHeight)
 
-            // 3. Long elevated platform (96px high, starting right at crate edge)
-            val longPlatform = Rect(x = stepCrate.right, y = groundY - 96.0, width = 900.0, height = 96.0)
+            // 2. Truck, starting right at the crate's edge, split into 3 collision tiers matching
+            // truck.png's actual silhouette (tight-cropped to 1683x617) instead of one flat box:
+            // the hood (front, the low point right after the crate - climbable step up), the cab
+            // roof (middle) and the tarp-covered bed (back) - the latter two flush with the long
+            // platform's height (96px) so walking across bed+cab onto the platform is a level walk,
+            // not another jump. The image itself is drawn flipped (see GameplayScene.kt) so the
+            // hood - the low, climbable end - faces the crate the player is coming from, with the
+            // tall cab+bed stretching away towards the long platform.
+            val truckBedHeight = 96.0
+            val truckFrontHeight = 66.0 // hood sits at ~68% of the cab/bed roofline height
+            val truckFront = Rect(x = smallCrate.right, y = groundY - truckFrontHeight, width = 38.0, height = truckFrontHeight)
+            val truckMiddle = Rect(x = truckFront.right, y = groundY - truckBedHeight, width = 45.0, height = truckBedHeight)
+            val truckBack = Rect(x = truckMiddle.right, y = groundY - truckBedHeight, width = 179.0, height = truckBedHeight)
+            val truckParts = listOf(truckFront, truckMiddle, truckBack)
+            val truck = Rect(x = truckFront.x, y = groundY - truckBedHeight, width = truckFront.width + truckMiddle.width + truckBack.width, height = truckBedHeight)
 
-            // 4. Chained crate hanging above long platform (blocks standing player at x = 1050, crouch to pass under)
-            // Clearance above the platform is 66px. It has to clear the crouch SILHOUETTE, not the 56px
-            // crouch collision height: the tallest crouch-walk frame measures 57.4px on screen, so 66
-            // leaves ~9px of daylight - enough that nothing clips, tight enough that the squeeze reads.
-            // (80px, the previous value, left 23px of headroom and looked like the player could walk
-            // under it standing; 54px, the value before that, was shorter than the crouch itself.)
-            val hangingChainedCrate = Rect(x = 1050.0, y = 0.0, width = 174.0, height = (groundY - 96.0) - 66.0)
+            // 3. Long elevated platform (96px high, starting right at the truck's far edge)
+            val longPlatform = Rect(x = truck.right, y = groundY - 96.0, width = 900.0, height = 96.0)
 
-            // Further terrain blocks along the 3200px infiltration corridor
-            val block2 = Rect(x = 1800.0, y = groundY - 95.0, width = 340.0, height = 95.0)
-            val block3 = Rect(x = 2350.0, y = groundY - 95.0, width = 300.0, height = 95.0)
-            val boxes = listOf(fence2, fence1, stepCrate, longPlatform, hangingChainedCrate, block2, block3)
-            val exitZone = Rect(x = 3130.0, y = groundY - 60.0, width = 40.0, height = 60.0)
+            // 4. Chained crate hanging above the long platform (blocks standing player, crouch to pass
+            // under). Clearance above the platform is 66px. It has to clear the crouch SILHOUETTE, not
+            // the 56px crouch collision height: the tallest crouch-walk frame measures 57.4px on
+            // screen, so 66 leaves ~9px of daylight - enough that nothing clips, tight enough that the
+            // squeeze reads. (80px, an earlier value, left 23px of headroom and looked like the player
+            // could walk under it standing; 54px, before that, was shorter than the crouch itself.)
+            val hangingChainedCrate = Rect(x = longPlatform.x + 400.0, y = 0.0, width = 174.0, height = (groundY - 96.0) - 66.0)
+
+            // 5. Step-down crate right at the platform's far edge (same 48x68 dims as the step-up
+            // crate at the start) - the player climbs DOWN off the 96px platform in two 48px steps
+            // (platform -> crate top -> ground) instead of one big drop. Plain ground walk after it,
+            // no barrels here anymore - they've moved to bridge the block2->block3 gap below instead.
+            val stepDownCrate = Rect(x = longPlatform.right, y = groundY - crateHeight, width = crateWidth, height = crateHeight)
+
+            // Further terrain blocks along the infiltration corridor
+            val block2 = Rect(x = stepDownCrate.right + 200.0, y = groundY - 95.0, width = 340.0, height = 95.0)
+
+            // 6. Barrels tiled edge-to-edge across the entire block2 -> block3 gap (48px high - same
+            // jumpable rise as the crates above, comfortably inside the ~51 unit max jump height) -
+            // jump up onto the first one, walk across the whole row, jump down onto block3 at the far
+            // end. block3 starts exactly where the last barrel ends, so there's no bare ground left
+            // in the gap at all.
+            val barrelHeight = 48.0
+            val barrelWidth = 32.0 // matches barrel.png's tight-cropped aspect ratio (832x1274) at this height
+            val barrelCount = 7 // 7 * 32 = 224, comfortably spanning the ~210 unit gap this replaces
+            val barrels = (0 until barrelCount).map { i ->
+                Rect(x = block2.right + i * barrelWidth, y = groundY - barrelHeight, width = barrelWidth, height = barrelHeight)
+            }
+            val block3 = Rect(x = barrels.last().right, y = groundY - 95.0, width = 300.0, height = 95.0)
+            val boxes = listOf(fence2, fence1, smallCrate) + truckParts +
+                listOf(longPlatform, hangingChainedCrate, stepDownCrate, block2) +
+                barrels + listOf(block3)
+            // Wide enough to span almost the entire entrance.png checkpoint booth visual
+            // (GameplayScene.kt renders it at this same x, left-aligned) rather than a narrow
+            // strip somewhere inside it - so touching any part of the visible structure ends the
+            // level immediately, instead of needing to find one small precisely-aligned spot.
+            // 160 matches entrance.png's own tight-cropped aspect ratio (531x612) at the height
+            // GameplayScene.kt renders it, minus a small margin.
+            val exitZone = Rect(x = levelData.guardPatrolMaxX + 90.0, y = groundY - 60.0, width = 160.0, height = 60.0)
 
             val platforms = listOf(ground, leftWall, rightWall) + boxes
             val occluders = boxes
@@ -272,14 +324,44 @@ data class GameWorld(
                 startY = groundY - 96.0
             )
 
-            val guard = Guard(
-                x = (levelData.guardPatrolMaxX - 20.0).coerceIn(levelData.guardPatrolMinX, levelData.guardPatrolMaxX),
-                y = groundY - 48.0,
-                patrolMinX = levelData.guardPatrolMinX,
-                patrolMaxX = levelData.guardPatrolMaxX,
-                speed = levelData.guardSpeed,
-                facing = -1.0 // Start facing left towards the corridor
-            )
+            // guardPatrolMinX..guardPatrolMaxX (open ground, no boxes) is also where several unit
+            // tests in GameplayModelTest.kt place a player/guard pair that needs generic open
+            // ground for collision/vision math unrelated to this level's actual story - reusing it
+            // means those tests don't have to fight over space with the story geometry above.
+            //
+            // guard is never null - it's a mandatory GameWorld field, and a lot of existing tests
+            // call GameWorld.createDefault() and then reuse this exact object for generic guard-
+            // mechanic testing, either repositioning only part of it (just .x, relying on a normal
+            // .y/.visionRange/.facing) or not touching it at all (e.g. `world.player.x =
+            // world.guard.x - 100.0`, expecting a real, sensibly-oriented guard on the other end).
+            // So when a level opts out via guardEnabled = false, everything about the guard stays
+            // normal EXCEPT its starting x, which goes to -500 - behind the level's own leftWall
+            // (x = -30) and the start fences, i.e. permanently unreachable/off-screen during real
+            // play, but still real open ground with no occluders nearby for the vision math the
+            // dynamic tests exercise. speed = 0 keeps it from ever drifting into the visible corridor
+            // over a long session; patrolMinX/MaxX are widened (not left at the level's own, narrow
+            // guardPatrolMinX/MaxX) so a test that repositions .x anywhere in the real corridor
+            // doesn't get silently clamped back to -500 by Guard's own patrol-bounds logic the next
+            // time update() runs.
+            val guard = if (levelData.guardEnabled) {
+                Guard(
+                    x = (levelData.guardPatrolMaxX - 20.0).coerceIn(levelData.guardPatrolMinX, levelData.guardPatrolMaxX),
+                    y = groundY - 48.0,
+                    patrolMinX = levelData.guardPatrolMinX,
+                    patrolMaxX = levelData.guardPatrolMaxX,
+                    speed = levelData.guardSpeed,
+                    facing = -1.0 // Start facing left towards the corridor
+                )
+            } else {
+                Guard(
+                    x = -500.0,
+                    y = groundY - 48.0,
+                    patrolMinX = -10000.0,
+                    patrolMaxX = 10000.0,
+                    speed = 0.0,
+                    facing = -1.0
+                )
+            }
 
             val cameras = levelData.cameras.map { spawn ->
                 Camera(
@@ -298,7 +380,7 @@ data class GameWorld(
             return GameWorld(
                 player = player,
                 guard = guard,
-                crate = stepCrate,
+                crate = smallCrate,
                 platforms = platforms,
                 occluders = occluders,
                 exitZone = exitZone,
@@ -307,7 +389,10 @@ data class GameWorld(
                 boxes = boxes,
                 worldWidth = worldWidth,
                 fence1 = fence1,
-                fence2 = fence2
+                fence2 = fence2,
+                barrels = barrels,
+                truck = truck,
+                truckParts = truckParts
             )
         }
 
@@ -380,7 +465,10 @@ data class GameWorld(
                 boxes = allBoxes,
                 worldWidth = layout.worldWidth,
                 fence1 = fence1,
-                fence2 = fence2
+                fence2 = fence2,
+                hangingCrateVariant1 = layout.hangingCrateVariant1,
+                hangingCrateVariant2 = layout.hangingCrateVariant2,
+                barrels = layout.barrels
             )
         }
     }

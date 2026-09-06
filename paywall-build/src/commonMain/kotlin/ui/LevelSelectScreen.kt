@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -20,6 +21,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.infiltrate.storage.PlatformStorage
@@ -76,6 +80,11 @@ fun LevelSelectScreen(
     val starsEarned = levels.sumOf { allResults[it.id]?.starCount ?: 0 }
     val starsMax = levels.size * 3
 
+    // Tapping a locked/gated mission used to swallow the tap in silence - reusing the error toast
+    // sound rather than sourcing a dedicated "denied" clip, per the owner's call to not multiply
+    // success/error sounds beyond the two already shipped.
+    val toastError = LocalToastError.current
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -103,10 +112,13 @@ fun LevelSelectScreen(
                 }
             )
 
-            // Main Content Area
+            // Main Content Area. Scrollable: on a short screen (landscape phone) the chapter row
+            // + section header + mission grid can add up to more than the available height -
+            // previously that overflow was just clipped with no way to reach it.
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = (30 * scale).dp, vertical = (12 * scale).dp)
             ) {
                 // Chapter Cards Row
@@ -154,33 +166,51 @@ fun LevelSelectScreen(
 
                 Spacer(modifier = Modifier.height((16 * scale).dp))
 
-                // Mission Cards Grid
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy((16 * scale).dp)
-                ) {
-                    for ((index, levelData) in levels.withIndex()) {
-                        val result = allResults[levelData.id]
-                        val isUnlocked = index == 0 || (allResults[levels[index - 1].id]?.completed == true)
-                        val requiresPremium = levelData.id.contains("dlc")
-                        val canPlay = isUnlocked && (!requiresPremium || profile.isPremium)
+                // Mission Cards Grid. 12 missions no longer fit one row, so they wrap 4-per-row
+                // (matching the chapter row's own column count above) instead of squeezing all of
+                // them into a single row. Each row's height still comes from its own cards'
+                // content (IntrinsicSize.Min) rather than weight(1f) filling the rest of the
+                // screen - a weight inside a scrollable parent has no bounded height to distribute
+                // and Compose rejects it.
+                val cardsPerRow = 4
+                for (rowLevels in levels.withIndex().toList().chunked(cardsPerRow)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Min),
+                        horizontalArrangement = Arrangement.spacedBy((16 * scale).dp)
+                    ) {
+                        for ((index, levelData) in rowLevels) {
+                            val result = allResults[levelData.id]
+                            // TEMPORARY (for now): every mission card unlocked regardless of
+                            // progress, for easier testing. Restore the commented-out check below
+                            // to require completing the previous mission first.
+                            val isUnlocked = true
+                            // val isUnlocked = index == 0 || (allResults[levels[index - 1].id]?.completed == true)
+                            val requiresPremium = levelData.id.contains("dlc")
+                            val canPlay = isUnlocked && (!requiresPremium || profile.isPremium)
 
-                        MissionCard(
-                            index = index + 1,
-                            levelData = levelData,
-                            result = result,
-                            isUnlocked = isUnlocked,
-                            canPlay = canPlay,
-                            font = bebasFont,
-                            scale = scale,
-                            onClick = { if (canPlay) onStartMission(levelData) },
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                        )
+                            MissionCard(
+                                index = index + 1,
+                                levelData = levelData,
+                                result = result,
+                                isUnlocked = isUnlocked,
+                                canPlay = canPlay,
+                                font = bebasFont,
+                                scale = scale,
+                                onClick = { if (canPlay) onStartMission(levelData) else toastError() },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                            )
+                        }
+                        // Pad out a short final row so its cards keep the same width as a full
+                        // row's, instead of stretching to fill the row on their own.
+                        repeat(cardsPerRow - rowLevels.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
                     }
+                    Spacer(modifier = Modifier.height((16 * scale).dp))
                 }
             }
         }
@@ -327,6 +357,17 @@ private fun MissionCard(
                         fontSize = (15 * scale).sp,
                         fontFamily = font,
                         letterSpacing = 1.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = levelData.description,
+                        color = Color.White.copy(alpha = 0.55f),
+                        fontSize = (11 * scale).sp,
+                        lineHeight = (14 * scale).sp,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))

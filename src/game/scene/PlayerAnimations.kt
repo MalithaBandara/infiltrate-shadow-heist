@@ -174,12 +174,11 @@ object PlayerAnimations {
     private const val CLIMB_FRAMES = 224
 
     /**
-     * Raw 44. Frames 1-43 are standing time plus a run-up stride, and the stride is the problem:
-     * in game the player is already flush against the box when they press jump, so those frames
-     * play a full running gait against a wall the character cannot move through - it reads as
-     * running on the spot. Starting at the foot plant skips it and makes the move responsive.
+     * Raw 70 (0-indexed 69). Frames 1-69 are windup, run-up, and wall foot plant/push-off.
+     * Starting at raw frame 70 skips the foot plant entirely and starts directly with the hands
+     * on the top lip/ledge and the feet hanging naturally.
      */
-    const val CLIMB_START = 43
+    const val CLIMB_START = 69
 
     /** Raw 224: fully upright again, ready to hand back to idle. */
     const val CLIMB_END = CLIMB_FRAMES - 1
@@ -194,10 +193,55 @@ object PlayerAnimations {
     /** Where the higher leg rests in idle stance (row 247.0), so both feet connect with the ground. */
     const val IDLE_FEET_Y = 247.0
 
+    /**
+     * Where the higher (back) leg rests in the held crouch pose - a per-column scan of
+     * `resources/player/crouch/0034.png` (the held frame, `CROUCH_LAST`) puts the front foot's
+     * lowest row at 255 (on `SOURCE_FEET_Y`, same as every other clip) and the back foot's at
+     * ~250, a stable ~5-6px short of it - the settling crouch plants weight forward with the back
+     * heel raised, not a flat two-footed squat. Same fix as `IDLE_FEET_Y`: shift the whole sprite
+     * down by (SOURCE_FEET_Y - CROUCH_FEET_Y) so the back foot reaches the ground line too, which
+     * necessarily pushes the front foot a few pixels *below* it - preferred over leaving the back
+     * foot visibly floating.
+     */
+    const val CROUCH_FEET_Y = 250.0
+
+    /**
+     * Same phenomenon as `IDLE_FEET_Y`, measured across the jump clip's landing-absorb frames
+     * (`resources/player/jump/0028.png` through `0044.png`, i.e. `JUMP_LAND_START`..`JUMP_LAND_END`):
+     * the back foot's lowest row sits at a strikingly consistent ~247-248 across all seventeen
+     * frames (a per-column scan of several of them, not just one, confirms it isn't a one-frame
+     * fluke) while the front foot reaches the true `SOURCE_FEET_Y` line - the exact same
+     * back-heel-raised stance as idle and crouch, just held throughout the whole absorb-to-
+     * standing recovery instead of one frame.
+     */
+    const val JUMP_LAND_FEET_Y = 247.0
+
     /** Height of the standing silhouette in frame pixels, used to scale to the hitbox. */
     const val SOURCE_SILHOUETTE_HEIGHT = 244.36
 
+    // The real cause of the "grey screen, nothing loads" bug chased for most of this session -
+    // confirmed on-device, not guessed: a java.lang.OutOfMemoryError inside
+    // MutableAtlas.growAtlas -> Bitmap32.<init>, thrown from exactly the call this function
+    // makes. load() allocated a brand new 2048x2048 GPU texture atlas and re-decoded the entire
+    // player spritesheet into it on *every single call* - i.e. on every scene (re)load, not just
+    // the first, since GameplayScene.kt's sceneMain() calls PlayerAnimations.load() fresh each
+    // time. Nothing released the previous scene's atlas before the next one was allocated, so
+    // repeated reloads (RESTART, QUIT, watch-ad-to-continue) accumulated texture memory until an
+    // allocation eventually failed - explaining both why it happened specifically on repeat loads
+    // and why the audio-focused fixes earlier in this session's history never touched it, since
+    // they were a different subsystem entirely.
+    //
+    // The frames themselves are static content with no per-instance state - the same character,
+    // drawn the same way, in every level and every replay - so there is no reason a second
+    // GameplayScene needs its own copy at all. Caching the loaded set here and returning it on
+    // every call after the first removes the repeated allocation at its root, the same fix
+    // already applied to GameAudio's one-time audio priming for the same class of bug.
+    @Volatile
+    private var cached: PlayerAnimationSet? = null
+
     suspend fun load(): PlayerAnimationSet {
+        cached?.let { return it }
+
         // Pack every frame into a shared atlas. Read individually they become one GPU texture
         // each, which forces a rebind on every animation frame and shows up as stutter; packed,
         // an animation sits on one page.
@@ -206,7 +250,7 @@ object PlayerAnimations {
         // Only idle runs on its own timer. GameplayScene drives walk frame-by-frame from distance
         // travelled, jump from the physics arc, crouch from the stance transition, and climb from
         // the climb move's own timer, so those frame times are inert fallbacks.
-        return PlayerAnimationSet(
+        val set = PlayerAnimationSet(
             idle = loadAnimation(atlas, "idle", IDLE_FRAMES, frameTimeMs = 100),
             walk = loadAnimation(atlas, "walk", WALK_FRAMES, frameTimeMs = 40),
             jump = loadAnimation(atlas, "jump", JUMP_FRAMES, frameTimeMs = 33),
@@ -214,6 +258,8 @@ object PlayerAnimations {
             crouchwalk = loadAnimation(atlas, "crouchwalk", CROUCHWALK_FRAMES, frameTimeMs = 40),
             climb = loadAnimation(atlas, "climb", CLIMB_FRAMES, frameTimeMs = 33)
         )
+        cached = set
+        return set
     }
 
     private suspend fun loadAnimation(

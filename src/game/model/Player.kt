@@ -41,7 +41,7 @@ data class Player(
 
     var isClimbing: Boolean = false
         private set
-    val climbDuration: Double = 2.15
+    val climbDuration: Double = 2.80
     private var climbElapsed: Double = 0.0
 
     /** 0..1 through the climb in real time. */
@@ -303,12 +303,41 @@ data class Player(
         val footInset = (width - footWidth) / 2.0
         val vRectFeet = Rect(x + footInset, targetEffTopY, footWidth, effHeight)
 
+        // wasFalling is captured once, before the loop, rather than branching on the live vy:
+        // the old code branched on vy itself, but the very first matching platform zeroed vy as
+        // a side effect, so every platform *after* it in the list fell through to the vy<=0
+        // (wide-box, ceiling-or-floor-by-midpoint) branch instead of the feet-narrow one for the
+        // rest of this same step - order-dependent behaviour nothing here was meant to rely on.
+        val wasFalling = vy > 0.0
+
+        // When the feet span straddles a seam between two touching platforms of different
+        // heights (e.g. a step-up crate flush against a taller platform), every one of them
+        // "intersects" vRectFeet at once. Picking the tallest unconditionally (the old
+        // minOf-only rule) pins the player to it until the ENTIRE foot span has cleared its far
+        // edge - which, walking off the tall side onto the low one, reads as hovering at the old
+        // height for a stretch past where the platform visibly ends before suddenly dropping.
+        // Picking whichever candidate keeps the player closest to their current y instead keeps
+        // them on whatever they were already standing on until the feet span has no overlap with
+        // it left at all, so the handover happens right at the visible edge instead of one foot
+        // span later, and removes the appearance of flying past the end of the platform.
+        val wasGrounded = isGrounded
+        var bestLandingY: Double? = null
         for (platform in platforms) {
-            if (vy > 0.0) {
-                // Feet landing on platform
-                if (vRectFeet.intersects(platform)) {
-                    newY = minOf(newY, platform.top - height)
-                    vy = 0.0
+            if (wasFalling) {
+                // Feet landing on platform: the player falls if most of their feet are outside
+                // the edge in the direction of movement (or either edge if stationary).
+                val footCenter = x + width / 2.0
+                val offEdge = when {
+                    vx > 0.0 -> footCenter > platform.right
+                    vx < 0.0 -> footCenter < platform.left
+                    else -> footCenter > platform.right || footCenter < platform.left
+                }
+                val supported = !offEdge && vRectFeet.intersects(platform)
+                if (supported) {
+                    val candidateY = platform.top - height
+                    if (bestLandingY == null || abs(candidateY - y) < abs(bestLandingY - y)) {
+                        bestLandingY = candidateY
+                    }
                     landed = true
                 }
             } else if (vRect.intersects(platform)) {
@@ -321,14 +350,23 @@ data class Player(
                     val playerFeetY = newY + height
                     val platformMidY = platform.y + platform.height / 2.0
                     if (playerFeetY <= platformMidY) {
-                        newY = minOf(newY, platform.top - height)
-                        landed = true
+                        // Standing/walking on floor: the player falls if most of their feet are outside
+                        // the platform edge (center of the foot stance crosses past the platform).
+                        val footCenter = x + width / 2.0
+                        if (platform.left <= footCenter && platform.right >= footCenter) {
+                            newY = minOf(newY, platform.top - height)
+                            landed = true
+                        }
                     } else {
                         val ceilingY = platform.bottom - (height - effHeight)
                         newY = maxOf(newY, ceilingY)
                     }
                 }
             }
+        }
+        if (wasFalling && bestLandingY != null) {
+            newY = bestLandingY
+            vy = 0.0
         }
         y = newY
         isGrounded = landed
@@ -349,17 +387,17 @@ data class Player(
          * with the grip by taking whichever is higher.
          */
         private val CLIMB_RISE_CURVE = doubleArrayOf(
-            0.00, 0.00,
-            0.62, 0.00,
-            0.66, 1.00,
-            1.00, 1.00
+            0.000, 0.00,
+            0.556, 0.00,
+            0.603, 1.00,
+            1.000, 1.00
         )
 
         /**
          * Height of the character's gripping hand above its own feet, as a fraction of player
-         * height, measured off every 4th processed frame from the grab to the mantle. The body
-         * is placed so that hand lands on the box's top edge, which is what keeps it on the lip
-         * instead of gripping thin air.
+         * height, measured off every 4th processed frame from the grab (raw f70) to the mantle.
+         * The body is placed so that hand lands on the box's top edge, which is what keeps it
+         * on the lip instead of gripping thin air.
          *
          * Finding the hand needs two rules, because no single one holds across the clip. While
          * the arms are raised (to ~f126) the hand is the silhouette's right-most pixel. From the
@@ -372,40 +410,32 @@ data class Player(
          * shrinks from ~1.0 to ~0.5 as the character tucks, which lifts the feet from the ground
          * to near the top on its own. Do not smooth these: an approximated curve leaves the hand
          * several units clear of the edge, which is exactly what it looks like.
-         *
-         * The first two keys are deliberately not measured. Up to the grab the raised knee is
-         * the right-most point, so they are set above 100/96 to hold the feet on the ground
-         * until the hand actually catches the lip.
          */
         private val CLIMB_GRIP_CURVE = doubleArrayOf(
-            0.000, 1.050,
-            0.067, 1.045,
-            0.089, 1.019,
-            0.111, 0.962,
-            0.133, 0.941,
-            0.156, 0.958,
-            0.178, 0.982,
-            0.200, 1.007,
-            0.222, 1.003,
-            0.244, 0.999,
-            0.267, 0.986,
-            0.289, 0.929,
-            0.311, 0.872,
-            0.333, 0.831,
-            0.356, 0.806,
-            0.378, 0.794,
-            0.400, 0.745,
-            0.422, 0.688,
-            0.444, 0.638,
-            0.456, 0.610,
-            0.478, 0.536,
-            0.500, 0.409,
-            0.522, 0.336,
-            0.544, 0.278,
-            0.567, 0.201,
-            0.589, 0.127,
-            0.611, 0.053,
-            0.622, 0.025
+            0.000, 1.000,
+            0.014, 0.958,
+            0.039, 0.982,
+            0.065, 1.007,
+            0.091, 1.003,
+            0.116, 0.999,
+            0.143, 0.986,
+            0.169, 0.929,
+            0.195, 0.872,
+            0.220, 0.831,
+            0.247, 0.806,
+            0.273, 0.794,
+            0.299, 0.745,
+            0.324, 0.688,
+            0.350, 0.638,
+            0.364, 0.610,
+            0.390, 0.536,
+            0.416, 0.409,
+            0.441, 0.336,
+            0.467, 0.278,
+            0.494, 0.201,
+            0.520, 0.127,
+            0.545, 0.053,
+            0.558, 0.025
         )
 
         /**
@@ -414,24 +444,22 @@ data class Player(
          * barely moving, while the mantle and the stand-up pack large pose changes into the last
          * third. Frames-per-second is the wrong thing to hold constant - motion-per-second is.
          *
-         * So the back half gets roughly twice the clock the front half does. Keys, in frames:
-         *   0.00-0.28  f44-94    the reach, grab and hang - little happens, so it can move
-         *   0.28-0.51  f94-136   the pull-up
-         *   0.51-0.66  f136-163  swinging over the lip
-         *   0.66-0.75  f163-179  settling into the crouch
-         *   0.75-0.92  f179-210  standing up - a big pose change, but a brisk one in life
-         *   0.92-1.00  f210-224  already upright and holding, so this is flushed quickly -
-         *                        dwelling here would just lock the player in place after the
-         *                        climb has visibly finished
+         * Keys, in raw frames:
+         *   0.000-0.100 f70-94    hanging off the lip and adjusting grip (~0.28s)
+         *   0.100-0.321 f94-136   the pull-up where body rise occurs (~0.62s)
+         *   0.321-0.500 f136-163  swinging over the lip (mantle, ~0.50s)
+         *   0.500-0.625 f163-179  settling into the crouch (~0.35s)
+         *   0.625-0.893 f179-210  standing up smoothly (~0.75s)
+         *   0.893-1.000 f210-224  finishing upright into idle (~0.30s)
          */
         private val CLIMB_PACING_CURVE = doubleArrayOf(
-            0.00, 0.00,
-            0.16, 0.28,
-            0.41, 0.51,
-            0.64, 0.66,
-            0.74, 0.75,
-            0.94, 0.92,
-            1.00, 1.00
+            0.000, 0.000,
+            0.100, 0.158,
+            0.321, 0.427,
+            0.500, 0.603,
+            0.625, 0.708,
+            0.893, 0.906,
+            1.000, 1.000
         )
 
         /**
@@ -446,15 +474,15 @@ data class Player(
          * that still shows, which reads as clipping through the wall.
          */
         private val CLIMB_SHIFT_CURVE = doubleArrayOf(
-            0.00, 0.00,
-            0.36, 0.00,
-            0.45, 0.05,
-            0.50, 0.12,
-            0.55, 0.26,
-            0.60, 0.52,
-            0.63, 0.80,
-            0.66, 1.00,
-            1.00, 1.00
+            0.000, 0.00,
+            0.252, 0.00,
+            0.357, 0.05,
+            0.416, 0.12,
+            0.474, 0.26,
+            0.532, 0.52,
+            0.568, 0.80,
+            0.603, 1.00,
+            1.000, 1.00
         )
 
         /** Piecewise-linear lookup into a `t, value` pair table, held flat outside its ends. */
