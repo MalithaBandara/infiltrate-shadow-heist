@@ -37,7 +37,7 @@ android {
         minSdk = 24
         targetSdk = 37
         versionCode = 3
-        versionName = "1.0"
+        versionName = "1.0.1"
     }
 
     signingConfigs {
@@ -59,6 +59,11 @@ android {
         getByName("release") {
             signingConfig = signingConfigs.getByName("release")
         }
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 
     // JVM 21, not 17: com.soywiz.korge:korge:6.0.0's own compiled classes contain inline

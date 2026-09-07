@@ -36,7 +36,8 @@ object PlayerAnimations {
     // ---- idle ---------------------------------------------------------------------------
     // The raw plate holds one breathing cycle over 90 frames (frame 91 lands back on frame 1 to
     // within a fifth of a single frame step, so it loops cleanly). Motion per frame is tiny, so
-    // every other frame is kept: 45 frames at 100ms = a 4.5s breath, matching the old pacing.
+    // every other frame is kept: 45 frames at 45ms = smooth, natural ~2.0s tactical breathing.
+    const val IDLE_FRAME_TIME_MS = 45
     private const val IDLE_FRAMES = 45
 
     // ---- walk ---------------------------------------------------------------------------
@@ -251,7 +252,7 @@ object PlayerAnimations {
         // travelled, jump from the physics arc, crouch from the stance transition, and climb from
         // the climb move's own timer, so those frame times are inert fallbacks.
         val set = PlayerAnimationSet(
-            idle = loadAnimation(atlas, "idle", IDLE_FRAMES, frameTimeMs = 100),
+            idle = loadAnimation(atlas, "idle", IDLE_FRAMES, frameTimeMs = IDLE_FRAME_TIME_MS),
             walk = loadAnimation(atlas, "walk", WALK_FRAMES, frameTimeMs = 40),
             jump = loadAnimation(atlas, "jump", JUMP_FRAMES, frameTimeMs = 33),
             crouch = loadAnimation(atlas, "crouch", CROUCH_FRAMES, frameTimeMs = 33),

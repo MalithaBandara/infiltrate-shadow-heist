@@ -458,7 +458,7 @@ class GameplayScene(
         playerSprite.scaleX = playerBaseScale
         playerSprite.scaleY = playerBaseScale
         playerSprite.xy(world.player.width / 2.0, world.player.height + idleFeetOffset)
-        playerSprite.playAnimationLooped(playerAnimations.idle)
+        playerSprite.playAnimationLooped(playerAnimations.idle, PlayerAnimations.IDLE_FRAME_TIME_MS.milliseconds)
         var playerAnimState = "idle"
         var playerFacingLeft = true
 
@@ -468,9 +468,8 @@ class GameplayScene(
         val jumpTouchdownFrame = PlayerAnimations.JUMP_TOUCHDOWN
         val jumpLandFrame = PlayerAnimations.JUMP_LAND_START
         val jumpLastFrame = PlayerAnimations.JUMP_LAND_END
-        val jumpLaunchDuration = 0.06
-        val jumpLandDuration = 0.26
-        val jumpCatchUpDuration = 0.06
+        val jumpLaunchDuration = 0.05
+        val jumpLandDuration = 0.24
         var jumpPhase = "none"
         var jumpPhaseElapsed = 0.0
         var jumpStartY = world.player.y
@@ -555,11 +554,11 @@ class GameplayScene(
         // One gait cycle covers this much ground; measured off the plate so the feet stay planted.
         val walkCycleDistance = playerVisualHeight * PlayerAnimations.WALK_STRIDE_PER_HEIGHT
         var walkCycleProgress = 0.0
-        // The idle->walk transition is a fixed short beat rather than distance-driven: its stride
-        // is still building, so charging it the full per-frame distance would slide the feet.
         val walkTransitionDuration = 0.28
         var walkTransitionElapsed = 0.0
         var walkInTransition = false
+        var stationaryElapsed = 0.20
+        var crouchStationaryElapsed = 0.25
         val manualFrameTime = 1_000_000.milliseconds
 
         val bebasFont = try { resourcesVfs["BebasNeue-Regular.ttf"].readTtfFont() } catch (_: Throwable) { DefaultTtfFont }
@@ -1444,6 +1443,14 @@ class GameplayScene(
                 }
             }
 
+            if (world.player.isMoving) {
+                stationaryElapsed = 0.0
+                crouchStationaryElapsed = 0.0
+            } else {
+                stationaryElapsed += dtSec
+                crouchStationaryElapsed += dtSec
+            }
+
             // Climb animation machine: top priority. Player.isClimbing drives x/y itself (see
             // Player.startClimb/advanceClimb) so the jump machine below - which would otherwise
             // fire because isGrounded is false while climbing - is skipped entirely instead.
@@ -1458,18 +1465,19 @@ class GameplayScene(
             } else {
                 if (playerAnimState == "climb") playerAnimState = "none"
 
-                // Jump animation machine
+                // Jump / Airborne animation machine
                 if (playerAnimState != "jump" && !world.player.isGrounded) {
                     playerAnimState = "jump"
                     landingAbsorb = false  // cancel any in-progress absorption
-                    jumpPhase = "launch"
-                    jumpPhaseElapsed = 0.0
                     jumpStartY = world.player.y
+                    jumpPhaseElapsed = 0.0
                     playerSprite.playAnimationLooped(playerAnimations.jump, manualFrameTime)
+                    // If moving upward, it's an intentional jump; if falling downwards, it's stepping/falling off a ledge
+                    jumpPhase = if (world.player.vy < 0.0) "launch" else "air"
                 } else if (playerAnimState == "jump") {
                     jumpPhaseElapsed += dtSec
                     when (jumpPhase) {
-                        "launch" -> if (jumpPhaseElapsed >= jumpLaunchDuration) {
+                        "launch" -> if (jumpPhaseElapsed >= jumpLaunchDuration || world.player.vy >= 0.0) {
                             jumpPhase = "air"
                             jumpPhaseElapsed = 0.0
                         }
@@ -1477,15 +1485,13 @@ class GameplayScene(
                         // right if the player is stopped, but wrong if they're still holding a
                         // direction: world x keeps advancing on physics regardless of animation
                         // phase, so riding out the standing-recovery frames while already moving
-                        // reads as gliding forward in a standing pose for those 0.26s before the
+                        // reads as gliding forward in a standing pose for those 0.24s before the
                         // walk cut-over. Moving into the touchdown skips straight past it instead.
                         "air" -> if (world.player.isGrounded) {
                             sounds.impact.playSfx(sfxContext, GameAudio.LANDING_GAIN, sfxVolume())
                             if (world.player.isMoving) {
                                 // Don't snap straight to walk - play a brief landing cushion
-                                // first so the posture change isn't instant (especially visible
-                                // when landing on a higher platform where the descent pose is
-                                // still deep). The walk lean-in starts after the absorb ends.
+                                // first so the posture change isn't instant.
                                 jumpPhase = "none"
                                 playerAnimState = "none"
                                 landingAbsorb = true
@@ -1496,7 +1502,7 @@ class GameplayScene(
                             }
                         }
                         else -> if (!world.player.isGrounded) {
-                            jumpPhase = "launch"
+                            jumpPhase = if (world.player.vy < 0.0) "launch" else "air"
                             jumpPhaseElapsed = 0.0
                             jumpStartY = world.player.y
                         } else if (jumpPhaseElapsed >= jumpLandDuration) {
@@ -1520,11 +1526,16 @@ class GameplayScene(
                         
                         if (playerAnimState == "crouch" && crouchPhase == "holding" && world.player.isMoving) {
                             playerAnimState = "crouchwalk"
-                            crouchwalkInTransition = true
-                            crouchwalkTransitionProgress = 0.0
-                            crouchwalkCycleProgress = 0.0
                             playerSprite.playAnimationLooped(playerAnimations.crouchwalk, manualFrameTime)
-                        } else if (playerAnimState == "crouchwalk" && !world.player.isMoving) {
+                            // Only restart the full 91-frame transition if starting from a sustained still crouch
+                            if (crouchStationaryElapsed >= 0.20) {
+                                crouchwalkInTransition = true
+                                crouchwalkTransitionProgress = 0.0
+                                crouchwalkCycleProgress = 0.0
+                            } else {
+                                crouchwalkInTransition = false
+                            }
+                        } else if (playerAnimState == "crouchwalk" && !world.player.isMoving && crouchStationaryElapsed >= 0.10) {
                             playerAnimState = "crouch"
                             crouchPhase = "holding"
                             playerSprite.playAnimationLooped(playerAnimations.crouch, manualFrameTime)
@@ -1559,11 +1570,11 @@ class GameplayScene(
                                 PlayerAnimations.CROUCHWALK_TRANSITION_START +
                                     (t * span).toInt().coerceIn(0, span)
                             )
-                            // The lean-in's last frame is the loop's first frame minus one in the
-                            // source, so handing over at the end is a plain adjacent-frame step.
                             if (t >= 1.0) crouchwalkInTransition = false
                         } else {
-                            crouchwalkCycleProgress = (crouchwalkCycleProgress + cyclesMoved) % 1.0
+                            if (world.player.isMoving) {
+                                crouchwalkCycleProgress = (crouchwalkCycleProgress + cyclesMoved) % 1.0
+                            }
                             val loopLength = PlayerAnimations.CROUCHWALK_LOOP_LENGTH
                             playerSprite.setFrame(
                                 PlayerAnimations.CROUCHWALK_LOOP_START +
@@ -1575,7 +1586,7 @@ class GameplayScene(
             }
 
             // Landing absorption: plays a brief cushion from the jump's own landing frames
-            // before the walk lean-in starts. While active, it owns the sprite — the
+            // before handing off to movement. While active, it owns the sprite — the
             // grounded-state block below is skipped so it doesn't fight for control.
             if (landingAbsorb) {
                 landingAbsorbElapsed += dtSec
@@ -1590,44 +1601,47 @@ class GameplayScene(
                 playerSprite.setFrame(absorbFrame.coerceIn(jumpLandFrame, jumpLastFrame))
 
                 if (t >= 1.0) {
-                    // Absorption done — hand off to the walk lean-in (or idle if player stopped).
+                    // Absorption done — hand off directly to walk cycle (or idle if stopped).
                     landingAbsorb = false
-                    playerAnimState = "none"  // let the block below pick it up this same tick
+                    if (world.player.isMoving) {
+                        playerAnimState = "walk"
+                        walkInTransition = false
+                        playerSprite.playAnimationLooped(playerAnimations.walk, manualFrameTime)
+                    } else {
+                        playerAnimState = "idle"
+                        playerSprite.playAnimationLooped(playerAnimations.idle, PlayerAnimations.IDLE_FRAME_TIME_MS.milliseconds)
+                    }
                 }
             }
 
             if (!landingAbsorb && playerAnimState != "jump" && playerAnimState != "crouch"
                 && playerAnimState != "crouchwalk" && playerAnimState != "climb" && playerAnimState != "landAbsorb") {
-                val groundedState = if (world.player.isMoving) "walk" else "idle"
-                if (groundedState != playerAnimState) {
-                    // We always play the lean-in transition when entering the walk state,
-                    // whether from a standstill or landing a jump. When landing, it acts as
-                    // a smooth "absorbing the impact and pushing forward" animation rather 
-                    // than suddenly snapping into a mid-stride loop.
-                    playerAnimState = groundedState
-                    if (groundedState == "walk") {
-                        walkCycleProgress = 0.0
+                val wantsWalk = world.player.isMoving
+                if (wantsWalk) {
+                    if (playerAnimState != "walk") {
+                        playerAnimState = "walk"
                         playerSprite.playAnimationLooped(playerAnimations.walk, manualFrameTime)
-                        // Play the lean-in transition even when landing from a jump. It acts as
-                        // a nice "absorbing the landing into a run" animation sequence.
-                        walkInTransition = true
-                        walkTransitionElapsed = 0.0
-                        playerSprite.setFrame(PlayerAnimations.WALK_TRANSITION_START)
-                        // The lean-in is a real 0.28s stride but it is time-driven, so the
-                        // distance-driven step triggers below cannot see it. One step here keeps
-                        // the first pace of every walk from being silent.
-                        val step = if (stepAlternate) sounds.stepB else sounds.stepA
-                        stepAlternate = !stepAlternate
-                        step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume())
-                    } else {
-                        playerSprite.playAnimationLooped(playerAnimations.idle, 100.milliseconds)
+                        // Only play lean-in transition if starting from a sustained stationary stop
+                        if (stationaryElapsed >= 0.15) {
+                            walkCycleProgress = 0.0
+                            walkInTransition = true
+                            walkTransitionElapsed = 0.0
+                            playerSprite.setFrame(PlayerAnimations.WALK_TRANSITION_START)
+                            val step = if (stepAlternate) sounds.stepB else sounds.stepA
+                            stepAlternate = !stepAlternate
+                            step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume())
+                        } else {
+                            walkInTransition = false
+                        }
+                    }
+                } else {
+                    // Only transition to idle if stationary for at least 0.10s (prevents direction reversal stutter)
+                    if (playerAnimState != "idle" && stationaryElapsed >= 0.10) {
+                        playerAnimState = "idle"
+                        playerSprite.playAnimationLooped(playerAnimations.idle, PlayerAnimations.IDLE_FRAME_TIME_MS.milliseconds)
                     }
                 }
             }
-            // Only meaningful on the exact tick a jump lands - if that tick went into crouch
-            // instead (isCrouching held through touchdown), discard it rather than letting it
-            // skip the lean-in whenever walk is next entered, possibly much later.
-
 
             playerSprite.y = world.player.height + when {
                 playerAnimState == "idle" -> idleFeetOffset
@@ -1635,12 +1649,12 @@ class GameplayScene(
                 // alternating planted/swinging foot is supposed to look uneven, this offset is
                 // only for the settled two-feet-down pose.
                 playerAnimState == "crouch" -> crouchFeetOffset
+                playerAnimState == "landAbsorb" -> jumpLandFeetOffset
                 else -> 0.0
             }
             if (playerAnimState == "jump") {
                 val maxJumpHeight =
                     (world.player.jumpSpeed * world.player.jumpSpeed) / (2.0 * world.player.gravity)
-                val altitudeProgress = ((jumpStartY - world.player.y) / maxJumpHeight).coerceIn(0.0, 1.0)
 
                 val frameIndex = when (jumpPhase) {
                     "launch" -> {
@@ -1648,9 +1662,13 @@ class GameplayScene(
                         jumpLaunchFrame + (t * (jumpAirborneFrame - jumpLaunchFrame)).toInt()
                     }
                     "air" -> if (world.player.vy < 0.0) {
+                        // Rising: tuck legs towards apex as height increases
+                        val altitudeProgress = ((jumpStartY - world.player.y) / maxJumpHeight).coerceIn(0.0, 1.0)
                         jumpAirborneFrame + (altitudeProgress * (jumpApexFrame - jumpAirborneFrame)).toInt()
                     } else {
-                        jumpApexFrame + ((1.0 - altitudeProgress) * (jumpTouchdownFrame - jumpApexFrame)).toInt()
+                        // Falling: smoothly uncurl from apex to extended legs based on fall speed
+                        val fallProgress = (world.player.vy / (world.player.maxFallSpeed * 0.7)).coerceIn(0.0, 1.0)
+                        jumpApexFrame + (fallProgress * (jumpTouchdownFrame - jumpApexFrame)).toInt()
                     }
                     else -> {
                         val t = (jumpPhaseElapsed / jumpLandDuration).coerceIn(0.0, 1.0)
@@ -1661,16 +1679,6 @@ class GameplayScene(
                 if (jumpPhase == "land") {
                     playerSprite.y += jumpLandFeetOffset
                 }
-
-                val holdFactor = when (jumpPhase) {
-                    "launch" -> 1.0
-                    "air" -> {
-                        val catchUp = (jumpPhaseElapsed / jumpCatchUpDuration).coerceIn(0.0, 1.0)
-                        1.0 - (1.0 - (1.0 - catchUp) * (1.0 - catchUp))
-                    }
-                    else -> 0.0
-                }
-                playerSprite.y += (jumpStartY - world.player.y) * holdFactor
             } else if (playerAnimState == "walk") {
                 if (walkInTransition) {
                     walkTransitionElapsed += dtSec
@@ -1684,8 +1692,10 @@ class GameplayScene(
                     if (t >= 1.0) walkInTransition = false
                 } else {
                     val previousPhase = walkCycleProgress
-                    walkCycleProgress =
-                        (walkCycleProgress + abs(world.player.vx) * dtSec / walkCycleDistance) % 1.0
+                    if (world.player.isMoving) {
+                        walkCycleProgress =
+                            (walkCycleProgress + abs(world.player.vx) * dtSec / walkCycleDistance) % 1.0
+                    }
                     val loopLength = PlayerAnimations.WALK_LOOP_LENGTH
                     playerSprite.setFrame(
                         PlayerAnimations.WALK_LOOP_START +
@@ -1695,18 +1705,20 @@ class GameplayScene(
                     // A footstep for each contact phase the cycle passed this tick. Written as a
                     // crossing test rather than "is the phase near X" so it still fires exactly
                     // once at low frame rates or high speed, and survives the wrap at 1.0.
-                    for (phase in GameAudio.STEP_PHASES) {
-                        val crossed = if (walkCycleProgress >= previousPhase) {
-                            phase > previousPhase && phase <= walkCycleProgress
-                        } else {
-                            phase > previousPhase || phase <= walkCycleProgress
-                        }
-                        if (crossed) {
-                            // Alternate the two samples so a long run does not turn into one
-                            // clip on repeat, which is what gives a single footstep away.
-                            val step = if (stepAlternate) sounds.stepB else sounds.stepA
-                            stepAlternate = !stepAlternate
-                            step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume())
+                    if (world.player.isMoving) {
+                        for (phase in GameAudio.STEP_PHASES) {
+                            val crossed = if (walkCycleProgress >= previousPhase) {
+                                phase > previousPhase && phase <= walkCycleProgress
+                            } else {
+                                phase > previousPhase || phase <= walkCycleProgress
+                            }
+                            if (crossed) {
+                                // Alternate the two samples so a long run does not turn into one
+                                // clip on repeat, which is what gives a single footstep away.
+                                val step = if (stepAlternate) sounds.stepB else sounds.stepA
+                                stepAlternate = !stepAlternate
+                                step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume())
+                            }
                         }
                     }
                 }
