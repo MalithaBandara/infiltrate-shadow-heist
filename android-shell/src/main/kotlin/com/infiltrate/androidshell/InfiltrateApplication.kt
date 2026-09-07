@@ -2,6 +2,7 @@ package com.infiltrate.androidshell
 
 import android.app.Application
 import android.content.pm.ApplicationInfo
+import com.infiltrate.storage.PlatformStorage
 import com.layers.sdk.android.Environment
 import com.layers.sdk.android.LayersAndroid
 
@@ -31,6 +32,7 @@ import com.layers.sdk.android.LayersAndroid
 class InfiltrateApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        PlatformStorage.init(this)
         val isDebugBuild = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         LayersAndroid.configure(this) {
             appId = "app_a1f9dbc126c1c779"

@@ -26,8 +26,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -71,8 +74,14 @@ fun LevelSelectScreen(
         )
     }
 
-    val profile: GameProfile = remember { profileStorage.getProfile() }
-    val allResults: Map<String, LevelResult> = remember { levelStorage.getAllResults() }
+    var profile: GameProfile by remember { mutableStateOf(profileStorage.getProfile()) }
+    var allResults: Map<String, LevelResult> by remember { mutableStateOf(levelStorage.getAllResults()) }
+
+    LaunchedEffect(Unit) {
+        profile = profileStorage.getProfile()
+        allResults = levelStorage.getAllResults()
+    }
+
     val levels = LevelData.DEFAULT_LEVELS
     val bebasFont = FontFamily(Font(Res.font.bebas_neue_regular))
 

@@ -531,6 +531,10 @@ class MapBackedLevelStorage(
         inMemoryFallback.saveResult(merged)
         try {
             setRaw("level_result_${result.levelId}", merged.serialize())
+            val storedIds = getRaw("level_results_ids")?.split(";")?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
+            if (!storedIds.contains(result.levelId)) {
+                setRaw("level_results_ids", (storedIds + result.levelId).joinToString(";"))
+            }
         } catch (_: Throwable) {
             // Safe fallback to in-memory if raw store fails
         }
@@ -552,10 +556,33 @@ class MapBackedLevelStorage(
     }
 
     override fun getAllResults(): Map<String, LevelResult> {
-        return inMemoryFallback.getAllResults()
+        val map = inMemoryFallback.getAllResults().toMutableMap()
+        val storedIds = try {
+            getRaw("level_results_ids")?.split(";")?.filter { it.isNotBlank() } ?: emptyList()
+        } catch (_: Throwable) {
+            emptyList()
+        }
+        val allIds = (LevelData.DEFAULT_LEVELS.map { it.id } + storedIds).distinct()
+        for (id in allIds) {
+            if (!map.containsKey(id)) {
+                val best = getBestResult(id)
+                if (best != null) {
+                    map[id] = best
+                }
+            }
+        }
+        return map
     }
 
     override fun clear() {
         inMemoryFallback.clear()
+        try {
+            val storedIds = getRaw("level_results_ids")?.split(";")?.filter { it.isNotBlank() } ?: emptyList()
+            for (id in storedIds) {
+                removeRaw?.invoke("level_result_$id")
+            }
+            removeRaw?.invoke("level_results_ids")
+        } catch (_: Throwable) {
+        }
     }
 }

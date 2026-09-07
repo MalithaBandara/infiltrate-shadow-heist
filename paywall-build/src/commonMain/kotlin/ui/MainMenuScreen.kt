@@ -24,8 +24,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
@@ -72,7 +75,8 @@ fun MainMenuScreen(
     onPlayClicked: (levelId: String) -> Unit,
     onMissionsClicked: () -> Unit,
     onStoreClicked: () -> Unit,
-    onSettingsClicked: () -> Unit
+    onSettingsClicked: () -> Unit,
+    refreshTrigger: Any? = null
 ) {
     val profileStorage: GameProfileStorage = remember {
         MapBackedGameProfileStorage(
@@ -87,8 +91,14 @@ fun MainMenuScreen(
         )
     }
 
-    val profile: GameProfile = remember { profileStorage.getProfile() }
-    val allResults: Map<String, LevelResult> = remember { levelStorage.getAllResults() }
+    var profile: GameProfile by remember { mutableStateOf(profileStorage.getProfile()) }
+    var allResults: Map<String, LevelResult> by remember { mutableStateOf(levelStorage.getAllResults()) }
+
+    LaunchedEffect(refreshTrigger) {
+        profile = profileStorage.getProfile()
+        allResults = levelStorage.getAllResults()
+    }
+
     val levels = LevelData.DEFAULT_LEVELS
     val currentMissionIndex = levels.indexOfFirst { allResults[it.id]?.completed != true }.let { if (it == -1) levels.lastIndex else it }
     val currentMission = levels[currentMissionIndex]

@@ -91,5 +91,10 @@ class MainMenuModelTest {
         assertTrue(best.completed)
         assertTrue(!best.wasDetected)
         assertEquals(3, best.starCount)
+
+        val allResults = reloadedStorage.getAllResults()
+        assertTrue(allResults.containsKey("level_1"), "getAllResults must include level_1 from persistent storage")
+        assertEquals(3, allResults["level_1"]?.starCount)
+        assertTrue(allResults["level_1"]?.completed == true)
     }
 }

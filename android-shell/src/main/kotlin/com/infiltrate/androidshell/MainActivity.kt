@@ -17,12 +17,14 @@ import app.lexilabs.basic.ads.BasicAds
 import app.lexilabs.basic.ads.DependsOnGoogleMobileAds
 import com.infiltrate.ads.ContinueAdContent
 import com.infiltrate.ads.ContinueAdTrigger
+import com.infiltrate.storage.PlatformStorage
 import com.infiltrate.ui.NavigationRoot
 import com.sample.demo.ads.AndroidContinueAdBridgeState
 import com.sample.demo.nav.AndroidLevelExitBridgeState
 import game.model.LevelData
 import game.scene.GameplayScene
 import korlibs.image.color.Colors
+import korlibs.io.async.launchImmediately
 // KorgeConfig, not Korge: Korge.kt defines both a `data class Korge(...)` (what loadModule
 // actually needs) AND several top-level `suspend fun Korge(...)` overloads sharing the exact
 // same name, including one that also accepts a `main` parameter - so even a fully-named `Korge(
@@ -30,6 +32,7 @@ import korlibs.image.color.Colors
 // typealias for just the data class, with no such overload to collide with.
 import korlibs.korge.KorgeConfig
 import korlibs.korge.android.KorgeAndroidView
+import korlibs.korge.scene.SceneContainer
 import korlibs.korge.scene.sceneContainer
 import korlibs.math.geom.Size
 import kotlinx.coroutines.delay
@@ -65,9 +68,11 @@ private val virtualSize = Size(480.0 * (windowSize.width / windowSize.height), 4
 class MainActivity : ComponentActivity() {
     private var korgeView: KorgeAndroidView? = null
     private val showingGameplay = mutableStateOf(false)
+    private var activeSceneContainer: SceneContainer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        PlatformStorage.init(this)
         hideSystemBars()
 
         // GameplayScene's update loop runs on KorGE's own GL thread, not the UI thread - hop
@@ -113,16 +118,17 @@ class MainActivity : ComponentActivity() {
 
     private fun startLevel(levelId: String) {
         val view = korgeView ?: return
+        val levelData = LevelData.DEFAULT_LEVELS.firstOrNull { it.id == levelId } ?: LevelData.DEFAULT_LEVEL_1
         showingGameplay.value = true
         if (view.moduleLoaded) {
-            // Engine's already warm from an earlier level. Matches ios-shell's current behavior
-            // exactly (AppDelegate.swift only ever calls the no-arg makeViewController overload,
-            // discarding the level id too) - not a new limitation introduced here, a pre-existing
-            // one on both platforms. GameplayScene's own RETRY/continue-granted restart path
-            // still works correctly against whichever level is already loaded.
-            return
+            val sc = activeSceneContainer
+            if (sc != null) {
+                sc.stage?.launchImmediately {
+                    sc.changeTo { GameplayScene(levelData) }
+                }
+                return
+            }
         }
-        val levelData = LevelData.DEFAULT_LEVELS.firstOrNull { it.id == levelId } ?: LevelData.DEFAULT_LEVEL_1
         lifecycleScope.launch {
             view.loadModule(
                 KorgeConfig(
@@ -135,8 +141,9 @@ class MainActivity : ComponentActivity() {
                     backgroundColor = Colors["#16161d"],
                     title = "Infiltrate: Shadow Heist",
                     main = {
-                        val sceneContainer = sceneContainer()
-                        sceneContainer.changeTo { GameplayScene(levelData) }
+                        val sc = sceneContainer()
+                        activeSceneContainer = sc
+                        sc.changeTo { GameplayScene(levelData) }
                     }
                 )
             )
