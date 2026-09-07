@@ -3,6 +3,8 @@
     <!-- Required for AdMob (and anything else the game fetches over the network) - iOS needs no
          equivalent manual declaration, easy to forget porting from that side. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Required for Google Play Billing in-app purchases and digital goods -->
+    <uses-permission android:name="com.android.vending.BILLING" />
 
     <application
         android:name=".InfiltrateApplication"

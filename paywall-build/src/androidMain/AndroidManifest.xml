@@ -1,4 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="com.android.vending.BILLING" />
     <application>
         <!-- Google Mobile Ads SDK's required App ID, merged into whatever app manifest
              consumes this library. Real AdMob Android app ID (see .junie/guidelines.md

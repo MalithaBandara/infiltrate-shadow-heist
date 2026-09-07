@@ -513,8 +513,8 @@ private fun MissionDossierCard(
     // The size tracks the column, and the column narrowed twice getting here: once pulling it back
     // inside the sheet's right tear, and again moving the whole block right off the tear on the
     // left. Both cost the briefing a point.
-    val bodySize = 18 * scale
-    val bodyLineHeight = 22 * scale
+    val bodySize = 17 * scale
+    val bodyLineHeight = 20 * scale
 
     // Rule weight and letter spacing scale with the card too. Left absolute they would read as a
     // heavier hairline and tighter tracking on a phone than on desktop - the sort of small
@@ -639,7 +639,7 @@ private fun MissionDossierCard(
                 fontFamily = FontFamily.Monospace,
                 fontSize = bodySize.sp,
                 lineHeight = bodyLineHeight.sp,
-                maxLines = 3,
+                maxLines = 4,
                 overflow = TextOverflow.Ellipsis
             )
 

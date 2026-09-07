@@ -41,7 +41,7 @@ data class Player(
 
     var isClimbing: Boolean = false
         private set
-    val climbDuration: Double = 2.80
+    val climbDuration: Double = 1.95
     private var climbElapsed: Double = 0.0
 
     /** 0..1 through the climb in real time. */
@@ -219,7 +219,14 @@ data class Player(
     ) {
         if (isClimbing) {
             advanceClimb(dt)
-            return
+            if (isClimbing && climbProgress >= 0.75 && (moveInput != 0.0 || jumpInput)) {
+                isClimbing = false
+                isGrounded = true
+                x = climbTargetX
+                y = climbTargetY
+            } else {
+                return
+            }
         }
 
         if (moveInput > 0.0) facing = 1.0 else if (moveInput < 0.0) facing = -1.0

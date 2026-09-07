@@ -36,8 +36,8 @@ android {
         // Must be >= paywall-build's own minSdk (24) - AGP fails the merge otherwise.
         minSdk = 24
         targetSdk = 37
-        versionCode = 3
-        versionName = "1.0.1"
+        versionCode = 4
+        versionName = "0.0.2"
     }
 
     signingConfigs {
@@ -132,8 +132,9 @@ dependencies {
     // it once at process startup; AnalyticsBridge.kt (this module's plain, non-KMP copy) forwards
     // GameplayScene.kt's track() calls to it. Version confirmed against Layers' own current docs
     // 2026-09-06 (the integration guide the owner was given pinned 3.2.11, one minor version
-    // behind) - re-check layers.com/docs/sdk/installation before bumping further.
     implementation("com.layers.sdk:layers-android:3.3.0")
+    // Google Play Billing Library (v7.1.1 compliant with Google Play Console requirements)
+    implementation("com.android.billingclient:billing-ktx:7.1.1")
 
     implementation(compose.runtime)
     implementation(compose.foundation)

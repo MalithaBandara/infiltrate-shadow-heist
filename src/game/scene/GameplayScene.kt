@@ -461,6 +461,7 @@ class GameplayScene(
         playerSprite.playAnimationLooped(playerAnimations.idle, PlayerAnimations.IDLE_FRAME_TIME_MS.milliseconds)
         var playerAnimState = "idle"
         var playerFacingLeft = true
+        var isFirstCameraFrame = true
 
         val jumpLaunchFrame = PlayerAnimations.JUMP_LAUNCH_START
         val jumpAirborneFrame = PlayerAnimations.JUMP_RISE_START
@@ -1428,7 +1429,14 @@ class GameplayScene(
             val playerCenterX = world.player.x + world.player.width / 2.0
             val desiredWorldViewX = halfScreen - playerCenterX * worldZoom
             val minWorldViewX = currentCanvasW - world.worldWidth * worldZoom
-            worldView.x = desiredWorldViewX.coerceIn(minWorldViewX.coerceAtMost(0.0), 0.0)
+            val targetWorldViewX = desiredWorldViewX.coerceIn(minWorldViewX.coerceAtMost(0.0), 0.0)
+            if (isFirstCameraFrame) {
+                worldView.x = targetWorldViewX
+                isFirstCameraFrame = false
+            } else {
+                val camFactor = (1.0 - kotlin.math.exp(-16.0 * dtSec)).coerceIn(0.0, 1.0)
+                worldView.x += (targetWorldViewX - worldView.x) * camFactor
+            }
             val baseWorldViewY = currentCanvasH - (baseGroundY + 70.0) * worldZoom
             worldView.y = baseWorldViewY
 
@@ -1473,7 +1481,7 @@ class GameplayScene(
                     jumpPhaseElapsed = 0.0
                     playerSprite.playAnimationLooped(playerAnimations.jump, manualFrameTime)
                     // If moving upward, it's an intentional jump; if falling downwards, it's stepping/falling off a ledge
-                    jumpPhase = if (world.player.vy < 0.0) "launch" else "air"
+                    jumpPhase = if (world.player.vy < 0.0) "launch" else "drop"
                 } else if (playerAnimState == "jump") {
                     jumpPhaseElapsed += dtSec
                     when (jumpPhase) {
@@ -1487,7 +1495,7 @@ class GameplayScene(
                         // phase, so riding out the standing-recovery frames while already moving
                         // reads as gliding forward in a standing pose for those 0.24s before the
                         // walk cut-over. Moving into the touchdown skips straight past it instead.
-                        "air" -> if (world.player.isGrounded) {
+                        "air", "drop" -> if (world.player.isGrounded) {
                             sounds.impact.playSfx(sfxContext, GameAudio.LANDING_GAIN, sfxVolume())
                             if (world.player.isMoving) {
                                 // Don't snap straight to walk - play a brief landing cushion
@@ -1502,7 +1510,7 @@ class GameplayScene(
                             }
                         }
                         else -> if (!world.player.isGrounded) {
-                            jumpPhase = if (world.player.vy < 0.0) "launch" else "air"
+                            jumpPhase = if (world.player.vy < 0.0) "launch" else "drop"
                             jumpPhaseElapsed = 0.0
                             jumpStartY = world.player.y
                         } else if (jumpPhaseElapsed >= jumpLandDuration) {
@@ -1643,6 +1651,18 @@ class GameplayScene(
                 }
             }
 
+            val climbFeetOffset = if (playerAnimState == "climb") {
+                val phase = world.player.climbPhase
+                if (phase >= 0.60) {
+                    val t = ((phase - 0.60) / 0.25).coerceIn(0.0, 1.0)
+                    t * idleFeetOffset
+                } else {
+                    0.0
+                }
+            } else {
+                0.0
+            }
+
             playerSprite.y = world.player.height + when {
                 playerAnimState == "idle" -> idleFeetOffset
                 // Only the held/entering/exiting stance, not crouchwalk - the walk cycle's
@@ -1650,6 +1670,7 @@ class GameplayScene(
                 // only for the settled two-feet-down pose.
                 playerAnimState == "crouch" -> crouchFeetOffset
                 playerAnimState == "landAbsorb" -> jumpLandFeetOffset
+                playerAnimState == "climb" -> climbFeetOffset
                 else -> 0.0
             }
             if (playerAnimState == "jump") {
@@ -1669,6 +1690,12 @@ class GameplayScene(
                         // Falling: smoothly uncurl from apex to extended legs based on fall speed
                         val fallProgress = (world.player.vy / (world.player.maxFallSpeed * 0.7)).coerceIn(0.0, 1.0)
                         jumpApexFrame + (fallProgress * (jumpTouchdownFrame - jumpApexFrame)).toInt()
+                    }
+                    "drop" -> {
+                        // Stepping/dropping off a ledge: keep legs extended downward rather than tucking knees up
+                        val dropFrameStart = 22
+                        val fallProgress = (world.player.vy / (world.player.maxFallSpeed * 0.7)).coerceIn(0.0, 1.0)
+                        dropFrameStart + (fallProgress * (jumpTouchdownFrame - dropFrameStart)).toInt()
                     }
                     else -> {
                         val t = (jumpPhaseElapsed / jumpLandDuration).coerceIn(0.0, 1.0)
