@@ -1,11 +1,8 @@
 package game.scene
 
-import korlibs.image.bitmap.Bitmap
 import korlibs.image.color.*
-import korlibs.image.format.readBitmap
 import korlibs.image.vector.*
 import korlibs.io.async.*
-import korlibs.io.file.std.resourcesVfs
 import korlibs.korge.input.*
 import korlibs.korge.view.*
 import korlibs.korge.view.vector.*
@@ -43,40 +40,6 @@ object UiComponents {
      * the vector and draws it at the device resolution instead, which stays crisp at any scale.
      */
     fun Container.uiGraphics(): Graphics = graphics(renderer = GraphicsRenderer.GPU)
-
-    suspend fun Container.drawAtmosphericBackdrop(width: Double = 800.0, height: Double = 480.0, path: String = "bg_menu.jpg", darken: Double = 0.0) {
-        val bgBitmap = resourcesVfs[path].readBitmap()
-        drawAtmosphericBackdropBitmap(bgBitmap, width, height, darken)
-    }
-
-    /**
-     * Same layout as [drawAtmosphericBackdrop] but takes an already-loaded [Bitmap] and isn't
-     * suspending - needed so a resize handler (which can't be a suspend override, see
-     * MainMenuScene.onSizeChanged) can redraw the backdrop synchronously from a bitmap loaded
-     * once up front, instead of re-hitting the VFS on every resize.
-     */
-    fun Container.drawAtmosphericBackdropBitmap(bgBitmap: Bitmap, width: Double = 800.0, height: Double = 480.0, darken: Double = 0.0) {
-        // Splits the difference between "fit to height" (no top/bottom crop, but may not fill a
-        // wide canvas) and "cover" (fills the box, but can crop deep into faces/heads) - halfway
-        // between the two reads better than either extreme. Still anchored to the right edge so
-        // any horizontal overflow crops off the left, which sits behind the opaque left panel.
-        val heightFitScale = height / bgBitmap.height
-        val coverScale = max(width / bgBitmap.width, heightFitScale)
-        val scale = heightFitScale + (coverScale - heightFitScale) * 0.5
-        val scaledW = bgBitmap.width * scale
-        val scaledH = bgBitmap.height * scale
-        // Top-anchored rather than vertically centered: on a canvas much shorter than the source
-        // image (e.g. a very wide/short aspect ratio), any vertical overflow crops off the bottom
-        // instead of trimming equal slivers off both top and bottom - keeps the sky/skyline these
-        // backdrops are framed around intact and only sacrifices ground-level detail.
-        val img = image(bgBitmap) {
-            size(scaledW, scaledH)
-        }.xy(width - scaledW, 0.0)
-        if (darken > 0.0) {
-            val level = (1.0 - darken).coerceIn(0.0, 1.0)
-            img.colorMul = Colors.WHITE.withRd(level).withGd(level).withBd(level)
-        }
-    }
 
     /**
      * Left-aligned menu button.
@@ -116,7 +79,7 @@ object UiComponents {
             // itself, confirmed by direct pixel inspection), so 9-slicing was reverted in favor of
             // the simple, artifact-free stretch. Falls back to a plain paper rect + stroke if the
             // asset is missing.
-            val bgBmp = try { resourcesVfs[heistTexture].readBitmap() } catch (e: Exception) { null }
+            val bgBmp = SceneAssets.bitmap(heistTexture)
             if (bgBmp != null) {
                 btn.image(bgBmp) { size(width, height) }
             } else {
@@ -129,7 +92,7 @@ object UiComponents {
             if (iconRenderer != null) {
                 btn.uiGraphics().xy(38.0, height / 2.0).updateShape { iconRenderer() }
             }
-            val font = try { resourcesVfs["BebasNeue-Regular.ttf"].readTtfFont() } catch (e: Exception) { DefaultTtfFont }
+            val font = SceneAssets.font("BebasNeue-Regular.ttf")
             val textSize = height * 0.44
             val label = btn.text(text.uppercase(), textSize = textSize, font = font, color = ink)
             // Text defaults to the same bitmap-cache-then-scale path Graphics used to (see
@@ -158,13 +121,13 @@ object UiComponents {
         val bg = btn.solidRect(width, height, Colors["#e8e3d8"])
         fun tint(c: RGBA) { bg.colorMul = c }
 
-        val font = try { resourcesVfs["BebasNeue-Regular.ttf"].readTtfFont() } catch (e: Exception) { DefaultTtfFont }
+        val font = SceneAssets.font("BebasNeue-Regular.ttf")
         val textSize = min(26.0, height * 0.46)
         val label = btn.text(text.uppercase(), textSize = textSize, font = font, color = Colors.BLACK)
 
         var iconImg: Image? = null
         if (iconPath != null) {
-            val iconBmp = try { resourcesVfs[iconPath].readBitmap() } catch (e: Exception) { null }
+            val iconBmp = SceneAssets.bitmap(iconPath)
             if (iconBmp != null) {
                 iconImg = btn.image(iconBmp).xy(14.0, (height - iconBmp.height) / 2.0)
             }
@@ -206,7 +169,7 @@ object UiComponents {
     ): Container {
         val ink = Colors["#17140F"]
         val tab = container().xy(x, y)
-        val bgBmp = try { resourcesVfs[texture].readBitmap() } catch (e: Exception) { null }
+        val bgBmp = SceneAssets.bitmap(texture)
         if (bgBmp != null) {
             tab.image(bgBmp) { size(width, height) }
         } else {
@@ -216,7 +179,7 @@ object UiComponents {
             tab.uiGraphics().updateShape { fill(Colors.BLACK.withAd(0.6)) { rect(0.0, 0.0, width, height) } }
         }
         tab.uiGraphics().xy(26.0, height / 2.0).updateShape { iconRenderer() }
-        val font = try { resourcesVfs["BebasNeue-Regular.ttf"].readTtfFont() } catch (e: Exception) { DefaultTtfFont }
+        val font = SceneAssets.font("BebasNeue-Regular.ttf")
         val labelText = tab.text(label, textSize = 13.0, font = font, color = ink)
         labelText.graphicsRenderer = GraphicsRenderer.GPU
         labelText.xy(48.0, (height - 13.0) / 2.0 - 1.0)

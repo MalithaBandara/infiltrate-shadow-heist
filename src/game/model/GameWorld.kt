@@ -37,6 +37,14 @@ data class GameWorld(
     /** Every guard in the level. Single-guard levels simply have no [extraGuards]. */
     val allGuards: List<Guard> = if (extraGuards.isEmpty()) listOf(guard) else listOf(guard) + extraGuards
 
+    /**
+     * Reused buffer for the platform list handed to [Player.update] - the level's platforms plus
+     * every guard's current bounds. Guards move, so this genuinely has to be rebuilt each frame,
+     * but rebuilding it into one buffer beats allocating two fresh lists (`map`, then `+`) sixty
+     * times a second. Safe to reuse because [Player] only iterates it and never retains it.
+     */
+    private val playerPlatformsScratch = ArrayList<Rect>()
+
     var isPlayerInVision: Boolean = false
         private set
 
@@ -215,10 +223,15 @@ data class GameWorld(
             }
         }
 
-        val movingBounds = movingPlatforms.map { it.bounds }
-        val currentPlatforms = platforms + movingBounds
-        val currentBoxes = boxes + movingBounds
-        val currentOccluders = occluders + movingBounds
+        // A level with no moving platforms - which is most of them, level 1 included - reuses its
+        // own immutable lists rather than copying all three every frame. `platforms + movingBounds`
+        // builds a fresh ArrayList even when movingBounds is empty, so this was three full list
+        // copies per frame handing back identical contents.
+        val hasMovingPlatforms = movingPlatforms.isNotEmpty()
+        val movingBounds = if (hasMovingPlatforms) movingPlatforms.map { it.bounds } else emptyList()
+        val currentPlatforms = if (hasMovingPlatforms) platforms + movingBounds else platforms
+        val currentBoxes = if (hasMovingPlatforms) boxes + movingBounds else boxes
+        val currentOccluders = if (hasMovingPlatforms) occluders + movingBounds else occluders
 
         // Guards without eyes on the player keep walking their route (unless asleep from Phantom Cloak)
         if (!isGameOver && !activePowerups.isPhantomCloakActive) {
@@ -227,7 +240,10 @@ data class GameWorld(
             }
         }
 
-        player.update(dt, moveInput, jumpInput, crouchInput, currentPlatforms + allGuards.map { it.bounds }, currentBoxes)
+        playerPlatformsScratch.clear()
+        playerPlatformsScratch.addAll(currentPlatforms)
+        for (g in allGuards) playerPlatformsScratch.add(g.bounds)
+        player.update(dt, moveInput, jumpInput, crouchInput, playerPlatformsScratch, currentBoxes)
 
         // Check Exit / Win condition
         if (player.bounds.intersects(exitZone)) {

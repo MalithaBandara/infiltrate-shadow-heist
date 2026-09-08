@@ -1368,6 +1368,56 @@ class GameplayModelTest {
     }
 
     @Test
+    fun testClimbDoesNotAutoJumpAfterCompletion() {
+        val ground = Rect(x = 0.0, y = 380.0, width = 800.0, height = 100.0)
+        val box = Rect(x = 300.0, y = 280.0, width = 60.0, height = 100.0)
+        val platforms = listOf(ground, box)
+
+        // Case 1: Normal human tap (jump input held for 6 frames / 100ms), then hands off controls
+        val player = Player(x = box.left - 36.0, y = 380.0 - 96.0, startX = 60.0, startY = 380.0 - 96.0)
+        for (i in 0 until 6) {
+            player.update(dt = 1.0 / 60.0, moveInput = 1.0, jumpInput = true, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
+        }
+        assertTrue(player.isClimbing, "Player should be climbing")
+
+        // Advance through climb with NO input
+        while (player.isClimbing) {
+            player.update(dt = 1.0 / 60.0, moveInput = 0.0, jumpInput = false, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
+        }
+        assertFalse(player.isClimbing, "Climb should have finished")
+        assertTrue(player.isGrounded, "Player should be grounded on the box")
+
+        // For the next 60 frames (1 full second) with zero input, player must NOT auto-jump!
+        for (i in 0 until 60) {
+            player.update(dt = 1.0 / 60.0, moveInput = 0.0, jumpInput = false, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
+            assertFalse(player.isJumping, "Player must NOT jump after completing a climb without input! (frame $i)")
+            assertEquals(0.0, player.vy, 0.01, "Player vy should be 0, not jumping! (frame $i)")
+            assertTrue(player.isGrounded, "Player should remain grounded! (frame $i)")
+        }
+
+        // Case 2: Jump button held continuously throughout the entire climb
+        val player2 = Player(x = box.left - 36.0, y = 380.0 - 96.0, startX = 60.0, startY = 380.0 - 96.0)
+        for (i in 0 until 6) {
+            if (player2.isClimbing) break
+            player2.update(dt = 1.0 / 60.0, moveInput = 1.0, jumpInput = true, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
+        }
+        assertTrue(player2.isClimbing, "Player 2 should be climbing")
+
+        // Keep holding jump throughout the climb
+        while (player2.isClimbing) {
+            player2.update(dt = 1.0 / 60.0, moveInput = 0.0, jumpInput = true, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
+        }
+        assertFalse(player2.isClimbing, "Climb should have finished")
+
+        // Immediately after climb with jump still held, it should NOT launch into a secondary jump
+        player2.update(dt = 1.0 / 60.0, moveInput = 0.0, jumpInput = true, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
+        assertFalse(player2.isJumping, "Holding jump across climb completion should NOT trigger an auto-jump")
+
+        // Releasing jump and pressing it fresh SHOULD trigger a jump
+        player2.update(dt = 1.0 / 60.0, moveInput = 0.0, jumpInput = false, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
+        player2.update(dt = 1.0 / 60.0, moveInput = 0.0, jumpInput = true, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
+        assertTrue(player2.isJumping, "Fresh jump press after climb should trigger a normal jump")
+    }
     fun testClimbRisesAgainstBoxFaceBeforeMovingOverIt() {
         val ground = Rect(x = 0.0, y = 380.0, width = 800.0, height = 100.0)
         val box = Rect(x = 300.0, y = 280.0, width = 60.0, height = 100.0)

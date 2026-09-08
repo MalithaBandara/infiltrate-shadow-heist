@@ -108,6 +108,7 @@ data class Player(
 
     var coyoteTimer: Double = 0.0
     var jumpBufferTimer: Double = 0.0
+    private var jumpConsumedAfterClimb: Boolean = false
 
     fun resetToStart() {
         x = startX
@@ -121,6 +122,7 @@ data class Player(
         currentNoiseLevel = NoiseLevel.SILENT
         coyoteTimer = 0.0
         jumpBufferTimer = 0.0
+        jumpConsumedAfterClimb = false
         isJumping = false
         isDropping = false
         dropLandingTimer = 0.0
@@ -143,7 +145,7 @@ data class Player(
         platforms: List<Rect>,
         climbTargets: List<Rect> = emptyList()
     ) {
-        if (jumpInput) {
+        if (jumpInput && !isClimbing && !jumpConsumedAfterClimb) {
             jumpBufferTimer = jumpBufferDuration
         }
         var remaining = dt
@@ -205,6 +207,8 @@ data class Player(
         isGrounded = false
         vx = 0.0
         vy = 0.0
+        jumpBufferTimer = 0.0
+        jumpConsumedAfterClimb = true
     }
 
     /**
@@ -232,6 +236,9 @@ data class Player(
             dropLandingTimer = 0.0
             vx = 0.0
             vy = 0.0
+            x = climbTargetX
+            y = climbTargetY
+            jumpBufferTimer = 0.0
         }
     }
 
@@ -244,8 +251,9 @@ data class Player(
         climbTargets: List<Rect> = emptyList()
     ) {
         if (isClimbing) {
+            jumpBufferTimer = 0.0
             advanceClimb(dt)
-            if (isClimbing && climbProgress >= 0.75 && (moveInput != 0.0 || jumpInput)) {
+            if (isClimbing && climbProgress >= 0.75 && (moveInput != 0.0 || (jumpInput && !jumpConsumedAfterClimb))) {
                 isClimbing = false
                 isGrounded = true
                 isJumping = false
@@ -254,9 +262,15 @@ data class Player(
                 x = climbTargetX
                 y = climbTargetY
                 jumpBufferTimer = 0.0
+                jumpConsumedAfterClimb = true
+                if (moveInput == 0.0) return
             } else {
                 return
             }
+        }
+
+        if (!jumpInput) {
+            jumpConsumedAfterClimb = false
         }
 
         if (jumpBufferTimer > 0.0) {
@@ -302,7 +316,8 @@ data class Player(
         vx = moveInput.coerceIn(-1.0, 1.0) * effectiveSpeed
 
         // Jump & Vertical acceleration
-        val wantsToJump = jumpInput || jumpBufferTimer > 0.0
+        val effectiveJumpInput = jumpInput && !jumpConsumedAfterClimb
+        val wantsToJump = effectiveJumpInput || jumpBufferTimer > 0.0
         val canJump = (isGrounded || (coyoteTimer > 0.0 && vy >= 0.0)) && !isCrouching
         if (wantsToJump && canJump) {
             val climbTarget = findClimbTarget(facing, climbTargets, platforms)

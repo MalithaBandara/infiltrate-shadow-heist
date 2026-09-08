@@ -62,14 +62,14 @@ class GameplayScene(
         // Shown immediately, before any load below runs, and dismissed only once every load
         // in this function has actually finished - so a slow cold load (mobile, first launch)
         // shows real progress instead of a blank/grey frame.
-        val loadingBgBitmap = try { resourcesVfs["loadingbg.png"].readBitmap() } catch (_: Throwable) { null }
-        val loadingLogoBitmap = try { resourcesVfs["logo_main.png"].readBitmap() } catch (_: Throwable) { null }
+        val loadingBgBitmap = SceneAssets.bitmap("loadingbg.png")
+        val loadingLogoBitmap = SceneAssets.bitmap("logo_main.png")
         // Same torn-paper texture as the main menu's PLAY button (Res.drawable.button1 there) -
         // stretched to fit, matching the existing precedent for these button textures elsewhere
         // in this file (UiComponents.createButton's heistStyle path): plain stretch, not 9-sliced,
         // since 9-slicing this exact art was already tried and reverted for visible seams.
-        val loadingBarTextureBitmap = try { resourcesVfs["button1.png"].readBitmap() } catch (_: Throwable) { null }
-        val loadingFont = try { resourcesVfs["BebasNeue-Regular.ttf"].readTtfFont() } catch (_: Throwable) { DefaultTtfFont }
+        val loadingBarTextureBitmap = SceneAssets.bitmap("button1.png")
+        val loadingFont = SceneAssets.font("BebasNeue-Regular.ttf")
 
         val loadingRoot = container()
         if (loadingBgBitmap != null) {
@@ -197,46 +197,46 @@ class GameplayScene(
         val baseGroundY = 410.0
 
         val bgFileName = levelData.resolvedBackgroundImage
-        val bgmgBitmap = try { resourcesVfs[bgFileName].readBitmap() } catch (_: Throwable) { null }
+        val bgmgBitmap = SceneAssets.bitmap(bgFileName)
         markLoadProgress()
-        val crateBitmap = try { resourcesVfs["crate.png"].readBitmap() } catch (_: Throwable) { null }
+        val crateBitmap = SceneAssets.bitmap("crate.png")
         markLoadProgress()
-        val chainedCrateBitmap = try { resourcesVfs["chainedcrate.png"].readBitmap() } catch (_: Throwable) { null }
+        val chainedCrateBitmap = SceneAssets.bitmap("chainedcrate.png")
         markLoadProgress()
-        val chainedCrate2Bitmap = try { resourcesVfs["chainedcrate2.png"].readBitmap() } catch (_: Throwable) { null }
+        val chainedCrate2Bitmap = SceneAssets.bitmap("chainedcrate2.png")
         markLoadProgress()
-        val fenceBitmap = try { resourcesVfs["fence.png"].readBitmap() } catch (_: Throwable) { null }
+        val fenceBitmap = SceneAssets.bitmap("fence.png")
         markLoadProgress()
-        val fence2Bitmap = try { resourcesVfs["fence2.png"].readBitmap() } catch (_: Throwable) { null }
+        val fence2Bitmap = SceneAssets.bitmap("fence2.png")
         markLoadProgress()
-        val barrelBitmap = try { resourcesVfs["barrel.png"].readBitmap() } catch (_: Throwable) { null }
+        val barrelBitmap = SceneAssets.bitmap("barrel.png")
         markLoadProgress()
-        val truckBitmap = try { resourcesVfs["truck.png"].readBitmap() } catch (_: Throwable) { null }
+        val truckBitmap = SceneAssets.bitmap("truck.png")
         markLoadProgress()
-        val entranceBitmap = try { resourcesVfs["entrance.png"].readBitmap() } catch (_: Throwable) { null }
+        val entranceBitmap = SceneAssets.bitmap("entrance.png")
         markLoadProgress()
-        val exitFenceBitmap = try { resourcesVfs["exitfence.png"].readBitmap() } catch (_: Throwable) { null }
+        val exitFenceBitmap = SceneAssets.bitmap("exitfence.png")
         markLoadProgress()
-        val leftBtnBitmap = try { resourcesVfs["left.png"].readBitmap() } catch (_: Throwable) { null }
+        val leftBtnBitmap = SceneAssets.bitmap("left.png")
         markLoadProgress()
-        val rightBtnBitmap = try { resourcesVfs["right.png"].readBitmap() } catch (_: Throwable) { null }
+        val rightBtnBitmap = SceneAssets.bitmap("right.png")
         markLoadProgress()
-        val crouchBtnBitmap = try { resourcesVfs["crouch.png"].readBitmap() } catch (_: Throwable) { null }
+        val crouchBtnBitmap = SceneAssets.bitmap("crouch.png")
         markLoadProgress()
-        val jumpBtnBitmap = try { resourcesVfs["jump.png"].readBitmap() } catch (_: Throwable) { null }
+        val jumpBtnBitmap = SceneAssets.bitmap("jump.png")
         markLoadProgress()
-        val interactBtnBitmap = try { resourcesVfs["interact.png"].readBitmap() } catch (_: Throwable) { null }
+        val interactBtnBitmap = SceneAssets.bitmap("interact.png")
         markLoadProgress()
         // The main menu's torn-paper button strips. They already live in resources/ (the Compose
         // menu reads its own copies out of composeResources), so the pause menu can be built from
         // the very same art rather than a lookalike drawn in vectors.
         val paperBtnBitmaps = listOf("button1.png", "button2.png", "button3.png", "button4.png")
-            .map { name -> try { resourcesVfs[name].readBitmap() } catch (_: Throwable) { null } }
+            .map { name -> SceneAssets.bitmap(name) }
         markLoadProgress()
         // The main menu's briefing sheet (MainMenuScreen.MissionDossierCard). Checked in twice
         // for the same reason the button strips are - Korge reads resources/, the Compose menu
         // reads its own composeResources/ copy, and the two builds share no asset pipeline.
-        val dossierBitmap = try { resourcesVfs["dossier_paper.png"].readBitmap() } catch (_: Throwable) { null }
+        val dossierBitmap = SceneAssets.bitmap("dossier_paper.png")
         markLoadProgress()
 
         dismissLoadingScreen()
@@ -477,15 +477,13 @@ class GameplayScene(
         var jumpPhaseElapsed = 0.0
         var jumpStartY = world.player.y
 
-        // Landing absorption: when the player lands while moving, play the first few frames of
-        // the jump's landing clip as a brief cushion before handing over to the walk lean-in.
-        // Without this, landing on a higher platform while running snaps the posture from a
-        // tucked airborne pose to a fully upright walk lean-in in a single frame.
+        // Landing absorption: when the player lands while moving, play a brief cushion of the
+        // initial touchdown frames (27..28) before handing over to the forward walk stride (frame 5..17).
+        // This eliminates the jarring pop from airborne/squat to full-speed run stride.
         var landingAbsorb = false
         var landingAbsorbElapsed = 0.0
-        val landingAbsorbDuration = 0.12  // just the first ~half of the landing clip
-        // How many landing frames to play during the absorption (frames 27..31 out of 27..43).
-        val landingAbsorbFrames = 5
+        val landingAbsorbDuration = 0.05
+        val landingAbsorbFrames = 2
 
 
         // Crouch: entering/exiting are the down/up transition played once; holding pins the last
@@ -496,8 +494,18 @@ class GameplayScene(
         // cycle that picks the walk frame, so a step fires when the foot lands rather than on a
         // timer that drifts against the animation whenever speed changes.
         var stepAlternate = false
-        val sfxVolume = { profileStorage.getProfile().sfxVolume }
-        val musicVolume = { profileStorage.getProfile().musicVolume }
+        // One profile read per frame, not four. InMemoryGameProfileStorage.getProfile() hands back
+        // a deep copy - a fresh GameProfile plus a copied unlocked-level set plus a copied powerup
+        // map - so reading a single volume float allocated three objects. The updater was doing
+        // that for the music volume, again for the powerup HUD, and once more per footstep, which
+        // at 60fps is a few hundred short-lived objects a second on a heap that is already under
+        // pressure from the texture atlas. Refreshed at the top of the updater (and immediately
+        // after anything that mutates the profile) so a change made in the menus still lands on
+        // the very next frame, exactly as it did when every call re-read storage.
+        var cachedProfile = profileStorage.getProfile()
+        val refreshProfile = { cachedProfile = profileStorage.getProfile() }
+        val sfxVolume = { cachedProfile.sfxVolume }
+        val musicVolume = { cachedProfile.musicVolume }
 
         fun syncBgMusicVolume() {
             val baseVol = GameAudio.BG_MUSIC_GAIN * musicVolume().toDouble()
@@ -560,12 +568,14 @@ class GameplayScene(
         val walkTransitionDuration = 0.28
         var walkTransitionElapsed = 0.0
         var walkInTransition = false
+        var walkTransitionStartFrame = PlayerAnimations.WALK_TRANSITION_START
+        var walkTransitionCurrentDuration = walkTransitionDuration
         var stationaryElapsed = 0.20
         var crouchStationaryElapsed = 0.25
         val manualFrameTime = 1_000_000.milliseconds
 
-        val bebasFont = try { resourcesVfs["BebasNeue-Regular.ttf"].readTtfFont() } catch (_: Throwable) { DefaultTtfFont }
-        val handwrittenFont = try { resourcesVfs["handwritten.ttf"].readTtfFont() } catch (_: Throwable) { bebasFont }
+        val bebasFont = SceneAssets.font("BebasNeue-Regular.ttf")
+        val handwrittenFont = SceneAssets.font("handwritten.ttf", fallback = bebasFont)
 
         // A pause-menu button in the main menu's language: a torn white paper strip with the
         // label and icon stamped on it in ink. Same textures, same ink colour, same Bebas face,
@@ -1045,7 +1055,16 @@ class GameplayScene(
             val btnContainer: Container,
             val bg: Graphics,
             val nameText: Text,
-            val countText: Text
+            val countText: Text,
+            /**
+             * Last drained-underline fraction this chip's [bg] was built with, or null if it has
+             * never been built. The chip's vector shape only changes when the powerup goes
+             * active/inactive or its timer bar moves, but updateShape re-tessellates the rounded
+             * rect, its stroke and the underline every time it is called - so the updater compares
+             * against this and skips the rebuild when the chip would come out identical. -1.0
+             * stands for "inactive", which is a single fixed shape.
+             */
+            var lastDrawnSpan: Double? = null
         )
 
         val powerupTypes = listOf(
@@ -1072,6 +1091,9 @@ class GameplayScene(
             if (world.isLevelComplete || world.isGameOver || isPaused) return
             if (profileStorage.consumePowerup(type)) {
                 world.activatePowerup(type)
+                // The HUD chips read the per-frame cache, and this can fire from a key press
+                // earlier in the same frame, so re-read rather than show a stale count for a tick.
+                refreshProfile()
             }
         }
 
@@ -1637,6 +1659,9 @@ class GameplayScene(
 
             pauseOverlay.visible = isPaused
 
+            // Everything below reads volumes and the powerup inventory off this one snapshot.
+            refreshProfile()
+
             syncBgMusicVolume()
 
             if (isPaused || world.isLevelComplete || world.isGameOver) {
@@ -2103,8 +2128,7 @@ class GameplayScene(
                         "air", "drop" -> if (world.player.isGrounded) {
                             sounds.impact.playSfx(sfxContext, GameAudio.LANDING_GAIN, sfxVolume())
                             if (world.player.isMoving) {
-                                // Don't snap straight to walk - play a brief landing cushion
-                                // first so the posture change isn't instant.
+                                // Cushion the landing impact before transitioning into the forward walk stride.
                                 jumpPhase = "none"
                                 playerAnimState = "none"
                                 landingAbsorb = true
@@ -2114,13 +2138,27 @@ class GameplayScene(
                                 jumpPhaseElapsed = 0.0
                             }
                         }
+                        "land" -> if (world.player.isMoving) {
+                            // Started moving during landing recovery: transition smoothly into forward stride
+                            jumpPhase = "none"
+                            playerAnimState = "walk"
+                            walkInTransition = true
+                            walkTransitionStartFrame = 5
+                            val framesRemaining = PlayerAnimations.WALK_TRANSITION_END - walkTransitionStartFrame
+                            val totalFrames = PlayerAnimations.WALK_TRANSITION_END - PlayerAnimations.WALK_TRANSITION_START
+                            walkTransitionCurrentDuration = walkTransitionDuration * (framesRemaining.toDouble() / totalFrames)
+                            walkTransitionElapsed = 0.0
+                            walkCycleProgress = 0.0
+                            playerSprite.playAnimationLooped(playerAnimations.walk, manualFrameTime)
+                            playerSprite.setFrame(walkTransitionStartFrame)
+                        } else if (jumpPhaseElapsed >= jumpLandDuration) {
+                            jumpPhase = "none"
+                            playerAnimState = "none"
+                        }
                         else -> if (!world.player.isGrounded) {
                             jumpPhase = if (world.player.vy < 0.0) "launch" else "drop"
                             jumpPhaseElapsed = 0.0
                             jumpStartY = world.player.y
-                        } else if (jumpPhaseElapsed >= jumpLandDuration) {
-                            jumpPhase = "none"
-                            playerAnimState = "none"
                         }
                     }
                 }
@@ -2198,31 +2236,36 @@ class GameplayScene(
                 }
             }
 
-            // Landing absorption: plays a brief cushion from the jump's own landing frames
-            // before handing off to movement. While active, it owns the sprite — the
-            // grounded-state block below is skipped so it doesn't fight for control.
+            // Landing absorption: plays a brief cushion from the jump's touchdown frames
+            // before handing off into the forward walk stride.
             if (landingAbsorb) {
                 landingAbsorbElapsed += dtSec
                 val t = (landingAbsorbElapsed / landingAbsorbDuration).coerceIn(0.0, 1.0)
-                // Stay on the jump sprite sheet and scrub through the first few landing frames.
                 if (playerAnimState != "landAbsorb") {
                     playerAnimState = "landAbsorb"
                     playerSprite.playAnimationLooped(playerAnimations.jump, manualFrameTime)
                 }
-                val absorbFrame = jumpLandFrame + (t * landingAbsorbFrames).toInt()
-                    .coerceAtMost(landingAbsorbFrames)
-                playerSprite.setFrame(absorbFrame.coerceIn(jumpLandFrame, jumpLastFrame))
+                val absorbFrame = jumpLandFrame + (t * (landingAbsorbFrames - 1)).toInt()
+                playerSprite.setFrame(absorbFrame.coerceIn(jumpLandFrame, jumpLandFrame + landingAbsorbFrames - 1))
 
                 if (t >= 1.0) {
-                    // Absorption done — hand off directly to walk cycle (or idle if stopped).
                     landingAbsorb = false
                     if (world.player.isMoving) {
                         playerAnimState = "walk"
-                        walkInTransition = false
+                        walkInTransition = true
+                        walkTransitionStartFrame = 5
+                        val framesRemaining = PlayerAnimations.WALK_TRANSITION_END - walkTransitionStartFrame
+                        val totalFrames = PlayerAnimations.WALK_TRANSITION_END - PlayerAnimations.WALK_TRANSITION_START
+                        walkTransitionCurrentDuration = walkTransitionDuration * (framesRemaining.toDouble() / totalFrames)
+                        walkTransitionElapsed = 0.0
+                        walkCycleProgress = 0.0
                         playerSprite.playAnimationLooped(playerAnimations.walk, manualFrameTime)
+                        playerSprite.setFrame(walkTransitionStartFrame)
                     } else {
-                        playerAnimState = "idle"
-                        playerSprite.playAnimationLooped(playerAnimations.idle, PlayerAnimations.IDLE_FRAME_TIME_MS.milliseconds)
+                        jumpPhase = "land"
+                        jumpPhaseElapsed = landingAbsorbElapsed
+                        playerAnimState = "jump"
+                        playerSprite.playAnimationLooped(playerAnimations.jump, manualFrameTime)
                     }
                 }
             }
@@ -2238,6 +2281,8 @@ class GameplayScene(
                         if (stationaryElapsed >= 0.15) {
                             walkCycleProgress = 0.0
                             walkInTransition = true
+                            walkTransitionStartFrame = PlayerAnimations.WALK_TRANSITION_START
+                            walkTransitionCurrentDuration = walkTransitionDuration
                             walkTransitionElapsed = 0.0
                             playerSprite.setFrame(PlayerAnimations.WALK_TRANSITION_START)
                             val step = if (stepAlternate) sounds.stepB else sounds.stepA
@@ -2251,6 +2296,7 @@ class GameplayScene(
                     // Only transition to idle if stationary for at least 0.10s (prevents direction reversal stutter)
                     if (playerAnimState != "idle" && stationaryElapsed >= 0.10) {
                         playerAnimState = "idle"
+                        walkInTransition = false
                         playerSprite.playAnimationLooped(playerAnimations.idle, PlayerAnimations.IDLE_FRAME_TIME_MS.milliseconds)
                     }
                 }
@@ -2274,7 +2320,6 @@ class GameplayScene(
                 // alternating planted/swinging foot is supposed to look uneven, this offset is
                 // only for the settled two-feet-down pose.
                 playerAnimState == "crouch" -> crouchFeetOffset
-                playerAnimState == "landAbsorb" -> jumpLandFeetOffset
                 playerAnimState == "climb" -> climbFeetOffset
                 else -> 0.0
             }
@@ -2314,14 +2359,17 @@ class GameplayScene(
             } else if (playerAnimState == "walk") {
                 if (walkInTransition) {
                     walkTransitionElapsed += dtSec
-                    val t = (walkTransitionElapsed / walkTransitionDuration).coerceIn(0.0, 1.0)
-                    val span = PlayerAnimations.WALK_TRANSITION_END - PlayerAnimations.WALK_TRANSITION_START
-                    playerSprite.setFrame(
-                        PlayerAnimations.WALK_TRANSITION_START + (t * span).toInt()
-                    )
+                    val t = (walkTransitionElapsed / walkTransitionCurrentDuration).coerceIn(0.0, 1.0)
+                    val span = PlayerAnimations.WALK_TRANSITION_END - walkTransitionStartFrame
+                    val currentFrame = (walkTransitionStartFrame + (t * span).toInt())
+                        .coerceIn(walkTransitionStartFrame, PlayerAnimations.WALK_TRANSITION_END)
+                    playerSprite.setFrame(currentFrame)
                     // The transition runs straight into the loop's first frame in the source
                     // footage, so handing over at the end is seamless.
-                    if (t >= 1.0) walkInTransition = false
+                    if (t >= 1.0) {
+                        walkInTransition = false
+                        walkCycleProgress = 0.0
+                    }
                 } else {
                     val previousPhase = walkCycleProgress
                     if (world.player.isMoving) {
@@ -2497,7 +2545,7 @@ class GameplayScene(
             // Update Powerup HUD buttons and active countdown indicators. The chip is the only
             // place a live powerup is reported now - the old duplicate "ACTIVE: ..." status line
             // under the top bar said the same thing a second time, in a second place.
-            val currentProfile = profileStorage.getProfile()
+            val currentProfile = cachedProfile
             var hasAnyVisiblePowerup = false
 
             for (btn in powerupHudButtons) {
@@ -2509,20 +2557,29 @@ class GameplayScene(
                     hasAnyVisiblePowerup = true
                     btn.btnContainer.visible = true
                     val accent = if (isActive) COLOR_BORDER_GREEN else COLOR_ACCENT_CYAN
-                    btn.bg.updateShape {
-                        clear()
-                        val fillCol = if (isActive) accent.withAd(0.22) else Colors["#0A0C10"].withAd(0.55)
-                        fill(fillCol) { roundRect(0.0, 0.0, powerupBtnW, powerupBtnH, powerupBtnRadius, powerupBtnRadius) }
-                        stroke(accent.withAd(if (isActive) 0.95 else 0.45), StrokeInfo(thickness = if (isActive) 2.0 else 1.6)) {
-                            roundRect(0.5, 0.5, powerupBtnW - 1.0, powerupBtnH - 1.0, powerupBtnRadius, powerupBtnRadius)
-                        }
-                        // Live powerups get a filled underline that drains with their timer, so
-                        // the chip carries the countdown instead of a separate status readout.
-                        if (isActive) {
-                            val span = if (btn.type.isLevelDuration) 1.0
-                                else (remTime / btn.type.duration).coerceIn(0.0, 1.0)
-                            fill(accent) {
-                                roundRect(10.0, powerupBtnH - 7.0, (powerupBtnW - 20.0) * span, 3.0, 1.5, 1.5)
+                    // Live powerups get a filled underline that drains with their timer, so the
+                    // chip carries the countdown instead of a separate status readout. -1.0 marks
+                    // the inactive chip, whose shape never varies.
+                    val span = when {
+                        !isActive -> -1.0
+                        btn.type.isLevelDuration -> 1.0
+                        else -> (remTime / btn.type.duration).coerceIn(0.0, 1.0)
+                    }
+                    // Only a change in that fraction changes a single pixel of this chip, and
+                    // updateShape re-tessellates the whole thing, so an unchanged chip is skipped.
+                    if (btn.lastDrawnSpan != span) {
+                        btn.lastDrawnSpan = span
+                        btn.bg.updateShape {
+                            clear()
+                            val fillCol = if (isActive) accent.withAd(0.22) else Colors["#0A0C10"].withAd(0.55)
+                            fill(fillCol) { roundRect(0.0, 0.0, powerupBtnW, powerupBtnH, powerupBtnRadius, powerupBtnRadius) }
+                            stroke(accent.withAd(if (isActive) 0.95 else 0.45), StrokeInfo(thickness = if (isActive) 2.0 else 1.6)) {
+                                roundRect(0.5, 0.5, powerupBtnW - 1.0, powerupBtnH - 1.0, powerupBtnRadius, powerupBtnRadius)
+                            }
+                            if (isActive) {
+                                fill(accent) {
+                                    roundRect(10.0, powerupBtnH - 7.0, (powerupBtnW - 20.0) * span, 3.0, 1.5, 1.5)
+                                }
                             }
                         }
                     }

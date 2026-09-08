@@ -20,6 +20,7 @@ import com.infiltrate.ads.ContinueAdTrigger
 import com.infiltrate.ads.InterstitialAdContent
 import com.infiltrate.ads.InterstitialAdLimiter
 import com.infiltrate.ads.InterstitialAdTrigger
+import com.infiltrate.billing.StoreBilling
 import com.infiltrate.storage.PlatformStorage
 import com.infiltrate.ui.NavigationRoot
 import com.sample.demo.ads.AndroidContinueAdBridgeState
@@ -84,6 +85,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         PlatformStorage.init(this)
+        StoreBilling.setApplication(application)
+        StoreBilling.initialize(BuildConfig.REVENUECAT_GOOGLE_KEY)
         hideSystemBars()
 
         // GameplayScene's update loop runs on KorGE's own GL thread, not the UI thread - hop

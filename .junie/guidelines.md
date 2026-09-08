@@ -314,6 +314,24 @@ dossier sheets" below for the screen itself.
 `:game`'s stub actual). **iOS: not verified at all locally** — no Mac here;
 needs a real CI push, same as every iOS change in this file.
 
+## All three ad placements currently point at Google's TEST ad unit IDs (2026-09-08)
+
+`AdUnitIds.android.kt`/`AdUnitIds.ios.kt` each have a single `private const val USE_TEST_ADS = true`
+at the top of the file, gating all three placements (`REWARDED_CONTINUE`/`REWARDED_COINS`/
+`INTERSTITIAL_LEVEL_EXIT`) at once. **Deliberate, not a leftover**: Internal and Closed testing on
+Play Console (and the iOS equivalent, TestFlight/App Store review) both count as
+"developer-associated" traffic under AdMob's invalid-traffic policy — testers are people the
+developer personally invited, not genuine public users — so real ad units must not be used there.
+Real IDs are only safe once traffic is genuinely public: an **Open testing** track (public opt-in,
+not personally invited) or a production release.
+
+**This replaces the old per-value test-ID swap** (`REWARDED_CONTINUE` used to have its own ad-hoc
+comment-and-swap from 2026-09-03, which is exactly the kind of thing that sat in place unnoticed for
+a while — see git history). One flag per file is the fix: flipping both `USE_TEST_ADS` constants to
+`false` before an Open testing/production build is a two-line change instead of six, and there's no
+way to flip three of six values and miss the others. **Before shipping to Open testing or
+production, grep for `USE_TEST_ADS = true` in both files and flip both** — this is not automatic.
+
 ## Watch ad for coins (Store) — real, separate from "watch ad to continue"
 
 **Status update (2026-09-08): the "Store screen has no real purchase flow" and "PurchasesBridge is
@@ -1085,6 +1103,116 @@ present on the Kotlin classpath). **Not verified**: never run on a real
 device — whether it actually connects to Layers' backend and events arrive
 is unconfirmed. iOS not attempted (scope was Android only, matching the
 vendor's own Android/iOS-ATT doc split).
+
+## Runtime performance: where the frame budget actually goes (2026-09-08)
+
+Investigated after an "it lags on my Android phone" report. Measured off the assets and the
+render path, **not** off a device profile — treat the rankings as reasoned, not confirmed, and
+run `adb shell dumpsys gfxinfo com.infiltrate.androidshell framestats` plus Android Studio's
+Memory Profiler before trusting any of it as the cause.
+
+**1. The player atlas is the single biggest memory consumer, by a wide margin.**
+`PlayerAnimations.load()` packs every frame into `MutableAtlas(2048, 2048, NEW_IMAGES)`, which
+adds a whole page at a time: 16.8MB as a `Bitmap32` on the heap *and* again as a GPU texture.
+Cost therefore goes up in 16.8MB steps, not smoothly. It was 26.2M pixels (≥7 pages); trimming
+frames that are loaded but unreachable — climb's raw 1-69 run-up (`CLIMB_START` clamps display
+to raw 70) and crouchwalk's raw 145-192 tail (the gait loop wraps at 144) — brought it to 20.3M
+(≥5 pages), ~34MB of heap and ~34MB of texture memory back for zero visual change. **Adding
+animation frames here is not free**; there is now an ATLAS BUDGET comment on `load()` saying so.
+Note the climb clip's START/END constants are in **loaded-index space** now, not raw file
+numbering — `loadAnimation(firstFile = ...)` skips the unloaded head.
+
+**2. Every texture is authored 10-26x larger than it is drawn, and mipmaps cannot fix it.**
+`barrel.png` is 832x1274 drawn at 32x48 (~26x, and level 1 has seven of them); `crate.png`
+851x595 at 48x68; the five touch buttons (`left/right/jump/crouch/interact.png`) are ~1200x1200
+drawn at 96-108px. Minifying that hard without mipmaps means adjacent output pixels sample
+texels ~26 apart, so nearly every texture fetch misses the GPU cache — the classic mobile stall,
+and the likely source of any shimmer on the barrels while scrolling. Gameplay scene bitmaps
+total ~87MB decoded on top of the atlas.
+**The dead end worth recording: `bitmap.mipmaps(true)` is a silent no-op here.** KorGE 6.0.0's
+`AGObjects.kt` `doMipmaps()` returns `requestMipmaps && width.isPowerOfTwo && height.isPowerOfTwo`,
+and every asset in this project is NPOT — no error, no mipmap, no benefit. Getting mipmaps means
+re-encoding the source PNGs to power-of-two dimensions, which is an art-pipeline change, not a
+code one. **Re-encoding the oversized assets down to roughly their drawn size is the biggest
+un-taken win left.**
+
+**3. Per-frame allocation in the updater** (all fixed, all mechanical):
+`InMemoryGameProfileStorage.getProfile()` returns a *deep copy* — a fresh `GameProfile` plus a
+copied unlocked-level set plus a copied powerup map — so reading one volume float allocated three
+objects. `GameplayScene`'s updater did that for music volume, again for the powerup HUD, and once
+more per footstep. Now read once per frame into `cachedProfile` (refreshed at the top of the
+updater and after `tryActivatePowerup`, so menu changes still land on the next frame).
+`GameWorld.update` rebuilt `platforms`/`boxes`/`occluders` concatenations every frame even when
+`movingPlatforms` was empty, which is most levels; it now reuses the level's own lists in that
+case, and builds the player's platform list into a reused scratch buffer. The powerup HUD chips
+called `updateShape` — a full re-tessellation of a rounded rect, its stroke and the timer
+underline — every frame regardless of change; they now skip when the chip would be identical.
+
+**4. Android-specific: KorGE renders continuously underneath the Compose menu.** By design —
+`MainActivity` never hides `KorgeAndroidView` because toggling its visibility tears down the
+render surface (see "Real device bugs" #7). The cost is that the engine burns frames behind every
+menu. If a lag report is about the *menus* rather than gameplay, this is the first suspect and it
+is a different fix from anything above.
+
+**Amplifier worth knowing**: `dtSec` is clamped to 0.1s and `Player.update` sub-steps at 1/60, so
+a 100ms hitch runs six physics steps — slow frames make themselves slower.
+
+**Second pass (same day): dead assets removed and the per-scene reload fixed.**
+- **`resources/` went from 75MB to 40MB.** 27 PNGs were being packaged into the APK
+  (`mergeDebugAssets` picks up the whole directory) with nothing in the code ever loading them:
+  `a1-a5`, `bg1-bg5`, `bg10-bg13`, `bglayer`, `bgmg`, `mglayer`, `mglayer2`, `card_bg`,
+  `chainedhook`, `korge`, and `store_ad/briefcase/duffle/pouch/stash/vault`. The three that look
+  live are not: `bg12`, `card_bg` and the `store_*` set are referenced only through
+  `Res.drawable.*`, which resolves to **paywall-build's own separate copies** under
+  `src/commonMain/composeResources/drawable/` - the `resources/` copies were shipping twice. The
+  live backgrounds are `bgmg2/3/4` (`LevelData.resolvedBackgroundImage`'s rotation) plus `bgmg5`
+  (level 4's literal). The app icon is `icon.png` at the repo root, not `resources/korge.png`.
+  **Before deleting anything else here, grep the whole repo excluding `build/` - the only hits for
+  a dead asset are in `build/intermediates/.../merger.xml`, which is the packaging evidence, not a
+  reference.**
+- **`SceneAssets.kt` (new) caches bitmaps and fonts process-wide.** `sceneMain()` was calling
+  `readBitmap()` twenty times and `readTtfFont()` twice on *every* scene load - and a scene load
+  happens on RESTART, QUIT-then-relaunch, watch-ad-to-continue and every level change - so a
+  normal session re-decoded ~87MB of PNG and re-uploaded it all as GPU textures repeatedly. This
+  is the untreated other half of "Real device bugs" #5, which fixed the player atlas the same way
+  and explicitly flagged these loads as still outstanding. They degrade silently (`catch { null }`)
+  rather than throwing, which is why the cost read as reload stalls and GC churn instead of a
+  crash. `UiComponents`'s own repeated font/bitmap loads go through it too. Only successful loads
+  are cached, so a missing file still retries rather than being remembered as permanently absent.
+- **Dead code removed**: `UiComponents.drawAtmosphericBackdrop()` and
+  `drawAtmosphericBackdropBitmap()` are gone - the first had no callers, the second's only caller
+  was the first. Both are leftovers from the pre-Compose KorGE main menu (their doc referenced a
+  `MainMenuScene.onSizeChanged` that no longer exists). Three imports went with them. This
+  orphans `resources/bg_menu.jpg` (773KB), which is now a deletion candidate along with
+  `resources/logo.jpg` (448KB) and `resources/test_minimal.ldtk` - **none of those three verified
+  yet**, and `test_minimal.ldtk` in particular is likely used by `test/LdtkLoaderTest.kt`.
+- **Lossless PNG recompression applied** (Pillow, `optimize=True, compress_level=9`): 229 of 604
+  files got smaller, 1.29MB saved; the other 375 - almost all player animation frames - were left
+  alone because recompressing them came out *larger*. Every rewritten file was checked to decode
+  to byte-identical pixels against its `git HEAD` blob, 229/229 identical. Safe because korim's
+  PNG decoder (`PNG.kt`'s `readChunk`) handles only `IHDR`/`PLTE`/`tRNS`/`IDAT`/`eXIf`/`IEND` -
+  the `gAMA` chunks dropped from 361 files are never read, no file carries an ICC profile, and
+  none carries `eXIf`. This is a **download-size win only**: decoded texture memory is always
+  `w*h*4` regardless of how well the PNG compresses. A real optimizer (oxipng/zopflipng) would
+  beat Pillow substantially if the download size matters more later.
+
+**ASSET AUDIT TRAP, learned here - do not grep by filename alone.** A first pass flagged six
+`sfx/*.wav` files as unreferenced because no source file contains the string `step_a.wav`.
+They are all live: `GameAudio.load()` builds `"sfx/$name.wav"` from a bare `clip("step_a")`
+argument at runtime. The same shape appears in `LevelData.resolvedBackgroundImage`. Before
+deleting any asset, check for **runtime-constructed paths**, not just literals - and prefer
+verifying by running the game over trusting a grep.
+
+**Verified**: `compileKotlinJvm` and the full `jvmTest` suite green (69/69), **and the JVM desktop
+build was run and screenshotted after both passes** - background, fence, truck, player, all five
+touch-control textures, the powerup chips with their counts, the Bebas HUD font and the handwritten
+tutorial callout all render exactly as before, confirming nothing deleted was actually in use.
+**Not verified**: never run on a real device or emulator; the actual frame-time improvement is unmeasured. Android compilation
+could not be checked — `:korge-ldtk:compileDebugKotlinAndroid` currently fails with "Inconsistent
+JVM-target compatibility ... 'compileDebugJavaWithJavac' (1.8) and 'compileDebugKotlinAndroid' (21)"
+under `JAVA_HOME` = JDK 21, and it fails identically on unmodified checkouts, so it is a
+pre-existing toolchain-config break in that module, not a code regression — but it does mean this
+file's older "Android compile verified" claims can no longer be reproduced as written.
 
 ## Keep this file up to date
 

@@ -34,6 +34,7 @@ class InfiltrateApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         PlatformStorage.init(this)
+        StoreBilling.setApplication(this)
         StoreBilling.initialize(BuildConfig.REVENUECAT_GOOGLE_KEY)
         val isDebugBuild = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         LayersAndroid.configure(this) {

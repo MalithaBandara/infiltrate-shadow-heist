@@ -107,7 +107,10 @@ object PlayerAnimations {
     // ---- crouchwalk -----------------------------------------------------------------------
     // 192 raw frames, shot at twice the frame rate of the standing clips (they are 360x1280-scale
     // plates at half resolution, so a cycle here spans about twice as many frames as walk's).
-    private const val CROUCHWALK_FRAMES = 192
+    // Only raw 1-144 are ever displayed - the transition runs to 91 and the gait loop wraps at
+    // 144 - so raw 145-192 are not loaded. They were costing ~7MB of atlas for frames nothing
+    // could reach; see the atlas-budget note on load() below. CROUCHWALK_FRAMES is declared
+    // after CROUCHWALK_LOOP_END so it can be derived from it rather than restated as a literal.
 
     /**
      * Raw 1-91: leaning out of the settled crouch and building to a full stride. Raw frame 1 is
@@ -128,6 +131,9 @@ object PlayerAnimations {
     const val CROUCHWALK_LOOP_START = 91
     const val CROUCHWALK_LOOP_END = 143
     const val CROUCHWALK_LOOP_LENGTH = CROUCHWALK_LOOP_END - CROUCHWALK_LOOP_START + 1
+
+    /** Raw 1 through the gait loop's last frame - everything past it is unreachable, so unloaded. */
+    private const val CROUCHWALK_FRAMES = CROUCHWALK_LOOP_END + 1
 
     /**
      * Ground covered by one crouch gait cycle, as a multiple of the character's on-screen height -
@@ -172,14 +178,20 @@ object PlayerAnimations {
     //   100-144 the actual pull-up, where all the height is gained
     //   145-175 settled crouching on top
     //   176-224 standing up
-    private const val CLIMB_FRAMES = 224
-
     /**
-     * Raw 70 (0-indexed 69). Frames 1-69 are windup, run-up, and wall foot plant/push-off.
-     * Starting at raw frame 70 skips the foot plant entirely and starts directly with the hands
-     * on the top lip/ledge and the feet hanging naturally.
+     * First frame file actually loaded, `climb/0070.png`. Raw 1-69 are windup, run-up, and the
+     * wall foot plant/push-off, none of which the climb move ever displays - it starts directly
+     * with the hands on the top lip/ledge and the feet hanging naturally. They are skipped at
+     * load rather than packed into the atlas, so the phase boundaries listed above are in raw
+     * file numbering while the loaded indices below start from zero.
      */
-    const val CLIMB_START = 69
+    private const val CLIMB_FILE_START = 70
+
+    /** Raw 70-224 inclusive: everything the climb move actually shows. */
+    private const val CLIMB_FRAMES = 224 - CLIMB_FILE_START + 1
+
+    /** First loaded frame, i.e. raw 70 - hands already on the lip. */
+    const val CLIMB_START = 0
 
     /** Raw 224: fully upright again, ready to hand back to idle. */
     const val CLIMB_END = CLIMB_FRAMES - 1
@@ -246,6 +258,15 @@ object PlayerAnimations {
         // Pack every frame into a shared atlas. Read individually they become one GPU texture
         // each, which forces a rebind on every animation frame and shows up as stutter; packed,
         // an animation sits on one page.
+        //
+        // ATLAS BUDGET - this is the single biggest memory consumer in the game, so keep an eye
+        // on it. GrowMethod.NEW_IMAGES adds a whole 2048x2048 page (16.8MB as a Bitmap32 on the
+        // heap, and again as a GPU texture) each time the current one fills, so cost goes up in
+        // 16.8MB steps, not smoothly. The clips below total 20.3M pixels - at least 5 pages, more
+        // with packing waste. Before the unreachable climb run-up (raw 1-69) and crouchwalk tail
+        // (raw 145-192) were dropped it was 26.2M, i.e. at least 7 pages: ~34MB of heap and ~34MB
+        // of texture memory spent on frames nothing could ever display. Adding frames here is not
+        // free - climb alone is 155 frames at 200x300, 9.3M pixels, over two pages alone.
         val atlas = MutableAtlas<Unit>(2048, 2048, growMethod = MutableAtlas.GrowMethod.NEW_IMAGES)
 
         // Only idle runs on its own timer. GameplayScene drives walk frame-by-frame from distance
@@ -257,19 +278,26 @@ object PlayerAnimations {
             jump = loadAnimation(atlas, "jump", JUMP_FRAMES, frameTimeMs = 33),
             crouch = loadAnimation(atlas, "crouch", CROUCH_FRAMES, frameTimeMs = 33),
             crouchwalk = loadAnimation(atlas, "crouchwalk", CROUCHWALK_FRAMES, frameTimeMs = 40),
-            climb = loadAnimation(atlas, "climb", CLIMB_FRAMES, frameTimeMs = 33)
+            climb = loadAnimation(atlas, "climb", CLIMB_FRAMES, frameTimeMs = 33, firstFile = CLIMB_FILE_START)
         )
         cached = set
         return set
     }
 
+    /**
+     * Loads [frameCount] frames starting at file `<firstFile>.png`. [firstFile] exists so a clip
+     * whose opening frames are never displayed (climb's run-up) can skip them entirely rather
+     * than pack them into the atlas - the returned animation is indexed from 0 either way, so
+     * the clip's own START/END constants are in loaded-index space, not raw file numbering.
+     */
     private suspend fun loadAnimation(
         atlas: MutableAtlas<Unit>,
         folder: String,
         frameCount: Int,
-        frameTimeMs: Int
+        frameTimeMs: Int,
+        firstFile: Int = 1
     ): SpriteAnimation {
-        val frames = (1..frameCount).map { index ->
+        val frames = (firstFile until firstFile + frameCount).map { index ->
             val name = index.toString().padStart(4, '0')
             resourcesVfs["player/$folder/$name.png"].readBitmapSlice(atlas = atlas)
         }
