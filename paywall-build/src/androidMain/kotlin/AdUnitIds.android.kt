@@ -7,4 +7,12 @@ package com.infiltrate.ads
 // real ID above once confirmed either way - never ship this test ID.
 actual object AdUnitIds {
     actual val REWARDED_CONTINUE: String = "ca-app-pub-3940256099942544/5224354917"
+
+    // Real Android rewarded ad unit, created for the Store's "watch ad for coins" placement
+    // (its own ad unit, not shared with REWARDED_CONTINUE - see .junie/guidelines.md on why
+    // AdMob placements should be split for reporting/frequency-capping granularity).
+    actual val REWARDED_COINS: String = "ca-app-pub-7912148730700666/8440619376"
+
+    // Real Android interstitial ad unit, created for the level-exit placement (LevelExitBridge).
+    actual val INTERSTITIAL_LEVEL_EXIT: String = "ca-app-pub-7912148730700666/7390779081"
 }

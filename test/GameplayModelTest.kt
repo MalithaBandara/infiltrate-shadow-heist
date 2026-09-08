@@ -848,28 +848,13 @@ class GameplayModelTest {
     @Test
     fun testLevel2HangingCratesGapIsBeatable() {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
-        assertEquals(2600.0, world.worldWidth, "Level 2 should now be a wide platforming layout")
+        assertEquals(5300.0, world.worldWidth, "Level 2 should now be a wide platforming layout")
         assertEquals(1, world.allGuards.size, "Level should have one guard")
 
         val dt = 1.0 / 60.0
         var elapsed = 0.0
         var stalledFor = 0.0
 
-        // Auto-pilot: hold right, and jump whenever forward progress stalls while grounded (this
-        // is what powers the climb from crate1 onto the terrain block, since walking into an
-        // adjacent climbable box's face stalls progress right at it, and Player.findClimbTarget
-        // turns the very next jump into a climb automatically) or the player is standing right at
-        // one of the four known jump-off edges (terrain/crate1/crate2/crate3's right edges, at x
-        // 868, 1112, 1302, 1492 - see LEVEL_2_LAYOUT). Continuous bunny-hopping was tried first
-        // and does not work here: each hop covers a fixed ~84.5 units regardless of where it
-        // starts, so hopping across the flat terrain before the gap lands on an arbitrary phase
-        // that does not reliably land within a specific hanging crate - only a jump launched at
-        // the actual edge is guaranteed (by the same arithmetic) to land on the next crate.
-        // This only needs to cover the new hand-built section - the climb and the hanging-crate
-        // gap - not the whole level: the guard patrolling near the exit is ordinary single-guard
-        // corridor stealth, the same kind every other level already has, and requires the timing/
-        // crouching this dumb "always hold right" pilot was never going to have.
-        // Reaching the far terrain block (x >= 1482) is proof the platforming itself is sound.
         val launchEdges = listOf(868.0, 1120.0, 1266.0, 1412.0)
         while (elapsed < 30.0 && world.player.x < 1482.0 && !world.isGameOver) {
             val beforeX = world.player.x
@@ -883,7 +868,7 @@ class GameplayModelTest {
         assertTrue(
             world.player.x >= 1482.0,
             "Jumping onto crate1, climbing onto the terrain, and jumping all three hanging crates " +
-                "should reach the far terrain block. Ended at x=${world.player.x.toInt()} " +
+                "should reach the intermediate terrain block. Ended at x=${world.player.x.toInt()} " +
                 "y=${world.player.y.toInt()} after ${elapsed.toInt()}s (gameOver=${world.isGameOver})"
         )
     }
@@ -891,25 +876,25 @@ class GameplayModelTest {
     @Test
     fun testLevel2HangingCratesAreTheOnlyCollidablePart() {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
-        val allHangingCrates = world.hangingCrateVariant1 + world.hangingCrateVariant2
-        assertEquals(3, allHangingCrates.size, "Level 2 should have three hanging crates over the gap")
-        // Every hanging crate must be a real collidable box (so the player can land on it) -
-        // the decorative chain/rope above it is drawn separately and carries no collision box.
-        for (crate in allHangingCrates) {
-            assertTrue(crate in world.boxes, "Hanging crate at x=${crate.x} must be a collidable box")
+        val stationaryHangingCrates = world.hangingCrateVariant1 + world.hangingCrateVariant2
+        assertEquals(5, stationaryHangingCrates.size, "Level 2 should have five stationary hanging crates (3 in section 1 + 1 in section 2 + 1 in section 3)")
+        assertEquals(8, world.movingPlatforms.size, "Level 2 should have 8 moving hanging crates in total (4 in section 2 + 4 in section 3)")
+        // Total of 13 hanging crates (3 in Section 1, 5 in Section 2, 5 in Section 3)
+        for (crate in stationaryHangingCrates) {
+            assertTrue(crate in world.boxes, "Stationary hanging crate at x=${crate.x} must be a collidable box")
         }
     }
 
     @Test
     fun testLevel2RescueBarrelAllowsClimbWhenStuckInGap() {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
-        assertEquals(1, world.barrels.size, "Level 2 should have one rescue barrel on the right of terrain")
+        assertEquals(3, world.barrels.size, "Level 2 should have three rescue barrels (one per gap section)")
         val barrel = world.barrels.first()
-        assertEquals(868.0, barrel.x, "Rescue barrel should sit flush against terrain right face at x=868")
-        assertEquals(392.0, barrel.y, "Rescue barrel should sit on ground at y=392")
-        assertEquals(32.0, barrel.width, "Rescue barrel should match barrel aspect ratio width=32")
-        assertEquals(48.0, barrel.height, "Rescue barrel should match height=48")
-        assertTrue(barrel in world.boxes, "Rescue barrel must be in world.boxes for collision and climbing")
+        assertEquals(868.0, barrel.x, "Rescue barrel 1 should sit flush against terrain right face at x=868")
+        assertEquals(392.0, barrel.y, "Rescue barrel 1 should sit on ground at y=392")
+        assertEquals(32.0, barrel.width, "Rescue barrel 1 should match barrel aspect ratio width=32")
+        assertEquals(48.0, barrel.height, "Rescue barrel 1 should match height=48")
+        assertTrue(barrel in world.boxes, "Rescue barrel 1 must be in world.boxes for collision and climbing")
 
         // Simulate a player who fell into the gap onto the ground at x=930
         val dt = 1.0 / 60.0
@@ -949,6 +934,277 @@ class GameplayModelTest {
             world.player.x < 868.0,
             "Player should be on top of the terrain (x < 868). Was x=${world.player.x}"
         )
+    }
+
+    @Test
+    fun testLevel2RescueBarrel2AllowsClimbingOutOfSection2Gap() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
+        val barrel2 = world.barrels[1]
+        assertEquals(1862.0, barrel2.x, "Rescue barrel 2 should sit flush against midTerrain right face at x=1862")
+        assertEquals(392.0, barrel2.y, "Rescue barrel 2 should sit on ground at y=392")
+        assertEquals(32.0, barrel2.width, "Rescue barrel 2 width=32")
+        assertEquals(48.0, barrel2.height, "Rescue barrel 2 height=48")
+        assertTrue(barrel2 in world.boxes, "Rescue barrel 2 must be in world.boxes")
+
+        // Simulate player falling into Section 2 gap at x=1950
+        val dt = 1.0 / 60.0
+        world.player.x = 1950.0
+        world.player.y = 440.0 - 96.0
+        world.player.isGrounded = true
+
+        // Step 1: Hop onto rescue barrel 2 by moving left and jumping
+        var elapsed = 0.0
+        while (elapsed < 2.0 && !(world.player.isGrounded && world.player.y <= 296.0 + 1e-4)) {
+            val shouldJump = world.player.isGrounded && world.player.y > 296.0
+            world.update(dt, moveInput = -1.0, jumpInput = shouldJump, crouchInput = false)
+            elapsed += dt
+        }
+        assertTrue(
+            world.player.isGrounded && world.player.y <= 296.0 + 1e-4,
+            "Player should jump onto rescue barrel 2. Was y=${world.player.y}, grounded=${world.player.isGrounded}"
+        )
+
+        // Step 2: Walk left against midTerrain and climb
+        while (elapsed < 4.0 && !world.player.isClimbing) {
+            val atTerrainFace = world.player.x <= 1868.0
+            world.update(dt, moveInput = -1.0, jumpInput = atTerrainFace && world.player.isGrounded, crouchInput = false)
+            elapsed += dt
+        }
+        assertTrue(world.player.isClimbing, "Jumping on barrel 2 against midTerrain face should initiate climb")
+
+        while (world.player.isClimbing && elapsed < 6.0) {
+            world.update(dt, moveInput = -1.0, jumpInput = false, crouchInput = false)
+            elapsed += dt
+        }
+        assertFalse(world.player.isClimbing, "Climb should complete")
+        assertEquals(200.0, world.player.y, 1.0, "Player should have climbed onto midTerrain top (y=296-96=200)")
+        assertTrue(
+            world.player.x < 1862.0,
+            "Player should be on top of midTerrain (x < 1862). Was x=${world.player.x}"
+        )
+    }
+
+    @Test
+    fun testLevel2MovingPlatformsOscillationAndRiding() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
+        assertEquals(8, world.movingPlatforms.size, "Should have 8 moving platforms in Level 2 (4 horizontal + 4 vertical)")
+
+        val mp1 = world.movingPlatforms[0]
+        val initialX = mp1.x
+        val dt = 1.0 / 60.0
+
+        // Step 1: Simulate several seconds and ensure position remains inside [minX..maxX] and [minY..maxY]
+        for (i in 0 until 300) {
+            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false)
+            for (mp in world.movingPlatforms) {
+                assertTrue(
+                    mp.x >= mp.minX - 1e-6 && mp.x <= mp.maxX + 1e-6,
+                    "Moving platform ${mp.id} at x=${mp.x} must stay within [${mp.minX}..${mp.maxX}]"
+                )
+                assertTrue(
+                    mp.y >= mp.minY - 1e-6 && mp.y <= mp.maxY + 1e-6,
+                    "Moving platform ${mp.id} at y=${mp.y} must stay within [${mp.minY}..${mp.maxY}]"
+                )
+            }
+        }
+
+        // Step 2: Test player riding moving platform:
+        // Place player on top of mp1
+        world.player.x = mp1.x + 10.0
+        world.player.y = mp1.top - world.player.height
+        world.player.isGrounded = true
+        world.player.vx = 0.0
+        world.player.vy = 0.0
+
+        val playerInitialRelX = world.player.x - mp1.x
+        // Simulate a few frames with no player input
+        for (i in 0 until 30) {
+            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false)
+            val currentRelX = world.player.x - mp1.x
+            assertEquals(playerInitialRelX, currentRelX, 0.5, "Player relative position on moving platform should remain constant")
+        }
+    }
+
+    @Test
+    fun testLevel2Section3LayoutIntegrity() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
+        assertEquals(5300.0, world.worldWidth, "Level 2 world width should be expanded to 5300.0")
+
+        val ground = world.platforms.first { it.y == 440.0 }
+        assertEquals(5300.0, ground.width, "Level 2 ground floor should run the full width of the level until the end")
+
+        // 3 rescue barrels
+        assertEquals(3, world.barrels.size, "Level 2 should have 3 rescue barrels (one per gap section)")
+        val barrel3 = world.barrels[2]
+        assertEquals(3265.0, barrel3.x, 1.0, "Rescue barrel 3 should be placed at x=3265 flush against midTerrain2")
+        assertEquals(392.0, barrel3.y, 1.0, "Rescue barrel 3 should sit on the ground")
+
+        // Section 3 vertical moving containers
+        val vertCrates = world.movingPlatforms.filter { it.id.startsWith("lvl2_vert_") }
+        assertEquals(4, vertCrates.size, "Should have 4 vertical moving containers in Section 3")
+
+        val vert1 = vertCrates.first { it.id == "lvl2_vert_1" }
+        assertEquals(3365.0, vert1.minX, 1.0)
+        assertEquals(250.0, vert1.minY, 1.0)
+        assertEquals(320.0, vert1.maxY, 1.0)
+
+        val vert2 = vertCrates.first { it.id == "lvl2_vert_2" }
+        assertEquals(3511.0, vert2.minX, 1.0)
+        assertEquals(240.0, vert2.minY, 1.0)
+        assertEquals(310.0, vert2.maxY, 1.0)
+
+        // Stationary long crate 2 (island hub)
+        val stationaryLong2 = world.boxes.first { it.width in 170.0..180.0 && it.x > 3500.0 }
+        assertEquals(3657.0, stationaryLong2.x, 1.0)
+        assertEquals(280.0, stationaryLong2.y, 1.0)
+
+        // Final terrain and extraction
+        val finalTerrain = world.boxes.first { it.width > 400.0 && it.x > 4000.0 }
+        assertEquals(4193.0, finalTerrain.x, 1.0)
+        assertEquals(296.0, finalTerrain.y, 1.0)
+
+        assertTrue(world.exitZone.x >= 5100.0, "Exit zone should be past 5100.0")
+        val guard = world.guard
+        assertTrue(guard.patrolMinX >= 4600.0, "Guard should patrol past final terrain")
+    }
+
+    @Test
+    fun testVerticalMovingPlatformsOscillationAndRiding() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
+        val v1 = world.movingPlatforms.first { it.id == "lvl2_vert_1" }
+        val dt = 1.0 / 60.0
+
+        // Place player on top of v1
+        world.player.x = v1.x + 20.0
+        world.player.y = v1.top - world.player.height
+        world.player.isGrounded = true
+        world.player.vx = 0.0
+        world.player.vy = 0.0
+
+        // Simulate 120 frames (2 seconds) across upward and downward motion
+        for (i in 0 until 120) {
+            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false)
+            assertTrue(world.player.isGrounded, "Player riding vertical platform should remain grounded at frame $i")
+            val expectedY = v1.top - world.player.height
+            assertEquals(expectedY, world.player.y, 1.0, "Player feet should stay locked to moving platform top at frame $i")
+        }
+    }
+
+    @Test
+    fun testLevel2RescueBarrel3AllowsClimbingOutOfSection3Gap() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
+        val barrel3 = world.barrels[2]
+        val midTerrain2 = world.boxes.first { it.width in 400.0..420.0 && it.x in 2800.0..3000.0 }
+
+        // Place player on rescue barrel 3 facing left toward midTerrain2
+        world.player.x = barrel3.x + 2.0
+        world.player.y = barrel3.top - world.player.height
+        world.player.isGrounded = true
+
+        val dt = 1.0 / 60.0
+        // Press left + jump to trigger climb
+        world.update(dt, moveInput = -1.0, jumpInput = true, crouchInput = false)
+        assertTrue(world.player.isClimbing, "Player should start climbing onto midTerrain2 from barrel 3")
+
+        // Advance climb to completion (climbDuration is 1.95s)
+        var climbElapsed = 0.0
+        while (world.player.isClimbing && climbElapsed < 3.0) {
+            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false)
+            climbElapsed += dt
+        }
+
+        assertFalse(world.player.isClimbing, "Player should have completed climb")
+        assertTrue(world.player.isGrounded, "Player should be grounded on top of midTerrain2")
+        val expectedY = midTerrain2.top - world.player.height
+        assertEquals(expectedY, world.player.y, 1.0, "Player should be standing on top of midTerrain2")
+    }
+
+    @Test
+    fun testLevel2Section3IsBeatable() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
+        // Position player on midTerrain2 near its right edge
+        world.player.x = 3230.0
+        world.player.y = 296.0 - world.player.height
+        world.player.isGrounded = true
+
+        val dt = 1.0 / 60.0
+        var elapsed = 0.0
+        var stalledFor = 0.0
+
+        // Launch edges for midTerrain2, vert1, vert2, stationaryLong2, vert4, vert5
+        val launchEdges = listOf(3265.0, 3441.0, 3587.0, 3831.0, 3977.0, 4123.0)
+        while (elapsed < 35.0 && world.player.x < 4200.0 && !world.isGameOver) {
+            val beforeX = world.player.x
+            val atLaunchEdge = launchEdges.any { edge -> world.player.x in (edge - 24.0)..(edge + 2.0) }
+            val jump = world.player.isGrounded && (stalledFor > 0.08 || atLaunchEdge)
+            world.update(dt, moveInput = 1.0, jumpInput = jump, crouchInput = false)
+            stalledFor = if (kotlin.math.abs(world.player.x - beforeX) < 0.5) stalledFor + dt else 0.0
+            elapsed += dt
+        }
+
+        assertTrue(
+            world.player.x >= 4200.0,
+            "Player should cross Section 3 vertical elevator containers and reach finalTerrain. " +
+                "Ended at x=${world.player.x.toInt()} y=${world.player.y.toInt()} after ${elapsed.toInt()}s (gameOver=${world.isGameOver})"
+        )
+    }
+
+    @Test
+    fun testLevel2Section2PlatformsNeverOverlapAndCrate1CloseToTerrain() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
+        val mp1 = world.movingPlatforms[0]
+        val mp2 = world.movingPlatforms[1]
+        val stationaryLongCrate = world.boxes.first { it.width in 170.0..180.0 && it.x > 2000.0 }
+        val mp4 = world.movingPlatforms[2]
+        val mp5 = world.movingPlatforms[3]
+        val midTerrain = world.boxes.first { it.width in 370.0..390.0 && it.x in 1400.0..1600.0 }
+        val endTerrain = world.boxes.first { it.width > 400.0 && it.x > 2800.0 }
+
+        // 1. First crate should be close to midTerrain at its closest approach
+        val closestGapToMidTerrain = mp1.minX - midTerrain.right
+        assertTrue(closestGapToMidTerrain in 20.0..40.0, "Crate 1 closest gap to midTerrain should be close (~33 units), was $closestGapToMidTerrain")
+
+        // 2. Simulate across multiple periods and verify no containers EVER penetrate or overlap each other or terrain
+        val dt = 1.0 / 60.0
+        for (i in 0 until 600) {
+            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false)
+
+            // mp1 vs midTerrain
+            assertTrue(mp1.x > midTerrain.right + 10.0, "mp1 must not penetrate midTerrain. mp1.x=${mp1.x}, midTerrain.right=${midTerrain.right}")
+            // mp1 vs mp2
+            val gap12 = mp2.x - (mp1.x + mp1.width)
+            assertTrue(gap12 >= 20.0, "mp1 and mp2 must maintain clearance. Gap=$gap12 at frame $i")
+            // mp2 vs stationaryLongCrate
+            val gap2Long = stationaryLongCrate.left - (mp2.x + mp2.width)
+            assertTrue(gap2Long >= 20.0, "mp2 must NEVER penetrate stationaryLongCrate. Gap=$gap2Long at frame $i")
+            // stationaryLongCrate vs mp4
+            val gapLong4 = mp4.x - stationaryLongCrate.right
+            assertTrue(gapLong4 >= 20.0, "mp4 must NEVER penetrate stationaryLongCrate. Gap=$gapLong4 at frame $i")
+            // mp4 vs mp5
+            val gap45 = mp5.x - (mp4.x + mp4.width)
+            assertTrue(gap45 >= 20.0, "mp4 and mp5 must maintain clearance. Gap=$gap45 at frame $i")
+            // mp5 vs endTerrain
+            val gap5End = endTerrain.left - (mp5.x + mp5.width)
+            assertTrue(gap5End >= 20.0, "mp5 must NEVER penetrate endTerrain. Gap=$gap5End at frame $i")
+        }
+    }
+
+    @Test
+    fun testPlayerEdgeJumpWithCoyoteTime() {
+        val platform = Rect(100.0, 300.0, 100.0, 50.0)
+        val player = Player(x = 100.0, y = 300.0 - 48.0, startX = 100.0, startY = 300.0 - 48.0)
+        player.isGrounded = true
+
+        // Step 1: Walk left slightly past the edge without jumping
+        val dt = 1.0 / 60.0
+        player.update(dt, moveInput = -1.0, jumpInput = false, crouchInput = false, platforms = listOf(platform))
+        assertFalse(player.isGrounded, "Player should be airborne after walking off the ledge")
+        assertTrue(player.coyoteTimer > 0.0, "Coyote timer should be active within grace window")
+
+        // Step 2: Press left and jump while within coyote time
+        player.update(dt, moveInput = -1.0, jumpInput = true, crouchInput = false, platforms = listOf(platform))
+        assertTrue(player.vy < 0.0, "Player should execute a jump (vy < 0). Was vy=${player.vy}")
+        assertTrue(player.vx < 0.0, "Player should be moving left during jump. Was vx=${player.vx}")
     }
 
     @Test
@@ -997,6 +1253,39 @@ class GameplayModelTest {
 
         // Crouching player fits under 70px clearance (since crouchHeight 56 <= 70) and crawls past x=300
         assertTrue(crouchingPlayer.x > 300.0, "Crouching player should crawl cleanly under overhead wall")
+    }
+
+    @Test
+    fun testLevel1HangingCrateLoweredAndCrouchUnder() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1)
+        val longPlatform = world.boxes.first { it.width in 890.0..910.0 }
+        val hangingCrate = world.boxes.first { it.y <= 0.0 && it.height > 150.0 }
+
+        val clearance = longPlatform.top - hangingCrate.bottom
+        assertEquals(58.0, clearance, 0.01, "Level 1 hanging crate clearance above long platform should be 58px")
+
+        // 1. Standing player is blocked by the crate
+        world.player.x = hangingCrate.left - world.player.width - 20.0
+        world.player.y = longPlatform.top - world.player.height
+        world.player.isGrounded = true
+
+        val dt = 1.0 / 60.0
+        for (i in 0 until 60) {
+            world.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false)
+        }
+        assertTrue(
+            world.player.x + world.player.width <= hangingCrate.left + 0.1,
+            "Standing player must be blocked by the lowered hanging crate (player.right=${world.player.x + world.player.width}, crate.left=${hangingCrate.left})"
+        )
+
+        // 2. Crouching player crawls cleanly underneath it
+        for (i in 0 until 240) {
+            world.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = true)
+        }
+        assertTrue(
+            world.player.x > hangingCrate.right,
+            "Crouching player must cleanly crawl all the way past the lowered hanging crate. Player x=${world.player.x}, crate.right=${hangingCrate.right}"
+        )
     }
 
     @Test
@@ -1683,5 +1972,235 @@ class GameplayModelTest {
         player.update(1.0 / 60.0, moveInput = 0.0, jumpInput = false, crouchInput = false, platforms = platforms)
         assertFalse(player.isGrounded, "Player should lose ground support and fall when most of feet are outside")
         assertTrue(player.vy > 0.0, "Player should begin falling under gravity")
+    }
+
+    @Test
+    fun testPlayerDropForwardSpeedIsControlledAndJumpingRetainsFullSpeed() {
+        // High platform at y=200.0, floor at y=400.0 (a 200px vertical drop)
+        val platform = Rect(100.0, 200.0, 100.0, 50.0) // x: 100..200
+        val floor = Rect(0.0, 400.0, 500.0, 50.0)
+        val platforms = listOf(platform, floor)
+
+        val dt = 1.0 / 60.0
+
+        // Case 1: Drop off the edge without jumping while holding forward (moveInput = 1.0)
+        val droppingPlayer = Player(x = 182.0, y = 200.0 - 96.0)
+        droppingPlayer.isGrounded = true
+
+        // Walk off the right edge (x=200.0)
+        droppingPlayer.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false, platforms = platforms)
+        assertFalse(droppingPlayer.isGrounded, "Player should become airborne after walking off edge")
+        assertTrue(droppingPlayer.isDropping, "Player should be in dropping state")
+        assertEquals(droppingPlayer.dropSpeed, droppingPlayer.vx, 0.01, "Airborne speed during drop should be dropSpeed (40.0)")
+
+        // Simulate falling until touching the floor
+        while (!droppingPlayer.isGrounded) {
+            droppingPlayer.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false, platforms = platforms)
+        }
+        assertTrue(droppingPlayer.isGrounded, "Player should have landed on floor")
+        // Over a 200px drop, forward distance past the platform edge should be tightly controlled (~18px), NOT ~68px
+        val distancePastEdge = droppingPlayer.x - platform.right
+        assertTrue(distancePastEdge < 25.0, "Dropping forward distance past edge should be < 25px, was $distancePastEdge px")
+        assertTrue(droppingPlayer.dropLandingTimer > 0.0, "Drop landing timer should cushion horizontal speed upon touchdown")
+
+        // Case 2: Intentional Jump retains full moveSpeed (132.0)
+        val jumpingPlayer = Player(x = 150.0, y = 200.0 - 96.0)
+        jumpingPlayer.isGrounded = true
+        jumpingPlayer.update(dt, moveInput = 1.0, jumpInput = true, crouchInput = false, platforms = platforms)
+        assertTrue(jumpingPlayer.isJumping, "Player should be in jumping state")
+        assertFalse(jumpingPlayer.isDropping, "Player should NOT be in dropping state when jumping")
+        assertEquals(jumpingPlayer.moveSpeed, jumpingPlayer.vx, 0.01, "Airborne speed during jump must be full moveSpeed (132.0)")
+    }
+
+    @Test
+    fun testLevel1TutorialStepDefinitions() {
+        val level1 = LevelData.DEFAULT_LEVEL_1
+        val steps = level1.tutorialSteps
+        assertEquals(5, steps.size, "Level 1 must contain exactly 5 focused tutorial milestones")
+
+        // Step 1: Movement
+        val moveStep = steps[0]
+        assertEquals("step_move", moveStep.id)
+        assertEquals(TutorialAction.MOVE, moveStep.targetAction)
+        assertEquals(TutorialControlHighlight.MOVE, moveStep.highlight)
+        assertTrue(moveStep.triggerMinX <= 235.0 && moveStep.triggerMaxX >= 450.0)
+        assertTrue(moveStep.title.isNotEmpty())
+        assertTrue(moveStep.instructionTouch.isNotEmpty())
+        assertTrue(moveStep.instructionDesktop.isNotEmpty())
+        assertNotNull(moveStep.handwrittenCallout)
+        assertTrue(moveStep.handwrittenCallout!!.isNotEmpty())
+
+        // Step 2: Jump & Vault
+        val jumpStep = steps[1]
+        assertEquals("step_jump_vault", jumpStep.id)
+        assertEquals(TutorialAction.JUMP_VAULT, jumpStep.targetAction)
+        assertEquals(TutorialControlHighlight.JUMP, jumpStep.highlight)
+        assertTrue(jumpStep.triggerMinX <= 450.0 && jumpStep.triggerMaxX >= 850.0)
+        assertNotNull(jumpStep.handwrittenCallout)
+
+        // Step 3: Crouch
+        val crouchStep = steps[2]
+        assertEquals("step_crouch", crouchStep.id)
+        assertEquals(TutorialAction.CROUCH, crouchStep.targetAction)
+        assertEquals(TutorialControlHighlight.CROUCH, crouchStep.highlight)
+        assertTrue(crouchStep.triggerMinX <= 1050.0 && crouchStep.triggerMaxX >= 1450.0)
+        assertNotNull(crouchStep.handwrittenCallout)
+
+        // Step 4: Mantle & Climb
+        val climbStep = steps[3]
+        assertEquals("step_climb", climbStep.id)
+        assertEquals(TutorialAction.CLIMB, climbStep.targetAction)
+        assertEquals(TutorialControlHighlight.JUMP, climbStep.highlight)
+        assertTrue(climbStep.triggerMinX <= 1980.0 && climbStep.triggerMaxX >= 2080.0)
+        assertNotNull(climbStep.handwrittenCallout)
+
+        // Step 5: Reach Objective
+        val objectiveStep = steps[4]
+        assertEquals("step_reach_objective", objectiveStep.id)
+        assertEquals(TutorialAction.REACH_OBJECTIVE, objectiveStep.targetAction)
+        assertEquals(TutorialControlHighlight.NONE, objectiveStep.highlight)
+        assertTrue(objectiveStep.triggerMinX <= 3000.0 && objectiveStep.triggerMaxX >= 3500.0)
+        assertNotNull(objectiveStep.handwrittenCallout)
+
+        // Ensure milestones are ordered monotonically from left to right
+        for (i in 0 until steps.size - 1) {
+            assertTrue(
+                steps[i].triggerMinX <= steps[i + 1].triggerMinX,
+                "Tutorial step ${steps[i].id} minX (${steps[i].triggerMinX}) must be <= step ${steps[i + 1].id} minX (${steps[i + 1].triggerMinX})"
+            )
+        }
+    }
+
+    @Test
+    fun testTutorialProgressionThroughLevel1Milestones() {
+        val level1 = LevelData.DEFAULT_LEVEL_1
+        val steps = level1.tutorialSteps
+        val completedSteps = mutableSetOf<String>()
+        var activeStep: TutorialStep? = null
+
+        fun evaluateTutorial(playerX: Double, isActionDone: (TutorialStep) -> Boolean): TutorialStep? {
+            if (activeStep == null) {
+                activeStep = steps.firstOrNull { it.id !in completedSteps && playerX >= it.triggerMinX && playerX <= it.triggerMaxX }
+            }
+            val current = activeStep
+            if (current != null) {
+                if (isActionDone(current) || playerX > current.triggerMaxX) {
+                    completedSteps.add(current.id)
+                    activeStep = null
+                }
+            }
+            return activeStep
+        }
+
+        // 1. Player at spawn (x = 235.0) -> Movement milestone activates
+        evaluateTutorial(235.0) { false }
+        assertNotNull(activeStep)
+        assertEquals("step_move", activeStep?.id)
+
+        // Player moves forward to x = 330.0 and executes movement
+        evaluateTutorial(330.0) { step -> step.targetAction == TutorialAction.MOVE }
+        assertNull(activeStep)
+        assertTrue(completedSteps.contains("step_move"))
+
+        // 2. Player approaches crate at x = 500.0 -> Jump milestone activates
+        evaluateTutorial(500.0) { false }
+        assertNotNull(activeStep)
+        assertEquals("step_jump_vault", activeStep?.id)
+
+        // Player vaults over crate and truck
+        evaluateTutorial(650.0) { step -> step.targetAction == TutorialAction.JUMP_VAULT }
+        assertNull(activeStep)
+        assertTrue(completedSteps.contains("step_jump_vault"))
+
+        // 3. Player reaches hanging chained crate section at x = 1150.0 -> Crouch milestone activates
+        evaluateTutorial(1150.0) { false }
+        assertNotNull(activeStep)
+        assertEquals("step_crouch", activeStep?.id)
+
+        // Player crouches underneath hanging crate
+        evaluateTutorial(1280.0) { step -> step.targetAction == TutorialAction.CROUCH }
+        assertNull(activeStep)
+        assertTrue(completedSteps.contains("step_crouch"))
+
+        // 4. Player reaches high ledge at block2 at x = 2000.0 -> Climb milestone activates
+        evaluateTutorial(2000.0) { false }
+        assertNotNull(activeStep)
+        assertEquals("step_climb", activeStep?.id)
+
+        // Player climbs up onto block2
+        evaluateTutorial(2048.0) { step -> step.targetAction == TutorialAction.CLIMB }
+        assertNull(activeStep)
+        assertTrue(completedSteps.contains("step_climb"))
+
+        // 5. Player approaches extraction booth at x = 3100.0 -> Reach Objective milestone activates
+        evaluateTutorial(3100.0) { false }
+        assertNotNull(activeStep)
+        assertEquals("step_reach_objective", activeStep?.id)
+
+        // Player touches extraction zone
+        evaluateTutorial(3400.0) { step -> step.targetAction == TutorialAction.REACH_OBJECTIVE }
+        assertNull(activeStep)
+        assertTrue(completedSteps.contains("step_reach_objective"))
+
+        assertEquals(5, completedSteps.size, "All 5 tutorial steps must be marked completed")
+    }
+
+    @Test
+    fun testTutorialSpeedrunMilestoneTraversal() {
+        val level1 = LevelData.DEFAULT_LEVEL_1
+        val steps = level1.tutorialSteps
+        val completedSteps = mutableSetOf<String>()
+        var activeStep: TutorialStep? = null
+
+        fun updateStep(playerX: Double) {
+            if (activeStep == null) {
+                activeStep = steps.firstOrNull { it.id !in completedSteps && playerX >= it.triggerMinX && playerX <= it.triggerMaxX }
+            }
+            val current = activeStep
+            if (current != null && playerX > current.triggerMaxX) {
+                completedSteps.add(current.id)
+                activeStep = null
+            }
+        }
+
+        // Simulate a speedrunner sprinting continuously through the corridor without pausing
+        val corridorWaypoints = listOf(235.0, 400.0, 480.0, 700.0, 900.0, 1100.0, 1500.0, 2000.0, 2150.0, 2800.0, 3100.0, 3600.0)
+        for (x in corridorWaypoints) {
+            updateStep(x)
+        }
+
+        assertEquals(5, completedSteps.size, "Speedrunning through all milestone trigger boundaries should auto-advance all steps")
+    }
+
+    @Test
+    fun testTutorialBacktrackingDoesNotReTriggerCompletedSteps() {
+        val level1 = LevelData.DEFAULT_LEVEL_1
+        val steps = level1.tutorialSteps
+        val completedSteps = mutableSetOf<String>()
+        var activeStep: TutorialStep? = null
+
+        fun updateStep(playerX: Double, actionDone: Boolean = false) {
+            if (activeStep == null) {
+                activeStep = steps.firstOrNull { it.id !in completedSteps && playerX >= it.triggerMinX && playerX <= it.triggerMaxX }
+            }
+            val current = activeStep
+            if (current != null && (actionDone || playerX > current.triggerMaxX)) {
+                completedSteps.add(current.id)
+                activeStep = null
+            }
+        }
+
+        // Complete step 1 (Movement)
+        updateStep(235.0)
+        assertEquals("step_move", activeStep?.id)
+        updateStep(300.0, actionDone = true)
+        assertNull(activeStep)
+        assertTrue(completedSteps.contains("step_move"))
+
+        // Backtrack to spawn
+        updateStep(235.0)
+        assertNull(activeStep, "Backtracking to spawn should NOT re-trigger completed step_move")
+        updateStep(200.0)
+        assertNull(activeStep)
     }
 }

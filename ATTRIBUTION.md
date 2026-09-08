@@ -91,3 +91,13 @@ short player-facing version.
 - **`resources/mainmenu.mp3`** — previously undocumented. Confirmed 2026-09-05: the owner supplied
   the same file (byte-identical, checked by hash) with its Pixabay credit, resolving the gap this
   section used to flag.
+
+---
+
+## Typography / Fonts
+
+| File | Font Family | Author / Designer | Licence |
+|---|---|---|---|
+| `resources/BebasNeue-Regular.ttf` | Bebas Neue | Ryoichi Tsunekawa (Dharma Type) | [SIL Open Font License 1.1](https://openfontlicense.org) |
+| `resources/handwritten.ttf` | Caveat | Pablo Impallari | [SIL Open Font License 1.1](https://openfontlicense.org) |
+| `ios-shell/Resources/handwritten.ttf` | Same, iOS resource bundle | Pablo Impallari | [SIL Open Font License 1.1](https://openfontlicense.org) |

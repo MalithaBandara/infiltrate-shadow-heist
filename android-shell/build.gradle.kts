@@ -27,27 +27,40 @@ repositories {
 
 
 
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        FileInputStream(localPropertiesFile).use { load(it) }
+    } else {
+        val parentPropertiesFile = rootProject.file("../local.properties")
+        if (parentPropertiesFile.exists()) {
+            FileInputStream(parentPropertiesFile).use { load(it) }
+        }
+    }
+}
+
 android {
     namespace = "com.infiltrate.androidshell"
     compileSdk = 37
+
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         applicationId = "com.infiltrate.shadowheist"
         // Must be >= paywall-build's own minSdk (24) - AGP fails the merge otherwise.
         minSdk = 24
         targetSdk = 37
-        versionCode = 5
-        versionName = "0.0.2"
+        versionCode = 6
+        versionName = "0.0.3"
+
+        val revenueCatKey = localProperties.getProperty("REVENUECAT_GOOGLE_KEY") ?: ""
+        buildConfigField("String", "REVENUECAT_GOOGLE_KEY", "\"$revenueCatKey\"")
     }
 
     signingConfigs {
         create("release") {
-            val localProperties = Properties()
-            val localPropertiesFile = rootProject.file("local.properties")
-            if (localPropertiesFile.exists()) {
-                localProperties.load(FileInputStream(localPropertiesFile))
-            }
-            
             storeFile = file(localProperties.getProperty("keystore.file") ?: "upload-key.keystore")
             storePassword = localProperties.getProperty("keystore.password")
             keyAlias = localProperties.getProperty("key.alias")

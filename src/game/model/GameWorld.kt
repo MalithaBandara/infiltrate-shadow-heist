@@ -20,6 +20,7 @@ data class GameWorld(
     // renders with - see LevelLayout.hangingCrateVariant1/2 and GameplayScene.kt's box loop.
     val hangingCrateVariant1: List<Rect> = emptyList(),
     val hangingCrateVariant2: List<Rect> = emptyList(),
+    val movingPlatforms: List<MovingPlatform> = emptyList(),
     /** Union of [truckParts] (front+middle+back) - the footprint the truck image is drawn into. */
     val truck: Rect? = null,
     /** Truck collision split into 3 tiers matching its silhouette: hood (front, low), cab roof
@@ -62,6 +63,8 @@ data class GameWorld(
     var isLevelComplete: Boolean = false
         private set
     var isGameOver: Boolean = false
+        private set
+    var totalElapsedSeconds: Double = 0.0
         private set
 
     private val recentlySeeingGuards = LinkedHashSet<Guard>()
@@ -195,14 +198,36 @@ data class GameWorld(
             }
         }
 
-        // Guards without eyes on the player keep walking their route (unless asleep from Phantom Cloak)
-        if (!isGameOver && !activePowerups.isPhantomCloakActive) {
-            for (g in allGuards) {
-                if (g !in seeingGuards) g.update(dt, occluders)
+        totalElapsedSeconds += dt
+
+        // Update moving platforms and translate grounded player if riding one
+        for (mp in movingPlatforms) {
+            val oldBounds = mp.bounds
+            val delta = mp.update(dt, totalElapsedSeconds)
+            val playerFeetY = player.y + player.height
+            val footCenter = player.x + player.width / 2.0
+            val onThisPlatform = player.isGrounded &&
+                kotlin.math.abs(playerFeetY - oldBounds.top) < 2.0 &&
+                (footCenter >= oldBounds.left && footCenter <= oldBounds.right)
+            if (onThisPlatform) {
+                player.x += delta.dx
+                player.y += delta.dy
             }
         }
 
-        player.update(dt, moveInput, jumpInput, crouchInput, platforms + allGuards.map { it.bounds }, boxes)
+        val movingBounds = movingPlatforms.map { it.bounds }
+        val currentPlatforms = platforms + movingBounds
+        val currentBoxes = boxes + movingBounds
+        val currentOccluders = occluders + movingBounds
+
+        // Guards without eyes on the player keep walking their route (unless asleep from Phantom Cloak)
+        if (!isGameOver && !activePowerups.isPhantomCloakActive) {
+            for (g in allGuards) {
+                if (g !in seeingGuards) g.update(dt, currentOccluders)
+            }
+        }
+
+        player.update(dt, moveInput, jumpInput, crouchInput, currentPlatforms + allGuards.map { it.bounds }, currentBoxes)
 
         // Check Exit / Win condition
         if (player.bounds.intersects(exitZone)) {
@@ -275,12 +300,9 @@ data class GameWorld(
             val longPlatform = Rect(x = truck.right, y = groundY - 96.0, width = 900.0, height = 96.0)
 
             // 4. Chained crate hanging above the long platform (blocks standing player, crouch to pass
-            // under). Clearance above the platform is 66px. It has to clear the crouch SILHOUETTE, not
-            // the 56px crouch collision height: the tallest crouch-walk frame measures 57.4px on
-            // screen, so 66 leaves ~9px of daylight - enough that nothing clips, tight enough that the
-            // squeeze reads. (80px, an earlier value, left 23px of headroom and looked like the player
-            // could walk under it standing; 54px, before that, was shorter than the crouch itself.)
-            val hangingChainedCrate = Rect(x = longPlatform.x + 400.0, y = 0.0, width = 174.0, height = (groundY - 96.0) - 66.0)
+            // under). Clearance above the platform is 58px (lowered down for a tight, thrilling squeeze
+            // that closely hugs the crouching silhouette while cleanly clearing the 56px crouch collision height).
+            val hangingChainedCrate = Rect(x = longPlatform.x + 400.0, y = 0.0, width = 174.0, height = (groundY - 96.0) - 58.0)
 
             // 5. Step-down crate right at the platform's far edge (same 48x68 dims as the step-up
             // crate at the start) - the player climbs DOWN off the 96px platform in two 48px steps
@@ -452,6 +474,23 @@ data class GameWorld(
                 )
             }
 
+            val movingPlatforms = layout.movingPlatforms.map { def ->
+                MovingPlatform(
+                    id = def.id,
+                    width = def.width,
+                    height = def.height,
+                    minX = def.minX,
+                    maxX = def.maxX,
+                    minY = def.minY,
+                    maxY = def.maxY,
+                    periodSeconds = def.periodSeconds,
+                    phaseOffsetSeconds = def.phaseOffsetSeconds,
+                    isVariant1 = def.isVariant1,
+                    initialX = def.initialX,
+                    initialY = def.initialY
+                )
+            }
+
             return GameWorld(
                 player = player,
                 guard = guards.first(),
@@ -468,7 +507,8 @@ data class GameWorld(
                 fence2 = fence2,
                 hangingCrateVariant1 = layout.hangingCrateVariant1,
                 hangingCrateVariant2 = layout.hangingCrateVariant2,
-                barrels = layout.barrels
+                barrels = layout.barrels,
+                movingPlatforms = movingPlatforms
             )
         }
     }

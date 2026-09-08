@@ -15,6 +15,7 @@ import game.scene.UiComponents.COLOR_BORDER_RED
 import game.scene.UiComponents.COLOR_TEXT_LIGHT
 import game.scene.UiComponents.COLOR_TEXT_MUTED
 import game.scene.UiComponents.createButton
+import game.scene.UiComponents.drawCurvedArrow
 import game.scene.UiComponents.drawPlayIcon
 import game.scene.UiComponents.drawQuitIcon
 import game.scene.UiComponents.drawStar
@@ -142,7 +143,7 @@ class GameplayScene(
         // potentially slow) loads below ever get a chance to block the render loop.
         delayFrame()
 
-        val totalLoadSteps = 19
+        val totalLoadSteps = 20
         var loadStepsDone = 0
         suspend fun markLoadProgress() {
             loadStepsDone++
@@ -232,6 +233,11 @@ class GameplayScene(
         val paperBtnBitmaps = listOf("button1.png", "button2.png", "button3.png", "button4.png")
             .map { name -> try { resourcesVfs[name].readBitmap() } catch (_: Throwable) { null } }
         markLoadProgress()
+        // The main menu's briefing sheet (MainMenuScreen.MissionDossierCard). Checked in twice
+        // for the same reason the button strips are - Korge reads resources/, the Compose menu
+        // reads its own composeResources/ copy, and the two builds share no asset pipeline.
+        val dossierBitmap = try { resourcesVfs["dossier_paper.png"].readBitmap() } catch (_: Throwable) { null }
+        markLoadProgress()
 
         dismissLoadingScreen()
 
@@ -305,6 +311,48 @@ class GameplayScene(
             }
         }
 
+        fun renderHangingCrate(
+            parent: Container,
+            width: Double,
+            height: Double,
+            crateY: Double = 0.0,
+            isVariant1: Boolean
+        ) {
+            val sourceBmp = (if (isVariant1) chainedCrateBitmap else chainedCrate2Bitmap) ?: return
+            val cropX = if (isVariant1) 26 else 235
+            val cropY = if (isVariant1) 1222 else 1134
+            val cropW = if (isVariant1) 971 else 555
+            val cropH = if (isVariant1) 226 else 287
+            val scale = width / cropW.toDouble()
+
+            // 1. Crate: the solid rectangular platform at the bottom of the asset.
+            val crateSlice = sourceBmp.slice(RectangleInt(cropX, cropY, cropW, cropH))
+            parent.image(crateSlice) {
+                size(width, height)
+            }.xy(0.0, crateY)
+
+            // 2. Chain & rigging: the lighter slate chain above the crate up to image top.
+            // Purely visual with NO collision box, so the player can freely jump onto the crate.
+            val chainDrawH = cropY * scale
+            val chainTopY = crateY - chainDrawH
+            val chainSlice = sourceBmp.slice(RectangleInt(cropX, 0, cropW, cropY))
+            parent.image(chainSlice) {
+                size(width, chainDrawH)
+            }.xy(0.0, chainTopY)
+
+            // 3. Tiled vertical chain extending up to the ceiling (-1000.0)
+            val linkSrcH = 160
+            val linkDrawH = linkSrcH * scale
+            val linkSlice = sourceBmp.slice(RectangleInt(cropX, 0, cropW, linkSrcH))
+            var tileY = chainTopY - linkDrawH
+            while (tileY >= -1000.0) {
+                parent.image(linkSlice) {
+                    size(width, linkDrawH)
+                }.xy(0.0, tileY)
+                tileY -= linkDrawH
+            }
+        }
+
         // Tactical boxes, step crates, hanging chained crates, and perimeter fences
         for (box in world.boxes) {
             if (box.width <= 0.0) continue
@@ -322,27 +370,13 @@ class GameplayScene(
                     size(box.width, box.height + 2.0)
                 }.xy(0.0, 0.0)
             }
-            // 3. Barrels (three together, just past the start gates - jump on, walk across, jump off)
+            // 3. Barrels (jump on, walk across, jump off / rescue climb points)
             else if (box in world.barrels && barrelBitmap != null) {
                 boxContainer.image(barrelBitmap) {
                     size(box.width, box.height)
                 }.xy(0.0, 0.0)
             }
             // 4. Truck (parked next to the small crate, climbed onto en route to the long platform).
-            // Collision is 3 separate tiers (front/middle/back, see GameWorld.kt) but the image is
-            // one continuous truck, so it's drawn once - against the first tier - spanning the
-            // whole footprint (world.truck, the union of all 3 parts); the other two tiers get no
-            // separate visual of their own so the image isn't stretched into 3 squashed copies.
-            // truck.png is pre-mirrored on disk so the hood (the low front tier the player climbs
-            // onto first) faces the crate, with the cab and bed stretching away towards the long
-            // platform - NOT flipped with scaleX = -1 at render time. That was the original
-            // approach (matching how entrance.png's flip used to work) and it corrupted the whole
-            // image into a torn, mostly see-through mess: fine detail like the wheel/axle lattice
-            // survived here and there, but the solid cab/bed silhouette almost entirely vanished,
-            // letting the sky and its parallax reflection show straight through where a solid
-            // black truck should have been - a negative-scaleX bug in this KorGE/OpenGL backend,
-            // confirmed by A/B testing the exact same image and position with only the sign of
-            // scaleX changed. Pre-flipping the source PNG sidesteps the bug entirely.
             else if (box in world.truckParts && truckBitmap != null) {
                 if (box === world.truckParts.first()) {
                     val truckRect = world.truck ?: box
@@ -351,56 +385,17 @@ class GameplayScene(
                     }.xy(truckRect.x, truckRect.y)
                 }
             }
-            // 5. Hanging Chained Crate (matches bounding box exactly)
+            // 5. Hanging Chained Crate (ceiling obstacle in level 1)
             else if (box.y <= 0.0 && box.height > 150.0 && chainedCrateBitmap != null) {
                 boxContainer.image(chainedCrateBitmap) {
                     size(box.width, box.height)
                 }.xy(0.0, 0.0)
             }
-            // 5b. Hanging jump-crate (a gap crossing, not the ceiling obstacle above):
-            // Only the rectangular part (the crate body) is interactable/collidable with the user.
-            // The chain and diagonal rigging above it are drawn in light black to visually show they
-            // are non-collidable background elements.
-            // Variant 1 uses chainedcrate.png (wide container), Variant 2 uses chainedcrate2.png (shorter crates).
+            // 5b. Hanging jump-crate (stationary gap crossing in level 2)
             else if (box in world.hangingCrateVariant1 || box in world.hangingCrateVariant2) {
-                val isVariant1 = box in world.hangingCrateVariant1
-                val sourceBmp = if (isVariant1) chainedCrateBitmap else chainedCrate2Bitmap
-                if (sourceBmp != null) {
-                    val cropX = if (isVariant1) 26 else 235
-                    val cropY = if (isVariant1) 1222 else 1134
-                    val cropW = if (isVariant1) 971 else 555
-                    val cropH = if (isVariant1) 226 else 287
-                    val scale = box.width / cropW.toDouble()
-
-                    // 1. Crate: the solid rectangular platform at the bottom of the asset.
-                    // Fits the interactive boxContainer (box.width, box.height) exactly.
-                    val crateSlice = sourceBmp.slice(RectangleInt(cropX, cropY, cropW, cropH))
-                    boxContainer.image(crateSlice) {
-                        size(box.width, box.height)
-                    }.xy(0.0, 0.0)
-
-                    // 2. Chain & rigging: the light-black chain above the crate up to image top.
-                    // Purely visual in worldView with NO collision box, so the player can freely jump
-                    // onto and stand on the crate without getting blocked by chains.
-                    val chainDrawH = cropY * scale
-                    val chainTopY = box.y - chainDrawH
-                    val chainSlice = sourceBmp.slice(RectangleInt(cropX, 0, cropW, cropY))
-                    worldView.image(chainSlice) {
-                        size(box.width, chainDrawH)
-                    }.xy(box.x, chainTopY)
-
-                    // 3. Tiled vertical chain extending up to the ceiling (-400.0)
-                    val linkSrcH = 160
-                    val linkDrawH = linkSrcH * scale
-                    val linkSlice = sourceBmp.slice(RectangleInt(cropX, 0, cropW, linkSrcH))
-                    var tileY = chainTopY - linkDrawH
-                    while (tileY >= -400.0) {
-                        worldView.image(linkSlice) {
-                            size(box.width, linkDrawH)
-                        }.xy(box.x, tileY)
-                        tileY -= linkDrawH
-                    }
-                }
+                boxContainer.removeFromParent()
+                val crateCont = worldView.container().xy(box.x, box.y)
+                renderHangingCrate(crateCont, box.width, box.height, 0.0, box in world.hangingCrateVariant1)
             }
             // 6. Step Crate (matches bounding box exactly)
             else if (box.height < 70.0 && box.width < 150.0 && crateBitmap != null) {
@@ -412,6 +407,13 @@ class GameplayScene(
             else {
                 renderRoughBlock(boxContainer, box.width, box.height, seed = (box.x * 101.0 + box.y).toLong())
             }
+        }
+
+        // Moving hanging containers (dynamic platforming)
+        val movingPlatformContainers = world.movingPlatforms.map { mp ->
+            val crateCont = worldView.container().xy(mp.x, mp.y)
+            renderHangingCrate(crateCont, mp.width, mp.height, 0.0, mp.isVariant1)
+            crateCont
         }
 
         // Guards: vision cones first so they render beneath the bodies
@@ -563,6 +565,7 @@ class GameplayScene(
         val manualFrameTime = 1_000_000.milliseconds
 
         val bebasFont = try { resourcesVfs["BebasNeue-Regular.ttf"].readTtfFont() } catch (_: Throwable) { DefaultTtfFont }
+        val handwrittenFont = try { resourcesVfs["handwritten.ttf"].readTtfFont() } catch (_: Throwable) { bebasFont }
 
         // A pause-menu button in the main menu's language: a torn white paper strip with the
         // label and icon stamped on it in ink. Same textures, same ink colour, same Bebas face,
@@ -575,6 +578,30 @@ class GameplayScene(
         val ICON_COLUMN = 0.35
         val LABEL_COLUMN = 0.42
 
+        // A centred strip carries its icon and label as one group in the middle of the button,
+        // rather than on the two shared columns above. Used by the end-of-run cards, whose
+        // buttons sit side by side in a row and are each cut to their own label's width - there
+        // is no column for them to share, and hanging a short label like RETRY off a fixed 35%
+        // column just pushes it into the button's right half.
+        val CENTERED_ICON_WIDTH = 22.0
+        val CENTERED_ICON_GAP = 12.0
+
+        /**
+         * Width a `centered = true` strip needs to hold [label] at [height] without crowding its
+         * torn edges - the label measured for real, plus the icon, its gap and a symmetric inset.
+         *
+         * Measured rather than estimated because Bebas is condensed and its advance widths differ
+         * enough between platforms that a per-character guess would fit on desktop and clip on a
+         * phone. The probe text is added and removed inside this call, so nothing renders.
+         */
+        fun Container.paperMenuBtnWidth(label: String, height: Double): Double {
+            val probe = text(label.uppercase(), textSize = height * 0.44, font = bebasFont, color = paperInk)
+            probe.graphicsRenderer = GraphicsRenderer.GPU
+            val w = probe.width + CENTERED_ICON_WIDTH + CENTERED_ICON_GAP + height * 0.64
+            probe.removeFromParent()
+            return w
+        }
+
         fun Container.createPaperMenuBtn(
             label: String,
             texture: Bitmap?,
@@ -582,6 +609,7 @@ class GameplayScene(
             height: Double,
             x: Double,
             y: Double,
+            centered: Boolean = false,
             iconDrawer: ShapeBuilder.() -> Unit,
             onClick: suspend () -> Unit
         ): Container {
@@ -603,8 +631,15 @@ class GameplayScene(
             // per row. Centring each icon+label pair independently makes every row start at a
             // different x - which is what the labels being different lengths did here - whereas
             // the menu's buttons hang all four icons and all four labels on two shared columns.
-            iconG.xy(width * ICON_COLUMN, height / 2.0)
-            text.xy(width * LABEL_COLUMN, (height - text.height) / 2.0 - 1.0)
+            if (centered) {
+                val contentW = CENTERED_ICON_WIDTH + CENTERED_ICON_GAP + text.width
+                val contentX = (width - contentW) / 2.0
+                iconG.xy(contentX + CENTERED_ICON_WIDTH / 2.0, height / 2.0)
+                text.xy(contentX + CENTERED_ICON_WIDTH + CENTERED_ICON_GAP, (height - text.height) / 2.0 - 1.0)
+            } else {
+                iconG.xy(width * ICON_COLUMN, height / 2.0)
+                text.xy(width * LABEL_COLUMN, (height - text.height) / 2.0 - 1.0)
+            }
 
             fun paint(hover: Boolean, down: Boolean) {
                 val tint = when {
@@ -962,6 +997,45 @@ class GameplayScene(
             touchInteract = it
         }
 
+        // --- Tutorial Tactical Callout & Action Guidance Overlay ----------------------------
+        val tutorialSteps = levelData.tutorialSteps
+        val tutorialLayer = container().xy(0.0, 0.0)
+        val tutorialDarkOverlay = tutorialLayer.uiGraphics()
+
+        // Highlight container for rendering bright button textures above the dark scrim
+        val tutorialHighlightContainer = tutorialLayer.container().xy(0.0, 0.0)
+        val hlLeftImg = if (leftBtnBitmap != null) tutorialHighlightContainer.image(leftBtnBitmap) {
+            xy(moveLeftX - moveRadius, controlsY - moveRadius)
+            size(moveRadius * 2.0, moveRadius * 2.0)
+            visible = false
+        } else null
+        val hlRightImg = if (rightBtnBitmap != null) tutorialHighlightContainer.image(rightBtnBitmap) {
+            xy(moveRightX - moveRadius, controlsY - moveRadius)
+            size(moveRadius * 2.0, moveRadius * 2.0)
+            visible = false
+        } else null
+        val hlJumpImg = if (jumpBtnBitmap != null) tutorialHighlightContainer.image(jumpBtnBitmap) {
+            xy(jumpX - jumpRadius, jumpY - jumpRadius)
+            size(jumpRadius * 2.0, jumpRadius * 2.0)
+            visible = false
+        } else null
+        val hlCrouchImg = if (crouchBtnBitmap != null) tutorialHighlightContainer.image(crouchBtnBitmap) {
+            xy(crouchX - crouchRadius, crouchY - crouchRadius)
+            size(crouchRadius * 2.0, crouchRadius * 2.0)
+            visible = false
+        } else null
+        val hlInteractImg = if (interactBtnBitmap != null) tutorialHighlightContainer.image(interactBtnBitmap) {
+            xy(interactX - interactRadius, interactY - interactRadius)
+            size(interactRadius * 2.0, interactRadius * 2.0)
+            visible = false
+        } else null
+
+        val tutorialHighlightGraphics = tutorialLayer.uiGraphics()
+        val tutorialHandwrittenText = tutorialLayer.text("", textSize = 28.0, font = handwrittenFont, color = Colors.WHITE)
+
+        tutorialLayer.alpha = 0.0
+        tutorialLayer.visible = false
+
         // ==========================================
         // TACTICAL POWERUP QUICK-DOCK (Dynamic Floating)
         // ==========================================
@@ -1088,65 +1162,249 @@ class GameplayScene(
         pauseOverlay.visible = false
 
         // ==========================================
-        // 2. CAUGHT / GAME OVER OVERLAY (Heist Dossier styling, own content)
+        // 2 & 3. END-OF-RUN DOSSIER SHEETS (MISSION FAILED / HEIST COMPLETE)
         // ==========================================
-        // Takes the pause overlay's STYLE - full-bleed near-black scrim, stacked Bebas
-        // typography with no card/badge chrome, torn-paper buttons instead of glassy tactical
-        // pills - without collapsing this screen's own content into pause's. Every label and the
-        // recon tip keep their original wording; only the chrome changed. Buttons are wider than
-        // pause's (480 vs 300) because "CONTINUE (WATCH AD)" doesn't fit at pause's width without
-        // either shrinking the text below the paper button's usual scale or renaming it - this
-        // keeps the actual label and just gives it the room it needs.
+        // Both end-of-run screens are one design with two fills of content, and that design is
+        // the main menu's briefing sheet: the torn `dossier_paper.png` with the debrief printed
+        // on it in ink, a rubber stamp for the verdict, and the menu's own torn-paper strips as
+        // the actions - stacked in a column to the left of the sheet, which is the main menu's
+        // whole composition (button column left, dossier sheet right).
+        //
+        // An earlier pass built these as dark #141416 cards with hairline borders and coin pills,
+        // borrowed from the Compose store/missions screens. Those screens are real, but they are
+        // the game's *chrome*; the sheet is its *identity*, and a heist debrief is exactly the
+        // thing that belongs on paper. Don't reintroduce dark panels, hairline strokes or the
+        // coin pill here - on a page they read as a different app pasted over the game.
+        //
+        // Every ink value below is MainMenuScreen.MissionDossierCard's, including the sheet's
+        // 1.5 aspect (never stretch it on one axis - that pulls the torn edge), its content
+        // insets as fractions of the sheet, and the -5.2 degree tilt that squares the type to the
+        // paper rather than to the screen. See that file's own comments for how each was measured.
+        val resScrim = Colors["#07080A"].withAd(0.92)
+
+        val inkStrong = Colors["#17140F"]
+        val inkBody = Colors["#17140F"].withAd(0.78)
+        val inkFaint = Colors["#17140F"].withAd(0.55)
+        val inkRuleColor = Colors["#17140F"].withAd(0.34)
+        // Aged gold and stamp inks, not the menu's neon accents: #FFD700 and #00E676 are tuned to
+        // glow on a near-black panel and read as highlighter on paper. These are pigments.
+        val inkGold = Colors["#A8781A"]
+        val stampRed = Colors["#96222A"]
+        val stampGreen = Colors["#25603A"]
+
+        val DOSSIER_ASPECT = 1.5
+        val DOSSIER_TILT = (-5.2).degrees
+
+        // Sheet as tall as the canvas allows, button column beside it, the pair centred. S is the
+        // one knob: if the two together overrun a narrow canvas the whole group shrinks, so the
+        // sheet keeps its aspect and the type keeps its proportions instead of the columns
+        // colliding. It is 1.0 on the 1040x480 canvas main.kt and MainActivity both use.
+        val sheetH0 = min(416.0, canvasH - 48.0)
+        val sheetW0 = sheetH0 * DOSSIER_ASPECT
+        val resBtnW0 = 300.0
+        val resBtnH0 = 52.0
+        val resBtnGap0 = 14.0
+        val resColGap0 = 44.0
+        val S = min(1.0, (canvasW - 56.0) / (resBtnW0 + resColGap0 + sheetW0))
+
+        val sheetH = sheetH0 * S
+        val sheetW = sheetW0 * S
+        val resBtnW = resBtnW0 * S
+        val resBtnH = resBtnH0 * S
+        val resBtnGap = resBtnGap0 * S
+        val resGroupW = resBtnW + resColGap0 * S + sheetW
+        val resGroupX = (canvasW - resGroupW) / 2.0
+        val sheetX = resGroupX + resBtnW + resColGap0 * S
+        val sheetY = (canvasH - sheetH) / 2.0
+
+        // The block of paper the type may actually sit on, as fractions of the sheet. Measured on
+        // the artwork in MissionDossierCard - the left inset is the widest because the number
+        // rides the folder tab, and the foot is deepest because the tilt drops the last line.
+        val docX = sheetW * 0.15
+        val docW = sheetW * 0.76
+        val docY = sheetH * 0.055
+        val docH = sheetH * 0.805
+        // Ink coordinates are relative to the block, but the tilted layer pivots on the sheet's
+        // centre (Korge rotates about a view's own origin, so the layer is placed there and its
+        // children carry the offset) - these two convert one to the other.
+        fun dpx(x: Double): Double = docX + x * S - sheetW / 2.0
+        fun dpy(y: Double): Double = docY + y * S - sheetH / 2.0
+
+        /** Sheet artwork plus the tilted ink layer everything else is drawn into. */
+        fun Container.createDossierSheet(): Container {
+            val sheet = container().xy(sheetX, sheetY)
+            if (dossierBitmap != null) {
+                sheet.image(dossierBitmap) { size(sheetW, sheetH) }
+            } else {
+                sheet.uiGraphics().updateShape {
+                    fill(Colors["#D8D2C4"]) { rect(0.0, 0.0, sheetW, sheetH) }
+                }
+            }
+            val ink = sheet.container().xy(sheetW / 2.0, sheetH / 2.0)
+            ink.rotation = DOSSIER_TILT
+            return ink
+        }
+
+        fun Container.inkText(
+            value: String, size: Double, color: RGBA, x: Double, y: Double,
+            font: Font = bebasFont
+        ): Text {
+            val t = text(value, textSize = size * S, font = font, color = color)
+            t.graphicsRenderer = GraphicsRenderer.GPU
+            t.xy(dpx(x), dpy(y))
+            return t
+        }
+
+        /**
+         * A printed rule across the form. [dashedTail] breaks the last stretch into three ticks,
+         * the way the sheet's upper rule does on the main menu - it stops short of the paperclip
+         * painted into the artwork's top-right corner rather than running under it.
+         */
+        fun Container.inkRule(y: Double, fromX: Double, toX: Double, dashedTail: Boolean = false) {
+            uiGraphics().updateShape {
+                val yy = dpy(y)
+                val weight = 1.6 * S
+                if (!dashedTail) {
+                    fill(inkRuleColor) { rect(dpx(fromX), yy, (toX - fromX) * S, weight) }
+                } else {
+                    val solidTo = toX - 54.0
+                    fill(inkRuleColor) {
+                        rect(dpx(fromX), yy, (solidTo - fromX) * S, weight)
+                        for (i in 0 until 3) rect(dpx(solidTo + 6.0 + i * 16.0), yy, 10.0 * S, weight)
+                    }
+                }
+            }
+        }
+
+        /**
+         * A filled-in field: the printed label with the answer written under it, both left-aligned
+         * on the same x. Returns the setter, since every answer here is only known once the run
+         * ends.
+         *
+         * Stacked, rather than the label-left / value-flush-right row with dot leaders this
+         * started as. The sheet is tilted 5.2 degrees, which lifts anything to the right of the
+         * label by tan(5.2) per unit - across a column wide enough to hold a form row that is
+         * nearly a full row of rise, and the value ends up sitting beside the label ABOVE it and
+         * reading as that line's answer. Confirmed on screen, not predicted. Stacking puts label
+         * and value on one x, so the tilt carries the pair together and the reading is safe at any
+         * tilt. Anything that spans the sheet horizontally has the same problem - keep new fields
+         * stacked.
+         */
+        fun Container.inkField(x: Double, y: Double, label: String): (String, RGBA) -> Unit {
+            inkText(label, 11.0, inkFaint, x, y)
+            val valueText = text("", textSize = 17.0 * S, font = bebasFont, color = inkStrong)
+            valueText.graphicsRenderer = GraphicsRenderer.GPU
+            return { value, color ->
+                valueText.text = value
+                valueText.color = color
+                valueText.xy(dpx(x), dpy(y + 13.0))
+            }
+        }
+
+        /**
+         * The verdict, as a rubber stamp slapped across the form at its own angle.
+         *
+         * Returns the second line inside the stamp, empty until a caller fills it - the win
+         * sheet's rating goes there rather than under the stamp, where it was landing on the
+         * stamp's own bottom edge on one side and the rule below it on the other. A stamp's
+         * corners swing well past half its width at this angle, so leave it room.
+         */
+        fun Container.inkStamp(
+            cx: Double, cy: Double, w: Double, h: Double, label: String, color: RGBA,
+            hasSubLine: Boolean = false
+        ): Text {
+            val stamp = container().xy(dpx(cx), dpy(cy))
+            stamp.rotation = (-10.0).degrees
+            // Not quite opaque: stamp ink sits on the paper's tooth, it does not cover it.
+            stamp.alpha = 0.82
+            val halfW = w * S / 2.0
+            val halfH = h * S / 2.0
+            stamp.uiGraphics().updateShape {
+                // Heavy outer band with a hairline inside it - a rubber stamp's border is a wide
+                // ring of ink, and a single thin rectangle reads as a UI box drawn on the page.
+                stroke(color, StrokeInfo(thickness = 6.0 * S)) { rect(-halfW, -halfH, w * S, h * S) }
+                stroke(color, StrokeInfo(thickness = 1.2 * S)) {
+                    rect(-halfW + 7.0 * S, -halfH + 7.0 * S, w * S - 14.0 * S, h * S - 14.0 * S)
+                }
+            }
+            val t = stamp.text(label, textSize = 20.0 * S, font = bebasFont, color = color)
+            t.graphicsRenderer = GraphicsRenderer.GPU
+            // Only lifted off centre when a second line is actually going to be written under
+            // it - a lone label riding high in the box reads as a mis-centred box, not a stamp.
+            t.xy(-t.width / 2.0, -t.height / 2.0 - if (hasSubLine) 8.0 * S else 0.0)
+            val subLine = stamp.text("", textSize = 13.0 * S, font = bebasFont, color = color)
+            subLine.graphicsRenderer = GraphicsRenderer.GPU
+            return subLine
+        }
+
+        val allLevels = LevelData.DEFAULT_LEVELS
+        val currentLevelIndex = allLevels.indexOfFirst { it.id == levelData.id }
+        val nextLevel = if (currentLevelIndex >= 0 && currentLevelIndex + 1 < allLevels.size) allLevels[currentLevelIndex + 1] else null
+
+        val missionFileNo = (Regex("^(\\d+)").find(levelData.name)?.groupValues?.get(1)
+            ?: levelData.id.filter { it.isDigit() }.ifEmpty { "1" }).padStart(2, '0')
+        val missionTitleText = levelData.name.replaceFirst(Regex("^\\d+:\\s*"), "").uppercase()
+
+        fun secondsText(t: Float): String = "${(t * 10).toInt() / 10.0}S"
+
+        /** The sheet's masthead: file number, ruled tail, chapter, section title, ruled foot. */
+        fun Container.inkMasthead(sectionTitle: String) {
+            inkText(missionFileNo, 26.0, inkStrong, 0.0, 0.0)
+            inkRule(34.0, 0.0, docW / S * 0.95, dashedTail = true)
+            inkText(missionTitleText, 12.0, inkFaint, 0.0, 44.0)
+            inkText(sectionTitle, 26.0, inkStrong, 0.0, 60.0)
+            inkRule(96.0, 0.0, docW / S)
+        }
+
+        // The button strips are the pause menu's, at the same 300x52 and on the same two shared
+        // icon/label columns - a stack of actions is a solved problem in this game and this is
+        // that same stack, not a new one.
+        val resBtnBlockH = 3.0 * resBtnH + 2.0 * resBtnGap
+        val resBtnY0 = (canvasH - resBtnBlockH) / 2.0
+
+        // ------------------------------------------------------------------
+        // MISSION FAILED
+        // ------------------------------------------------------------------
+        // The form carries the debrief this screen never gave - what happened, how many times,
+        // how long the run lasted, the standing record and the purse - with the verdict stamped
+        // beside it. The recon tip keeps its original wording and moves into the margin in the
+        // handwritten face, where a pencilled note belongs. Lines are hand-wrapped: Korge's Text
+        // does not wrap.
         val caughtOverlay = container()
-        caughtOverlay.solidRect(canvasW, canvasH, Colors["#07080A"].withAd(0.92))
+        caughtOverlay.solidRect(canvasW, canvasH, resScrim)
 
-        val caughtBtnW = 480.0
-        val caughtBtnH = pauseBtnH
-        val caughtBtnGap = pauseBtnGap
-        val caughtBlockH = 150.0 + 3 * caughtBtnH + 2 * caughtBtnGap
-        val caughtBlockTop = (canvasH - caughtBlockH) / 2.0
-        val caughtBtnX = (canvasW - caughtBtnW) / 2.0
+        val caughtInk = caughtOverlay.createDossierSheet()
+        caughtInk.inkMasthead("SITUATION REPORT")
 
-        val caughtTitle = caughtOverlay.text("MISSION FAILED", textSize = 52.0, font = bebasFont, color = COLOR_BORDER_RED)
-        caughtTitle.graphicsRenderer = GraphicsRenderer.GPU
-        caughtTitle.xy((canvasW - caughtTitle.width) / 2.0, caughtBlockTop)
+        // Two columns of fields down the left of the form, the verdict stamped in the space to
+        // their right. 137 is half the 0.58 of the page the fields get; the rest is the stamp's.
+        val fieldCol = docW / S * 0.29
+        val setCaughtStatus = caughtInk.inkField(0.0, 108.0, "OPERATIVE STATUS")
+        val setCaughtAlerts = caughtInk.inkField(fieldCol, 108.0, "ALERTS RAISED")
+        val setCaughtTime = caughtInk.inkField(0.0, 150.0, "TIME ELAPSED")
+        val setCaughtRecord = caughtInk.inkField(fieldCol, 150.0, "MISSION RECORD")
+        val setCaughtCoins = caughtInk.inkField(0.0, 192.0, "COINS ON HAND")
 
-        val caughtSubtitle = caughtOverlay.text(
-            "SPOTTED AND APPREHENDED BY GUARD PATROL", textSize = 14.0, font = bebasFont, color = COLOR_TEXT_MUTED
-        )
-        caughtSubtitle.graphicsRenderer = GraphicsRenderer.GPU
-        caughtSubtitle.xy((canvasW - caughtSubtitle.width) / 2.0, caughtBlockTop + 62.0)
+        caughtInk.inkStamp(docW / S - 104.0, 160.0, 176.0, 68.0, "MISSION FAILED", stampRed)
 
-        // Same recon tip as before the redesign, just unboxed: a small gold heading over the
-        // original two lines of advice, instead of the bordered "TACTICAL RECON INTEL" panel.
-        val caughtTipHeading = caughtOverlay.text("TACTICAL RECON INTEL", textSize = 11.0, font = bebasFont, color = COLOR_BORDER_GOLD)
-        caughtTipHeading.graphicsRenderer = GraphicsRenderer.GPU
-        caughtTipHeading.xy((canvasW - caughtTipHeading.width) / 2.0, caughtBlockTop + 90.0)
-
-        val caughtTipLine1 = caughtOverlay.text(
-            "Crouch-walk to eliminate movement noise.", textSize = 10.0, font = bebasFont, color = COLOR_TEXT_MUTED
-        )
-        caughtTipLine1.graphicsRenderer = GraphicsRenderer.GPU
-        caughtTipLine1.alpha = 0.85
-        caughtTipLine1.xy((canvasW - caughtTipLine1.width) / 2.0, caughtBlockTop + 106.0)
-
-        val caughtTipLine2 = caughtOverlay.text(
+        caughtInk.inkRule(236.0, 0.0, docW / S)
+        caughtInk.inkText("Recon notes", 16.0, inkFaint, 0.0, 246.0, font = handwrittenFont)
+        val caughtTips = listOf(
+            "Crouch-walk to eliminate movement noise.",
             "Stay out of guard vision cones and use shipping crates as cover.",
-            textSize = 10.0, font = bebasFont, color = COLOR_TEXT_MUTED
+            "Powerups sit on the HUD - one tap spends one."
         )
-        caughtTipLine2.graphicsRenderer = GraphicsRenderer.GPU
-        caughtTipLine2.alpha = 0.85
-        caughtTipLine2.xy((canvasW - caughtTipLine2.width) / 2.0, caughtBlockTop + 120.0)
-
-        val caughtBtnY0 = caughtBlockTop + 150.0
+        for ((i, line) in caughtTips.withIndex()) {
+            caughtInk.inkText(line, 14.0, inkBody, 8.0, 268.0 + i * 18.0, font = handwrittenFont)
+        }
 
         // Watch a rewarded ad to continue the same run. Only requests the ad here - the actual
         // restart happens in the update loop below, gated on the bridge reporting the ad was
-        // genuinely watched, so a failed/declined ad just leaves this overlay's other buttons
-        // usable instead of stranding the player. See .junie/guidelines.md "AdMob (basic-ads)
+        // genuinely watched, so a failed/declined ad just leaves the other two strips usable
+        // instead of stranding the player. See .junie/guidelines.md "AdMob (basic-ads)
         // feasibility spike" and src/ContinueAdBridge.kt.
         caughtOverlay.createPaperMenuBtn(
-            "CONTINUE (WATCH AD)", paperBtnBitmaps[0], caughtBtnW, caughtBtnH, caughtBtnX, caughtBtnY0,
+            "CONTINUE (WATCH AD)", paperBtnBitmaps[0], resBtnW, resBtnH, resGroupX, resBtnY0,
             iconDrawer = { drawPlayIcon(false) }
         ) {
             getContinueAdBridge().requestContinueAd()
@@ -1154,7 +1412,7 @@ class GameplayScene(
         }
 
         caughtOverlay.createPaperMenuBtn(
-            "RETRY INFILTRATION", paperBtnBitmaps[1], caughtBtnW, caughtBtnH, caughtBtnX, caughtBtnY0 + caughtBtnH + caughtBtnGap,
+            "RETRY INFILTRATION", paperBtnBitmaps[1], resBtnW, resBtnH, resGroupX, resBtnY0 + resBtnH + resBtnGap,
             iconDrawer = { drawRestartIcon(paperInk) }
         ) {
             bgMusicChannel?.stop()
@@ -1163,7 +1421,7 @@ class GameplayScene(
         }
 
         caughtOverlay.createPaperMenuBtn(
-            "RETURN TO MENU", paperBtnBitmaps[2], caughtBtnW, caughtBtnH, caughtBtnX, caughtBtnY0 + 2 * (caughtBtnH + caughtBtnGap),
+            "RETURN TO MENU", paperBtnBitmaps[2], resBtnW, resBtnH, resGroupX, resBtnY0 + 2.0 * (resBtnH + resBtnGap),
             iconDrawer = { drawQuitIcon(false) }
         ) {
             bgMusicChannel?.stop()
@@ -1174,99 +1432,59 @@ class GameplayScene(
 
         caughtOverlay.visible = false
 
-        // ==========================================
-        // 3. LEVEL COMPLETE OVERLAY (Heist Dossier styling, own content)
-        // ==========================================
-        // Takes the pause overlay's STYLE - full-bleed near-black scrim, stacked Bebas
-        // typography with no card/badge chrome, torn-paper buttons instead of glassy tactical
-        // pills - without collapsing this screen's own content into pause's. The original badge
-        // line, star breakdown, bounty stats and all three original button labels are unchanged;
-        // only the chrome (card panel, boxed badge/bounty box, pill buttons) is gone. Buttons are
-        // wider than pause's (420 vs 300) so "NEXT MISSION"/"ALL CLEAR!" still fit at the paper
-        // button's usual text scale instead of needing to be renamed. Title stays green to read
-        // as a success state, mirroring caught's red, and is sized down from pause's 52 to 36
-        // since this screen carries far more content (stars, breakdown, stats) that still needs
-        // to fit one screen with no scrolling - reasoned from the same screenshot dimensions the
-        // rest of this file's UI passes work from, not measured on a real device.
+        // ------------------------------------------------------------------
+        // HEIST COMPLETE
+        // ------------------------------------------------------------------
+        // Same form, filled in for a clean run: the three stars struck at the head of the column,
+        // a line per objective saying whether it was earned and why not, the verdict stamped
+        // beside them, and the purse written out along the foot.
         val winContainer = container()
-        winContainer.solidRect(canvasW, canvasH, Colors["#07080A"].withAd(0.92))
+        winContainer.solidRect(canvasW, canvasH, resScrim)
 
-        val winBtnW = 420.0
-        val winBtnH = pauseBtnH
-        val winBtnGap = pauseBtnGap
-        val winBtnX = (canvasW - winBtnW) / 2.0
-        val winColumnW = 480.0
-        val winColumnX = (canvasW - winColumnW) / 2.0
+        val winInk = winContainer.createDossierSheet()
+        winInk.inkMasthead("OBJECTIVE REVIEW")
 
-        val winBlockH = 463.0
-        val winBlockTop = (canvasH - winBlockH) / 2.0
+        // Stars struck at the head of the column, the three objectives as fields under them, the
+        // verdict stamped alongside with the rating written beneath it.
+        val winStarsGraphics = winInk.uiGraphics()
+        val winStarsCy = 134.0
+        val objCol = docW / S * 0.195
+        val setWinStar1 = winInk.inkField(0.0, 178.0, "EXTRACTION")
+        val setWinStar2 = winInk.inkField(objCol, 178.0, "UNDETECTED")
+        val setWinStar3 = winInk.inkField(objCol * 2.0, 178.0, "FAST (${levelData.timeTargetSeconds.toInt()}S)")
 
-        val winTitle = winContainer.text("HEIST COMPLETED!", textSize = 36.0, font = bebasFont, color = COLOR_BORDER_GREEN)
-        winTitle.graphicsRenderer = GraphicsRenderer.GPU
-        winTitle.xy((canvasW - winTitle.width) / 2.0, winBlockTop)
+        val winRating = winInk.inkStamp(docW / S - 104.0, 156.0, 176.0, 68.0, "HEIST COMPLETE", stampGreen, hasSubLine = true)
 
-        val winSubtitle = winContainer.text(
-            "MISSION ACCOMPLISHED // EXTRACTION SUCCESS", textSize = 13.0, font = bebasFont, color = COLOR_BORDER_GOLD
-        )
-        winSubtitle.graphicsRenderer = GraphicsRenderer.GPU
-        winSubtitle.xy((canvasW - winSubtitle.width) / 2.0, winBlockTop + 44.0)
+        winInk.inkRule(236.0, 0.0, docW / S)
+        winInk.inkText("Bounty banked", 16.0, inkFaint, 0.0, 246.0, font = handwrittenFont)
+        val winBountyAmount = winInk.inkText("", 32.0, inkGold, 0.0, 266.0)
+        val winBountyCaption = winInk.inkText("", 12.0, inkBody, 0.0, 282.0)
+        val winMultiplier = winInk.inkText("", 14.0, inkFaint, 0.0, 300.0, font = handwrittenFont)
+        val setWinTime = winInk.inkField(objCol * 2.0, 252.0, "RUN TIME")
+        val setWinAlerts = winInk.inkField(objCol * 3.0, 252.0, "ALERTS")
+        val setWinRecord = winInk.inkField(objCol * 2.0, 294.0, "OPERATIVE RECORD")
 
-        val winStarsGraphics = winContainer.uiGraphics().xy(0.0, 0.0)
-        val winStarsCy = winBlockTop + 107.0
-
-        val star1Label = winContainer.text("Star 1: Extraction Complete", textSize = 11.0, font = bebasFont, color = COLOR_TEXT_LIGHT)
-        star1Label.graphicsRenderer = GraphicsRenderer.GPU
-        star1Label.xy(winColumnX, winBlockTop + 148.0)
-        val star2Label = winContainer.text("Star 2: Undetected (Ghost)", textSize = 11.0, font = bebasFont, color = COLOR_TEXT_LIGHT)
-        star2Label.graphicsRenderer = GraphicsRenderer.GPU
-        star2Label.xy(winColumnX, winBlockTop + 163.0)
-        val star3Label = winContainer.text("Star 3: Fast Time (≤ ${levelData.timeTargetSeconds.toInt()}s)", textSize = 11.0, font = bebasFont, color = COLOR_TEXT_LIGHT)
-        star3Label.graphicsRenderer = GraphicsRenderer.GPU
-        star3Label.xy(winColumnX, winBlockTop + 178.0)
-
-        val statsLabel = winContainer.text("", textSize = 12.0, font = bebasFont, color = COLOR_BORDER_CYAN)
-        statsLabel.graphicsRenderer = GraphicsRenderer.GPU
-        statsLabel.xy(winColumnX, winBlockTop + 211.0)
-        val coinsEarnedLabel = winContainer.text("", textSize = 13.0, font = bebasFont, color = COLOR_BORDER_GOLD)
-        coinsEarnedLabel.graphicsRenderer = GraphicsRenderer.GPU
-        coinsEarnedLabel.xy(winColumnX, winBlockTop + 227.0)
-        val bestLabel = winContainer.text("", textSize = 11.0, font = bebasFont, color = COLOR_BORDER_GREEN)
-        bestLabel.graphicsRenderer = GraphicsRenderer.GPU
-        bestLabel.xy(winColumnX, winBlockTop + 243.0)
-
-        val winBtnY0 = winBlockTop + 279.0
-
-        val allLevels = LevelData.DEFAULT_LEVELS
-        val currentLevelIndex = allLevels.indexOfFirst { it.id == levelData.id }
-        val nextLevel = if (currentLevelIndex >= 0 && currentLevelIndex + 1 < allLevels.size) allLevels[currentLevelIndex + 1] else null
-
-        if (nextLevel != null) {
-            winContainer.createPaperMenuBtn(
-                "NEXT MISSION", paperBtnBitmaps[0], winBtnW, winBtnH, winBtnX, winBtnY0,
-                iconDrawer = { drawPlayIcon(false) }
-            ) {
-                bgMusicChannel?.stop()
-                bgMusicChannel = null
+        winContainer.createPaperMenuBtn(
+            if (nextLevel != null) "NEXT MISSION" else "ALL CLEAR!",
+            paperBtnBitmaps[0], resBtnW, resBtnH, resGroupX, resBtnY0,
+            iconDrawer = { drawPlayIcon(false) }
+        ) {
+            bgMusicChannel?.stop()
+            bgMusicChannel = null
+            if (nextLevel != null) {
                 sceneContainer.changeTo { GameplayScene(nextLevel) }
-            }
-        } else {
-            winContainer.createPaperMenuBtn(
-                "ALL CLEAR!", paperBtnBitmaps[0], winBtnW, winBtnH, winBtnX, winBtnY0,
-                iconDrawer = { drawPlayIcon(false) }
-            ) {
+            } else {
                 // Lands on the menu's default screen (MainMenu), not Missions specifically -
                 // NavigationRoot remounts fresh every time gameplay hides it, so there is
                 // currently no way to tell it which screen to come back to. See
                 // getLevelExitBridge()'s doc comment.
-                bgMusicChannel?.stop()
-                bgMusicChannel = null
                 getLevelExitBridge().requestReturnToMenu()
                 sceneContainer.changeTo { GameplayScene(levelData) }
             }
         }
 
         winContainer.createPaperMenuBtn(
-            "RETRY", paperBtnBitmaps[1], winBtnW, winBtnH, winBtnX, winBtnY0 + winBtnH + winBtnGap,
+            "RETRY", paperBtnBitmaps[1], resBtnW, resBtnH, resGroupX, resBtnY0 + resBtnH + resBtnGap,
             iconDrawer = { drawRestartIcon(paperInk) }
         ) {
             bgMusicChannel?.stop()
@@ -1275,7 +1493,7 @@ class GameplayScene(
         }
 
         winContainer.createPaperMenuBtn(
-            "MAIN MENU", paperBtnBitmaps[2], winBtnW, winBtnH, winBtnX, winBtnY0 + 2 * (winBtnH + winBtnGap),
+            "MAIN MENU", paperBtnBitmaps[2], resBtnW, resBtnH, resGroupX, resBtnY0 + 2.0 * (resBtnH + resBtnGap),
             iconDrawer = { drawQuitIcon(false) }
         ) {
             bgMusicChannel?.stop()
@@ -1288,8 +1506,16 @@ class GameplayScene(
 
         world.onLevelComplete = {
             val result = world.getLevelResult()
+            // Checked before saveResult() overwrites it - this is how many *distinct* levels have
+            // ever been completed, not a per-play counter, used to gate the level-exit
+            // interstitial (InterstitialAdLimiter.MIN_LEVELS_COMPLETED) so early levels stay
+            // ad-free regardless of how many times this one has been replayed.
+            val alreadyCompletedBefore = levelStorage.getBestResult(result.levelId)?.completed == true
             levelStorage.saveResult(result)
             val bestResult = levelStorage.getBestResult(result.levelId) ?: result
+            if (!alreadyCompletedBefore) {
+                profileStorage.incrementLevelsCompleted()
+            }
 
             getAnalyticsBridge().track(
                 "level_complete",
@@ -1313,38 +1539,56 @@ class GameplayScene(
 
             winContainer.visible = true
 
-            // Render 3 Stars
             winStarsGraphics.updateShape {
-                val starPositions = listOf(canvasW / 2.0 - 60.0, canvasW / 2.0, canvasW / 2.0 + 60.0)
                 val starsEarned = listOf(result.star1, result.star2, result.star3)
-
                 for (i in 0 until 3) {
-                    val cx = starPositions[i]
-                    val cy = winStarsCy
-                    val isEarned = starsEarned[i]
-                    val fillColor = if (isEarned) COLOR_BORDER_GOLD else Colors["#182334"]
-                    drawStar(cx, cy, outerR = 18.0, innerR = 7.5, fillColor = fillColor)
+                    drawStar(
+                        cx = dpx(21.0 + i * objCol),
+                        cy = dpy(winStarsCy),
+                        outerR = 21.0 * S,
+                        innerR = 8.5 * S,
+                        fillColor = if (starsEarned[i]) inkGold else inkRuleColor
+                    )
                 }
             }
 
-            star1Label.text = "Star 1: Extraction Complete — ${if (result.star1) "[EARNED]" else "[MISSED]"}"
-            star1Label.color = if (result.star1) COLOR_BORDER_GOLD else COLOR_TEXT_MUTED
+            val timeTakenStr = secondsText(result.timeTaken)
+            fun starRow(setter: (String, RGBA) -> Unit, earned: Boolean, missedText: String) {
+                setter(if (earned) "EARNED" else missedText, if (earned) inkStrong else inkFaint)
+            }
+            starRow(setWinStar1, result.star1, "MISSED")
+            starRow(setWinStar2, result.star2, "${world.spottedCount} ALERT(S)")
+            starRow(setWinStar3, result.star3, "MISSED - $timeTakenStr")
 
-            star2Label.text = "Star 2: Undetected (Ghost) — ${if (result.star2) "[EARNED]" else "[MISSED - ${world.spottedCount} alert(s)]"}"
-            star2Label.color = if (result.star2) COLOR_BORDER_GOLD else COLOR_TEXT_MUTED
+            winRating.text = "${result.starCount}/3 STARS"
+            winRating.xy(-winRating.width / 2.0, 8.0 * S)
 
-            val timeTakenStr = ((result.timeTaken * 10).toInt() / 10.0).toString()
-            star3Label.text = "Star 3: Fast Time (≤ ${result.timeTargetSeconds.toInt()}s) — ${if (result.star3) "[EARNED: ${timeTakenStr}s]" else "[MISSED: ${timeTakenStr}s]"}"
-            star3Label.color = if (result.star3) COLOR_BORDER_GOLD else COLOR_TEXT_MUTED
+            winBountyAmount.text = "+$earnedCoins"
+            winBountyCaption.text = "COINS"
+            winBountyCaption.xy(dpx(0.0) + winBountyAmount.width + 9.0 * S, dpy(282.0))
+            winMultiplier.text = if (multiplier > 1) "2x Shadow Pass applied" else ""
 
-            statsLabel.text = "HEIST RESULT: ${result.starCount}/3 STARS • TIME: ${timeTakenStr}s • ALERTS: ${world.spottedCount}"
-            coinsEarnedLabel.text = "+$earnedCoins HEIST BOUNTY EARNED! ${if (profileStorage.getProfile().isPremium) "(2x Shadow Pass Multiplier Active)" else ""}"
-            val bestTimeStr = ((bestResult.timeTaken * 10).toInt() / 10.0).toString()
-            bestLabel.text = "OPERATIVE RECORD: ${bestResult.starCount}/3 Stars (Best Time: ${bestTimeStr}s)"
+            setWinTime(timeTakenStr, inkStrong)
+            setWinAlerts("${world.spottedCount}", if (world.spottedCount == 0) inkStrong else inkFaint)
+            setWinRecord(
+                "${bestResult.starCount}/3 - ${secondsText(bestResult.timeTaken)}",
+                inkStrong
+            )
         }
 
         world.onGameOver = {
             caughtOverlay.visible = true
+
+            val best = levelStorage.getBestResult(levelData.id)
+            setCaughtStatus("APPREHENDED", stampRed)
+            setCaughtAlerts("${world.spottedCount}", inkStrong)
+            setCaughtTime(secondsText(world.timeTaken), inkStrong)
+            setCaughtRecord(
+                if (best != null) "${best.starCount}/3 - ${secondsText(best.timeTaken)}" else "NO RECORD",
+                if (best != null) inkStrong else inkFaint
+            )
+            setCaughtCoins("${profileStorage.getProfile().coins}", inkGold)
+
             getAnalyticsBridge().track(
                 "mission_failed",
                 mapOf("level_id" to levelData.id, "alerts" to world.spottedCount)
@@ -1352,6 +1596,18 @@ class GameplayScene(
         }
 
         var totalElapsedSeconds = 0.0
+
+        // Tutorial Controller State
+        var currentTutorialStep: TutorialStep? = null
+        val completedTutorialStepIds = mutableSetOf<String>()
+        var tutorialAlpha = 0.0
+        var isTutorialFadingIn = false
+        var isTutorialFadingOut = false
+        var tutorialPulseTimer = 0.0
+        var stepActionCompleted = false
+        var stepActionTimer = 0.0
+        var stepActivatedX = 0.0
+        var lastUsedKeyboard = false
 
         // Main game update loop
         addUpdater { dt ->
@@ -1384,6 +1640,11 @@ class GameplayScene(
             syncBgMusicVolume()
 
             if (isPaused || world.isLevelComplete || world.isGameOver) {
+                if (world.isLevelComplete || world.isGameOver) {
+                    tutorialLayer.visible = false
+                }
+                tutorialDarkOverlay.updateShape { clear() }
+                tutorialHighlightGraphics.updateShape { clear() }
                 return@addUpdater
             }
 
@@ -1398,6 +1659,18 @@ class GameplayScene(
                     views.input.keys[Key.LEFT_CONTROL] || views.input.keys[Key.RIGHT_CONTROL] || touchCrouch
             val interactPressed = views.input.keys[Key.E] || views.input.keys[Key.F] || views.input.keys[Key.ENTER] || touchInteract
 
+            // Track whether keyboard or touch was most recently used for adaptive tutorial prompt text
+            if (views.input.keys[Key.LEFT] || views.input.keys[Key.RIGHT] || views.input.keys[Key.A] ||
+                views.input.keys[Key.D] || views.input.keys[Key.W] || views.input.keys[Key.S] ||
+                views.input.keys[Key.SPACE] || views.input.keys[Key.UP] || views.input.keys[Key.DOWN] ||
+                views.input.keys[Key.C] || views.input.keys[Key.E] || views.input.keys[Key.F]
+            ) {
+                lastUsedKeyboard = true
+            }
+            if (touchLeft || touchRight || touchJump || touchCrouch || touchInteract) {
+                lastUsedKeyboard = false
+            }
+
             // Powerup Key Shortcuts
             if (views.input.keys.justPressed(Key.N1)) tryActivatePowerup(PowerupType.SMOKE_SCREEN)
             if (views.input.keys.justPressed(Key.N2)) tryActivatePowerup(PowerupType.PHANTOM_CLOAK)
@@ -1410,6 +1683,334 @@ class GameplayScene(
                 else -> 0.0
             }
 
+            // -----------------------------------------------------------------
+            // Tutorial Controller Progression
+            // -----------------------------------------------------------------
+            if (tutorialSteps.isNotEmpty()) {
+                val playerX = world.player.x
+                tutorialPulseTimer += dtSec
+
+                // If no active step, check if player has entered a trigger window of an uncompleted milestone
+                if (currentTutorialStep == null && !isTutorialFadingOut) {
+                    val candidate = tutorialSteps.firstOrNull { step ->
+                        step.id !in completedTutorialStepIds &&
+                            playerX >= step.triggerMinX &&
+                            playerX <= step.triggerMaxX
+                    }
+                    if (candidate != null) {
+                        currentTutorialStep = candidate
+                        stepActivatedX = playerX
+                        stepActionCompleted = false
+                        stepActionTimer = 0.0
+                        isTutorialFadingIn = true
+                        isTutorialFadingOut = false
+                        tutorialLayer.visible = true
+                    }
+                }
+
+                // If a step is active, evaluate action completion or boundary traversal
+                val step = currentTutorialStep
+                if (step != null) {
+                    if (!stepActionCompleted && !isTutorialFadingOut) {
+                        val actionDone = when (step.targetAction) {
+                            TutorialAction.MOVE -> (moveInput != 0.0 && playerX >= stepActivatedX + 30.0) || playerX > step.triggerMaxX
+                            TutorialAction.JUMP_VAULT -> jumpPressed || world.player.isJumping || world.player.isClimbing || (world.player.y < baseGroundY - 96.0 - 20.0) || playerX > step.triggerMaxX
+                            TutorialAction.CROUCH -> crouchPressed || world.player.isCrouching || playerX > step.triggerMaxX
+                            TutorialAction.CLIMB -> jumpPressed || world.player.isClimbing || (world.player.y < baseGroundY - 96.0 - 50.0) || playerX > step.triggerMaxX
+                            TutorialAction.REACH_OBJECTIVE -> world.player.bounds.intersects(world.exitZone) || playerX >= world.exitZone.x
+                        }
+                        if (actionDone) {
+                            stepActionCompleted = true
+                            stepActionTimer = 0.0
+                        }
+                    }
+
+                    if (stepActionCompleted && !isTutorialFadingOut) {
+                        stepActionTimer += dtSec
+                        // Brief dwell (~0.4s) after action completion so player perceives the success
+                        if (stepActionTimer >= 0.4 || playerX > step.triggerMaxX + 50.0) {
+                            completedTutorialStepIds.add(step.id)
+                            isTutorialFadingIn = false
+                            isTutorialFadingOut = true
+                        }
+                    }
+
+                    // Handle fade in
+                    if (isTutorialFadingIn) {
+                        tutorialAlpha = (tutorialAlpha + dtSec / 0.2).coerceAtMost(1.0)
+                        if (tutorialAlpha >= 1.0) {
+                            isTutorialFadingIn = false
+                        }
+                    }
+
+                    // Handle fade out
+                    if (isTutorialFadingOut) {
+                        tutorialAlpha = (tutorialAlpha - dtSec / 0.3).coerceAtLeast(0.0)
+                        if (tutorialAlpha <= 0.0) {
+                            isTutorialFadingOut = false
+                            currentTutorialStep = null
+                            tutorialLayer.visible = false
+                        }
+                    }
+
+                    tutorialLayer.alpha = tutorialAlpha
+
+                    // Render dark overlay dimming the rest of the screen (disabled for world-anchored objective)
+                    val highlight = step.highlight
+                    val darkAlpha = if (highlight == TutorialControlHighlight.NONE) 0.0 else (0.58 * tutorialAlpha).coerceIn(0.0, 0.70)
+                    tutorialDarkOverlay.updateShape {
+                        clear()
+                        if (darkAlpha > 0.001) {
+                            fill(Colors.BLACK.withAd(darkAlpha)) {
+                                rect(0.0, 0.0, canvasW, canvasH)
+                            }
+                        }
+                    }
+
+                    // Render highlighted active buttons with full brightness above dark scrim
+                    val isBright = tutorialAlpha > 0.001 && !isTutorialFadingOut
+                    val showLeft = isBright && (highlight == TutorialControlHighlight.MOVE)
+                    val showRight = isBright && (highlight == TutorialControlHighlight.MOVE || highlight == TutorialControlHighlight.MOVE_RIGHT)
+                    val showJump = isBright && (highlight == TutorialControlHighlight.JUMP)
+                    val showCrouch = isBright && (highlight == TutorialControlHighlight.CROUCH)
+                    val showInteract = isBright && (highlight == TutorialControlHighlight.INTERACT)
+
+                    hlLeftImg?.visible = showLeft
+                    hlLeftImg?.alpha = tutorialAlpha
+                    hlRightImg?.visible = showRight
+                    hlRightImg?.alpha = tutorialAlpha
+                    hlJumpImg?.visible = showJump
+                    hlJumpImg?.alpha = tutorialAlpha
+                    hlCrouchImg?.visible = showCrouch
+                    hlCrouchImg?.alpha = tutorialAlpha
+                    hlInteractImg?.visible = showInteract
+                    hlInteractImg?.alpha = tutorialAlpha
+
+                    // Position handwritten callout (world-anchored for objective, screen-centered for controls)
+                    val calloutText = step.handwrittenCallout ?: step.title
+                    tutorialHandwrittenText.text = calloutText
+
+                    val isWorldAnchored = (highlight == TutorialControlHighlight.NONE)
+                    val textX: Double
+                    val textY: Double
+
+                    if (isWorldAnchored) {
+                        // World-anchored objective callout: fixed to the checkpoint building in game world
+                        val worldTextX = 3270.0
+                        val worldTextY = 220.0
+                        textX = worldTextX * worldZoom + worldView.x
+                        textY = worldTextY * worldZoom + worldView.y
+                    } else {
+                        textX = (canvasW - tutorialHandwrittenText.width) / 2.0
+                        textY = 185.0
+                    }
+                    tutorialHandwrittenText.xy(textX, textY)
+
+                    // Render hand-drawn curved arrow
+                    if (tutorialAlpha > 0.001 && !isTutorialFadingOut) {
+                        tutorialHighlightGraphics.visible = true
+                        tutorialHighlightGraphics.updateShape {
+                            clear()
+
+                            when (highlight) {
+                                TutorialControlHighlight.MOVE, TutorialControlHighlight.MOVE_RIGHT -> {
+                                    if (!isControlsSwapped) {
+                                        val startX = textX + 30.0
+                                        val startY = textY + 36.0
+                                        val targetX = (moveLeftX + moveRightX) / 2.0
+                                        val targetY = controlsY - moveRadius - 10.0
+                                        val ctrlX = (startX + targetX) / 2.0 - 15.0
+                                        val ctrlY = startY + 45.0
+                                        drawCurvedArrow(
+                                            startX = startX,
+                                            startY = startY,
+                                            ctrlX = ctrlX,
+                                            ctrlY = ctrlY,
+                                            endX = targetX,
+                                            endY = targetY,
+                                            arrowColor = Colors.WHITE.withAd(tutorialAlpha),
+                                            thickness = 2.6,
+                                            headLength = 16.0
+                                        )
+                                    } else {
+                                        val startX = textX + tutorialHandwrittenText.width - 30.0
+                                        val startY = textY + 36.0
+                                        val targetX = (moveLeftX + moveRightX) / 2.0
+                                        val targetY = controlsY - moveRadius - 10.0
+                                        val ctrlX = (startX + targetX) / 2.0 + 15.0
+                                        val ctrlY = startY + 45.0
+                                        drawCurvedArrow(
+                                            startX = startX,
+                                            startY = startY,
+                                            ctrlX = ctrlX,
+                                            ctrlY = ctrlY,
+                                            endX = targetX,
+                                            endY = targetY,
+                                            arrowColor = Colors.WHITE.withAd(tutorialAlpha),
+                                            thickness = 2.6,
+                                            headLength = 16.0
+                                        )
+                                    }
+                                }
+                                TutorialControlHighlight.JUMP -> {
+                                    if (!isControlsSwapped) {
+                                        val startX = textX + tutorialHandwrittenText.width - 25.0
+                                        val startY = textY + 36.0
+                                        val targetX = jumpX - jumpRadius - 6.0
+                                        val targetY = jumpY - 6.0
+                                        val ctrlX = (startX + targetX) / 2.0 - 15.0
+                                        val ctrlY = startY + 50.0
+                                        drawCurvedArrow(
+                                            startX = startX,
+                                            startY = startY,
+                                            ctrlX = ctrlX,
+                                            ctrlY = ctrlY,
+                                            endX = targetX,
+                                            endY = targetY,
+                                            arrowColor = Colors.WHITE.withAd(tutorialAlpha),
+                                            thickness = 2.6,
+                                            headLength = 16.0
+                                        )
+                                    } else {
+                                        val startX = textX + 25.0
+                                        val startY = textY + 36.0
+                                        val targetX = jumpX + jumpRadius + 6.0
+                                        val targetY = jumpY - 6.0
+                                        val ctrlX = (startX + targetX) / 2.0 + 15.0
+                                        val ctrlY = startY + 50.0
+                                        drawCurvedArrow(
+                                            startX = startX,
+                                            startY = startY,
+                                            ctrlX = ctrlX,
+                                            ctrlY = ctrlY,
+                                            endX = targetX,
+                                            endY = targetY,
+                                            arrowColor = Colors.WHITE.withAd(tutorialAlpha),
+                                            thickness = 2.6,
+                                            headLength = 16.0
+                                        )
+                                    }
+                                }
+                                TutorialControlHighlight.CROUCH -> {
+                                    if (!isControlsSwapped) {
+                                        val startX = textX + tutorialHandwrittenText.width - 20.0
+                                        val startY = textY + 36.0
+                                        val targetX = crouchX - crouchRadius - 6.0
+                                        val targetY = crouchY - 6.0
+                                        val ctrlX = (startX + targetX) / 2.0 - 15.0
+                                        val ctrlY = startY + 50.0
+                                        drawCurvedArrow(
+                                            startX = startX,
+                                            startY = startY,
+                                            ctrlX = ctrlX,
+                                            ctrlY = ctrlY,
+                                            endX = targetX,
+                                            endY = targetY,
+                                            arrowColor = Colors.WHITE.withAd(tutorialAlpha),
+                                            thickness = 2.6,
+                                            headLength = 16.0
+                                        )
+                                    } else {
+                                        val startX = textX + 20.0
+                                        val startY = textY + 36.0
+                                        val targetX = crouchX + crouchRadius + 6.0
+                                        val targetY = crouchY - 6.0
+                                        val ctrlX = (startX + targetX) / 2.0 + 15.0
+                                        val ctrlY = startY + 50.0
+                                        drawCurvedArrow(
+                                            startX = startX,
+                                            startY = startY,
+                                            ctrlX = ctrlX,
+                                            ctrlY = ctrlY,
+                                            endX = targetX,
+                                            endY = targetY,
+                                            arrowColor = Colors.WHITE.withAd(tutorialAlpha),
+                                            thickness = 2.6,
+                                            headLength = 16.0
+                                        )
+                                    }
+                                }
+                                TutorialControlHighlight.INTERACT -> {
+                                    if (!isControlsSwapped) {
+                                        val startX = textX + tutorialHandwrittenText.width - 20.0
+                                        val startY = textY + 36.0
+                                        val targetX = interactX - interactRadius - 6.0
+                                        val targetY = interactY - 6.0
+                                        val ctrlX = (startX + targetX) / 2.0 - 15.0
+                                        val ctrlY = startY + 50.0
+                                        drawCurvedArrow(
+                                            startX = startX,
+                                            startY = startY,
+                                            ctrlX = ctrlX,
+                                            ctrlY = ctrlY,
+                                            endX = targetX,
+                                            endY = targetY,
+                                            arrowColor = Colors.WHITE.withAd(tutorialAlpha),
+                                            thickness = 2.6,
+                                            headLength = 16.0
+                                        )
+                                    } else {
+                                        val startX = textX + 20.0
+                                        val startY = textY + 36.0
+                                        val targetX = interactX + interactRadius + 6.0
+                                        val targetY = interactY - 6.0
+                                        val ctrlX = (startX + targetX) / 2.0 + 15.0
+                                        val ctrlY = startY + 50.0
+                                        drawCurvedArrow(
+                                            startX = startX,
+                                            startY = startY,
+                                            ctrlX = ctrlX,
+                                            ctrlY = ctrlY,
+                                            endX = targetX,
+                                            endY = targetY,
+                                            arrowColor = Colors.WHITE.withAd(tutorialAlpha),
+                                            thickness = 2.6,
+                                            headLength = 16.0
+                                        )
+                                    }
+                                }
+                                TutorialControlHighlight.NONE -> {
+                                    val worldTargetX = 3425.0
+                                    val worldTargetY = 320.0
+                                    val targetScreenX = worldTargetX * worldZoom + worldView.x
+                                    val targetScreenY = worldTargetY * worldZoom + worldView.y
+
+                                    val startX = textX + tutorialHandwrittenText.width * 0.75
+                                    val startY = textY + 28.0
+                                    val ctrlX = (startX + targetScreenX) / 2.0 + 20.0
+                                    val ctrlY = (startY + targetScreenY) / 2.0 - 15.0
+                                    drawCurvedArrow(
+                                        startX = startX,
+                                        startY = startY,
+                                        ctrlX = ctrlX,
+                                        ctrlY = ctrlY,
+                                        endX = targetScreenX,
+                                        endY = targetScreenY,
+                                        arrowColor = Colors.WHITE.withAd(tutorialAlpha),
+                                        thickness = 2.6,
+                                        headLength = 16.0
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        tutorialHighlightGraphics.updateShape { clear() }
+                    }
+                }
+            } else {
+                if (tutorialLayer.visible) {
+                    tutorialLayer.visible = false
+                    tutorialLayer.alpha = 0.0
+                }
+                hlLeftImg?.visible = false
+                hlRightImg?.visible = false
+                hlJumpImg?.visible = false
+                hlCrouchImg?.visible = false
+                hlInteractImg?.visible = false
+                tutorialDarkOverlay.updateShape { clear() }
+                tutorialHighlightGraphics.updateShape { clear() }
+            }
+
             // Update domain simulation (Jump or Interact triggers climb/mantle when facing climbable obstacles)
             world.update(dtSec, moveInput, jumpPressed || interactPressed, crouchPressed)
 
@@ -1420,6 +2021,10 @@ class GameplayScene(
             }
             for (i in world.cameras.indices) {
                 cameraContainers[i].xy(world.cameras[i].x, world.cameras[i].y)
+            }
+            for (i in world.movingPlatforms.indices) {
+                val mp = world.movingPlatforms[i]
+                movingPlatformContainers[i].xy(mp.x, mp.y)
             }
 
             // Camera: Center player on zoomed gameplay worldView, clamped to level bounds

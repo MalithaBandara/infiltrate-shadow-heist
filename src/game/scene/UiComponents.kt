@@ -333,6 +333,74 @@ object UiComponents {
         return card
     }
 
+    /**
+     * Renders a tactical tutorial prompt capsule with a dark semi-translucent glass background,
+     * glowing cyber accent border, and left accent pill.
+     */
+    fun Container.drawTutorialCapsule(
+        width: Double,
+        height: Double = 48.0,
+        accentColor: RGBA = COLOR_ACCENT_CYAN
+    ): Graphics {
+        val g = uiGraphics()
+        g.updateShape {
+            fill(COLOR_DARK_BG) {
+                roundRect(0.0, 0.0, width, height, 10.0, 10.0)
+            }
+            stroke(accentColor.withAd(0.65), StrokeInfo(thickness = 1.5)) {
+                roundRect(0.0, 0.0, width, height, 10.0, 10.0)
+            }
+            fill(accentColor) {
+                roundRect(8.0, 8.0, 3.0, height - 16.0, 1.5, 1.5)
+            }
+        }
+        return g
+    }
+
+    /**
+     * Draws a hand-drawn vector arrow with a smooth curved shaft and natural open-barb arrowhead.
+     */
+    fun ShapeBuilder.drawCurvedArrow(
+        startX: Double,
+        startY: Double,
+        ctrlX: Double,
+        ctrlY: Double,
+        endX: Double,
+        endY: Double,
+        arrowColor: RGBA = Colors.WHITE,
+        thickness: Double = 2.6,
+        headLength: Double = 16.0
+    ) {
+        val dx = endX - ctrlX
+        val dy = endY - ctrlY
+        val len = kotlin.math.sqrt(dx * dx + dy * dy)
+        if (len < 0.001) return
+
+        val uX = dx / len
+        val uY = dy / len
+        val perpX = -uY
+        val perpY = uX
+
+        val barbSpread = 0.52
+        val barbBack = 0.85
+
+        val b1X = endX - uX * (headLength * barbBack) + perpX * (headLength * barbSpread)
+        val b1Y = endY - uY * (headLength * barbBack) + perpY * (headLength * barbSpread)
+        val b2X = endX - uX * (headLength * barbBack) - perpX * (headLength * barbSpread)
+        val b2Y = endY - uY * (headLength * barbBack) - perpY * (headLength * barbSpread)
+
+        stroke(arrowColor, StrokeInfo(thickness = thickness)) {
+            // Main curved shaft
+            moveTo(startX, startY)
+            quadTo(ctrlX, ctrlY, endX, endY)
+
+            // Hand-drawn open barbs matching handwritten notes
+            moveTo(b1X, b1Y)
+            lineTo(endX, endY)
+            lineTo(b2X, b2Y)
+        }
+    }
+
     fun ShapeBuilder.drawPlayIcon(isHover: Boolean) {
         val color = Colors.BLACK // Buttons are white now, so icon is black
         fill(color) {

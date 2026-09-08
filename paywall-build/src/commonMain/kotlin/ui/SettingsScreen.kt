@@ -18,12 +18,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,10 +35,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import com.infiltrate.storage.PlatformStorage
 import game.model.GameProfile
 import game.model.GameProfileStorage
@@ -54,6 +59,33 @@ enum class SettingsTab {
     GENERAL,
     ABOUT
 }
+
+/** One entry in the Settings language dropdown - [nativeName] is written in that language's own script. */
+data class LanguageOption(val code: String, val nativeName: String)
+
+/**
+ * Shortlist picked for Shipaton store-listing reach, not yet wired to any real translated
+ * strings - see .junie/guidelines.md "Language dropdown" note. Ordered by priority tier
+ * (Play+App Store combined impact, then Play-heavy download volume, then optional/smaller reach),
+ * English first as the only language the app actually speaks right now.
+ */
+val SUPPORTED_LANGUAGES = listOf(
+    LanguageOption("en", "English"),
+    LanguageOption("es", "Español (Latinoamérica)"),
+    LanguageOption("pt-BR", "Português (Brasil)"),
+    LanguageOption("ja", "日本語"),
+    LanguageOption("de", "Deutsch"),
+    LanguageOption("fr", "Français"),
+    LanguageOption("hi", "हिन्दी"),
+    LanguageOption("id", "Bahasa Indonesia"),
+    LanguageOption("vi", "Tiếng Việt"),
+    LanguageOption("tr", "Türkçe"),
+    LanguageOption("ar", "العربية"),
+    LanguageOption("th", "ไทย"),
+    LanguageOption("ko", "한국어"),
+    LanguageOption("ru", "Русский"),
+    LanguageOption("zh-TW", "繁體中文"),
+)
 
 @Composable
 fun SettingsScreen(
@@ -171,17 +203,12 @@ fun SettingsScreen(
                                 onLanguageChange = { lang ->
                                     currentLanguage = lang
                                     profileStorage.setLanguage(lang)
-                                    showToast("LANGUAGE: ENGLISH (ACTIVE)", true)
                                 },
                                 onMusicChange = onMusicVolumeChange,
                                 onSfxChange = onSfxVolumeChange,
                                 onControlsSwapChange = { swapped ->
                                     controlsSwapped = swapped
                                     profileStorage.setControlsSwapped(swapped)
-                                    showToast(
-                                        if (swapped) "CONTROLS: MOVEMENT ON RIGHT (SWAPPED)" else "CONTROLS: MOVEMENT ON LEFT (DEFAULT)",
-                                        true
-                                    )
                                 },
                                 onResetProgress = {
                                     // Music/SFX go through the callbacks (NavigationRoot owns
@@ -282,7 +309,8 @@ private fun GeneralSettingsPanel(
         }
 
         // 1. Language Row (at top of General)
-        val isEnglish = selectedLanguage == "en"
+        val currentLanguageOption = SUPPORTED_LANGUAGES.find { it.code == selectedLanguage } ?: SUPPORTED_LANGUAGES[0]
+        var languageMenuExpanded by remember { mutableStateOf(false) }
         val langInteractionSource = remember { MutableInteractionSource() }
         Row(
             modifier = Modifier
@@ -303,50 +331,118 @@ private fun GeneralSettingsPanel(
                         letterSpacing = 1.sp
                     )
                     Text(
-                        text = "Game UI and operational briefings (English)",
+                        text = "Select your language (translations rolling out soon)",
                         color = Color(0xFF9A9A9E),
                         fontSize = (12 * scale).sp
                     )
                 }
             }
 
-            // Active Language Selector Pill
-            Box(
-                modifier = Modifier
-                    .background(
-                        if (isEnglish) Color(0xFF00E5FF).copy(alpha = 0.15f) else Color(0xFF1C1C20),
-                        RoundedCornerShape(6.dp)
-                    )
-                    .border(
-                        1.dp,
-                        if (isEnglish) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.12f),
-                        RoundedCornerShape(6.dp)
-                    )
-                    .clickable(
-                        interactionSource = langInteractionSource,
-                        indication = null,
-                        onClick = { click(); onLanguageChange("en") }
-                    )
-                    .padding(horizontal = (14 * scale).dp, vertical = (8 * scale).dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy((6 * scale).dp)
+            // Active Language Selector Pill + Dropdown
+            var pillHeightPx by remember { mutableStateOf(0) }
+            val density = LocalDensity.current
+            Box {
+                Box(
+                    modifier = Modifier
+                        .onGloballyPositioned { pillHeightPx = it.size.height }
+                        .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                        .border(1.dp, Color.White, RoundedCornerShape(6.dp))
+                        .clickable(
+                            interactionSource = langInteractionSource,
+                            indication = null,
+                            onClick = { click(); languageMenuExpanded = true }
+                        )
+                        .padding(horizontal = (14 * scale).dp, vertical = (8 * scale).dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size((6 * scale).dp)
-                            .background(Color(0xFF00E5FF), CircleShape)
-                    )
-                    Text(
-                        text = "ENGLISH",
-                        color = Color(0xFF00E5FF),
-                        fontSize = (12 * scale).sp,
-                        fontFamily = font,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy((6 * scale).dp)
+                    ) {
+                        Text(
+                            text = currentLanguageOption.nativeName,
+                            color = Color.White,
+                            fontSize = (12 * scale).sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "▾",
+                            color = Color.White,
+                            fontSize = (12 * scale).sp
+                        )
+                    }
+                }
+
+                if (languageMenuExpanded) {
+                    Popup(
+                        alignment = Alignment.TopEnd,
+                        offset = IntOffset(0, pillHeightPx + with(density) { 4.dp.roundToPx() }),
+                        onDismissRequest = { languageMenuExpanded = false },
+                        properties = PopupProperties(focusable = true)
+                    ) {
+                        val scrollState = rememberScrollState()
+                        var viewportHeightPx by remember { mutableStateOf(0) }
+                        Box {
+                            Column(
+                                modifier = Modifier
+                                    .width((190 * scale).dp)
+                                    .background(Color(0xFF141416), RoundedCornerShape(8.dp))
+                                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
+                                    .heightIn(max = 320.dp)
+                                    .onGloballyPositioned { viewportHeightPx = it.size.height }
+                                    .verticalScroll(scrollState)
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                for (option in SUPPORTED_LANGUAGES) {
+                                    val isSelected = option.code == selectedLanguage
+                                    val itemInteractionSource = remember { MutableInteractionSource() }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable(
+                                                interactionSource = itemInteractionSource,
+                                                indication = null,
+                                                onClick = {
+                                                    click()
+                                                    languageMenuExpanded = false
+                                                    onLanguageChange(option.code)
+                                                }
+                                            )
+                                            .padding(horizontal = (16 * scale).dp, vertical = (10 * scale).dp)
+                                    ) {
+                                        Text(
+                                            text = option.nativeName,
+                                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.75f),
+                                            fontSize = (13 * scale).sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Small scroll-position indicator - only shown once there's more content than
+                            // fits (scrollState.maxValue > 0), so a short list never shows a useless thumb.
+                            if (scrollState.maxValue > 0 && viewportHeightPx > 0) {
+                                val totalContentPx = viewportHeightPx + scrollState.maxValue
+                                val thumbHeightFraction =
+                                    (viewportHeightPx.toFloat() / totalContentPx).coerceIn(0.08f, 1f)
+                                val thumbProgress = scrollState.value.toFloat() / scrollState.maxValue
+                                val trackHeightDp = with(density) { viewportHeightPx.toDp() }
+                                val thumbHeightDp = trackHeightDp * thumbHeightFraction
+                                val thumbOffsetDp = (trackHeightDp - thumbHeightDp) * thumbProgress
+
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(top = 4.dp, end = 3.dp)
+                                        .offset(y = thumbOffsetDp)
+                                        .width(3.dp)
+                                        .height(thumbHeightDp)
+                                        .background(Color.White.copy(alpha = 0.35f), RoundedCornerShape(2.dp))
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -446,12 +542,12 @@ private fun GeneralSettingsPanel(
                 Box(
                     modifier = Modifier
                         .background(
-                            if (!controlsSwapped) Color(0xFF00E5FF).copy(alpha = 0.15f) else Color(0xFF1C1C20),
+                            if (!controlsSwapped) Color.White.copy(alpha = 0.15f) else Color(0xFF1C1C20),
                             RoundedCornerShape(6.dp)
                         )
                         .border(
                             1.dp,
-                            if (!controlsSwapped) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.12f),
+                            if (!controlsSwapped) Color.White else Color.White.copy(alpha = 0.12f),
                             RoundedCornerShape(6.dp)
                         )
                         .clickable(
@@ -464,7 +560,7 @@ private fun GeneralSettingsPanel(
                 ) {
                     Text(
                         text = "DEFAULT (LEFT)",
-                        color = if (!controlsSwapped) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.7f),
+                        color = if (!controlsSwapped) Color.White else Color.White.copy(alpha = 0.7f),
                         fontSize = (12 * scale).sp,
                         fontFamily = font,
                         fontWeight = if (!controlsSwapped) FontWeight.Bold else FontWeight.Normal,
@@ -477,12 +573,12 @@ private fun GeneralSettingsPanel(
                 Box(
                     modifier = Modifier
                         .background(
-                            if (controlsSwapped) Color(0xFF00E5FF).copy(alpha = 0.15f) else Color(0xFF1C1C20),
+                            if (controlsSwapped) Color.White.copy(alpha = 0.15f) else Color(0xFF1C1C20),
                             RoundedCornerShape(6.dp)
                         )
                         .border(
                             1.dp,
-                            if (controlsSwapped) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.12f),
+                            if (controlsSwapped) Color.White else Color.White.copy(alpha = 0.12f),
                             RoundedCornerShape(6.dp)
                         )
                         .clickable(
@@ -495,7 +591,7 @@ private fun GeneralSettingsPanel(
                 ) {
                     Text(
                         text = "SWAPPED (RIGHT)",
-                        color = if (controlsSwapped) Color(0xFF00E5FF) else Color.White.copy(alpha = 0.7f),
+                        color = if (controlsSwapped) Color.White else Color.White.copy(alpha = 0.7f),
                         fontSize = (12 * scale).sp,
                         fontFamily = font,
                         fontWeight = if (controlsSwapped) FontWeight.Bold else FontWeight.Normal,

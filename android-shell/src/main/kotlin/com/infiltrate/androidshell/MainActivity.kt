@@ -17,11 +17,16 @@ import app.lexilabs.basic.ads.BasicAds
 import app.lexilabs.basic.ads.DependsOnGoogleMobileAds
 import com.infiltrate.ads.ContinueAdContent
 import com.infiltrate.ads.ContinueAdTrigger
+import com.infiltrate.ads.InterstitialAdContent
+import com.infiltrate.ads.InterstitialAdLimiter
+import com.infiltrate.ads.InterstitialAdTrigger
 import com.infiltrate.storage.PlatformStorage
 import com.infiltrate.ui.NavigationRoot
 import com.sample.demo.ads.AndroidContinueAdBridgeState
 import com.sample.demo.nav.AndroidLevelExitBridgeState
+import game.model.GameProfileStorage
 import game.model.LevelData
+import game.model.MapBackedGameProfileStorage
 import game.scene.GameplayScene
 import korlibs.image.color.Colors
 import korlibs.io.async.launchImmediately
@@ -69,6 +74,12 @@ class MainActivity : ComponentActivity() {
     private var korgeView: KorgeAndroidView? = null
     private val showingGameplay = mutableStateOf(false)
     private var activeSceneContainer: SceneContainer? = null
+    private val profileStorage: GameProfileStorage by lazy {
+        MapBackedGameProfileStorage(
+            getRaw = { PlatformStorage.getRaw(it) },
+            setRaw = { k, v -> PlatformStorage.setRaw(k, v) }
+        )
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -87,7 +98,10 @@ class MainActivity : ComponentActivity() {
         // never hidden (see the class doc comment), showing the menu again is exactly this one
         // flag flip - no surface teardown/recreation involved.
         AndroidLevelExitBridgeState.onReturnToMenuRequested = {
-            runOnUiThread { showingGameplay.value = false }
+            runOnUiThread {
+                showingGameplay.value = false
+                maybeShowLevelExitInterstitial()
+            }
         }
 
         setContent {
@@ -112,8 +126,22 @@ class MainActivity : ComponentActivity() {
                 // Inert until Swift-equivalent (showContinueAd, below) sets
                 // ContinueAdTrigger.requestShow() - see paywall-build/src/androidMain/kotlin/ContinueAdBridge.android.kt.
                 ContinueAdContent()
+                // Inert until maybeShowLevelExitInterstitial() below sets InterstitialAdTrigger.requestShow().
+                InterstitialAdContent()
             }
         }
+    }
+
+    // Called every time GameplayScene.kt leaves gameplay back to the menu (QUIT / RETURN TO MENU /
+    // MAIN MENU / ALL CLEAR, all via LevelExitBridge). Gated by InterstitialAdLimiter so this is a
+    // rare event, not a call attached to every menu return - see .junie/guidelines.md for the
+    // level-2 / 180s-cooldown / 5-per-session reasoning.
+    private fun maybeShowLevelExitInterstitial() {
+        val profile = profileStorage.getProfile()
+        if (profile.isPremium) return
+        if (!InterstitialAdLimiter.canShow(profile.totalLevelsCompleted)) return
+        InterstitialAdLimiter.recordShown()
+        InterstitialAdTrigger.requestShow()
     }
 
     private fun startLevel(levelId: String) {

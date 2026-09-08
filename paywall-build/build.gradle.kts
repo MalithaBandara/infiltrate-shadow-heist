@@ -158,6 +158,7 @@ kotlin {
                 implementation("app.lexilabs.basic:basic-ads:1.2.1")
                 implementation("com.google.android.gms:play-services-ads:25.4.0")
                 implementation("com.google.android.ump:user-messaging-platform:4.0.0")
+                implementation("com.revenuecat.purchases:purchases-kmp-core:3.6.0")
             }
         }
         val jvmMain by getting {

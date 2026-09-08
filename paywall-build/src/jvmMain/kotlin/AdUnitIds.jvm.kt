@@ -11,4 +11,6 @@ package com.infiltrate.ads
 // live unit - the exact risk .junie/guidelines.md warns about.
 actual object AdUnitIds {
     actual val REWARDED_CONTINUE: String = "ca-app-pub-3940256099942544/5224354917"
+    actual val REWARDED_COINS: String = "ca-app-pub-3940256099942544/5224354917"
+    actual val INTERSTITIAL_LEVEL_EXIT: String = "ca-app-pub-3940256099942544/1033173712"
 }

@@ -7,6 +7,10 @@ data class GameProfile(
     var sfxVolume: Float = 1.0f,
     var controlsSwapped: Boolean = false,
     var language: String = "en",
+    // Distinct levels completed at least once, ever - not a per-level replay counter. Used to
+    // gate the level-exit interstitial (InterstitialAdLimiter.MIN_LEVELS_COMPLETED) so a brand
+    // new player's first couple of levels stay ad-free.
+    var totalLevelsCompleted: Int = 0,
     // level_4 is the side-scrolling sample level; unlocked from the start so it can be
     // played without first clearing the three single-screen levels.
     val unlockedLevelIds: MutableSet<String> = mutableSetOf("level_1", "level_4"),
@@ -90,6 +94,7 @@ interface GameProfileStorage {
     fun consumePowerup(powerupId: String): Boolean
     fun grantDebugPowerups(amount: Int = 3)
     fun activatePremium()
+    fun incrementLevelsCompleted(): Int
 }
 
 class InMemoryGameProfileStorage(
@@ -108,6 +113,7 @@ class InMemoryGameProfileStorage(
         this.profile.sfxVolume = profile.sfxVolume
         this.profile.controlsSwapped = profile.controlsSwapped
         this.profile.language = profile.language
+        this.profile.totalLevelsCompleted = profile.totalLevelsCompleted
         this.profile.unlockedLevelIds.clear()
         this.profile.unlockedLevelIds.addAll(profile.unlockedLevelIds)
         this.profile.powerupInventory.clear()
@@ -186,8 +192,15 @@ class InMemoryGameProfileStorage(
     }
 
     override fun activatePremium() {
-        profile.isPremium = true
-        addCoins(1000)
+        if (!profile.isPremium) {
+            profile.isPremium = true
+            addCoins(2000)
+        }
+    }
+
+    override fun incrementLevelsCompleted(): Int {
+        profile.totalLevelsCompleted += 1
+        return profile.totalLevelsCompleted
     }
 }
 
@@ -211,6 +224,7 @@ class MapBackedGameProfileStorage(
             val languageStr = getRaw("user_language")
             val unlockedStr = getRaw("user_unlocked_levels")
             val powerupsStr = getRaw("user_powerups")
+            val totalLevelsCompletedStr = getRaw("user_total_levels_completed")
 
             val current = inMemoryFallback.getProfile()
             coinsStr?.toIntOrNull()?.let { current.coins = it }
@@ -218,6 +232,7 @@ class MapBackedGameProfileStorage(
             musicStr?.toFloatOrNull()?.let { current.musicVolume = it }
             sfxStr?.toFloatOrNull()?.let { current.sfxVolume = it }
             controlsSwappedStr?.toBooleanStrictOrNull()?.let { current.controlsSwapped = it }
+            totalLevelsCompletedStr?.toIntOrNull()?.let { current.totalLevelsCompleted = it }
             if (!languageStr.isNullOrBlank()) {
                 current.language = languageStr
             }
@@ -248,6 +263,7 @@ class MapBackedGameProfileStorage(
             setRaw("user_sfx_vol", current.sfxVolume.toString())
             setRaw("user_controls_swapped", current.controlsSwapped.toString())
             setRaw("user_language", current.language)
+            setRaw("user_total_levels_completed", current.totalLevelsCompleted.toString())
             setRaw("user_unlocked_levels", current.unlockedLevelIds.joinToString(";"))
             setRaw("user_powerups", current.powerupInventory.map { "${it.key}:${it.value}" }.joinToString(";"))
         } catch (_: Throwable) {
@@ -328,5 +344,11 @@ class MapBackedGameProfileStorage(
     override fun activatePremium() {
         inMemoryFallback.activatePremium()
         persist()
+    }
+
+    override fun incrementLevelsCompleted(): Int {
+        val res = inMemoryFallback.incrementLevelsCompleted()
+        persist()
+        return res
     }
 }

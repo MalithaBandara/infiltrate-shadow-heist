@@ -50,7 +50,28 @@ data class LevelLayout(
     // See GameplayScene.kt's box-rendering loop.
     val hangingCrateVariant1: List<Rect> = emptyList(),
     val hangingCrateVariant2: List<Rect> = emptyList(),
-    val barrels: List<Rect> = emptyList()
+    val barrels: List<Rect> = emptyList(),
+    val movingPlatforms: List<MovingPlatformDef> = emptyList()
+)
+
+enum class TutorialAction {
+    MOVE, JUMP_VAULT, CROUCH, CLIMB, REACH_OBJECTIVE
+}
+
+enum class TutorialControlHighlight {
+    NONE, MOVE, MOVE_RIGHT, JUMP, CROUCH, INTERACT
+}
+
+data class TutorialStep(
+    val id: String,
+    val triggerMinX: Double,
+    val triggerMaxX: Double,
+    val title: String,
+    val instructionTouch: String,
+    val instructionDesktop: String,
+    val targetAction: TutorialAction,
+    val highlight: TutorialControlHighlight = TutorialControlHighlight.NONE,
+    val handwrittenCallout: String? = null
 )
 
 data class LevelData(
@@ -74,7 +95,8 @@ data class LevelData(
     val coinRewardPerStar: Int = 0,
     val layout: LevelLayout? = null,
     val cameras: List<CameraSpawn> = emptyList(),
-    val backgroundImage: String? = null
+    val backgroundImage: String? = null,
+    val tutorialSteps: List<TutorialStep> = emptyList()
 ) {
     val resolvedBackgroundImage: String
         get() {
@@ -89,14 +111,14 @@ data class LevelData(
 
     /**
      * Calculates coin reward based on 2-tier progression:
-     * Levels 1–5 (Easy): 1★ = 100, 2★ = 200, 3★ = 350 (Lifetime 3★ = 1,750)
-     * Levels 6–12 (Hard): 1★ = 200, 2★ = 400, 3★ = 700 (Lifetime 3★ = 4,900)
-     * Total lifetime earn across 12 levels = 6,650 coins.
+     * Levels 1–6 (Standard): 1★ = 100, 2★ = 200, 3★ = 350 (Lifetime 3★ = 2,100)
+     * Levels 7–12 (Hard/Advanced): 1★ = 200, 2★ = 400, 3★ = 700 (Lifetime 3★ = 4,200)
+     * Total lifetime earn across 12 levels = 6,300 coins.
      */
     fun getCoinReward(starCount: Int): Int {
         if (starCount <= 0) return 0
         val levelNum = id.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 1
-        val isHard = levelNum in 6..12 || id.contains("hard") || id.contains("dlc")
+        val isHard = levelNum in 7..12 || id.contains("hard") || id.contains("dlc")
         return if (isHard) {
             when (starCount) {
                 1 -> 200
@@ -122,7 +144,64 @@ data class LevelData(
             guardSpeed = 60.0,
             guardPatrolMinX = 2955.0,
             guardPatrolMaxX = 3305.0,
-            guardEnabled = false
+            guardEnabled = false,
+            tutorialSteps = listOf(
+                TutorialStep(
+                    id = "step_move",
+                    triggerMinX = 235.0,
+                    triggerMaxX = 450.0,
+                    title = "TACTICAL MOVEMENT",
+                    instructionTouch = "Use navigation buttons to move left or right.",
+                    instructionDesktop = "Use navigation keys [A / D] or [LEFT / RIGHT] to move.",
+                    targetAction = TutorialAction.MOVE,
+                    highlight = TutorialControlHighlight.MOVE,
+                    handwrittenCallout = "Use navigation buttons to move left or right!"
+                ),
+                TutorialStep(
+                    id = "step_jump_vault",
+                    triggerMinX = 450.0,
+                    triggerMaxX = 850.0,
+                    title = "JUMP & VAULT",
+                    instructionTouch = "Tap JUMP to hop onto crates and vault over the truck.",
+                    instructionDesktop = "Press [W] or [SPACE] to hop and vault onto elevated surfaces.",
+                    targetAction = TutorialAction.JUMP_VAULT,
+                    highlight = TutorialControlHighlight.JUMP,
+                    handwrittenCallout = "Tap to jump over obstacles!"
+                ),
+                TutorialStep(
+                    id = "step_crouch",
+                    triggerMinX = 1050.0,
+                    triggerMaxX = 1450.0,
+                    title = "STEALTH CROUCH",
+                    instructionTouch = "Hold CROUCH to duck under low obstacles.",
+                    instructionDesktop = "Hold [S], [C] or [CTRL] to duck under low obstacles.",
+                    targetAction = TutorialAction.CROUCH,
+                    highlight = TutorialControlHighlight.CROUCH,
+                    handwrittenCallout = "Hold to crouch!"
+                ),
+                TutorialStep(
+                    id = "step_climb",
+                    triggerMinX = 1980.0,
+                    triggerMaxX = 2080.0,
+                    title = "MANTLE & CLIMB",
+                    instructionTouch = "Tap JUMP near a high ledge to mantle and climb.",
+                    instructionDesktop = "Press [W] or [SPACE] near a high ledge to mantle and climb.",
+                    targetAction = TutorialAction.CLIMB,
+                    highlight = TutorialControlHighlight.JUMP,
+                    handwrittenCallout = "Tap jump to climb!"
+                ),
+                TutorialStep(
+                    id = "step_reach_objective",
+                    triggerMinX = 3000.0,
+                    triggerMaxX = 3500.0,
+                    title = "REACH THE OBJECTIVE",
+                    instructionTouch = "Reach the objective to complete the mission.",
+                    instructionDesktop = "Infiltrate the objective building to complete the mission.",
+                    targetAction = TutorialAction.REACH_OBJECTIVE,
+                    highlight = TutorialControlHighlight.NONE,
+                    handwrittenCallout = "Reach the objective!"
+                )
+            )
         )
 
         /**
@@ -174,62 +253,211 @@ data class LevelData(
          */
         val LEVEL_2_LAYOUT = run {
             val groundY = 440.0
-            val ground = Rect(x = 0.0, y = groundY, width = 2600.0, height = 100.0)
+            val worldWidth = 5300.0
+            val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
 
-            // 1. First step: ground -> crate1, a plain jump (same 68x48 footprint as the small
-            // crate in GameWorld.createDefault(), so it renders and behaves the same way).
+            // --- SECTION 1: Stationary Vault & Crossing ---
+            // 1. First step: ground -> crate1, a plain jump
             val crate1 = Rect(x = 400.0, y = 392.0, width = 68.0, height = 48.0)
 
             // 2. The climb: crate1's top -> the elevated terrain block. Terrain height (144) is
-            // 3 times the crate height (48), putting the top edge at y=296.0 - exactly at the player's
-            // head level (392 - 96 = 296) when standing on crate1, so the climb/vault feels natural.
+            // 3 times crate height (48), putting the top edge at y=296.0 - player's head level when on crate1.
             val terrain = Rect(x = 468.0, y = 296.0, width = 400.0, height = 144.0)
 
-            // 3. Rescue barrel: sits on the ground flush against the terrain block's right face.
-            // Sized at 32x48 (matching barrel.png aspect ratio), sitting on ground at y=392.0.
-            // Players who fall into the gap can jump onto the barrel and climb back up onto the terrain.
-            val rescueBarrel = Rect(x = 868.0, y = 392.0, width = 32.0, height = 48.0)
+            // 3. Rescue barrel 1: sits on the ground flush against terrain block's right face (x=868).
+            val rescueBarrel1 = Rect(x = 868.0, y = 392.0, width = 32.0, height = 48.0)
 
-            // 4. The gap crossing: three crates suspended over open air, landing at y=296.0 (matching terrain).
-            // Only the rectangular crate body is interactable (collidable).
-            // hangingCrate1 is chainedcrate.png (width 174, rectangular crate height 38).
-            // hangingCrate2/3 are chainedcrate2.png at smaller size (width 76, height 38, matching crate1 height).
+            // 4. Section 1 gap crossing: three stationary hanging crates landing at y=296.0.
             val hangingCrate1 = Rect(x = 946.0, y = 296.0, width = 174.0, height = 38.0)
             val hangingCrate2 = Rect(x = 1190.0, y = 296.0, width = 76.0, height = 38.0)
             val hangingCrate3 = Rect(x = 1336.0, y = 296.0, width = 76.0, height = 38.0)
 
-            // 5. Far side: landing terrain block at y=296.0, same height as the near one.
-            val farTerrain = Rect(x = 1482.0, y = 296.0, width = 480.0, height = 144.0)
+            // 5. Intermediate terrain platform connecting Section 1 and Section 2 (x: 1482..1862).
+            val midTerrain = Rect(x = 1482.0, y = 296.0, width = 380.0, height = 144.0)
 
-            val boxes = listOf(crate1, terrain, rescueBarrel, hangingCrate1, hangingCrate2, hangingCrate3, farTerrain)
+            // --- SECTION 2: Dynamic Moving Container Crossing ---
+            // 6. Rescue barrel 2: sits on the ground flush against midTerrain's right face at x=1862.
+            // Players who fall during the moving container section can climb back up here.
+            val rescueBarrel2 = Rect(x = 1862.0, y = 392.0, width = 32.0, height = 48.0)
+
+            // 7. 5 Containers: 2 short moving, 1 long stationary, 2 short moving.
+            // Container 1 (Short, moving): oscillates between 1895 and 1975 (close to midTerrain at 1862).
+            val movingCrate1 = MovingPlatformDef(
+                id = "lvl2_move_1",
+                initialX = 1895.0,
+                y = 296.0,
+                width = 76.0,
+                height = 38.0,
+                minX = 1895.0,
+                maxX = 1975.0,
+                periodSeconds = 3.6,
+                phaseOffsetSeconds = 0.0,
+                isVariant1 = false
+            )
+            // Container 2 (Short, moving): oscillates between 2085 and 2165 (safely clear of crate 1 and stationary long crate).
+            val movingCrate2 = MovingPlatformDef(
+                id = "lvl2_move_2",
+                initialX = 2165.0,
+                y = 296.0,
+                width = 76.0,
+                height = 38.0,
+                minX = 2085.0,
+                maxX = 2165.0,
+                periodSeconds = 4.0,
+                phaseOffsetSeconds = 2.0,
+                isVariant1 = false
+            )
+            // Container 3 (Long, stationary): center safe haven / island at x=2270, width=174 (ends at 2444).
+            val stationaryLongCrate = Rect(x = 2270.0, y = 296.0, width = 174.0, height = 38.0)
+
+            // Container 4 (Short, moving): oscillates between 2475 and 2555 (safely clear of stationary crate and crate 5).
+            val movingCrate4 = MovingPlatformDef(
+                id = "lvl2_move_4",
+                initialX = 2475.0,
+                y = 296.0,
+                width = 76.0,
+                height = 38.0,
+                minX = 2475.0,
+                maxX = 2555.0,
+                periodSeconds = 3.8,
+                phaseOffsetSeconds = 0.5,
+                isVariant1 = false
+            )
+            // Container 5 (Short, moving): oscillates between 2665 and 2745 (safely clear of crate 4 and endTerrain at 2855).
+            val movingCrate5 = MovingPlatformDef(
+                id = "lvl2_move_5",
+                initialX = 2745.0,
+                y = 296.0,
+                width = 76.0,
+                height = 38.0,
+                minX = 2665.0,
+                maxX = 2745.0,
+                periodSeconds = 4.2,
+                phaseOffsetSeconds = 2.6,
+                isVariant1 = false
+            )
+
+            // 8. Intermediate landing terrain block between Section 2 and Section 3 (x: 2855..3265).
+            val midTerrain2 = Rect(x = 2855.0, y = 296.0, width = 410.0, height = 144.0)
+
+            // --- SECTION 3: Dynamic Vertical Elevator Container Gauntlet ---
+            // 9. Rescue barrel 3: sits on the ground flush against midTerrain2's right face at x=3265.
+            // Players who miss a jump during the vertical elevator section can climb back up here.
+            val rescueBarrel3 = Rect(x = 3265.0, y = 392.0, width = 32.0, height = 48.0)
+
+            // 10. 5 Containers: 2 short moving vertically (seesaw pair), 1 long stationary island, 2 short moving vertically.
+            // Container 1 (Short, moving Y: 250..320): oscillates up and down to catch the player from midTerrain2.
+            val verticalCrate1 = MovingPlatformDef(
+                id = "lvl2_vert_1",
+                initialX = 3365.0,
+                y = 320.0,
+                width = 76.0,
+                height = 38.0,
+                minX = 3365.0,
+                maxX = 3365.0,
+                minY = 250.0,
+                maxY = 320.0,
+                periodSeconds = 3.6,
+                phaseOffsetSeconds = 0.0,
+                isVariant1 = false,
+                initialY = 320.0
+            )
+            // Container 2 (Short, moving Y: 240..310): oscillates in counter-phase (seesaw timing) with Container 1.
+            val verticalCrate2 = MovingPlatformDef(
+                id = "lvl2_vert_2",
+                initialX = 3511.0,
+                y = 240.0,
+                width = 76.0,
+                height = 38.0,
+                minX = 3511.0,
+                maxX = 3511.0,
+                minY = 240.0,
+                maxY = 310.0,
+                periodSeconds = 3.6,
+                phaseOffsetSeconds = 1.8,
+                isVariant1 = false,
+                initialY = 240.0
+            )
+            // Container 3 (Long, stationary): center safe haven / island at x=3657, width=174 (ends at 3831).
+            val stationaryLongCrate2 = Rect(x = 3657.0, y = 280.0, width = 174.0, height = 38.0)
+
+            // Container 4 (Short, moving Y: 240..320): lifts player from the central island.
+            val verticalCrate4 = MovingPlatformDef(
+                id = "lvl2_vert_4",
+                initialX = 3901.0,
+                y = 280.0,
+                width = 76.0,
+                height = 38.0,
+                minX = 3901.0,
+                maxX = 3901.0,
+                minY = 240.0,
+                maxY = 320.0,
+                periodSeconds = 3.8,
+                phaseOffsetSeconds = 0.6,
+                isVariant1 = false,
+                initialY = 280.0
+            )
+            // Container 5 (Short, moving Y: 250..330): counter-phase elevator leading to final extraction platform.
+            val verticalCrate5 = MovingPlatformDef(
+                id = "lvl2_vert_5",
+                initialX = 4047.0,
+                y = 330.0,
+                width = 76.0,
+                height = 38.0,
+                minX = 4047.0,
+                maxX = 4047.0,
+                minY = 250.0,
+                maxY = 330.0,
+                periodSeconds = 3.8,
+                phaseOffsetSeconds = 2.5,
+                isVariant1 = false,
+                initialY = 330.0
+            )
+
+            // 11. Final landing terrain block past Section 3 (x: 4193..4650).
+            val finalTerrain = Rect(x = 4193.0, y = 296.0, width = 457.0, height = 144.0)
+
+            val boxes = listOf(
+                crate1, terrain, rescueBarrel1,
+                hangingCrate1, hangingCrate2, hangingCrate3,
+                midTerrain, rescueBarrel2,
+                stationaryLongCrate, midTerrain2,
+                rescueBarrel3, stationaryLongCrate2, finalTerrain
+            )
+            val movingPlatforms = listOf(
+                movingCrate1, movingCrate2, movingCrate4, movingCrate5,
+                verticalCrate1, verticalCrate2, verticalCrate4, verticalCrate5
+            )
 
             LevelLayout(
-                worldWidth = 2600.0,
+                worldWidth = 5300.0,
                 playerStartX = 236.0,
                 playerStartY = groundY - 96.0,
-                exitZone = Rect(x = 2440.0, y = 340.0, width = 44.0, height = 100.0),
+                exitZone = Rect(x = 5180.0, y = 340.0, width = 44.0, height = 100.0),
                 platforms = listOf(ground),
                 boxes = boxes,
                 guards = listOf(
                     GuardSpawn(
-                        startX = 2360.0, surfaceY = groundY,
-                        patrolMinX = 2050.0, patrolMaxX = 2380.0,
+                        startX = 5000.0, surfaceY = groundY,
+                        patrolMinX = 4700.0, patrolMaxX = 5120.0,
                         speed = 75.0, facing = -1.0, visionRange = 220.0
                     )
                 ),
-                hangingCrateVariant1 = listOf(hangingCrate1),
+                hangingCrateVariant1 = listOf(hangingCrate1, stationaryLongCrate, stationaryLongCrate2),
                 hangingCrateVariant2 = listOf(hangingCrate2, hangingCrate3),
-                barrels = listOf(rescueBarrel)
+                barrels = listOf(rescueBarrel1, rescueBarrel2, rescueBarrel3),
+                movingPlatforms = movingPlatforms
             )
         }
 
         val DEFAULT_LEVEL_2 = LevelData(
             id = "level_2",
             name = "02: Cargo Yard",
-            timeTargetSeconds = 32.0f,
+            timeTargetSeconds = 70.0f,
             description = "Search the outer yard for clues and find a route toward the areas connected to the stolen cargo.",
             objectiveHint = "Find a Way Through the Yard",
-            layout = LEVEL_2_LAYOUT
+            layout = LEVEL_2_LAYOUT,
+            backgroundImage = "bgmg5.png"
         )
 
         val DEFAULT_LEVEL_3 = LevelData(

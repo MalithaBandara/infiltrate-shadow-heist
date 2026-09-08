@@ -29,9 +29,15 @@ data class Player(
 
     var moveSpeed: Double = 132.0
     var crouchSpeed: Double = 65.0
+    var dropSpeed: Double = 30.0
     var jumpSpeed: Double = -320.0
     var gravity: Double = 1000.0
     var maxFallSpeed: Double = 600.0
+
+    var isJumping: Boolean = false
+    var isDropping: Boolean = false
+    var dropLandingTimer: Double = 0.0
+    val dropLandingDuration: Double = 0.12
 
     var isCrouching: Boolean = false
 
@@ -94,6 +100,15 @@ data class Player(
             Vec2d(centerX, y + height - 8.0)                         // Feet
         )
 
+    /** Coyote time grace window (in seconds). Allows jumping for a brief moment after slipping or walking off an edge. */
+    val coyoteDuration: Double = 0.15
+
+    /** Jump buffer window (in seconds). Buffers a jump input if pressed shortly before landing or right at the edge. */
+    val jumpBufferDuration: Double = 0.15
+
+    var coyoteTimer: Double = 0.0
+    var jumpBufferTimer: Double = 0.0
+
     fun resetToStart() {
         x = startX
         y = startY
@@ -104,6 +119,11 @@ data class Player(
         isClimbing = false
         climbElapsed = 0.0
         currentNoiseLevel = NoiseLevel.SILENT
+        coyoteTimer = 0.0
+        jumpBufferTimer = 0.0
+        isJumping = false
+        isDropping = false
+        dropLandingTimer = 0.0
     }
 
     fun update(
@@ -123,6 +143,9 @@ data class Player(
         platforms: List<Rect>,
         climbTargets: List<Rect> = emptyList()
     ) {
+        if (jumpInput) {
+            jumpBufferTimer = jumpBufferDuration
+        }
         var remaining = dt
         val maxStep = 1.0 / 60.0
         var firstStep = true
@@ -204,6 +227,9 @@ data class Player(
         if (t >= 1.0) {
             isClimbing = false
             isGrounded = true
+            isJumping = false
+            isDropping = false
+            dropLandingTimer = 0.0
             vx = 0.0
             vy = 0.0
         }
@@ -222,10 +248,33 @@ data class Player(
             if (isClimbing && climbProgress >= 0.75 && (moveInput != 0.0 || jumpInput)) {
                 isClimbing = false
                 isGrounded = true
+                isJumping = false
+                isDropping = false
+                dropLandingTimer = 0.0
                 x = climbTargetX
                 y = climbTargetY
+                jumpBufferTimer = 0.0
             } else {
                 return
+            }
+        }
+
+        if (jumpBufferTimer > 0.0) {
+            jumpBufferTimer = maxOf(0.0, jumpBufferTimer - dt)
+        }
+        if (dropLandingTimer > 0.0) {
+            dropLandingTimer = maxOf(0.0, dropLandingTimer - dt)
+        }
+
+        // Coyote timer: active when grounded; counts down once airborne (unless in an upward jump)
+        if (isGrounded) {
+            coyoteTimer = coyoteDuration
+            isJumping = false
+            isDropping = false
+        } else {
+            coyoteTimer = maxOf(0.0, coyoteTimer - dt)
+            if (!isJumping) {
+                isDropping = true
             }
         }
 
@@ -243,20 +292,37 @@ data class Player(
         }
         isCrouching = wantsToCrouch || mustStayCrouched
 
-        val effectiveSpeed = if (isCrouching) crouchSpeed else moveSpeed
+        val baseSpeed = when {
+            isDropping || dropLandingTimer > 0.0 -> dropSpeed
+            else -> moveSpeed
+        }
+        val effectiveSpeed = if (isCrouching) minOf(crouchSpeed, baseSpeed) else baseSpeed
 
         // Horizontal velocity
         vx = moveInput.coerceIn(-1.0, 1.0) * effectiveSpeed
 
         // Jump & Vertical acceleration
-        if (jumpInput && isGrounded && !isCrouching) {
+        val wantsToJump = jumpInput || jumpBufferTimer > 0.0
+        val canJump = (isGrounded || (coyoteTimer > 0.0 && vy >= 0.0)) && !isCrouching
+        if (wantsToJump && canJump) {
             val climbTarget = findClimbTarget(facing, climbTargets, platforms)
             if (climbTarget != null) {
                 startClimb(climbTarget, facing)
+                jumpBufferTimer = 0.0
+                coyoteTimer = 0.0
+                isJumping = false
+                isDropping = false
+                dropLandingTimer = 0.0
                 return
             }
             vy = jumpSpeed
             isGrounded = false
+            isJumping = true
+            isDropping = false
+            dropLandingTimer = 0.0
+            coyoteTimer = 0.0
+            jumpBufferTimer = 0.0
+            vx = moveInput.coerceIn(-1.0, 1.0) * moveSpeed
         }
         vy = (vy + gravity * dt).coerceAtMost(maxFallSpeed)
 
@@ -376,7 +442,19 @@ data class Player(
             vy = 0.0
         }
         y = newY
+        val justLanded = landed && !wasGrounded
+        if (isDropping && justLanded) {
+            dropLandingTimer = dropLandingDuration
+            isDropping = false
+        }
         isGrounded = landed
+        if (isGrounded) {
+            isJumping = false
+            isDropping = false
+        } else if (!isJumping) {
+            isDropping = true
+            vx = moveInput.coerceIn(-1.0, 1.0) * dropSpeed
+        }
 
         // Update noise level based on movement state
         currentNoiseLevel = when {

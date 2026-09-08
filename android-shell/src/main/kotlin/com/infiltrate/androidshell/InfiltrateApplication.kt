@@ -2,6 +2,7 @@ package com.infiltrate.androidshell
 
 import android.app.Application
 import android.content.pm.ApplicationInfo
+import com.infiltrate.billing.StoreBilling
 import com.infiltrate.storage.PlatformStorage
 import com.layers.sdk.android.Environment
 import com.layers.sdk.android.LayersAndroid
@@ -33,6 +34,7 @@ class InfiltrateApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         PlatformStorage.init(this)
+        StoreBilling.initialize(BuildConfig.REVENUECAT_GOOGLE_KEY)
         val isDebugBuild = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         LayersAndroid.configure(this) {
             appId = "app_a1f9dbc126c1c779"
