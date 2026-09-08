@@ -1196,6 +1196,113 @@ a 100ms hitch runs six physics steps — slow frames make themselves slower.
   `w*h*4` regardless of how well the PNG compresses. A real optimizer (oxipng/zopflipng) would
   beat Pillow substantially if the download size matters more later.
 
+**Third pass (2026-09-09): culling, audio, label caching, last dead assets.**
+- **Off-screen culling** (`GameplayScene.kt`): KorGE does no frustum culling, so every child of
+  `worldView` submitted geometry every frame across a 3900-unit level with ~1040 visible. Static
+  decor now registers its world-space x-span via a local `cullable(view, left, width)` as it is
+  built (six sites: platforms, boxes, entrance, exit fence, truck, hanging crates) and the updater
+  toggles `visible` from the camera window right after `worldView.x` settles. Margin is a **half
+  screen either side**, deliberately generous - the saving is in not submitting the far end of the
+  level, not in trimming the last few units, and a wide margin makes pop-in impossible. **Static
+  only**: player, guards, cameras and moving platforms are excluded because a span captured once
+  would go stale; their pips and vision cones are children of those containers so they follow.
+- **`bgmusic.mp3` re-encoded** 256 kbps joint stereo -> 128 kbps joint stereo, 2.22MB -> 1.11MB
+  (50%). Kept stereo rather than going mono: the side channel (L-R) measures -32.8dB mean against
+  the mid's -15.7dB, so the image is narrow but real, and collapsing it would have been a bigger
+  perceptual change than the size justified. The Xing/LAME header is kept deliberately (the
+  original had none) because it declares encoder delay/padding, which is what keeps a **looping**
+  track gapless on decoders that read it - Android's does. **Unverified: the loop seam has not
+  been heard on a device.** If a tick appears at the loop point, that header is the first suspect.
+- **Powerup chip labels** are rebuilt only when one of their three inputs changes (live/not,
+  count, timer tenths). The win is less the string than the `countText.width` read used to
+  re-centre it, which forces a text bounds measurement - and that call used to run once per chip
+  per frame *including for hidden chips*, outside the visibility branch.
+- **`bg_menu.jpg` and `logo.jpg` deleted** (1.2MB). `test_minimal.ldtk` is **KEPT - it is used by
+  `test/LdtkLoaderTest.kt`**, which the earlier note only guessed at.
+
+**DEFERRED, with a reason worth keeping: do NOT atlas the static world art yet.** It looks like an
+easy batching win and it is not, because `MutableAtlas` allocates a full 2048x2048 page (16.8MB)
+however little of it is used. The seven stretch-to-box world textures total 6.10M pixels - ~24MB as
+individually-sized textures, but 2-3 pages once packed, i.e. **34-50MB**. Atlasing them today would
+*raise* texture memory by 10-26MB to save a handful of texture binds. It only becomes worthwhile
+after the oversized source art is re-encoded down to roughly its drawn size, at which point the set
+fits one page. Same arithmetic applies to any future "just atlas it" idea here.
+
+### Item 1, not yet done: re-encode the oversized art (full spec, do it in one pass)
+
+The largest remaining performance win, deliberately left whole rather than done per-file, because
+two assets need CODE changes before they can be touched at all and four must be excluded outright.
+Everything needed to do it in one sitting is below.
+
+**THE SIZING RULE - get this wrong and the art is blurry on exactly the phones you demo on.**
+The virtual canvas is 1040x480 (`main.kt` / `MainActivity.kt`), but the device renders at its
+native resolution, so everything is scaled by `deviceHeight / 480`: **2.25x on a 1080p phone, 3x on
+a 1440p one**. An asset "drawn at 32x48" is really 96x144 device pixels. Size every target from the
+**3x** figure, then round UP to a power of two (POT is what makes mipmaps work at all - see the
+NPOT note above). Sizing from the virtual numbers gives art at a third of the needed resolution.
+
+**Aspect ratio is NOT a concern for stretch-to-box assets** - a correction, since it was stated the
+other way twice while working this out. Every one of these draws is `size(box.width, box.height)`,
+whole image to whole box, so a source pixel at normalised `(u,v)` lands at `(u*w, v*h)` no matter
+what the source's own aspect is. Resampling 832x1274 -> 128x256 and then stretching to 32x48 is the
+same mapping as before; only resample quality changes. The real rule is narrower: **resample to
+POT, never pad to POT** - transparent padding becomes part of the image and gets stretched into the
+box with everything else, shrinking the art inside its own collision box.
+
+**Three code prerequisites, all small, all blocking:**
+1. `entrance.png` and `exitfence.png` have their drawn width derived from the bitmap's aspect
+   **at runtime**: `entranceWidth = entranceHeight * (bitmap.width / bitmap.height)`, and the exit
+   fence is then positioned at `exitZone.x + entranceWidth`. For these two the stored aspect is
+   load-bearing - resample them and the extraction point moves. Replace both with explicit widths
+   (pin to today's computed values so the change is a no-op) before resizing either. Until then
+   they also cannot be POT, so they cannot get mipmaps at all.
+2. `chainedcrate.png` / `chainedcrate2.png` are sub-sliced with **hardcoded pixel coordinates** -
+   `(26, 1222, 971, 226)` and `(235, 1134, 555, 287)` in `renderHangingCrate`, plus
+   `chainDrawH = cropY * scale` using `cropY` as a pixel measure. Express them as fractions of the
+   bitmap's dimensions first, or leave both files alone.
+3. Decide mipmaps-vs-atlas BEFORE building either. On an atlas page, higher mip levels average
+   across slice boundaries and bleed neighbours into one another; doing both needs gutters sized
+   for the whole mip chain. This interacts with the deferred atlas item above.
+
+**Per-asset targets** (drawn size is virtual units; target is POT >= the 3x device size):
+
+| asset | source | drawn | @3x | target | now -> new |
+|---|---|---|---|---|---|
+| `barrel.png` | 832x1274 | 32x48 | 96x144 | 128x256 | 4.04 -> 0.13 MB |
+| `crate.png` | 851x595 | 68x48 | 204x144 | 256x256 | 1.93 -> 0.25 MB |
+| `fence.png` | 1225x1134 | ~150x140 | ~495x465 | 512x512 | 5.30 -> 1.00 MB |
+| `fence2.png` | 1289x1007 | ~180x140 | ~540x420 | 1024x512 | 4.95 -> 2.00 MB |
+| `truck.png` | 1683x617 | 262x96 | 786x288 | 1024x512 | 3.96 -> 2.00 MB |
+| `left.png` | 1202x1194 | 108x108 | 324x324 | 512x512 | 5.47 -> 1.00 MB |
+| `right.png` | 1083x1083 | 108x108 | 324x324 | 512x512 | 4.47 -> 1.00 MB |
+| `jump.png` | 1261x1247 | 96x96 | 288x288 | 512x512 | 6.00 -> 1.00 MB |
+| `crouch.png` | 1268x1241 | 96x96 | 288x288 | 512x512 | 6.00 -> 1.00 MB |
+| `interact.png` | 1267x1241 | 96x96 | 288x288 | 512x512 | 6.00 -> 1.00 MB |
+
+**~48 MB -> ~10 MB, about 38 MB back** (add a third for mipmaps: ~14 MB, still ~34 MB saved).
+
+**DO NOT SHRINK these - they are already at or below device resolution at 1440p**, and this is the
+non-obvious half of the job. Measured, not assumed:
+- `bgmg2/3/4/5.png` (~1992x724) fill 480 virtual units = **1440 device px** tall, so they are
+  already upscaled ~2x. They are also tiled edge-to-edge with a 1px overlap (`size(tileW + 1.0,
+  canvasH)`) over a hand-healed seam - resampling can disturb the left/right edge continuity that
+  makes the tiling invisible. See "Asset prep techniques" for how that seam was made.
+- `loadingbg.png` / `logo_main.png` (2172x724) are near-fullscreen; 3120x1440 device pixels.
+- `dossier_paper.png` (1200x800) draws at 624x416 virtual = 1872x1248 device.
+- `button1-4.png` (~677x167) draw at 300x52 virtual = 900x156 device - already under-resolution
+  horizontally. If anything these want to be bigger.
+
+**Resampling hygiene:** use a premultiplied-alpha-aware resampler, or silhouette art with hard
+alpha edges picks up fringes bled from the RGB of fully-transparent pixels. And `truck.png` /
+`entrance.png` are **pre-mirrored on disk** (deliberate - a negative `scaleX` corrupts detailed
+images on this GL backend, see "Real device bugs" #8); any tool that normalises orientation would
+silently undo that fix.
+
+**One comment goes stale:** `GameWorld.kt`'s `barrelWidth = 32.0` is annotated "matches
+barrel.png's tight-cropped aspect ratio (832x1274) at this height". Rendering will not change, but
+that note becomes false, and anyone re-deriving the box from the asset later would get a different
+number. Update it in the same pass.
+
 **ASSET AUDIT TRAP, learned here - do not grep by filename alone.** A first pass flagged six
 `sfx/*.wav` files as unreferenced because no source file contains the string `step_a.wav`.
 They are all live: `GameAudio.load()` builds `"sfx/$name.wav"` from a bare `clip("step_a")`

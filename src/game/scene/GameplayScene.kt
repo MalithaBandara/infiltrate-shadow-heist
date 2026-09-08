@@ -265,6 +265,22 @@ class GameplayScene(
         worldView.scale(worldZoom)
         val isSideScrolling = world.worldWidth > 800.0
 
+        // Off-screen culling. KorGE does no frustum culling of its own, so every child of worldView
+        // submits its geometry every frame no matter where the camera is - and this level is 3900
+        // units wide against roughly 1040 visible, so most of it is off screen at any moment.
+        // Static world decor registers its world-space x-span here as it is built, and the updater
+        // toggles `visible` from the camera window once a frame. Registered by known rect rather
+        // than a measured bound because every one of these already has its rect to hand.
+        //
+        // Deliberately static-only: the player, guards, cameras and moving platforms are left out,
+        // since a span captured once would go stale the moment they move (their detection pips and
+        // vision cones are children of those same containers, so they are covered by the omission).
+        class CullTarget(val view: View, val left: Double, val right: Double)
+        val cullTargets = ArrayList<CullTarget>()
+        fun cullable(view: View, worldLeft: Double, worldWidth: Double) {
+            cullTargets.add(CullTarget(view, worldLeft, worldLeft + worldWidth))
+        }
+
         // Floors, walkways and boundary walls (Solid black platforms with tiny rough edge irregularities)
         for (platform in world.platforms) {
             if (platform in world.boxes) continue
@@ -273,6 +289,7 @@ class GameplayScene(
 
             val platCont = worldView.container().xy(platform.x, platform.y)
             renderRoughBlock(platCont, platform.width, platform.height, seed = (platform.x * 47.0 + platform.y).toLong())
+            cullable(platCont, platform.x, platform.width)
         }
 
         // Exit Point / Extraction Zone - a checkpoint booth image (entrance.png, tightly cropped
@@ -299,15 +316,21 @@ class GameplayScene(
             val entranceHeight = 135.0
             val entranceWidth = entranceHeight * (entranceBitmap.width.toDouble() / entranceBitmap.height.toDouble())
             val entranceY = baseGroundY - entranceHeight
-            worldView.image(entranceBitmap) {
-                size(entranceWidth, entranceHeight)
-            }.xy(world.exitZone.x, entranceY)
+            cullable(
+                worldView.image(entranceBitmap) {
+                    size(entranceWidth, entranceHeight)
+                }.xy(world.exitZone.x, entranceY),
+                world.exitZone.x, entranceWidth
+            )
             if (exitFenceBitmap != null) {
                 val exitFenceHeight = 140.0
                 val exitFenceWidth = exitFenceHeight * (exitFenceBitmap.width.toDouble() / exitFenceBitmap.height.toDouble())
-                worldView.image(exitFenceBitmap) {
-                    size(exitFenceWidth, exitFenceHeight)
-                }.xy(world.exitZone.x + entranceWidth, baseGroundY - exitFenceHeight)
+                cullable(
+                    worldView.image(exitFenceBitmap) {
+                        size(exitFenceWidth, exitFenceHeight)
+                    }.xy(world.exitZone.x + entranceWidth, baseGroundY - exitFenceHeight),
+                    world.exitZone.x + entranceWidth, exitFenceWidth
+                )
             }
         }
 
@@ -357,6 +380,7 @@ class GameplayScene(
         for (box in world.boxes) {
             if (box.width <= 0.0) continue
             val boxContainer = worldView.container().xy(box.x, box.y)
+            cullable(boxContainer, box.x, box.width)
 
             // 1. Fence 1 (Foreground starting perimeter fence)
             if ((box == world.fence1 || (box.width in 140.0..165.0 && box.height in 130.0..155.0 && box.x < 300.0)) && fenceBitmap != null) {
@@ -380,9 +404,12 @@ class GameplayScene(
             else if (box in world.truckParts && truckBitmap != null) {
                 if (box === world.truckParts.first()) {
                     val truckRect = world.truck ?: box
-                    worldView.image(truckBitmap) {
-                        size(truckRect.width, truckRect.height)
-                    }.xy(truckRect.x, truckRect.y)
+                    cullable(
+                        worldView.image(truckBitmap) {
+                            size(truckRect.width, truckRect.height)
+                        }.xy(truckRect.x, truckRect.y),
+                        truckRect.x, truckRect.width
+                    )
                 }
             }
             // 5. Hanging Chained Crate (ceiling obstacle in level 1)
@@ -395,6 +422,7 @@ class GameplayScene(
             else if (box in world.hangingCrateVariant1 || box in world.hangingCrateVariant2) {
                 boxContainer.removeFromParent()
                 val crateCont = worldView.container().xy(box.x, box.y)
+                cullable(crateCont, box.x, box.width)
                 renderHangingCrate(crateCont, box.width, box.height, 0.0, box in world.hangingCrateVariant1)
             }
             // 6. Step Crate (matches bounding box exactly)
@@ -1064,7 +1092,17 @@ class GameplayScene(
              * against this and skips the rebuild when the chip would come out identical. -1.0
              * stands for "inactive", which is a single fixed shape.
              */
-            var lastDrawnSpan: Double? = null
+            var lastDrawnSpan: Double? = null,
+            /**
+             * Inputs the count label was last built from. The label only has three sources - live
+             * or not, the inventory count, and the timer rounded to a tenth - so comparing those
+             * skips both the string build and, more importantly, the `countText.width` read used
+             * to re-centre it, which forces a text bounds measurement. `lastActive` starts null so
+             * the first frame always renders.
+             */
+            var lastActive: Boolean? = null,
+            var lastCount: Int = -1,
+            var lastTenths: Int = -1
         )
 
         val powerupTypes = listOf(
@@ -2070,6 +2108,17 @@ class GameplayScene(
             val baseWorldViewY = currentCanvasH - (baseGroundY + 70.0) * worldZoom
             worldView.y = baseWorldViewY
 
+            // Cull static decor outside the camera window. Runs after worldView.x settles for this
+            // frame so the test uses the position actually about to be drawn. The margin is a full
+            // half-screen rather than something tight - the saving is in not submitting the far end
+            // of a 3900-unit level, not in trimming the last few units at the edge, and a generous
+            // margin means nothing can pop in at the boundary.
+            val cullLeft = -worldView.x / worldZoom - currentCanvasW / (2.0 * worldZoom)
+            val cullRight = cullLeft + currentCanvasW / worldZoom + currentCanvasW / worldZoom
+            for (t in cullTargets) {
+                t.view.visible = t.right >= cullLeft && t.left <= cullRight
+            }
+
             // Background parallax (0.2x rate, looping) - Unzoomed at native canvas height
             if (bgmgImages.isNotEmpty()) {
                 val virtualCameraX = -worldView.x / worldZoom
@@ -2583,19 +2632,30 @@ class GameplayScene(
                             }
                         }
                     }
-                    if (isActive) {
-                        btn.countText.text = if (btn.type.isLevelDuration) "ON" else "${((remTime * 10).toInt() / 10.0)}s"
-                        btn.countText.color = COLOR_BORDER_GREEN
-                        btn.nameText.color = COLOR_TEXT_LIGHT
-                    } else {
-                        btn.countText.text = "x$count"
-                        btn.countText.color = COLOR_BORDER_GOLD
-                        btn.nameText.color = COLOR_TEXT_MUTED
+                    // Same idea as the shape above, for the label: rebuild it only when one of the
+                    // three things it is made of actually changes.
+                    val tenths = if (isActive && !btn.type.isLevelDuration) (remTime * 10).toInt() else -1
+                    if (btn.lastActive != isActive || btn.lastCount != count || btn.lastTenths != tenths) {
+                        btn.lastActive = isActive
+                        btn.lastCount = count
+                        btn.lastTenths = tenths
+                        if (isActive) {
+                            btn.countText.text = if (btn.type.isLevelDuration) "ON" else "${tenths / 10.0}s"
+                            btn.countText.color = COLOR_BORDER_GREEN
+                            btn.nameText.color = COLOR_TEXT_LIGHT
+                        } else {
+                            btn.countText.text = "x$count"
+                            btn.countText.color = COLOR_BORDER_GOLD
+                            btn.nameText.color = COLOR_TEXT_MUTED
+                        }
+                        btn.countText.xy((powerupBtnW - btn.countText.width) / 2.0, 22.0)
                     }
                 } else {
                     btn.btnContainer.visible = false
                 }
-                btn.countText.xy((powerupBtnW - btn.countText.width) / 2.0, 22.0)
+                // The re-centre that used to sit here ran for every chip every frame, hidden ones
+                // included, and each call measured the text's bounds. It only ever has an effect
+                // when the label changes, so it now lives inside the guard above.
             }
             powerupDockContainer.visible = hasAnyVisiblePowerup
 

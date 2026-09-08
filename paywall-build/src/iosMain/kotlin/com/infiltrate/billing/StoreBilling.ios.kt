@@ -14,6 +14,34 @@ actual object StoreBilling {
         }
     }
 
+    private fun isRemoveAdsKey(id: String): Boolean {
+        val clean = id.lowercase().replace("_", "").replace("-", "")
+        return clean == "removeads" || clean == "noads" || clean == "lifetime" ||
+               clean == "rc_lifetime" || clean == "rclifetime" || clean.contains("removead") || clean.contains("noad")
+    }
+
+    private fun packageMatches(pkg: com.revenuecat.purchases.kmp.models.Package, targetId: String): Boolean {
+        val pkgId = pkg.identifier
+        val prodId = pkg.storeProduct.id
+
+        if (pkgId.equals(targetId, ignoreCase = true) || prodId.equals(targetId, ignoreCase = true)) return true
+        if (prodId.endsWith(".$targetId", ignoreCase = true) || prodId.startsWith("$targetId:", ignoreCase = true)) return true
+
+        if (isRemoveAdsKey(targetId)) {
+            if (pkgId.equals("\$rc_lifetime", ignoreCase = true) ||
+                pkgId.equals("lifetime", ignoreCase = true) ||
+                isRemoveAdsKey(pkgId) ||
+                isRemoveAdsKey(prodId) ||
+                prodId.contains("remove_ads", ignoreCase = true) ||
+                prodId.contains("no_ads", ignoreCase = true) ||
+                prodId.contains("noads", ignoreCase = true)
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
     actual fun purchase(packageId: String, onResult: (success: Boolean, error: String?) -> Unit) {
         if (!Purchases.isConfigured) {
             onResult(false, "Store billing is not initialized")
@@ -28,16 +56,8 @@ actual object StoreBilling {
                 val allPackages = offerings.all.values.flatMap { it.availablePackages }
                 val currentOffering = offerings.current ?: offerings.all.values.firstOrNull()
                 val pkg = currentOffering?.getPackage(packageId)
-                    ?: currentOffering?.availablePackages?.find {
-                        it.identifier.equals(packageId, ignoreCase = true) ||
-                        it.storeProduct.id.equals(packageId, ignoreCase = true) ||
-                        it.storeProduct.id.endsWith(".$packageId", ignoreCase = true)
-                    }
-                    ?: allPackages.find {
-                        it.identifier.equals(packageId, ignoreCase = true) ||
-                        it.storeProduct.id.equals(packageId, ignoreCase = true) ||
-                        it.storeProduct.id.endsWith(".$packageId", ignoreCase = true)
-                    }
+                    ?: currentOffering?.availablePackages?.find { packageMatches(it, packageId) }
+                    ?: allPackages.find { packageMatches(it, packageId) }
 
                 if (pkg == null) {
                     onResult(false, "Item not found in store offering")
