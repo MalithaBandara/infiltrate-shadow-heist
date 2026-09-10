@@ -2,9 +2,11 @@ package com.infiltrate.ads
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import app.lexilabs.basic.ads.AdState
 import app.lexilabs.basic.ads.DependsOnGoogleMobileAds
-import app.lexilabs.basic.ads.composable.RewardedAd
+import app.lexilabs.basic.ads.composable.rememberRewardedAd
 
 /**
  * Real (non-spike) "watch ad to continue" trigger - Android side. Same shape as the iOS
@@ -52,15 +54,65 @@ object ContinueAdTrigger {
     }
 }
 
+/**
+ * Preloads the watch-ad-to-continue rewarded ad and shows it on request.
+ *
+ * The [rememberRewardedAd] call sits OUTSIDE the [ContinueAdTrigger.showRequested] gate on
+ * purpose. It used to be inside it, via basic-ads' one-shot `RewardedAd(...)` composable, so
+ * nothing existed until the player had already died and asked to continue - and the network
+ * fetch happened while they sat looking at the prompt. Hoisting the handler out starts the fetch
+ * when this content first composes, and `rememberRewardedAd` re-loads whenever the handler is
+ * `NONE` or `DISMISSED`, so the next one begins loading as soon as the previous is closed. This
+ * is the placement where the wait was worst: it lands at a failure moment, on the one prompt the
+ * game most wants the player to accept.
+ *
+ * Two hazards come with preloading, and neither exists in the load-then-show shape:
+ *
+ * 1. **A background failure must not resolve a request the player never made.** [onAdClosed]
+ *    sets `outcomeFinished`, which GameplayScene polls via `consumeOutcomeFinished()` and treats
+ *    as "the ad flow ended" - firing it from a preload that failed while nothing was pending
+ *    would skip the player straight past an offer they were never shown. Hence the
+ *    `showRequested` guard in the load-failure callback below.
+ *
+ * 2. **`FAILING` is a dead end.** `rememberRewardedAd` only re-loads from `NONE` or `DISMISSED`;
+ *    it does nothing at all from `FAILING`. Before preloading that was harmless, because the
+ *    handler was created on demand and its failure immediately reached `onFailure`. Now a preload
+ *    that failed early would leave the handler dead for the rest of the process, and a later
+ *    request would get no ad AND no resolution - the continue prompt would hang with the player
+ *    unable to either watch or decline. The `FAILING` branch resolves it exactly as a load
+ *    failure resolved it before.
+ *
+ * [markRewardEarned] deliberately still does not resolve the outcome - see its own comment above
+ * for the grey-screen bug that caused. Preloading does not change that ordering.
+ *
+ * Note that test ad units (see [AdUnitIds] - `USE_TEST_ADS`) always fill instantly and never
+ * fail, so neither hazard can be reproduced while testing against them. Both paths have to be
+ * forced by hand (airplane mode is the easy one).
+ */
 @OptIn(DependsOnGoogleMobileAds::class)
 @Composable
 fun ContinueAdContent() {
+    val ad by rememberRewardedAd(
+        adUnitId = AdUnitIds.REWARDED_CONTINUE,
+        onFailure = {
+            if (ContinueAdTrigger.showRequested.value) ContinueAdTrigger.onAdClosed()
+        },
+    )
     if (ContinueAdTrigger.showRequested.value) {
-        RewardedAd(
-            adUnitId = AdUnitIds.REWARDED_CONTINUE,
-            onRewardEarned = { ContinueAdTrigger.markRewardEarned() },
-            onDismissed = { ContinueAdTrigger.onAdClosed() },
-            onFailure = { ContinueAdTrigger.onAdClosed() },
-        )
+        when (ad.state) {
+            AdState.READY -> {
+                ad.setListeners(
+                    onFailure = { ContinueAdTrigger.onAdClosed() },
+                    onDismissed = { ContinueAdTrigger.onAdClosed() },
+                )
+                ad.show { ContinueAdTrigger.markRewardEarned() }
+            }
+            // See hazard 2 above - without this the prompt hangs on an ad that will never load.
+            AdState.FAILING -> ContinueAdTrigger.onAdClosed()
+            // NONE/LOADING: the preload has not finished yet, which is the same wait as the old
+            // behaviour and no worse. The handler is a MutableState, so reaching READY recomposes
+            // this and shows the ad. SHOWING/SHOWN/DISMISSED: already in flight, leave it alone.
+            else -> Unit
+        }
     }
 }

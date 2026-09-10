@@ -12,7 +12,8 @@ class PlayerAnimationSet(
     val jump: SpriteAnimation,
     val crouch: SpriteAnimation,
     val crouchwalk: SpriteAnimation,
-    val climb: SpriteAnimation
+    val climb: SpriteAnimation,
+    val swing: SpriteAnimation
 )
 
 /**
@@ -196,6 +197,83 @@ object PlayerAnimations {
     /** Raw 224: fully upright again, ready to hand back to idle. */
     const val CLIMB_END = CLIMB_FRAMES - 1
 
+    // ---- swing ---------------------------------------------------------------------------
+    // 200 raw frames of walk, run-up, leap, one-handed hang off an overhead hook, a full
+    // back-to-front pendulum, the release, and a landing. 52 of them are loaded - raw 59-69, raw
+    // 77, and raw 114-153, every frame - because a swing across a gap is a fast, committed move
+    // and most of this footage is the character hanging around waiting for one. Four cuts, each
+    // measured rather than guessed:
+    //
+    //  - Raw 1-58 are a walk building into a run. Dropped for the same reason walk's own
+    //    anticipation and jump's wind-up are: the swing is entered from whatever the player was
+    //    already doing, and Player drives the world travel itself. Raw 59 is a push-off stride,
+    //    which is where the move has something to say. (Raw 47-56 also run the trailing leg off
+    //    the left edge of the plate, so starting later keeps the crop box narrower too.)
+    //  - **Raw 70-76 are the settle, and they are cut.** The character catches the hook at the
+    //    top of the leap and these are his body swinging in under his own grip - eight frames of
+    //    a silhouette that barely changes. Given real time they read as him stopping to wait on
+    //    the hook; given almost none they are frames the display never shows. Raw 77 alone is
+    //    kept as the catch pose, and it costs nothing to skip to it: the body sits within about
+    //    half a world unit of where raw 69 leaves it.
+    //  - **Raw 78-113 are the backswing, and they are cut too.** In the footage the character
+    //    jumps straight up, so the grab is followed by the legs swinging back before they come
+    //    forward. In game he has run at the hook, so his momentum should carry him forward and
+    //    that wind-up reads as wrong. Removing it means raw 77 has to hand straight over to raw
+    //    114, and 114 is where it does: aligning every candidate pair on the hand (which is how
+    //    these frames are actually drawn - see Player.SWING_GRIP_ABOVE_CURVE) and scoring
+    //    silhouette overlap, that pair moves the body by half a pixel against 17-37 for its
+    //    neighbours. There is still a pose step, about twice an adjacent frame, but it lands
+    //    mid-swing at speed and it buys a swing that only ever travels forward.
+    //  - Raw 154-200 are a deep landing squat that stands up and runs off. Dropped because
+    //    GameplayScene already owns the touchdown: the swing ends on contact and hands over to
+    //    the same landing-absorb cushion every jump uses, which resolves into walk or idle. That
+    //    is both a cleaner pose handover than this clip's own run-out (it never returns to a
+    //    standing pose, so it cannot meet idle frame 1) and ~25 frames of atlas not spent.
+    //
+    // **Every frame of what is left is kept, not every second one.** These are 360x640 half-res
+    // plates shot at roughly twice the standing clips' rate, so halving them - which is what the
+    // first pass did - lands the clip at walk's ~35fps and looks it, because unlike walk this is
+    // one continuous fast action rather than a loop the eye already knows. Kept whole, the swing
+    // through to the front runs at ~80fps, which is past what a 60Hz panel shows but not what a
+    // 120Hz phone does, and it costs nothing: 52 frames at 165x264 fit inside a single 2048x2048
+    // atlas page (84 of these per page), so the smoother version is free until the count passes 84.
+    //
+    // Two places the footage runs off its own canvas were repaired before cropping, both found by
+    // reading the alpha channel: the raised fist leaves the top edge on raw 66-69, and the leading
+    // boot's toe leaves the right edge on raw ~122-141 (up to 40 rows of flat cut). Each was
+    // capped with a half ellipse sized from the clipped run's own thickness, so a squared-off boot
+    // does not read as a squared-off boot at the ~7 device pixels it occupies.
+    //
+    // The frames are 165x264 rather than 140x256: the hang spans further from fingertip to dangled
+    // boot than any standing pose, and the swing's front extreme is wider. The pixel scale is the
+    // same as every other clip, so the character is the same size on screen - see
+    // SOURCE_SILHOUETTE_HEIGHT, which is measured off the standing silhouette and is what the
+    // sprite is scaled by whatever frame size a clip happens to use (climb is 200x300 already).
+    private const val SWING_FRAMES = 52
+
+    /** Raw 59: the push-off stride. The move starts here, whatever the player was doing before. */
+    const val SWING_START = 0
+
+    /**
+     * Raw 77, the catch. From here to [SWING_RELEASE] the hand is a fixed point and Player hangs
+     * the body off it; before it, the body is interpolated up to the hook while the frames show a
+     * run and a stretch upward, which is what interpolation should be covering. Pinning any later
+     * than the first hanging pose is what "he stops in mid air at the hook" looks like - the fist
+     * floats above the metal while a hanging silhouette is carried towards it.
+     */
+    const val SWING_GRAB = 11
+
+    /**
+     * Raw 131, the last frame with the fist still overhead. Past it the arm comes down and the
+     * silhouette's topmost pixel stops being the hand and becomes the head, so the grip curves
+     * are only measured this far - and the release has to happen here for the same reason it
+     * looks right here: it is the front of the pendulum.
+     */
+    const val SWING_RELEASE = 29
+
+    /** Raw 153: feet back down. GameplayScene hands over to the landing-absorb cushion here. */
+    const val SWING_END = SWING_FRAMES - 1
+
     // ---- source geometry ----------------------------------------------------------------
     /** Frames are 256 tall. */
     const val SOURCE_FRAME_HEIGHT = 256.0
@@ -278,7 +356,8 @@ object PlayerAnimations {
             jump = loadAnimation(atlas, "jump", JUMP_FRAMES, frameTimeMs = 33),
             crouch = loadAnimation(atlas, "crouch", CROUCH_FRAMES, frameTimeMs = 33),
             crouchwalk = loadAnimation(atlas, "crouchwalk", CROUCHWALK_FRAMES, frameTimeMs = 40),
-            climb = loadAnimation(atlas, "climb", CLIMB_FRAMES, frameTimeMs = 33, firstFile = CLIMB_FILE_START)
+            climb = loadAnimation(atlas, "climb", CLIMB_FRAMES, frameTimeMs = 33, firstFile = CLIMB_FILE_START),
+            swing = loadAnimation(atlas, "swing", SWING_FRAMES, frameTimeMs = 33)
         )
         cached = set
         return set

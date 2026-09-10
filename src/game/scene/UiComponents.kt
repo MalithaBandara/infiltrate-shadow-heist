@@ -79,7 +79,7 @@ object UiComponents {
             // itself, confirmed by direct pixel inspection), so 9-slicing was reverted in favor of
             // the simple, artifact-free stretch. Falls back to a plain paper rect + stroke if the
             // asset is missing.
-            val bgBmp = SceneAssets.bitmap(heistTexture)
+            val bgBmp = SceneAssets.bitmap(heistTexture, minified = false)
             if (bgBmp != null) {
                 btn.image(bgBmp) { size(width, height) }
             } else {
@@ -169,7 +169,7 @@ object UiComponents {
     ): Container {
         val ink = Colors["#17140F"]
         val tab = container().xy(x, y)
-        val bgBmp = SceneAssets.bitmap(texture)
+        val bgBmp = SceneAssets.bitmap(texture, minified = false)
         if (bgBmp != null) {
             tab.image(bgBmp) { size(width, height) }
         } else {
@@ -433,6 +433,22 @@ object UiComponents {
         }
     }
 
+    fun ShapeBuilder.drawCheckpointIcon(isHover: Boolean) {
+        val color = Colors.BLACK
+        stroke(color, StrokeInfo(thickness = 2.4)) {
+            moveTo(-6.0, -9.0)
+            lineTo(-6.0, 9.0)
+            moveTo(-9.0, 9.0)
+            lineTo(-3.0, 9.0)
+        }
+        fill(color) {
+            moveTo(-6.0, -9.0)
+            lineTo(6.0, -4.0)
+            lineTo(-6.0, 1.0)
+            close()
+        }
+    }
+
     fun ShapeBuilder.drawStar(cx: Double, cy: Double, outerR: Double = 10.0, innerR: Double = 4.0, fillColor: RGBA = COLOR_ACCENT_GOLD) {
         fill(fillColor) {
             moveTo(cx, cy - outerR)
@@ -456,8 +472,8 @@ object UiComponents {
         }
     }
 
-    fun Container.createToast(message: String, width: Double = 400.0, color: RGBA = COLOR_ACCENT_CYAN): Container {
-        val toast = container().xy((800.0 - width) / 2.0, 20.0)
+    fun Container.createToast(message: String, width: Double = 400.0, color: RGBA = COLOR_ACCENT_CYAN, stageW: Double = 800.0): Container {
+        val toast = container().xy((stageW - width) / 2.0, 20.0)
         val g = toast.uiGraphics()
         g.updateShape {
             fill(COLOR_DARK_BG) {
@@ -470,7 +486,7 @@ object UiComponents {
         val t = toast.text(message, textSize = 14.0, color = COLOR_PRIMARY)
         t.xy((width - t.width) / 2.0, 14.0)
 
-        this.stage?.launchImmediately {
+        (this.stage ?: toast.stage)?.launchImmediately {
             delay(3.seconds)
             toast.removeFromParent()
         }

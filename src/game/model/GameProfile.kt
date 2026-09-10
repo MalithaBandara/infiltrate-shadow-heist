@@ -15,21 +15,26 @@ data class GameProfile(
     // played without first clearing the three single-screen levels.
     val unlockedLevelIds: MutableSet<String> = mutableSetOf("level_1", "level_4"),
     val powerupInventory: MutableMap<String, Int> = mutableMapOf(
+        "camera_jammer" to 2,
         "smoke_screen" to 2,
         "smoke_bomb" to 1,
+        "sleep_darts" to 2,
         "phantom_cloak" to 2,
         "invisibility" to 2,
         "noise_suppression" to 2,
         "stealth_boots" to 0,
-        "radar_booster" to 0
+        "radar_booster" to 0,
+        "remote_trigger" to 1
     )
 ) {
     fun getPowerupCount(type: PowerupType): Int {
         val aliases = when (type) {
-            PowerupType.SMOKE_SCREEN -> listOf("smoke_screen", "smoke_bomb", "camera_disable")
-            PowerupType.PHANTOM_CLOAK -> listOf("phantom_cloak", "guard_sleep")
+            PowerupType.SMOKE_SCREEN -> listOf("camera_jammer", "smoke_screen", "smoke_bomb", "camera_disable")
+            PowerupType.PHANTOM_CLOAK -> listOf("sleep_darts", "sleep_dart", "phantom_cloak", "guard_sleep")
             PowerupType.INVISIBILITY -> listOf("invisibility", "invisibility_cloak")
             PowerupType.NOISE_SUPPRESSION -> listOf("noise_suppression", "stealth_boots")
+            PowerupType.REMOTE_TRIGGER -> listOf("remote_trigger", "trigger", "remote", "checkpoint", "checkpoints", "tactical_checkpoint")
+            PowerupType.PROTOTYPE -> listOf("prototype")
         }
         return aliases.sumOf { powerupInventory[it] ?: 0 }
     }
@@ -41,10 +46,12 @@ data class GameProfile(
 
     fun consumePowerup(type: PowerupType): Boolean {
         val aliases = when (type) {
-            PowerupType.SMOKE_SCREEN -> listOf("smoke_screen", "smoke_bomb", "camera_disable")
-            PowerupType.PHANTOM_CLOAK -> listOf("phantom_cloak", "guard_sleep")
+            PowerupType.SMOKE_SCREEN -> listOf("camera_jammer", "smoke_screen", "smoke_bomb", "camera_disable")
+            PowerupType.PHANTOM_CLOAK -> listOf("sleep_darts", "sleep_dart", "phantom_cloak", "guard_sleep")
             PowerupType.INVISIBILITY -> listOf("invisibility", "invisibility_cloak")
             PowerupType.NOISE_SUPPRESSION -> listOf("noise_suppression", "stealth_boots")
+            PowerupType.REMOTE_TRIGGER -> listOf("remote_trigger", "trigger", "remote", "checkpoint", "checkpoints", "tactical_checkpoint")
+            PowerupType.PROTOTYPE -> listOf("prototype")
         }
         for (key in aliases) {
             val count = powerupInventory[key] ?: 0

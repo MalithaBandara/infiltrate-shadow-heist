@@ -19,6 +19,12 @@ actual object AdUnitIds {
         if (USE_TEST_ADS) "ca-app-pub-3940256099942544/1712485313"
         else "ca-app-pub-7912148730700666/4233781051"
 
+    // Real iOS rewarded ad unit for the Store's "watch ad for a random gadget" placement (own ad
+    // unit, not shared with REWARDED_COINS). Named "Gadget Reward" in the AdMob console.
+    actual val REWARDED_GADGET: String =
+        if (USE_TEST_ADS) "ca-app-pub-3940256099942544/1712485313"
+        else "ca-app-pub-7912148730700666/6397813920"
+
     // Real iOS interstitial ad unit, created for the level-exit placement (LevelExitBridge).
     // Plumbing only for now - ios-shell has no Swift poll loop wired up to actually trigger this
     // yet (LevelExitBridge.ios.kt is still a no-op stub), same status as the rest of that bridge.

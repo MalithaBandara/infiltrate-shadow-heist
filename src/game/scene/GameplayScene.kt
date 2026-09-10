@@ -15,6 +15,7 @@ import game.scene.UiComponents.COLOR_BORDER_RED
 import game.scene.UiComponents.COLOR_TEXT_LIGHT
 import game.scene.UiComponents.COLOR_TEXT_MUTED
 import game.scene.UiComponents.createButton
+import game.scene.UiComponents.createToast
 import game.scene.UiComponents.drawCurvedArrow
 import game.scene.UiComponents.drawPlayIcon
 import game.scene.UiComponents.drawQuitIcon
@@ -59,95 +60,23 @@ class GameplayScene(
         val canvasH = sceneHeight.toDouble().coerceAtLeast(480.0)
 
         // --- Loading screen -------------------------------------------------------------
-        // Shown immediately, before any load below runs, and dismissed only once every load
-        // in this function has actually finished - so a slow cold load (mobile, first launch)
-        // shows real progress instead of a blank/grey frame.
-        val loadingBgBitmap = SceneAssets.bitmap("loadingbg.png")
-        val loadingLogoBitmap = SceneAssets.bitmap("logo_main.png")
-        // Same torn-paper texture as the main menu's PLAY button (Res.drawable.button1 there) -
-        // stretched to fit, matching the existing precedent for these button textures elsewhere
-        // in this file (UiComponents.createButton's heistStyle path): plain stretch, not 9-sliced,
-        // since 9-slicing this exact art was already tried and reverted for visible seams.
-        val loadingBarTextureBitmap = SceneAssets.bitmap("button1.png")
+        val loadingBgBitmap = SceneAssets.bitmap("loadingbg.png", minified = false)
+        val loadingLogoBitmap = SceneAssets.bitmap("logo_main.png", minified = false)
+        val loadingBarTextureBitmap = SceneAssets.bitmap("button1.png", minified = false)
         val loadingFont = SceneAssets.font("BebasNeue-Regular.ttf")
 
-        val loadingRoot = container()
-        if (loadingBgBitmap != null) {
-            loadingRoot.image(loadingBgBitmap) { size(canvasW, canvasH) }
-        } else {
-            loadingRoot.solidRect(canvasW, canvasH, Colors.BLACK)
-        }
-
-        val loadingLogoWidth = canvasW * 0.34
-        if (loadingLogoBitmap != null) {
-            val logoScale = loadingLogoWidth / loadingLogoBitmap.width
-            loadingRoot.image(loadingLogoBitmap) { scale(logoScale) }
-                .xy((canvasW - loadingLogoBitmap.width * logoScale) / 2.0, canvasH * 0.26)
-        }
-
-        val loadingBarWidth = canvasW * 0.30
-        val loadingBarHeight = canvasH * 0.045
-        val loadingBarX = (canvasW - loadingBarWidth) / 2.0
-        val loadingBarY = canvasH * 0.58
-
-        // Fill container holds just the (re-created-per-step) texture image; the frame is drawn
-        // separately, after/on top of it, so the border stays crisp instead of being covered by
-        // the fill each time it's rebuilt.
-        val loadingBarFillContainer = loadingRoot.container().xy(loadingBarX, loadingBarY)
-        var loadingBarFillView: View? = null
-        fun setLoadingProgress(fraction: Double) {
-            val fillWidth = loadingBarWidth * fraction.coerceIn(0.0, 1.0)
-            loadingBarFillView?.removeFromParent()
-            loadingBarFillView = if (fillWidth <= 0.0) {
-                null
-            } else if (loadingBarTextureBitmap != null) {
-                loadingBarFillContainer.image(loadingBarTextureBitmap) { size(fillWidth, loadingBarHeight) }
-            } else {
-                loadingBarFillContainer.solidRect(fillWidth, loadingBarHeight, Colors.WHITE)
-            }
-        }
-        setLoadingProgress(0.0)
-        loadingRoot.uiGraphics().xy(loadingBarX, loadingBarY).updateShape {
-            stroke(Colors.WHITE.withAd(0.85), StrokeInfo(thickness = 1.5)) {
-                rect(0.0, 0.0, loadingBarWidth, loadingBarHeight)
-            }
-        }
-
-        val loadingLabel = loadingRoot.text(
-            "L O A D I N G . . .",
-            textSize = loadingBarHeight * 0.62,
-            font = loadingFont,
-            color = Colors.WHITE
+        val loadingScreen = setupLoadingScreen(
+            canvasW, canvasH, loadingBgBitmap, loadingLogoBitmap, loadingBarTextureBitmap, loadingFont
         )
-        loadingLabel.graphicsRenderer = GraphicsRenderer.GPU
-        loadingLabel.xy((canvasW - loadingLabel.width) / 2.0, loadingBarY + loadingBarHeight + canvasH * 0.035)
 
-        // Standard loading-text blink: visible for most of the cycle, then gone for a brief
-        // instant, then straight back - not a gradual pulse or an irregular flicker. Period
-        // lengthened (and the visible share raised) so it vanishes much less often than before.
-        val blinkPeriodSeconds = 2.2
-        val blinkVisibleFraction = 0.88
-        var loadingFlickerT = 0.0
-        val loadingFlickerHandle = loadingLabel.addUpdater { dt ->
-            loadingFlickerT += dt.seconds
-            val phase = (loadingFlickerT % blinkPeriodSeconds) / blinkPeriodSeconds
-            alpha = if (phase < blinkVisibleFraction) 1.0 else 0.0
-        }
-
-        fun dismissLoadingScreen() {
-            loadingFlickerHandle.close()
-            loadingRoot.removeFromParent()
-        }
-
-        // One full frame so the loading screen is actually painted before the (synchronous,
-        // potentially slow) loads below ever get a chance to block the render loop.
+        // One full frame so the loading screen is actually painted before the loads below
         delayFrame()
 
-        val totalLoadSteps = 20
+        val totalLoadSteps = 23
         var loadStepsDone = 0
         suspend fun markLoadProgress() {
             loadStepsDone++
-            setLoadingProgress(loadStepsDone.toDouble() / totalLoadSteps)
+            loadingScreen.setProgress(loadStepsDone.toDouble() / totalLoadSteps)
             delayFrame()
         }
 
@@ -172,7 +101,7 @@ class GameplayScene(
             markLoadProgress()
             Triple(loadedWorld, loadedAnimations, loadedSounds)
         } catch (e: Throwable) {
-            dismissLoadingScreen()
+            loadingScreen.dismiss()
             solidRect(sceneWidth, sceneHeight, Colors["#16161d"])
             text(
                 "LEVEL LOAD FAILED\n\n${e::class.simpleName}: ${e.message}\n\n${e.stackTraceToString().take(1200)}",
@@ -197,13 +126,13 @@ class GameplayScene(
         val baseGroundY = 410.0
 
         val bgFileName = levelData.resolvedBackgroundImage
-        val bgmgBitmap = SceneAssets.bitmap(bgFileName)
+        val bgmgBitmap = SceneAssets.bitmap(bgFileName, minified = false)
         markLoadProgress()
         val crateBitmap = SceneAssets.bitmap("crate.png")
         markLoadProgress()
-        val chainedCrateBitmap = SceneAssets.bitmap("chainedcrate.png")
+        val chainedCrateBitmap = SceneAssets.bitmap("chainedcrate.png", minified = false)
         markLoadProgress()
-        val chainedCrate2Bitmap = SceneAssets.bitmap("chainedcrate2.png")
+        val chainedCrate2Bitmap = SceneAssets.bitmap("chainedcrate2.png", minified = false)
         markLoadProgress()
         val fenceBitmap = SceneAssets.bitmap("fence.png")
         markLoadProgress()
@@ -211,11 +140,13 @@ class GameplayScene(
         markLoadProgress()
         val barrelBitmap = SceneAssets.bitmap("barrel.png")
         markLoadProgress()
+        val hookBitmap = SceneAssets.bitmap("hook.png")
+        markLoadProgress()
         val truckBitmap = SceneAssets.bitmap("truck.png")
         markLoadProgress()
-        val entranceBitmap = SceneAssets.bitmap("entrance.png")
+        val entranceBitmap = SceneAssets.bitmap("entrance.png", minified = false)
         markLoadProgress()
-        val exitFenceBitmap = SceneAssets.bitmap("exitfence.png")
+        val exitFenceBitmap = SceneAssets.bitmap("exitfence.png", minified = false)
         markLoadProgress()
         val leftBtnBitmap = SceneAssets.bitmap("left.png")
         markLoadProgress()
@@ -231,15 +162,39 @@ class GameplayScene(
         // menu reads its own copies out of composeResources), so the pause menu can be built from
         // the very same art rather than a lookalike drawn in vectors.
         val paperBtnBitmaps = listOf("button1.png", "button2.png", "button3.png", "button4.png")
-            .map { name -> SceneAssets.bitmap(name) }
+            .map { name -> SceneAssets.bitmap(name, minified = false) }
         markLoadProgress()
         // The main menu's briefing sheet (MainMenuScreen.MissionDossierCard). Checked in twice
         // for the same reason the button strips are - Korge reads resources/, the Compose menu
         // reads its own composeResources/ copy, and the two builds share no asset pipeline.
-        val dossierBitmap = SceneAssets.bitmap("dossier_paper.png")
+        val dossierBitmap = SceneAssets.bitmap("dossier_paper.png", minified = false)
+        markLoadProgress()
+        // The store's own gadget art, reused at HUD size, so an item looks in the quick-slot
+        // exactly like it looked on the card that sold it. Order matches `gadgetTypes` below.
+        val gadgetBitmaps = listOf(
+            "gadget_jammer.png", "gadget_darts.png", "gadget_invis.png",
+            "gadget_boots.png", "gadget_prototype.png"
+        ).map { SceneAssets.bitmap(it) }
+        markLoadProgress()
+        // The MISSION SUCCESSFUL card: a desk of case photos with the header already printed on
+        // the sheet, so the results screen draws no title of its own and only fills the blank
+        // paper under it, and the three painted gold stars it awards, which ship as one strip.
+        val successBgBitmap = SceneAssets.bitmap("success3.png", minified = false)
+        markLoadProgress()
+        val starsBitmap = SceneAssets.bitmap("stars.png", minified = false)
+        // Column runs measured off the strip's alpha channel - the three stars are hand-painted
+        // and none of them is the same width as its neighbours, so they are cut individually
+        // rather than into equal thirds, which would clip one and off-centre another.
+        val starSlices = starsBitmap?.let {
+            listOf(
+                it.sliceWithSize(69, 33, 636, 611),
+                it.sliceWithSize(760, 33, 647, 611),
+                it.sliceWithSize(1464, 33, 641, 611)
+            )
+        }
         markLoadProgress()
 
-        dismissLoadingScreen()
+        loadingScreen.dismiss()
 
         // Combined background & midground layer container (parallax rate 0.2x, looping, unzoomed at native screen height)
         val bgmgContainer = container()
@@ -314,8 +269,14 @@ class GameplayScene(
         // roof overhang leans out towards the player's approach.
         if (entranceBitmap != null) {
             val entranceHeight = 135.0
-            val entranceWidth = entranceHeight * (entranceBitmap.width.toDouble() / entranceBitmap.height.toDouble())
-            val entranceY = baseGroundY - entranceHeight
+            // Pinned to entrance.png's authored 531x612 rather than read off the loaded bitmap.
+            // Same value, but the number no longer moves if the file is ever resampled - it used
+            // to be `entranceBitmap.width / entranceBitmap.height`, which quietly made the stored
+            // aspect load-bearing: the exit fence below is positioned at `exitZone.x +
+            // entranceWidth`, so re-encoding this asset would have shifted the extraction point.
+            val entranceWidth = entranceHeight * (531.0 / 612.0)
+            val exitGroundY = world.exitZone.bottom + 1.0
+            val entranceY = exitGroundY - entranceHeight
             cullable(
                 worldView.image(entranceBitmap) {
                     size(entranceWidth, entranceHeight)
@@ -324,11 +285,13 @@ class GameplayScene(
             )
             if (exitFenceBitmap != null) {
                 val exitFenceHeight = 140.0
-                val exitFenceWidth = exitFenceHeight * (exitFenceBitmap.width.toDouble() / exitFenceBitmap.height.toDouble())
+                // Pinned to exitfence.png's authored 1039x466, for the reason given just above.
+                val exitFenceWidth = exitFenceHeight * (1039.0 / 466.0)
+                val exitFenceY = exitGroundY - exitFenceHeight
                 cullable(
                     worldView.image(exitFenceBitmap) {
                         size(exitFenceWidth, exitFenceHeight)
-                    }.xy(world.exitZone.x + entranceWidth, baseGroundY - exitFenceHeight),
+                    }.xy(world.exitZone.x + entranceWidth, exitFenceY),
                     world.exitZone.x + entranceWidth, exitFenceWidth
                 )
             }
@@ -394,11 +357,30 @@ class GameplayScene(
                     size(box.width, box.height + 2.0)
                 }.xy(0.0, 0.0)
             }
-            // 3. Barrels (jump on, walk across, jump off / rescue climb points)
+            // 3. Barrels (jump on, walk across, jump off / rescue climb points). A barrel wall
+            // taller than one barrel (e.g. level 3's stacked climb obstacle) is a single tall
+            // collision/climb box under the hood - see LEVEL_3_LAYOUT's comment - so it's tiled
+            // here in real barrel-height (48) increments from the ground up instead of being
+            // stretched into one distorted image, the same tiling approach used for the hanging
+            // crates' chain above.
             else if (box in world.barrels && barrelBitmap != null) {
-                boxContainer.image(barrelBitmap) {
-                    size(box.width, box.height)
-                }.xy(0.0, 0.0)
+                val barrelTileHeight = 48.0
+                if (box.height <= barrelTileHeight + 0.01) {
+                    boxContainer.image(barrelBitmap) {
+                        size(box.width, box.height)
+                    }.xy(0.0, 0.0)
+                } else {
+                    var remaining = box.height
+                    var tileY = box.height
+                    while (remaining > 0.0) {
+                        val h = minOf(barrelTileHeight, remaining)
+                        tileY -= h
+                        boxContainer.image(barrelBitmap) {
+                            size(box.width, h)
+                        }.xy(0.0, tileY)
+                        remaining -= h
+                    }
+                }
             }
             // 4. Truck (parked next to the small crate, climbed onto en route to the long platform).
             else if (box in world.truckParts && truckBitmap != null) {
@@ -434,6 +416,23 @@ class GameplayScene(
             // 7. Long Structural Platforms and Blocks (Solid blocks with tiny rough edge irregularities)
             else {
                 renderRoughBlock(boxContainer, box.width, box.height, seed = (box.x * 101.0 + box.y).toLong())
+            }
+        }
+
+        // Chain-and-hooks dangling from off-screen above. Both the decorative ones and the ones
+        // the player can swing from draw identically and on purpose - a usable hook is recognised
+        // by where it hangs, the same way a climbable box is recognised by its height, not by a
+        // marker. Neither has a collision box. hook.png is one tall image scaled to each Rect's
+        // own width/height rather than tiled, since there's no crate at the bottom needing a fit.
+        if (hookBitmap != null) {
+            val allHooks = levelData.layout?.let { it.hangingHooks + it.swingHooks }.orEmpty()
+            for (hook in allHooks) {
+                cullable(
+                    worldView.image(hookBitmap) {
+                        size(hook.width, hook.height)
+                    }.xy(hook.x, hook.y),
+                    hook.x, hook.width
+                )
             }
         }
 
@@ -504,6 +503,8 @@ class GameplayScene(
         var jumpPhase = "none"
         var jumpPhaseElapsed = 0.0
         var jumpStartY = world.player.y
+        var dropFromWalk = false
+        var climbExitTimer = 0.0
 
         // Landing absorption: when the player lands while moving, play a brief cushion of the
         // initial touchdown frames (27..28) before handing over to the forward walk stride (frame 5..17).
@@ -590,6 +591,10 @@ class GameplayScene(
         val climbLastFrame = PlayerAnimations.CLIMB_END
         val climbFrameSpan = climbLastFrame - climbFirstFrame
 
+        // Same contract as the climb's: Player.swingPhase picks the frame here, so the pose and
+        // the position it was measured from stay in step.
+        val swingFrameSpan = PlayerAnimations.SWING_END - PlayerAnimations.SWING_START
+
         // One gait cycle covers this much ground; measured off the plate so the feet stay planted.
         val walkCycleDistance = playerVisualHeight * PlayerAnimations.WALK_STRIDE_PER_HEIGHT
         var walkCycleProgress = 0.0
@@ -610,93 +615,6 @@ class GameplayScene(
         // so pausing does not drop the player into a different-looking game.
         val paperInk = Colors["#17140F"]
 
-        // Shared layout columns for every paper button, as fractions of its width. Taken off the
-        // Compose menu's own proportions, where the icon sits about a third in and the label
-        // starts just past it.
-        val ICON_COLUMN = 0.35
-        val LABEL_COLUMN = 0.42
-
-        // A centred strip carries its icon and label as one group in the middle of the button,
-        // rather than on the two shared columns above. Used by the end-of-run cards, whose
-        // buttons sit side by side in a row and are each cut to their own label's width - there
-        // is no column for them to share, and hanging a short label like RETRY off a fixed 35%
-        // column just pushes it into the button's right half.
-        val CENTERED_ICON_WIDTH = 22.0
-        val CENTERED_ICON_GAP = 12.0
-
-        /**
-         * Width a `centered = true` strip needs to hold [label] at [height] without crowding its
-         * torn edges - the label measured for real, plus the icon, its gap and a symmetric inset.
-         *
-         * Measured rather than estimated because Bebas is condensed and its advance widths differ
-         * enough between platforms that a per-character guess would fit on desktop and clip on a
-         * phone. The probe text is added and removed inside this call, so nothing renders.
-         */
-        fun Container.paperMenuBtnWidth(label: String, height: Double): Double {
-            val probe = text(label.uppercase(), textSize = height * 0.44, font = bebasFont, color = paperInk)
-            probe.graphicsRenderer = GraphicsRenderer.GPU
-            val w = probe.width + CENTERED_ICON_WIDTH + CENTERED_ICON_GAP + height * 0.64
-            probe.removeFromParent()
-            return w
-        }
-
-        fun Container.createPaperMenuBtn(
-            label: String,
-            texture: Bitmap?,
-            width: Double,
-            height: Double,
-            x: Double,
-            y: Double,
-            centered: Boolean = false,
-            iconDrawer: ShapeBuilder.() -> Unit,
-            onClick: suspend () -> Unit
-        ): Container {
-            val btn = container().xy(x, y)
-            // The strips are hand-torn, so their edges are part of the art - stretch to fit and
-            // let the irregular edge land where it lands rather than insetting it away.
-            val img = if (texture != null) btn.image(texture) { size(width, height) } else null
-            if (img == null) {
-                btn.uiGraphics().updateShape {
-                    fill(Colors["#F6F4EE"]) { roundRect(0.0, 0.0, width, height, 2.0, 2.0) }
-                }
-            }
-            val iconG = btn.uiGraphics()
-            iconG.updateShape { iconDrawer() }
-            val text = btn.text(label.uppercase(), textSize = height * 0.44, font = bebasFont, color = paperInk)
-            text.graphicsRenderer = GraphicsRenderer.GPU
-
-            // Icon column and text column are fixed fractions of the button width, not centred
-            // per row. Centring each icon+label pair independently makes every row start at a
-            // different x - which is what the labels being different lengths did here - whereas
-            // the menu's buttons hang all four icons and all four labels on two shared columns.
-            if (centered) {
-                val contentW = CENTERED_ICON_WIDTH + CENTERED_ICON_GAP + text.width
-                val contentX = (width - contentW) / 2.0
-                iconG.xy(contentX + CENTERED_ICON_WIDTH / 2.0, height / 2.0)
-                text.xy(contentX + CENTERED_ICON_WIDTH + CENTERED_ICON_GAP, (height - text.height) / 2.0 - 1.0)
-            } else {
-                iconG.xy(width * ICON_COLUMN, height / 2.0)
-                text.xy(width * LABEL_COLUMN, (height - text.height) / 2.0 - 1.0)
-            }
-
-            fun paint(hover: Boolean, down: Boolean) {
-                val tint = when {
-                    down -> Colors["#BFBCB4"]
-                    hover -> Colors["#FFFFFF"]
-                    else -> Colors["#EFEDE6"]
-                }
-                img?.colorMul = tint
-                if (img == null) iconG.alpha = if (down) 0.6 else 1.0
-            }
-            paint(false, false)
-            btn.onOut { paint(false, false) }
-            btn.onOver { paint(true, false) }
-            btn.onDown { paint(true, true); playClick(GameAudio.UI_CLICK_GAIN) }
-            btn.onUp { paint(true, false) }
-            btn.mouse { onClick { onClick() } }
-            return btn
-        }
-
         // ==========================================
         // HEADS-UP LAYER
         // ==========================================
@@ -714,80 +632,120 @@ class GameplayScene(
         // actually looking at you - see guardPips / cameraPips.
         val hudLayer = container()
 
-        // --- Mission toast: names the level, states the objective, then dissolves ----------
-        // levelData.name already carries its own number ("01: Warehouse Infiltration"), so the
-        // old "$id: $name" form printed the level twice. Just the name.
-        val introToast = hudLayer.container().xy(24.0, 20.0)
-        val introScrim = introToast.uiGraphics()
+        // --- Objectives panel: what the run is for, and how it is going --------------------
+        // One block, up for the whole run. It replaces the pair this used to be - a mission toast
+        // that named the level and dissolved, then a one-line objective strip that took over its
+        // corner - because two things that say the same thing at different times is one thing too
+        // many, and neither of them ever said whether the bonus was still alive.
+        //
+        // The markers are the point. An objective still in play is an open circle, one that has
+        // been met is ticked, and one that can no longer be met is crossed - so a player who has
+        // just blown the time bonus is told, rather than finding out on the results card.
+        //
+        // The optional line is the TIME target, not the no-detection one, for a reason worth
+        // recording: being detected ends the run outright (GameWorld sets isGameOver in the same
+        // breath as wasDetected), so a no-detection row could never actually show the cross - it
+        // would be an open circle for every frame the player is ever alive to see it. The clock
+        // is the only optional objective in this game with a live failure state.
+        // No chrome behind or beside any of it: the block is white type and white marks straight
+        // onto the level, and the whole thing sits flush at the 24px HUD inset now that the rule
+        // that used to occupy that gutter is gone. Worth knowing what that costs - the sky in
+        // these levels is bright and the ground is black, light type has to survive both, and
+        // there is nothing left to separate it from either.
+        val objPanel = hudLayer.container().xy(24.0, 20.0)
 
-        val missionTitleLabel = introToast.text(
-            levelData.name.uppercase(), textSize = 22.0, font = bebasFont, color = COLOR_PRIMARY
+        val objTitle = objPanel.text(
+            "OBJECTIVES", textSize = 13.0, font = bebasFont, color = COLOR_PRIMARY
         )
-        missionTitleLabel.graphicsRenderer = GraphicsRenderer.GPU
-        missionTitleLabel.xy(20.0, 8.0)
+        objTitle.graphicsRenderer = GraphicsRenderer.GPU
+        objTitle.xy(0.0, 4.0)
 
-        val objectiveLabel = introToast.text(
-            levelData.objectiveHint.uppercase(), textSize = 12.0, font = bebasFont, color = COLOR_TEXT_LIGHT
+        // Sized up from 11/9.5: the rows are still smaller than the heading, which is what the
+        // hierarchy is for, but 9.5px of condensed type at this canvas scale was legible in a
+        // still and not in motion. Row pitch, the marks and their rings all move with it - a
+        // bigger row on the old 13px pitch would have closed the gap between the two lines.
+        val objMarkX = 7.0
+        val objTextX = 21.0
+        val objRow1Y = 22.0
+        val objRow2Y = 37.0
+        val objMarkR = 5.4
+
+        val objMainText = objPanel.text(
+            levelData.objectiveHint.uppercase(), textSize = 11.0, font = bebasFont, color = COLOR_TEXT_LIGHT
         )
-        objectiveLabel.graphicsRenderer = GraphicsRenderer.GPU
-        objectiveLabel.alpha = 0.78
-        objectiveLabel.xy(20.0, 34.0)
+        objMainText.graphicsRenderer = GraphicsRenderer.GPU
+        objMainText.xy(objTextX, objRow1Y)
 
-        // The level's sky is bright and its ground is black, so neither a light nor a dark type
-        // colour survives on its own. A scrim sized to the text is the only thing that reads on
-        // both, and it costs nothing in permanent chrome because the whole toast dissolves.
-        val introToastW = max(missionTitleLabel.width, objectiveLabel.width) + 36.0
-        introScrim.updateShape {
-            fill(Colors["#05070A"].withAd(0.55)) { roundRect(0.0, 0.0, introToastW, 58.0, 10.0, 10.0) }
-            fill(COLOR_ACCENT_CYAN) { roundRect(9.0, 12.0, 2.5, 34.0, 1.25, 1.25) }
-        }
+        // "(OPTIONAL)" stays its own view, in the same ink as the objective beside it. It is
+        // still a separate view rather than one string because the gap after it is set from its
+        // measured width, and because the qualifier may yet want its own treatment.
+        val objOptTag = objPanel.text(
+            "(OPTIONAL)", textSize = 11.0, font = bebasFont, color = COLOR_TEXT_LIGHT
+        )
+        objOptTag.graphicsRenderer = GraphicsRenderer.GPU
+        objOptTag.xy(objTextX, objRow2Y)
 
-        val introHoldSeconds = 3.0
-        val introFadeSeconds = 1.2
-        var introElapsed = 0.0
-
-        // Once the toast has gone the objective does not go with it. A stealth level runs long
-        // enough that "what am I actually doing here" is a real question several minutes in, and
-        // the answer is one short line - cheap enough to leave up for the whole run. It takes the
-        // toast's own corner, so the block reads as shrinking to its essential line rather than
-        // one element leaving and a different one arriving somewhere else.
-        val objectiveHud = hudLayer.container().xy(24.0, 20.0)
-        val objectiveScrim = objectiveHud.uiGraphics()
-        val objectiveText = objectiveHud.text(
-            "OBJECTIVE: ${levelData.objectiveHint.uppercase()}",
+        val objOptText = objPanel.text(
+            "FINISH UNDER ${clockText(levelData.timeTargetSeconds)}",
             textSize = 11.0, font = bebasFont, color = COLOR_TEXT_LIGHT
         )
-        objectiveText.graphicsRenderer = GraphicsRenderer.GPU
-        objectiveText.xy(21.0, 9.0)
-        val objectiveHudW = objectiveText.width + 34.0
-        objectiveScrim.updateShape {
-            fill(Colors["#05070A"].withAd(0.50)) { roundRect(0.0, 0.0, objectiveHudW, 32.0, 8.0, 8.0) }
-            fill(COLOR_ACCENT_CYAN) { roundRect(9.0, 8.0, 2.5, 16.0, 1.25, 1.25) }
-        }
-        objectiveHud.alpha = 0.0
-        objectiveHud.visible = false
-        val objectiveHudAlpha = 0.85
-        val objectiveFadeInSeconds = 0.6
+        objOptText.graphicsRenderer = GraphicsRenderer.GPU
+        objOptText.xy(objTextX + objOptTag.width + 4.0, objRow2Y)
 
-        // --- Pause: one floating glass button, in the same visual language as the D-pad -----
-        // Top-right corner, opposite the objective strip. It carries a 24px inset off both edges
-        // so it still clears the status bar and a rounded display corner without drifting out of
-        // the corner it belongs in.
+        // Ring and mark are drawn together in one layer per row. All three states are white, so
+        // the shape inside the ring is the only thing carrying the state - an empty ring is still
+        // in play, a tick is met, a cross is gone.
+        //
+        // Every state draws at FULL white. An earlier version dimmed the open ring to half alpha
+        // to mark it as unresolved, which multiplied with the panel's own 0.88 into a 1.3px line
+        // at 0.44 over a bright sky - arithmetically present, visually absent. Nothing here can
+        // afford to be subtle any more: with the plate gone these marks are competing with
+        // whatever the level happens to put behind them.
+        val objMainMark = objPanel.uiGraphics().xy(objMarkX, objRow1Y + 5.2)
+        val objOptMark = objPanel.uiGraphics().xy(objMarkX, objRow2Y + 5.2)
+
+        // 0 open, 1 met, 2 out of reach. Held so the shapes are rebuilt only when a marker
+        // actually changes rather than on every frame, the same guard the powerup dock uses.
+        var objMainState = 0
+        var objOptState = 0
+        fun setObjMark(mark: Graphics, state: Int) {
+            val color = COLOR_PRIMARY
+            mark.updateShape {
+                clear()
+                stroke(color, StrokeInfo(thickness = 1.9)) { circle(Point(0.0, 0.0), objMarkR) }
+                when (state) {
+                    1 -> drawTickIcon(objMarkR * 0.78, color)
+                    2 -> drawCrossIcon(objMarkR * 0.78, color)
+                }
+            }
+        }
+        setObjMark(objMainMark, 0)
+        setObjMark(objOptMark, 0)
+
+        objPanel.alpha = 0.0
+        val objPanelAlpha = 1.0
+        val objPanelFadeSeconds = 0.5
+
+        // --- Pause: two bars, no button around them ---------------------------------------
+        // Top-right corner, opposite the objectives block, and stripped of its glass disc for the
+        // same reason that block lost its plate. The tap target does NOT shrink with the artwork:
+        // a transparent rect the size of the old disc stays underneath, because hit-testing here
+        // is geometric and two 5px bars would otherwise be all there is left to hit.
         val pauseRadius = 21.0
         val pauseBtn = hudLayer.container().xy(canvasW - 24.0 - pauseRadius * 2.0, 20.0)
+        pauseBtn.solidRect(pauseRadius * 2.0, pauseRadius * 2.0, Colors.TRANSPARENT)
         val pauseBg = pauseBtn.uiGraphics()
         fun drawPauseBtn(isHover: Boolean, isDown: Boolean) {
             pauseBg.updateShape {
                 clear()
-                val fillCol = if (isDown || isHover) COLOR_ACCENT_CYAN.withAd(0.32) else Colors["#0A0C10"].withAd(0.55)
-                val strokeCol = if (isDown || isHover) COLOR_ACCENT_CYAN else COLOR_ACCENT_CYAN.withAd(0.45)
-                fill(fillCol) { circle(Point(pauseRadius, pauseRadius), pauseRadius) }
-                stroke(strokeCol, StrokeInfo(thickness = if (isDown) 2.4 else 1.6)) {
-                    circle(Point(pauseRadius, pauseRadius), pauseRadius - 1.0)
+                val barCol = when {
+                    isDown -> COLOR_ACCENT_CYAN
+                    isHover -> Colors.WHITE
+                    else -> Colors.WHITE.withAd(0.92)
                 }
-                fill(Colors.WHITE.withAd(0.92)) {
-                    roundRect(pauseRadius - 6.4, pauseRadius - 7.5, 4.2, 15.0, 1.6, 1.6)
-                    roundRect(pauseRadius + 2.2, pauseRadius - 7.5, 4.2, 15.0, 1.6, 1.6)
+                fill(barCol) {
+                    roundRect(pauseRadius - 7.0, pauseRadius - 8.5, 5.0, 17.0, 1.8, 1.8)
+                    roundRect(pauseRadius + 2.0, pauseRadius - 8.5, 5.0, 17.0, 1.8, 1.8)
                 }
             }
         }
@@ -1075,494 +1033,316 @@ class GameplayScene(
         tutorialLayer.visible = false
 
         // ==========================================
-        // TACTICAL POWERUP QUICK-DOCK (Dynamic Floating)
+        // GADGET QUICK-SLOT
         // ==========================================
-        data class PowerupHudButton(
-            val type: PowerupType,
-            val keyNum: String,
-            val btnContainer: Container,
-            val bg: Graphics,
-            val nameText: Text,
-            val countText: Text,
-            /**
-             * Last drained-underline fraction this chip's [bg] was built with, or null if it has
-             * never been built. The chip's vector shape only changes when the powerup goes
-             * active/inactive or its timer bar moves, but updateShape re-tessellates the rounded
-             * rect, its stroke and the underline every time it is called - so the updater compares
-             * against this and skips the rebuild when the chip would come out identical. -1.0
-             * stands for "inactive", which is a single fixed shape.
-             */
-            var lastDrawnSpan: Double? = null,
-            /**
-             * Inputs the count label was last built from. The label only has three sources - live
-             * or not, the inventory count, and the timer rounded to a tenth - so comparing those
-             * skips both the string build and, more importantly, the `countText.width` read used
-             * to re-centre it, which forces a text bounds measurement. `lastActive` starts null so
-             * the first frame always renders.
-             */
-            var lastActive: Boolean? = null,
-            var lastCount: Int = -1,
-            var lastTenths: Int = -1
+        // One slot, sitting immediately left of pause, in place of the row of chips that used to
+        // run across the bottom of the screen. There are six gadgets in the store now and that
+        // number is still going up; a chip each was 422px of permanent furniture laid across the
+        // bottom-centre, which in a game about reading guard cones is the worst strip of screen
+        // to spend. This slot is the same 42px wide at six gadgets as it would be at twenty.
+        //
+        // The button carries no gadget of its own and no plate under it - just a white bolt on
+        // the level saying "gadgets are here", in the same chrome-free language as the objectives
+        // block and the pause bars.
+        //
+        // It is a one-way reveal, not a toggle. The first tap trades the bolt for the row of what
+        // the player is carrying and the bolt is done for the run; the row then stays put, and
+        // tapping a gadget spends it without closing anything. So the corner costs one icon to a
+        // player who never opens it, and after that it costs exactly what is being carried - and
+        // nobody has to re-open a menu mid-chase to reach the thing they already went looking for
+        // once. The row is NOT modal and has no scrim behind it: it is permanent, and a permanent
+        // full-canvas catcher would swallow every movement input for the rest of the level. Two taps to use something rather than one, which is the price of not having
+        // to choose or remember what is bound to the button before the shooting starts.
+        //
+        // CHECKPOINT is deliberately in neither. It is not fired - it is spent for you by the
+        // caught overlay's RESPAWN button once a run has already ended - so putting it behind a
+        // control that means "tap to use" would misdescribe it.
+        val gadgetTypes = listOf(
+            PowerupType.SMOKE_SCREEN,
+            PowerupType.PHANTOM_CLOAK,
+            PowerupType.INVISIBILITY,
+            PowerupType.NOISE_SUPPRESSION,
+            PowerupType.PROTOTYPE
         )
 
-        val powerupTypes = listOf(
-            PowerupType.SMOKE_SCREEN to "1",
-            PowerupType.PHANTOM_CLOAK to "2",
-            PowerupType.INVISIBILITY to "3",
-            PowerupType.NOISE_SUPPRESSION to "4"
-        )
-
-        // Sized as touch targets first: 62x48 with a 10px gutter clears the 44px minimum on
-        // every axis, which the old 66x38 chips did not. Same glass treatment as the movement
-        // controls so the whole bottom edge reads as one control surface.
-        val powerupBtnW = 62.0
-        val powerupBtnH = 48.0
-        val powerupBtnGap = 10.0
-        val powerupBtnRadius = 14.0
-        val totalPowerupWidth = powerupTypes.size * powerupBtnW + (powerupTypes.size - 1) * powerupBtnGap
-        val startPowerupX = (canvasW - totalPowerupWidth) / 2.0
-        // Same bottom inset as the movement pad, so the dock and the D-pad sit on one line and
-        // neither reaches into the home-indicator strip (the old y left 14px of clearance).
-        val powerupBtnY = canvasH - bottomInset - powerupBtnH
+        // 42x42 matches the pause button's box exactly, and with only a 4px gutter left between
+        // them the pair reads as one top-right cluster rather than two separate controls. The
+        // boxes no longer have gutter to count as touch slop, so each is exactly its own 42 -
+        // the same target pause has always had on its own.
+        val slotSize = 42.0
+        val slotIconSize = 30.0
+        val slotGap = 4.0
+        val slotX = canvasW - 24.0 - pauseRadius * 2.0 - slotGap - slotSize
+        val slotY = 20.0
+        val trayExpandSeconds = 0.17
 
         fun tryActivatePowerup(type: PowerupType) {
             if (world.isLevelComplete || world.isGameOver || isPaused) return
             if (profileStorage.consumePowerup(type)) {
                 world.activatePowerup(type)
-                // The HUD chips read the per-frame cache, and this can fire from a key press
-                // earlier in the same frame, so re-read rather than show a stale count for a tick.
+                // The slot reads the per-frame cache, and this can fire from a key press earlier
+                // in the same frame, so re-read rather than show a stale count for a tick.
                 refreshProfile()
             }
         }
 
-        val powerupDockContainer = controlsContainer.container().xy(0.0, 0.0)
-        powerupDockContainer.visible = false
+        val gadgetLayer = controlsContainer.container()
 
-        val powerupHudButtons = powerupTypes.mapIndexed { index, (type, keyNum) ->
-            val bx = startPowerupX + index * (powerupBtnW + powerupBtnGap)
-            val btnCont = powerupDockContainer.container().xy(bx, powerupBtnY)
-            val bg = btnCont.uiGraphics()
+        // --- The row -----------------------------------------------------------------------
+        var gadgetsShown = false
+        var trayExpand = 0.0
+        // Which gadgets the row was last built for, as a bitmask. Stock runs out during a level,
+        // so the row has to re-pack when it does - but only then, not every frame.
+        var trayBuiltFor = -1
+        val gadgetTray = gadgetLayer.container()
+        gadgetTray.visible = false
 
-            val nameTxt = btnCont.text(type.shortName, textSize = 10.0, font = bebasFont, color = COLOR_TEXT_MUTED)
-            nameTxt.graphicsRenderer = GraphicsRenderer.GPU
-            nameTxt.xy((powerupBtnW - nameTxt.width) / 2.0, 7.0)
+        class TrayEntry(
+            val type: PowerupType,
+            val box: Container,
+            val count: Text,
+            val frame: Graphics,
+            /** Where this entry sits once the tray has finished expanding. */
+            var restX: Double = 0.0,
+            var lastLabel: String = "",
+            var lastLive: Boolean? = null
+        )
 
-            val countTxt = btnCont.text("x0", textSize = 17.0, font = bebasFont, color = COLOR_BORDER_GOLD)
-            countTxt.graphicsRenderer = GraphicsRenderer.GPU
-            countTxt.xy((powerupBtnW - countTxt.width) / 2.0, 22.0)
-
-            btnCont.mouse {
+        // The art is fixed per entry and scaled exactly once, at construction. It is NOT one
+        // sprite that swaps its bitmap, because View.size() multiplies the existing scale by
+        // (requested / current local bounds) rather than setting it outright - so a swapping
+        // sprite compounds its own scale every time, which is how the first cut of this ended up
+        // drawing 512px gadget art across the whole corner. Setting `scale` from the bitmap's own
+        // width says what is meant and cannot compound.
+        val trayEntries = gadgetTypes.mapIndexed { i, type ->
+            val box = gadgetTray.container()
+            box.solidRect(slotSize, slotSize, Colors.TRANSPARENT)
+            val frame = box.uiGraphics()
+            gadgetBitmaps[i]?.let { bmp ->
+                box.image(bmp).also {
+                    it.scale = slotIconSize / bmp.width.toDouble()
+                    it.xy((slotSize - slotIconSize) / 2.0, 2.0)
+                }
+            }
+            val count = box.text("", textSize = 12.5, font = bebasFont, color = COLOR_BORDER_GOLD)
+            count.graphicsRenderer = GraphicsRenderer.GPU
+            box.visible = false
+            box.mouse {
                 onClick {
                     playClick(GameAudio.UI_CLICK_GAIN)
                     tryActivatePowerup(type)
                 }
             }
-
-            PowerupHudButton(type, keyNum, btnCont, bg, nameTxt, countTxt)
+            TrayEntry(type, box, count, frame)
         }
 
-        // ==========================================
-        // 1. PAUSE OVERLAY (Heist Dossier - matches the main menu)
-        // ==========================================
-        // Rebuilt to the main menu's look: near-black ground, a stacked lockup of heavy Bebas
-        // caps over a hairline rule, and torn-paper buttons with ink labels. The old card - cyan
-        // hairline border, "SYSTEM PAUSED // PROTOCOL FROZEN" badge, dark pill buttons - was
-        // from the earlier tactical-HUD theme that the menu has since moved off.
-        val pauseOverlay = container()
-        pauseOverlay.solidRect(canvasW, canvasH, Colors["#07080A"].withAd(0.92))
-
-        val pauseBtnW = 300.0
-        val pauseBtnH = 52.0
-        val pauseBtnGap = 14.0
-        val pauseBlockH = 52.0 + 8.0 + 18.0 + 30.0 + 3 * pauseBtnH + 2 * pauseBtnGap
-        val pauseBlockTop = (canvasH - pauseBlockH) / 2.0
-        val pauseBtnX = (canvasW - pauseBtnW) / 2.0
-
-        val pauseTitle = pauseOverlay.text("PAUSED", textSize = 52.0, font = bebasFont, color = Colors["#F6F4EE"])
-        pauseTitle.graphicsRenderer = GraphicsRenderer.GPU
-        pauseTitle.xy((canvasW - pauseTitle.width) / 2.0, pauseBlockTop)
-
-        // Mission name directly under the title, no rule between them - the title is already
-        // separated from the subtitle by weight and size, and the hairline only added a seam.
-        val pauseSubtitle = pauseOverlay.text(
-            levelData.name.uppercase(), textSize = 14.0, font = bebasFont, color = COLOR_TEXT_MUTED
-        )
-        pauseSubtitle.graphicsRenderer = GraphicsRenderer.GPU
-        pauseSubtitle.xy((canvasW - pauseSubtitle.width) / 2.0, pauseBlockTop + 62.0)
-
-        val pauseBtnY0 = pauseBlockTop + 52.0 + 8.0 + 18.0 + 30.0
-
-        pauseOverlay.createPaperMenuBtn(
-            "RESUME", paperBtnBitmaps[0], pauseBtnW, pauseBtnH, pauseBtnX, pauseBtnY0,
-            iconDrawer = { drawPlayIcon(false) }
-        ) {
-            isPaused = false
-            pauseOverlay.visible = false
+        // Laid out right-to-left from the slot, so the tray unrolls into the empty top-centre
+        // band rather than over the objectives block in the opposite corner. Five carried
+        // gadgets come to 242px and stop well short of it.
+        // A gadget that is live but out of stock still gets a place, so an effect that is
+        // running is never absent from the only screen that reports it.
+        fun trayOwned(): List<PowerupType> = gadgetTypes.filter {
+            cachedProfile.getPowerupCount(it) > 0 || world.activePowerups.isActive(it)
         }
 
-        pauseOverlay.createPaperMenuBtn(
-            "RESTART", paperBtnBitmaps[1], pauseBtnW, pauseBtnH, pauseBtnX, pauseBtnY0 + pauseBtnH + pauseBtnGap,
-            iconDrawer = { drawRestartIcon(paperInk) }
-        ) {
-            bgMusicChannel?.stop()
-            bgMusicChannel = null
-            sceneContainer.changeTo { GameplayScene(levelData) }
-        }
-
-        pauseOverlay.createPaperMenuBtn(
-            "QUIT", paperBtnBitmaps[2], pauseBtnW, pauseBtnH, pauseBtnX, pauseBtnY0 + 2 * (pauseBtnH + pauseBtnGap),
-            iconDrawer = { drawQuitIcon(false) }
-        ) {
-            bgMusicChannel?.stop()
-            bgMusicChannel = null
-            getLevelExitBridge().requestReturnToMenu()
-            sceneContainer.changeTo { GameplayScene(levelData) }
-        }
-
-        pauseOverlay.visible = false
-
-        // ==========================================
-        // 2 & 3. END-OF-RUN DOSSIER SHEETS (MISSION FAILED / HEIST COMPLETE)
-        // ==========================================
-        // Both end-of-run screens are one design with two fills of content, and that design is
-        // the main menu's briefing sheet: the torn `dossier_paper.png` with the debrief printed
-        // on it in ink, a rubber stamp for the verdict, and the menu's own torn-paper strips as
-        // the actions - stacked in a column to the left of the sheet, which is the main menu's
-        // whole composition (button column left, dossier sheet right).
-        //
-        // An earlier pass built these as dark #141416 cards with hairline borders and coin pills,
-        // borrowed from the Compose store/missions screens. Those screens are real, but they are
-        // the game's *chrome*; the sheet is its *identity*, and a heist debrief is exactly the
-        // thing that belongs on paper. Don't reintroduce dark panels, hairline strokes or the
-        // coin pill here - on a page they read as a different app pasted over the game.
-        //
-        // Every ink value below is MainMenuScreen.MissionDossierCard's, including the sheet's
-        // 1.5 aspect (never stretch it on one axis - that pulls the torn edge), its content
-        // insets as fractions of the sheet, and the -5.2 degree tilt that squares the type to the
-        // paper rather than to the screen. See that file's own comments for how each was measured.
-        val resScrim = Colors["#07080A"].withAd(0.92)
-
-        val inkStrong = Colors["#17140F"]
-        val inkBody = Colors["#17140F"].withAd(0.78)
-        val inkFaint = Colors["#17140F"].withAd(0.55)
-        val inkRuleColor = Colors["#17140F"].withAd(0.34)
-        // Aged gold and stamp inks, not the menu's neon accents: #FFD700 and #00E676 are tuned to
-        // glow on a near-black panel and read as highlighter on paper. These are pigments.
-        val inkGold = Colors["#A8781A"]
-        val stampRed = Colors["#96222A"]
-        val stampGreen = Colors["#25603A"]
-
-        val DOSSIER_ASPECT = 1.5
-        val DOSSIER_TILT = (-5.2).degrees
-
-        // Sheet as tall as the canvas allows, button column beside it, the pair centred. S is the
-        // one knob: if the two together overrun a narrow canvas the whole group shrinks, so the
-        // sheet keeps its aspect and the type keeps its proportions instead of the columns
-        // colliding. It is 1.0 on the 1040x480 canvas main.kt and MainActivity both use.
-        val sheetH0 = min(416.0, canvasH - 48.0)
-        val sheetW0 = sheetH0 * DOSSIER_ASPECT
-        val resBtnW0 = 300.0
-        val resBtnH0 = 52.0
-        val resBtnGap0 = 14.0
-        val resColGap0 = 44.0
-        val S = min(1.0, (canvasW - 56.0) / (resBtnW0 + resColGap0 + sheetW0))
-
-        val sheetH = sheetH0 * S
-        val sheetW = sheetW0 * S
-        val resBtnW = resBtnW0 * S
-        val resBtnH = resBtnH0 * S
-        val resBtnGap = resBtnGap0 * S
-        val resGroupW = resBtnW + resColGap0 * S + sheetW
-        val resGroupX = (canvasW - resGroupW) / 2.0
-        val sheetX = resGroupX + resBtnW + resColGap0 * S
-        val sheetY = (canvasH - sheetH) / 2.0
-
-        // The block of paper the type may actually sit on, as fractions of the sheet. Measured on
-        // the artwork in MissionDossierCard - the left inset is the widest because the number
-        // rides the folder tab, and the foot is deepest because the tilt drops the last line.
-        val docX = sheetW * 0.15
-        val docW = sheetW * 0.76
-        val docY = sheetH * 0.055
-        val docH = sheetH * 0.805
-        // Ink coordinates are relative to the block, but the tilted layer pivots on the sheet's
-        // centre (Korge rotates about a view's own origin, so the layer is placed there and its
-        // children carry the offset) - these two convert one to the other.
-        fun dpx(x: Double): Double = docX + x * S - sheetW / 2.0
-        fun dpy(y: Double): Double = docY + y * S - sheetH / 2.0
-
-        /** Sheet artwork plus the tilted ink layer everything else is drawn into. */
-        fun Container.createDossierSheet(): Container {
-            val sheet = container().xy(sheetX, sheetY)
-            if (dossierBitmap != null) {
-                sheet.image(dossierBitmap) { size(sheetW, sheetH) }
-            } else {
-                sheet.uiGraphics().updateShape {
-                    fill(Colors["#D8D2C4"]) { rect(0.0, 0.0, sheetW, sheetH) }
-                }
-            }
-            val ink = sheet.container().xy(sheetW / 2.0, sheetH / 2.0)
-            ink.rotation = DOSSIER_TILT
-            return ink
-        }
-
-        fun Container.inkText(
-            value: String, size: Double, color: RGBA, x: Double, y: Double,
-            font: Font = bebasFont
-        ): Text {
-            val t = text(value, textSize = size * S, font = font, color = color)
-            t.graphicsRenderer = GraphicsRenderer.GPU
-            t.xy(dpx(x), dpy(y))
-            return t
-        }
+        fun traySignature(owned: List<PowerupType>): Int =
+            owned.fold(0) { acc, t -> acc or (1 shl gadgetTypes.indexOf(t)) }
 
         /**
-         * A printed rule across the form. [dashedTail] breaks the last stretch into three ticks,
-         * the way the sheet's upper rule does on the main menu - it stops short of the paperclip
-         * painted into the artwork's top-right corner rather than running under it.
+         * Positions the row. [animate] is true only for the reveal itself, where every entry
+         * starts stacked under the bolt and travels out - so the expansion reads as that one icon
+         * becoming several. Every later call is a re-pack after something ran out, and those
+         * place the entries directly: replaying the unfold each time a gadget was spent would
+         * turn a routine layout change into an animation the player has to wait through.
          */
-        fun Container.inkRule(y: Double, fromX: Double, toX: Double, dashedTail: Boolean = false) {
-            uiGraphics().updateShape {
-                val yy = dpy(y)
-                val weight = 1.6 * S
-                if (!dashedTail) {
-                    fill(inkRuleColor) { rect(dpx(fromX), yy, (toX - fromX) * S, weight) }
-                } else {
-                    val solidTo = toX - 54.0
-                    fill(inkRuleColor) {
-                        rect(dpx(fromX), yy, (solidTo - fromX) * S, weight)
-                        for (i in 0 until 3) rect(dpx(solidTo + 6.0 + i * 16.0), yy, 10.0 * S, weight)
+        fun layoutTray(animate: Boolean) {
+            val owned = trayOwned()
+            trayBuiltFor = traySignature(owned)
+            // The row ends ON the button's own square rather than beside it - the last entry lands
+            // exactly where the bolt was, since the bolt is gone by then.
+            val startX = slotX - (owned.size - 1) * (slotSize + slotGap)
+            for (entry in trayEntries) {
+                val rank = owned.indexOf(entry.type)
+                entry.box.visible = rank >= 0
+                if (rank < 0) continue
+                entry.restX = startX + rank * (slotSize + slotGap)
+                entry.box.xy(if (animate) slotX else entry.restX, slotY)
+                entry.box.alpha = if (animate) 0.0 else 1.0
+                entry.lastLabel = ""
+                entry.lastLive = null
+                entry.frame.updateShape {
+                    clear()
+                    fill(Colors["#05070A"].withAd(0.62)) {
+                        roundRect(0.0, 0.0, slotSize, slotSize, 9.0, 9.0)
+                    }
+                    stroke(COLOR_PRIMARY.withAd(0.34), StrokeInfo(thickness = 1.3)) {
+                        roundRect(0.95, 0.95, slotSize - 1.9, slotSize - 1.9, 8.5, 8.5)
                     }
                 }
             }
         }
 
-        /**
-         * A filled-in field: the printed label with the answer written under it, both left-aligned
-         * on the same x. Returns the setter, since every answer here is only known once the run
-         * ends.
-         *
-         * Stacked, rather than the label-left / value-flush-right row with dot leaders this
-         * started as. The sheet is tilted 5.2 degrees, which lifts anything to the right of the
-         * label by tan(5.2) per unit - across a column wide enough to hold a form row that is
-         * nearly a full row of rise, and the value ends up sitting beside the label ABOVE it and
-         * reading as that line's answer. Confirmed on screen, not predicted. Stacking puts label
-         * and value on one x, so the tilt carries the pair together and the reading is safe at any
-         * tilt. Anything that spans the sheet horizontally has the same problem - keep new fields
-         * stacked.
-         */
-        fun Container.inkField(x: Double, y: Double, label: String): (String, RGBA) -> Unit {
-            inkText(label, 11.0, inkFaint, x, y)
-            val valueText = text("", textSize = 17.0 * S, font = bebasFont, color = inkStrong)
-            valueText.graphicsRenderer = GraphicsRenderer.GPU
-            return { value, color ->
-                valueText.text = value
-                valueText.color = color
-                valueText.xy(dpx(x), dpy(y + 13.0))
+        // Runs every frame the row is up, because a live gadget's countdown is shown here.
+        // Guarded on the rendered string so the text bounds read that re-centres it only happens
+        // ten times a second rather than sixty.
+        fun refreshTrayLabels() {
+            for (entry in trayEntries) {
+                if (!entry.box.visible) continue
+                val live = world.activePowerups.isActive(entry.type)
+                val rem = world.activePowerups.getRemainingTime(entry.type)
+                val label = when {
+                    live && entry.type.isLevelDuration -> "ON"
+                    live -> "${(rem * 10).toInt() / 10.0}s"
+                    else -> "${cachedProfile.getPowerupCount(entry.type)}"
+                }
+                if (entry.lastLabel == label && entry.lastLive == live) continue
+                entry.lastLabel = label
+                entry.lastLive = live
+                entry.count.text = label
+                entry.count.color = if (live) COLOR_BORDER_GREEN else COLOR_BORDER_GOLD
+                entry.count.xy(slotSize - entry.count.width - 3.0, slotSize - 15.0)
             }
         }
 
-        /**
-         * The verdict, as a rubber stamp slapped across the form at its own angle.
-         *
-         * Returns the second line inside the stamp, empty until a caller fills it - the win
-         * sheet's rating goes there rather than under the stamp, where it was landing on the
-         * stamp's own bottom edge on one side and the rule below it on the other. A stamp's
-         * corners swing well past half its width at this angle, so leave it room.
-         */
-        fun Container.inkStamp(
-            cx: Double, cy: Double, w: Double, h: Double, label: String, color: RGBA,
-            hasSubLine: Boolean = false
-        ): Text {
-            val stamp = container().xy(dpx(cx), dpy(cy))
-            stamp.rotation = (-10.0).degrees
-            // Not quite opaque: stamp ink sits on the paper's tooth, it does not cover it.
-            stamp.alpha = 0.82
-            val halfW = w * S / 2.0
-            val halfH = h * S / 2.0
-            stamp.uiGraphics().updateShape {
-                // Heavy outer band with a hairline inside it - a rubber stamp's border is a wide
-                // ring of ink, and a single thin rectangle reads as a UI box drawn on the page.
-                stroke(color, StrokeInfo(thickness = 6.0 * S)) { rect(-halfW, -halfH, w * S, h * S) }
-                stroke(color, StrokeInfo(thickness = 1.2 * S)) {
-                    rect(-halfW + 7.0 * S, -halfH + 7.0 * S, w * S - 14.0 * S, h * S - 14.0 * S)
+        fun revealGadgets() {
+            refreshProfile()
+            layoutTray(animate = true)
+            refreshTrayLabels()
+            gadgetsShown = true
+            trayExpand = 0.0
+            gadgetTray.visible = true
+        }
+
+        // --- The slot ----------------------------------------------------------------------
+        val gadgetSlot = gadgetLayer.container().xy(slotX, slotY)
+        // The transparent rect is the whole tap target now that there is no plate to hit. Without
+        // it the button would be a 20x23 bolt with holes in it, since hit-testing here is
+        // geometric - the same allowance the pause bars were given when their disc came off.
+        gadgetSlot.solidRect(slotSize, slotSize, Colors.TRANSPARENT)
+        // The drain bar for a live gadget, and nothing else. It sits under the bolt rather than
+        // around it because there is no longer a frame to run it along.
+        val slotDrain = gadgetSlot.uiGraphics()
+        // Centred in the box on both axes, exactly like the pause bars, so the two icons sit on
+        // one line.
+        val slotIcon = gadgetSlot.uiGraphics().xy(slotSize / 2.0, slotSize / 2.0)
+
+        gadgetSlot.singleTouch {
+            start { slotIcon.alpha = 0.55 }
+            end {
+                slotIcon.alpha = 1.0
+                if (!gadgetsShown) {
+                    playClick(GameAudio.UI_CLICK_GAIN)
+                    revealGadgets()
                 }
             }
-            val t = stamp.text(label, textSize = 20.0 * S, font = bebasFont, color = color)
-            t.graphicsRenderer = GraphicsRenderer.GPU
-            // Only lifted off centre when a second line is actually going to be written under
-            // it - a lone label riding high in the box reads as a mis-centred box, not a stamp.
-            t.xy(-t.width / 2.0, -t.height / 2.0 - if (hasSubLine) 8.0 * S else 0.0)
-            val subLine = stamp.text("", textSize = 13.0 * S, font = bebasFont, color = color)
-            subLine.graphicsRenderer = GraphicsRenderer.GPU
-            return subLine
+            endAnywhere { slotIcon.alpha = 1.0 }
         }
+
+        // Redraw guards. The bolt only changes colour when something goes live or expires; the
+        // drain bar only when its fraction has moved a visible step. updateShape re-tessellates
+        // everything it is handed, so neither runs on a frame where it would come out identical.
+        var slotLastSpan = -2.0
+        var slotLastLive: Boolean? = null
+
+        val gadgetKeys = listOf(Key.N1, Key.N2, Key.N3, Key.N4, Key.N5)
+
+        // ==========================================
+        // 1. PAUSE OVERLAY (Heist Dossier - matches the main menu)
+        // ==========================================
+        val pauseOverlay = setupPauseOverlay(
+            canvasW = canvasW,
+            canvasH = canvasH,
+            levelName = levelData.name,
+            bebasFont = bebasFont,
+            paperBtnBitmaps = paperBtnBitmaps,
+            paperInk = paperInk,
+            playClick = playClick,
+            onResume = {
+                isPaused = false
+            },
+            onRestart = {
+                bgMusicChannel?.stop()
+                bgMusicChannel = null
+                sceneContainer.changeTo { GameplayScene(levelData) }
+            },
+            onQuit = {
+                bgMusicChannel?.stop()
+                bgMusicChannel = null
+                getLevelExitBridge().requestReturnToMenu()
+                sceneContainer.changeTo { GameplayScene(levelData) }
+            }
+        )
 
         val allLevels = LevelData.DEFAULT_LEVELS
         val currentLevelIndex = allLevels.indexOfFirst { it.id == levelData.id }
         val nextLevel = if (currentLevelIndex >= 0 && currentLevelIndex + 1 < allLevels.size) allLevels[currentLevelIndex + 1] else null
 
-        val missionFileNo = (Regex("^(\\d+)").find(levelData.name)?.groupValues?.get(1)
-            ?: levelData.id.filter { it.isDigit() }.ifEmpty { "1" }).padStart(2, '0')
-        val missionTitleText = levelData.name.replaceFirst(Regex("^\\d+:\\s*"), "").uppercase()
-
-        fun secondsText(t: Float): String = "${(t * 10).toInt() / 10.0}S"
-
-        /** The sheet's masthead: file number, ruled tail, chapter, section title, ruled foot. */
-        fun Container.inkMasthead(sectionTitle: String) {
-            inkText(missionFileNo, 26.0, inkStrong, 0.0, 0.0)
-            inkRule(34.0, 0.0, docW / S * 0.95, dashedTail = true)
-            inkText(missionTitleText, 12.0, inkFaint, 0.0, 44.0)
-            inkText(sectionTitle, 26.0, inkStrong, 0.0, 60.0)
-            inkRule(96.0, 0.0, docW / S)
-        }
-
-        // The button strips are the pause menu's, at the same 300x52 and on the same two shared
-        // icon/label columns - a stack of actions is a solved problem in this game and this is
-        // that same stack, not a new one.
-        val resBtnBlockH = 3.0 * resBtnH + 2.0 * resBtnGap
-        val resBtnY0 = (canvasH - resBtnBlockH) / 2.0
-
-        // ------------------------------------------------------------------
-        // MISSION FAILED
-        // ------------------------------------------------------------------
-        // The form carries the debrief this screen never gave - what happened, how many times,
-        // how long the run lasted, the standing record and the purse - with the verdict stamped
-        // beside it. The recon tip keeps its original wording and moves into the margin in the
-        // handwritten face, where a pencilled note belongs. Lines are hand-wrapped: Korge's Text
-        // does not wrap.
-        val caughtOverlay = container()
-        caughtOverlay.solidRect(canvasW, canvasH, resScrim)
-
-        val caughtInk = caughtOverlay.createDossierSheet()
-        caughtInk.inkMasthead("SITUATION REPORT")
-
-        // Two columns of fields down the left of the form, the verdict stamped in the space to
-        // their right. 137 is half the 0.58 of the page the fields get; the rest is the stamp's.
-        val fieldCol = docW / S * 0.29
-        val setCaughtStatus = caughtInk.inkField(0.0, 108.0, "OPERATIVE STATUS")
-        val setCaughtAlerts = caughtInk.inkField(fieldCol, 108.0, "ALERTS RAISED")
-        val setCaughtTime = caughtInk.inkField(0.0, 150.0, "TIME ELAPSED")
-        val setCaughtRecord = caughtInk.inkField(fieldCol, 150.0, "MISSION RECORD")
-        val setCaughtCoins = caughtInk.inkField(0.0, 192.0, "COINS ON HAND")
-
-        caughtInk.inkStamp(docW / S - 104.0, 160.0, 176.0, 68.0, "MISSION FAILED", stampRed)
-
-        caughtInk.inkRule(236.0, 0.0, docW / S)
-        caughtInk.inkText("Recon notes", 16.0, inkFaint, 0.0, 246.0, font = handwrittenFont)
-        val caughtTips = listOf(
-            "Crouch-walk to eliminate movement noise.",
-            "Stay out of guard vision cones and use shipping crates as cover.",
-            "Powerups sit on the HUD - one tap spends one."
-        )
-        for ((i, line) in caughtTips.withIndex()) {
-            caughtInk.inkText(line, 14.0, inkBody, 8.0, 268.0 + i * 18.0, font = handwrittenFont)
-        }
-
-        // Watch a rewarded ad to continue the same run. Only requests the ad here - the actual
-        // restart happens in the update loop below, gated on the bridge reporting the ad was
-        // genuinely watched, so a failed/declined ad just leaves the other two strips usable
-        // instead of stranding the player. See .junie/guidelines.md "AdMob (basic-ads)
-        // feasibility spike" and src/ContinueAdBridge.kt.
-        caughtOverlay.createPaperMenuBtn(
-            "CONTINUE (WATCH AD)", paperBtnBitmaps[0], resBtnW, resBtnH, resGroupX, resBtnY0,
-            iconDrawer = { drawPlayIcon(false) }
-        ) {
-            getContinueAdBridge().requestContinueAd()
-            getAnalyticsBridge().track("watch_ad_continue_requested", mapOf("level_id" to levelData.id))
-        }
-
-        caughtOverlay.createPaperMenuBtn(
-            "RETRY INFILTRATION", paperBtnBitmaps[1], resBtnW, resBtnH, resGroupX, resBtnY0 + resBtnH + resBtnGap,
-            iconDrawer = { drawRestartIcon(paperInk) }
-        ) {
-            bgMusicChannel?.stop()
-            bgMusicChannel = null
-            sceneContainer.changeTo { GameplayScene(levelData) }
-        }
-
-        caughtOverlay.createPaperMenuBtn(
-            "RETURN TO MENU", paperBtnBitmaps[2], resBtnW, resBtnH, resGroupX, resBtnY0 + 2.0 * (resBtnH + resBtnGap),
-            iconDrawer = { drawQuitIcon(false) }
-        ) {
-            bgMusicChannel?.stop()
-            bgMusicChannel = null
-            getLevelExitBridge().requestReturnToMenu()
-            sceneContainer.changeTo { GameplayScene(levelData) }
-        }
-
-        caughtOverlay.visible = false
-
-        // ------------------------------------------------------------------
-        // HEIST COMPLETE
-        // ------------------------------------------------------------------
-        // Same form, filled in for a clean run: the three stars struck at the head of the column,
-        // a line per objective saying whether it was earned and why not, the verdict stamped
-        // beside them, and the purse written out along the foot.
-        val winContainer = container()
-        winContainer.solidRect(canvasW, canvasH, resScrim)
-
-        val winInk = winContainer.createDossierSheet()
-        winInk.inkMasthead("OBJECTIVE REVIEW")
-
-        // Stars struck at the head of the column, the three objectives as fields under them, the
-        // verdict stamped alongside with the rating written beneath it.
-        val winStarsGraphics = winInk.uiGraphics()
-        val winStarsCy = 134.0
-        val objCol = docW / S * 0.195
-        val setWinStar1 = winInk.inkField(0.0, 178.0, "EXTRACTION")
-        val setWinStar2 = winInk.inkField(objCol, 178.0, "UNDETECTED")
-        val setWinStar3 = winInk.inkField(objCol * 2.0, 178.0, "FAST (${levelData.timeTargetSeconds.toInt()}S)")
-
-        val winRating = winInk.inkStamp(docW / S - 104.0, 156.0, 176.0, 68.0, "HEIST COMPLETE", stampGreen, hasSubLine = true)
-
-        winInk.inkRule(236.0, 0.0, docW / S)
-        winInk.inkText("Bounty banked", 16.0, inkFaint, 0.0, 246.0, font = handwrittenFont)
-        val winBountyAmount = winInk.inkText("", 32.0, inkGold, 0.0, 266.0)
-        val winBountyCaption = winInk.inkText("", 12.0, inkBody, 0.0, 282.0)
-        val winMultiplier = winInk.inkText("", 14.0, inkFaint, 0.0, 300.0, font = handwrittenFont)
-        val setWinTime = winInk.inkField(objCol * 2.0, 252.0, "RUN TIME")
-        val setWinAlerts = winInk.inkField(objCol * 3.0, 252.0, "ALERTS")
-        val setWinRecord = winInk.inkField(objCol * 2.0, 294.0, "OPERATIVE RECORD")
-
-        winContainer.createPaperMenuBtn(
-            if (nextLevel != null) "NEXT MISSION" else "ALL CLEAR!",
-            paperBtnBitmaps[0], resBtnW, resBtnH, resGroupX, resBtnY0,
-            iconDrawer = { drawPlayIcon(false) }
-        ) {
-            bgMusicChannel?.stop()
-            bgMusicChannel = null
-            if (nextLevel != null) {
-                sceneContainer.changeTo { GameplayScene(nextLevel) }
-            } else {
-                // Lands on the menu's default screen (MainMenu), not Missions specifically -
-                // NavigationRoot remounts fresh every time gameplay hides it, so there is
-                // currently no way to tell it which screen to come back to. See
-                // getLevelExitBridge()'s doc comment.
+        // ==========================================
+        // 2. END-OF-RUN DOSSIER SHEET (MISSION FAILED)
+        // ==========================================
+        val caughtOverlay = setupCaughtOverlay(
+            canvasW = canvasW,
+            canvasH = canvasH,
+            dossierBitmap = dossierBitmap,
+            bebasFont = bebasFont,
+            handwrittenFont = handwrittenFont,
+            paperBtnBitmaps = paperBtnBitmaps,
+            levelData = levelData,
+            paperInk = paperInk,
+            playClick = playClick,
+            onRequestContinueAd = {
+                getContinueAdBridge().requestContinueAd()
+                getAnalyticsBridge().track("watch_ad_continue_requested", mapOf("level_id" to levelData.id))
+            },
+            onRetry = {
+                bgMusicChannel?.stop()
+                bgMusicChannel = null
+                sceneContainer.changeTo { GameplayScene(levelData) }
+            },
+            onReturnToMenu = {
+                bgMusicChannel?.stop()
+                bgMusicChannel = null
                 getLevelExitBridge().requestReturnToMenu()
                 sceneContainer.changeTo { GameplayScene(levelData) }
             }
-        }
+        )
 
-        winContainer.createPaperMenuBtn(
-            "RETRY", paperBtnBitmaps[1], resBtnW, resBtnH, resGroupX, resBtnY0 + resBtnH + resBtnGap,
-            iconDrawer = { drawRestartIcon(paperInk) }
-        ) {
-            bgMusicChannel?.stop()
-            bgMusicChannel = null
-            sceneContainer.changeTo { GameplayScene(levelData) }
-        }
-
-        winContainer.createPaperMenuBtn(
-            "MAIN MENU", paperBtnBitmaps[2], resBtnW, resBtnH, resGroupX, resBtnY0 + 2.0 * (resBtnH + resBtnGap),
-            iconDrawer = { drawQuitIcon(false) }
-        ) {
-            bgMusicChannel?.stop()
-            bgMusicChannel = null
-            getLevelExitBridge().requestReturnToMenu()
-            sceneContainer.changeTo { GameplayScene(levelData) }
-        }
-
-        winContainer.visible = false
+        // ==========================================
+        // 3. MISSION SUCCESSFUL OVERLAY
+        // ==========================================
+        val winOverlay = setupWinOverlay(
+            canvasW = canvasW,
+            canvasH = canvasH,
+            successBgBitmap = successBgBitmap,
+            starSlices = starSlices,
+            paperBtnBitmaps = paperBtnBitmaps,
+            bebasFont = bebasFont,
+            levelData = levelData,
+            nextLevel = nextLevel,
+            paperInk = paperInk,
+            playClick = playClick,
+            onRetry = {
+                bgMusicChannel?.stop()
+                bgMusicChannel = null
+                sceneContainer.changeTo { GameplayScene(levelData) }
+            },
+            onReturnToMenu = {
+                bgMusicChannel?.stop()
+                bgMusicChannel = null
+                getLevelExitBridge().requestReturnToMenu()
+                sceneContainer.changeTo { GameplayScene(levelData) }
+            },
+            onNextMission = {
+                bgMusicChannel?.stop()
+                bgMusicChannel = null
+                if (nextLevel != null) {
+                    sceneContainer.changeTo { GameplayScene(nextLevel) }
+                } else {
+                    getLevelExitBridge().requestReturnToMenu()
+                    sceneContainer.changeTo { GameplayScene(levelData) }
+                }
+            }
+        )
 
         world.onLevelComplete = {
             val result = world.getLevelResult()
@@ -1572,7 +1352,6 @@ class GameplayScene(
             // ad-free regardless of how many times this one has been replayed.
             val alreadyCompletedBefore = levelStorage.getBestResult(result.levelId)?.completed == true
             levelStorage.saveResult(result)
-            val bestResult = levelStorage.getBestResult(result.levelId) ?: result
             if (!alreadyCompletedBefore) {
                 profileStorage.incrementLevelsCompleted()
             }
@@ -1597,57 +1376,21 @@ class GameplayScene(
                 profileStorage.unlockLevel(nextLevel.id)
             }
 
-            winContainer.visible = true
-
-            winStarsGraphics.updateShape {
-                val starsEarned = listOf(result.star1, result.star2, result.star3)
-                for (i in 0 until 3) {
-                    drawStar(
-                        cx = dpx(21.0 + i * objCol),
-                        cy = dpy(winStarsCy),
-                        outerR = 21.0 * S,
-                        innerR = 8.5 * S,
-                        fillColor = if (starsEarned[i]) inkGold else inkRuleColor
-                    )
-                }
+            // Both objectives resolve at the same instant the level does - the primary by
+            // definition, the optional one against the clock it was racing.
+            objMainState = 1
+            setObjMark(objMainMark, 1)
+            if (objOptState != 2) {
+                objOptState = if (result.star3) 1 else 2
+                setObjMark(objOptMark, objOptState)
             }
 
-            val timeTakenStr = secondsText(result.timeTaken)
-            fun starRow(setter: (String, RGBA) -> Unit, earned: Boolean, missedText: String) {
-                setter(if (earned) "EARNED" else missedText, if (earned) inkStrong else inkFaint)
-            }
-            starRow(setWinStar1, result.star1, "MISSED")
-            starRow(setWinStar2, result.star2, "${world.spottedCount} ALERT(S)")
-            starRow(setWinStar3, result.star3, "MISSED - $timeTakenStr")
-
-            winRating.text = "${result.starCount}/3 STARS"
-            winRating.xy(-winRating.width / 2.0, 8.0 * S)
-
-            winBountyAmount.text = "+$earnedCoins"
-            winBountyCaption.text = "COINS"
-            winBountyCaption.xy(dpx(0.0) + winBountyAmount.width + 9.0 * S, dpy(282.0))
-            winMultiplier.text = if (multiplier > 1) "2x Shadow Pass applied" else ""
-
-            setWinTime(timeTakenStr, inkStrong)
-            setWinAlerts("${world.spottedCount}", if (world.spottedCount == 0) inkStrong else inkFaint)
-            setWinRecord(
-                "${bestResult.starCount}/3 - ${secondsText(bestResult.timeTaken)}",
-                inkStrong
-            )
+            winOverlay.show(result, earnedCoins)
         }
 
         world.onGameOver = {
-            caughtOverlay.visible = true
-
             val best = levelStorage.getBestResult(levelData.id)
-            setCaughtStatus("APPREHENDED", stampRed)
-            setCaughtAlerts("${world.spottedCount}", inkStrong)
-            setCaughtTime(secondsText(world.timeTaken), inkStrong)
-            setCaughtRecord(
-                if (best != null) "${best.starCount}/3 - ${secondsText(best.timeTaken)}" else "NO RECORD",
-                if (best != null) inkStrong else inkFaint
-            )
-            setCaughtCoins("${profileStorage.getProfile().coins}", inkGold)
+            caughtOverlay.show(world.timeTaken, world.spottedCount, best, profileStorage.getProfile().coins)
 
             getAnalyticsBridge().track(
                 "mission_failed",
@@ -1684,7 +1427,7 @@ class GameplayScene(
                 // MISSION FAILED overlay still visible) stays on screen for however many frames
                 // the transition to the new GameplayScene instance takes, which is exactly the
                 // "continue menu flashes for a split second" the ad-continue flow was showing.
-                caughtOverlay.visible = false
+                caughtOverlay.hide()
                 sceneContainer.stage?.launchImmediately { sceneContainer.changeTo { GameplayScene(levelData) } }
                 return@addUpdater
             }
@@ -1734,11 +1477,13 @@ class GameplayScene(
                 lastUsedKeyboard = false
             }
 
-            // Powerup Key Shortcuts
-            if (views.input.keys.justPressed(Key.N1)) tryActivatePowerup(PowerupType.SMOKE_SCREEN)
-            if (views.input.keys.justPressed(Key.N2)) tryActivatePowerup(PowerupType.PHANTOM_CLOAK)
-            if (views.input.keys.justPressed(Key.N3)) tryActivatePowerup(PowerupType.INVISIBILITY)
-            if (views.input.keys.justPressed(Key.N4)) tryActivatePowerup(PowerupType.NOISE_SUPPRESSION)
+            // Number keys select and fire in one press, so a desktop player never has to open
+            // the tray at all - the slot follows along and shows what was last used.
+            for (i in gadgetTypes.indices) {
+                if (views.input.keys.justPressed(gadgetKeys[i])) {
+                    tryActivatePowerup(gadgetTypes[i])
+                }
+            }
 
             val moveInput = when {
                 leftPressed && !rightPressed -> -1.0
@@ -2138,10 +1883,22 @@ class GameplayScene(
                 crouchStationaryElapsed += dtSec
             }
 
-            // Climb animation machine: top priority. Player.isClimbing drives x/y itself (see
-            // Player.startClimb/advanceClimb) so the jump machine below - which would otherwise
-            // fire because isGrounded is false while climbing - is skipped entirely instead.
-            if (world.player.isClimbing) {
+            // Swing animation machine: above climb, for the same reason climb is above jump.
+            // Player.isSwinging drives x/y from the clip's own grip curves (Player.advanceSwing),
+            // so every machine below would otherwise fight it - isGrounded is false throughout.
+            if (world.player.isSwinging) {
+                if (playerAnimState != "swing") {
+                    playerAnimState = "swing"
+                    landingAbsorb = false
+                    // The push-off is a jump, and the clip opens on one, so it gets the jump's
+                    // grunt. There is no dedicated swing sample.
+                    sounds.climb.playSfx(sfxContext, GameAudio.CLIMB_GAIN, sfxVolume())
+                    playerSprite.playAnimationLooped(playerAnimations.swing, manualFrameTime)
+                }
+                playerSprite.setFrame(
+                    (world.player.swingPhase * swingFrameSpan).toInt().coerceIn(0, swingFrameSpan)
+                )
+            } else if (world.player.isClimbing) {
                 if (playerAnimState != "climb") {
                     playerAnimState = "climb"
                     sounds.climb.playSfx(sfxContext, GameAudio.CLIMB_GAIN, sfxVolume())
@@ -2150,10 +1907,25 @@ class GameplayScene(
                 val frame = climbFirstFrame + (world.player.climbPhase * climbFrameSpan).toInt()
                 playerSprite.setFrame(frame.coerceIn(climbFirstFrame, climbLastFrame))
             } else {
-                if (playerAnimState == "climb") playerAnimState = "none"
+                if (playerAnimState == "swing") {
+                    // The clip ends on contact rather than carrying its own recovery (see the
+                    // swing notes in PlayerAnimations), so the touchdown goes through the same
+                    // brief cushion every jump landing uses - which resolves into walk or idle.
+                    playerAnimState = "none"
+                    landingAbsorb = true
+                    landingAbsorbElapsed = 0.0
+                    sounds.impact.playSfx(sfxContext, GameAudio.LANDING_GAIN, sfxVolume())
+                }
+                if (playerAnimState == "climb") {
+                    playerAnimState = "none"
+                    climbExitTimer = 0.20
+                } else if (climbExitTimer > 0.0) {
+                    climbExitTimer = maxOf(0.0, climbExitTimer - dtSec)
+                }
 
                 // Jump / Airborne animation machine
                 if (playerAnimState != "jump" && !world.player.isGrounded) {
+                    val wasMoving = (playerAnimState == "walk") || world.player.isMoving || abs(world.player.vx) > 5.0
                     playerAnimState = "jump"
                     landingAbsorb = false  // cancel any in-progress absorption
                     jumpStartY = world.player.y
@@ -2161,6 +1933,7 @@ class GameplayScene(
                     playerSprite.playAnimationLooped(playerAnimations.jump, manualFrameTime)
                     // If moving upward, it's an intentional jump; if falling downwards, it's stepping/falling off a ledge
                     jumpPhase = if (world.player.vy < 0.0) "launch" else "drop"
+                    dropFromWalk = wasMoving && jumpPhase == "drop"
                 } else if (playerAnimState == "jump") {
                     jumpPhaseElapsed += dtSec
                     when (jumpPhase) {
@@ -2205,7 +1978,9 @@ class GameplayScene(
                             playerAnimState = "none"
                         }
                         else -> if (!world.player.isGrounded) {
+                            val wasMoving = (playerAnimState == "walk") || world.player.isMoving || abs(world.player.vx) > 5.0
                             jumpPhase = if (world.player.vy < 0.0) "launch" else "drop"
+                            dropFromWalk = wasMoving && jumpPhase == "drop"
                             jumpPhaseElapsed = 0.0
                             jumpStartY = world.player.y
                         }
@@ -2320,14 +2095,31 @@ class GameplayScene(
             }
 
             if (!landingAbsorb && playerAnimState != "jump" && playerAnimState != "crouch"
-                && playerAnimState != "crouchwalk" && playerAnimState != "climb" && playerAnimState != "landAbsorb") {
+                && playerAnimState != "crouchwalk" && playerAnimState != "climb"
+                && playerAnimState != "swing" && playerAnimState != "landAbsorb") {
                 val wantsWalk = world.player.isMoving
                 if (wantsWalk) {
                     if (playerAnimState != "walk") {
+                        val fromClimb = climbExitTimer > 0.0
+                        climbExitTimer = 0.0
                         playerAnimState = "walk"
                         playerSprite.playAnimationLooped(playerAnimations.walk, manualFrameTime)
-                        // Only play lean-in transition if starting from a sustained stationary stop
-                        if (stationaryElapsed >= 0.15) {
+                        if (fromClimb) {
+                            // Handover directly from climb mantle into athletic push-off:
+                            // Start at Walk frame 4 rather than 0 so there is no upright pop or sluggish lean-in
+                            walkCycleProgress = 0.0
+                            walkInTransition = true
+                            walkTransitionStartFrame = 4
+                            val framesRemaining = PlayerAnimations.WALK_TRANSITION_END - walkTransitionStartFrame
+                            val totalFrames = PlayerAnimations.WALK_TRANSITION_END - PlayerAnimations.WALK_TRANSITION_START
+                            walkTransitionCurrentDuration = walkTransitionDuration * (framesRemaining.toDouble() / totalFrames)
+                            walkTransitionElapsed = 0.0
+                            playerSprite.setFrame(walkTransitionStartFrame)
+                            val step = if (stepAlternate) sounds.stepB else sounds.stepA
+                            stepAlternate = !stepAlternate
+                            step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume())
+                        } else if (stationaryElapsed >= 0.15) {
+                            // Only play lean-in transition if starting from a sustained stationary stop
                             walkCycleProgress = 0.0
                             walkInTransition = true
                             walkTransitionStartFrame = PlayerAnimations.WALK_TRANSITION_START
@@ -2363,14 +2155,16 @@ class GameplayScene(
                 0.0
             }
 
-            playerSprite.y = world.player.height + when {
-                playerAnimState == "idle" -> idleFeetOffset
-                // Only the held/entering/exiting stance, not crouchwalk - the walk cycle's
-                // alternating planted/swinging foot is supposed to look uneven, this offset is
-                // only for the settled two-feet-down pose.
-                playerAnimState == "crouch" -> crouchFeetOffset
-                playerAnimState == "climb" -> climbFeetOffset
-                else -> 0.0
+            if (!world.player.isSwinging) {
+                playerSprite.y = world.player.height + when {
+                    playerAnimState == "idle" -> idleFeetOffset
+                    // Only the held/entering/exiting stance, not crouchwalk - the walk cycle's
+                    // alternating planted/swinging foot is supposed to look uneven, this offset is
+                    // only for the settled two-feet-down pose.
+                    playerAnimState == "crouch" -> crouchFeetOffset
+                    playerAnimState == "climb" -> climbFeetOffset
+                    else -> 0.0
+                }
             }
             if (playerAnimState == "jump") {
                 val maxJumpHeight =
@@ -2391,10 +2185,22 @@ class GameplayScene(
                         jumpApexFrame + (fallProgress * (jumpTouchdownFrame - jumpApexFrame)).toInt()
                     }
                     "drop" -> {
-                        // Stepping/dropping off a ledge: keep legs extended downward rather than tucking knees up
-                        val dropFrameStart = 22
                         val fallProgress = (world.player.vy / (world.player.maxFallSpeed * 0.7)).coerceIn(0.0, 1.0)
-                        dropFrameStart + (fallProgress * (jumpTouchdownFrame - dropFrameStart)).toInt()
+                        if (dropFromWalk) {
+                            // Forward moving drop: start with athletic stride into the air (Jump 5..8)
+                            // before smoothly uncurling into touchdown extension (Jump 21..26)
+                            if (fallProgress < 0.35) {
+                                val t = (fallProgress / 0.35).coerceIn(0.0, 1.0)
+                                5 + (t * 3).toInt().coerceIn(0, 3)
+                            } else {
+                                val t = ((fallProgress - 0.35) / 0.65).coerceIn(0.0, 1.0)
+                                (21 + (t * (jumpTouchdownFrame - 21)).toInt()).coerceIn(21, jumpTouchdownFrame)
+                            }
+                        } else {
+                            // Stepping/dropping off a ledge stationary: keep legs extended downward
+                            val dropFrameStart = 22
+                            dropFrameStart + (fallProgress * (jumpTouchdownFrame - dropFrameStart)).toInt()
+                        }
                     }
                     else -> {
                         val t = (jumpPhaseElapsed / jumpLandDuration).coerceIn(0.0, 1.0)
@@ -2454,7 +2260,9 @@ class GameplayScene(
             }
 
             // Flip sprite to face direction
-            if (world.player.isClimbing) {
+            if (world.player.isSwinging) {
+                playerFacingLeft = world.player.facing < 0.0
+            } else if (world.player.isClimbing) {
                 playerFacingLeft = world.player.facing < 0.0
             } else if (moveInput < 0) {
                 playerFacingLeft = true
@@ -2464,7 +2272,17 @@ class GameplayScene(
             playerSprite.scaleX = playerBaseScale * (if (playerFacingLeft) -1.0 else 1.0)
             playerSprite.scaleY = playerBaseScale
 
-            playerSprite.x = world.player.width / 2.0
+            if (world.player.isSwinging) {
+                val rot = world.player.swingRotationDegrees.degrees
+                playerSprite.rotation = rot
+                val rad = rot.radians
+                val pivotH = world.player.swingPivotHeight
+                playerSprite.x = world.player.width / 2.0 - pivotH * sin(rad)
+                playerSprite.y = world.player.height - pivotH * (1.0 - cos(rad))
+            } else {
+                playerSprite.rotation = 0.degrees
+                playerSprite.x = world.player.width / 2.0
+            }
 
             // Invisibility visual effect on player
             playerSprite.alpha = if (world.activePowerups.isInvisibilityActive) 0.35 else 1.0
@@ -2591,88 +2409,82 @@ class GameplayScene(
                 }
             }
 
-            // Update Powerup HUD buttons and active countdown indicators. The chip is the only
-            // place a live powerup is reported now - the old duplicate "ACTIVE: ..." status line
-            // under the top bar said the same thing a second time, in a second place.
+            // --- Gadgets -----------------------------------------------------------------
+            // The bolt and the row it turns into are the only place a live gadget is reported;
+            // the chip row that used to do it, and the "ACTIVE: ..." status line before that, are
+            // both gone.
             val currentProfile = cachedProfile
-            var hasAnyVisiblePowerup = false
-
-            for (btn in powerupHudButtons) {
-                val count = currentProfile.getPowerupCount(btn.type)
-                val isActive = world.activePowerups.isActive(btn.type)
-                val remTime = world.activePowerups.getRemainingTime(btn.type)
-
-                if (count > 0 || isActive) {
-                    hasAnyVisiblePowerup = true
-                    btn.btnContainer.visible = true
-                    val accent = if (isActive) COLOR_BORDER_GREEN else COLOR_ACCENT_CYAN
-                    // Live powerups get a filled underline that drains with their timer, so the
-                    // chip carries the countdown instead of a separate status readout. -1.0 marks
-                    // the inactive chip, whose shape never varies.
-                    val span = when {
-                        !isActive -> -1.0
-                        btn.type.isLevelDuration -> 1.0
-                        else -> (remTime / btn.type.duration).coerceIn(0.0, 1.0)
-                    }
-                    // Only a change in that fraction changes a single pixel of this chip, and
-                    // updateShape re-tessellates the whole thing, so an unchanged chip is skipped.
-                    if (btn.lastDrawnSpan != span) {
-                        btn.lastDrawnSpan = span
-                        btn.bg.updateShape {
-                            clear()
-                            val fillCol = if (isActive) accent.withAd(0.22) else Colors["#0A0C10"].withAd(0.55)
-                            fill(fillCol) { roundRect(0.0, 0.0, powerupBtnW, powerupBtnH, powerupBtnRadius, powerupBtnRadius) }
-                            stroke(accent.withAd(if (isActive) 0.95 else 0.45), StrokeInfo(thickness = if (isActive) 2.0 else 1.6)) {
-                                roundRect(0.5, 0.5, powerupBtnW - 1.0, powerupBtnH - 1.0, powerupBtnRadius, powerupBtnRadius)
-                            }
-                            if (isActive) {
-                                fill(accent) {
-                                    roundRect(10.0, powerupBtnH - 7.0, (powerupBtnW - 20.0) * span, 3.0, 1.5, 1.5)
-                                }
-                            }
-                        }
-                    }
-                    // Same idea as the shape above, for the label: rebuild it only when one of the
-                    // three things it is made of actually changes.
-                    val tenths = if (isActive && !btn.type.isLevelDuration) (remTime * 10).toInt() else -1
-                    if (btn.lastActive != isActive || btn.lastCount != count || btn.lastTenths != tenths) {
-                        btn.lastActive = isActive
-                        btn.lastCount = count
-                        btn.lastTenths = tenths
-                        if (isActive) {
-                            btn.countText.text = if (btn.type.isLevelDuration) "ON" else "${tenths / 10.0}s"
-                            btn.countText.color = COLOR_BORDER_GREEN
-                            btn.nameText.color = COLOR_TEXT_LIGHT
-                        } else {
-                            btn.countText.text = "x$count"
-                            btn.countText.color = COLOR_BORDER_GOLD
-                            btn.nameText.color = COLOR_TEXT_MUTED
-                        }
-                        btn.countText.xy((powerupBtnW - btn.countText.width) / 2.0, 22.0)
-                    }
-                } else {
-                    btn.btnContainer.visible = false
-                }
-                // The re-centre that used to sit here ran for every chip every frame, hidden ones
-                // included, and each call measured the text's bounds. It only ever has an effect
-                // when the label changes, so it now lives inside the guard above.
+            val liveGadget = gadgetTypes.firstOrNull { world.activePowerups.isActive(it) }
+            gadgetLayer.visible = liveGadget != null || gadgetTypes.any {
+                currentProfile.getPowerupCount(it) > 0
             }
-            powerupDockContainer.visible = hasAnyVisiblePowerup
 
-            // Mission toast holds, dissolves, and hands its corner to the objective strip, which
-            // then stays for the rest of the run. Sequential rather than cross-faded: both carry
-            // a scrim, and overlapping them stacks two translucent plates into one muddy one.
-            if (introToast.visible) {
-                introElapsed += dtSec
-                introToast.alpha = if (introElapsed <= introHoldSeconds) 1.0
-                    else (1.0 - (introElapsed - introHoldSeconds) / introFadeSeconds).coerceAtLeast(0.0)
-                if (introToast.alpha <= 0.0) {
-                    introToast.visible = false
-                    objectiveHud.visible = true
+            if (gadgetsShown) {
+                refreshTrayLabels()
+                if (trayExpand < 1.0) {
+                    trayExpand = (trayExpand + dtSec / trayExpandSeconds).coerceAtMost(1.0)
+                    val e = easeOutCubic(trayExpand)
+                    for (entry in trayEntries) {
+                        if (!entry.box.visible) continue
+                        entry.box.x = slotX + (entry.restX - slotX) * e
+                        entry.box.alpha = e
+                    }
+                } else if (traySignature(trayOwned()) != trayBuiltFor) {
+                    // Something ran out (or a level-long effect outlived its last unit). Re-pack
+                    // so the row stays flush against the corner instead of leaving a hole.
+                    layoutTray(animate = false)
+                    refreshTrayLabels()
                 }
-            } else if (objectiveHud.alpha < objectiveHudAlpha) {
-                objectiveHud.alpha = (objectiveHud.alpha + dtSec / objectiveFadeInSeconds * objectiveHudAlpha)
-                    .coerceAtMost(objectiveHudAlpha)
+            } else {
+                // Before the reveal the bolt is also the status light: white while idle, green for
+                // as long as something is running, with a drain bar under it. After the reveal it
+                // is gone and each gadget reports its own countdown in the row.
+                val liveSpan = when {
+                    liveGadget == null -> -1.0
+                    liveGadget.isLevelDuration -> 1.0
+                    else -> (world.activePowerups.getRemainingTime(liveGadget) / liveGadget.duration)
+                        .coerceIn(0.0, 1.0)
+                }
+                val isLive = liveGadget != null
+                if (slotLastLive != isLive) {
+                    slotLastLive = isLive
+                    slotIcon.updateShape {
+                        clear()
+                        drawPowerupIcon(9.0, if (isLive) COLOR_BORDER_GREEN else Colors.WHITE)
+                    }
+                }
+                // Quantised to fortieths: the bar is 26px wide, so anything finer redraws it for
+                // a sub-pixel change.
+                val liveStep = if (liveSpan < 0.0) -1.0 else (liveSpan * 40.0).toInt() / 40.0
+                if (slotLastSpan != liveStep) {
+                    slotLastSpan = liveStep
+                    slotDrain.updateShape {
+                        clear()
+                        if (isLive) {
+                            val barW = 26.0
+                            fill(COLOR_PRIMARY.withAd(0.22)) {
+                                roundRect((slotSize - barW) / 2.0, slotSize - 6.0, barW, 2.6, 1.3, 1.3)
+                            }
+                            fill(COLOR_BORDER_GREEN) {
+                                roundRect((slotSize - barW) / 2.0, slotSize - 6.0, barW * liveSpan, 2.6, 1.3, 1.3)
+                            }
+                        }
+                    }
+                }
+            }
+            gadgetSlot.visible = !gadgetsShown
+
+            // Objectives panel: fades up once at the start, then only redraws when a marker
+            // changes. The clock is the one that can turn during play - the moment the run passes
+            // the target the bonus is gone, and the panel says so instead of leaving the player
+            // to discover it on the results card.
+            if (objPanel.alpha < objPanelAlpha) {
+                objPanel.alpha = (objPanel.alpha + dtSec / objPanelFadeSeconds * objPanelAlpha)
+                    .coerceAtMost(objPanelAlpha)
+            }
+            if (objOptState == 0 && world.timeTaken > levelData.timeTargetSeconds) {
+                objOptState = 2
+                setObjMark(objOptMark, 2)
             }
 
             // Detection pips. Nothing is drawn on an entity that cannot see the player, so a
@@ -2758,6 +2570,72 @@ class GameplayScene(
     }
 
     /** Circular refresh arrow, weighted to match drawPlayIcon's solid triangle beside it. */
+    /**
+     * The menu's coin, in pigment rather than in neon.
+     *
+     * Same construction as `MenuComponents.drawCoinIcon` (rim, recessed face, grooved ring,
+     * embossed diamond) so the reward on the results card is recognisably the same object the
+     * player spends in the store - but struck in aged golds, because that art is drawn on a dark
+     * panel and #FFD54F on this card's paper reads as a sticker rather than as a coin. Centred on
+     * the origin, like every other icon here.
+     */
+    private fun ShapeBuilder.drawCoinIcon(r: Double) {
+        fill(Colors["#3E2723"].withAd(0.45)) { circle(Point(0.0, r * 0.12), r) }
+        fill(Colors["#9A6E17"]) { circle(Point(0.0, 0.0), r) }
+        fill(Colors["#C79A34"]) { circle(Point(0.0, 0.0), r * 0.78) }
+        stroke(Colors["#7A5510"].withAd(0.7), StrokeInfo(thickness = r * 0.10)) {
+            circle(Point(0.0, 0.0), r * 0.78)
+        }
+        val e = r * 0.40
+        fill(Colors["#7A5510"]) {
+            moveTo(Point(0.0, -e))
+            lineTo(Point(e * 0.75, 0.0))
+            lineTo(Point(0.0, e))
+            lineTo(Point(-e * 0.75, 0.0))
+            close()
+        }
+    }
+
+    /**
+     * Pass/fail marks for the results card's objective list, centred on the origin like every
+     * other icon here and sized by [r], the radius of the box they sit in. Drawn as strokes
+     * rather than filled glyphs so they read as something struck onto the page by hand.
+     */
+    private fun ShapeBuilder.drawTickIcon(r: Double, color: RGBA) {
+        stroke(color, StrokeInfo(thickness = r * 0.40)) {
+            moveTo(Point(-r * 0.68, r * 0.02))
+            lineTo(Point(-r * 0.20, r * 0.52))
+            lineTo(Point(r * 0.70, -r * 0.56))
+        }
+    }
+
+    /**
+     * The universal powerup bolt, centred on the origin, [r] being half its height. Drawn rather
+     * than loaded because it stands for the whole category and belongs to no one gadget - and
+     * because a six-point polygon in flat white stays crisp at the 23px it is used at, which
+     * downscaled 512px artwork does not.
+     */
+    private fun ShapeBuilder.drawPowerupIcon(r: Double, color: RGBA) {
+        fill(color) {
+            moveTo(Point(0.10 * r, -1.00 * r))
+            lineTo(Point(-0.90 * r, 0.20 * r))
+            lineTo(Point(-0.20 * r, 0.20 * r))
+            lineTo(Point(-0.20 * r, 1.00 * r))
+            lineTo(Point(0.80 * r, -0.20 * r))
+            lineTo(Point(0.10 * r, -0.20 * r))
+            close()
+        }
+    }
+
+    private fun ShapeBuilder.drawCrossIcon(r: Double, color: RGBA) {
+        stroke(color, StrokeInfo(thickness = r * 0.40)) {
+            moveTo(Point(-r * 0.52, -r * 0.52))
+            lineTo(Point(r * 0.52, r * 0.52))
+            moveTo(Point(r * 0.52, -r * 0.52))
+            lineTo(Point(-r * 0.52, r * 0.52))
+        }
+    }
+
     private fun ShapeBuilder.drawRestartIcon(color: RGBA) {
         stroke(color, StrokeInfo(thickness = 3.4)) {
             // Open ring, gap at the top-right where the arrowhead goes.
@@ -2844,5 +2722,725 @@ class GameplayScene(
             lineTo(-4.0, 0.5)
             close()
         }
+    }
+
+    companion object {
+        private const val ICON_COLUMN = 0.35
+        private const val LABEL_COLUMN = 0.42
+        private const val CENTERED_ICON_WIDTH = 22.0
+        private const val CENTERED_ICON_GAP = 12.0
+    }
+
+    private class LoadingScreenHandle(
+        val setProgress: (Double) -> Unit,
+        val dismiss: () -> Unit
+    )
+
+    private class CaughtOverlayHandle(
+        val container: Container,
+        val show: (timeTaken: Float, alerts: Int, best: LevelResult?, coins: Int) -> Unit,
+        val hide: () -> Unit
+    )
+
+    private class WinOverlayHandle(
+        val container: Container,
+        val show: (result: LevelResult, earnedCoins: Int) -> Unit
+    )
+
+    private class WinReveal(val view: View, val start: Double, val baseX: Double, val slide: Double)
+
+    private fun clockText(t: Float): String {
+        val total = t.toInt().coerceAtLeast(0)
+        val mins = total / 60
+        val secs = total % 60
+        return "${if (mins < 10) "0$mins" else "$mins"}:${if (secs < 10) "0$secs" else "$secs"}"
+    }
+
+    private fun secondsText(t: Float): String = "${(t * 10).toInt() / 10.0}S"
+
+    private fun easeOutBack(p: Double): Double {
+        val c1 = 1.70158
+        val q = p - 1.0
+        return 1.0 + (c1 + 1.0) * q * q * q + c1 * q * q
+    }
+
+    private fun easeOutCubic(p: Double): Double {
+        val q = 1.0 - p
+        return 1.0 - q * q * q
+    }
+
+    private fun Container.paperMenuBtnWidth(label: String, height: Double, font: Font, paperInk: RGBA): Double {
+        val probe = text(label.uppercase(), textSize = height * 0.44, font = font, color = paperInk)
+        probe.graphicsRenderer = GraphicsRenderer.GPU
+        val w = probe.width + CENTERED_ICON_WIDTH + CENTERED_ICON_GAP + height * 0.64
+        probe.removeFromParent()
+        return w
+    }
+
+    private fun Container.createPaperMenuBtn(
+        label: String,
+        texture: Bitmap?,
+        width: Double,
+        height: Double,
+        x: Double,
+        y: Double,
+        font: Font,
+        paperInk: RGBA,
+        centered: Boolean = false,
+        playClick: (Double) -> Unit,
+        iconDrawer: ShapeBuilder.() -> Unit,
+        onClick: suspend () -> Unit
+    ): Container {
+        val btn = container().xy(x, y)
+        val img = if (texture != null) btn.image(texture) { size(width, height) } else null
+        if (img == null) {
+            btn.uiGraphics().updateShape {
+                fill(Colors["#F6F4EE"]) { roundRect(0.0, 0.0, width, height, 2.0, 2.0) }
+            }
+        }
+        val iconG = btn.uiGraphics()
+        iconG.updateShape { iconDrawer() }
+        val text = btn.text(label.uppercase(), textSize = height * 0.44, font = font, color = paperInk)
+        text.graphicsRenderer = GraphicsRenderer.GPU
+
+        if (centered) {
+            val contentW = CENTERED_ICON_WIDTH + CENTERED_ICON_GAP + text.width
+            val contentX = (width - contentW) / 2.0
+            iconG.xy(contentX + CENTERED_ICON_WIDTH / 2.0, height / 2.0)
+            text.xy(contentX + CENTERED_ICON_WIDTH + CENTERED_ICON_GAP, (height - text.height) / 2.0 - 1.0)
+        } else {
+            iconG.xy(width * ICON_COLUMN, height / 2.0)
+            text.xy(width * LABEL_COLUMN, (height - text.height) / 2.0 - 1.0)
+        }
+
+        fun paint(hover: Boolean, down: Boolean) {
+            val tint = when {
+                down -> Colors["#BFBCB4"]
+                hover -> Colors["#FFFFFF"]
+                else -> Colors["#EFEDE6"]
+            }
+            img?.colorMul = tint
+            if (img == null) iconG.alpha = if (down) 0.6 else 1.0
+        }
+        paint(false, false)
+        btn.onOut { paint(false, false) }
+        btn.onOver { paint(true, false) }
+        btn.onDown { paint(true, true); playClick(GameAudio.UI_CLICK_GAIN) }
+        btn.onUp { paint(true, false) }
+        btn.mouse { onClick { onClick() } }
+        return btn
+    }
+
+    private fun SContainer.setupLoadingScreen(
+        canvasW: Double,
+        canvasH: Double,
+        loadingBgBitmap: Bitmap?,
+        loadingLogoBitmap: Bitmap?,
+        loadingBarTextureBitmap: Bitmap?,
+        loadingFont: Font
+    ): LoadingScreenHandle {
+        val loadingRoot = container()
+        if (loadingBgBitmap != null) {
+            loadingRoot.image(loadingBgBitmap) { size(canvasW, canvasH) }
+        } else {
+            loadingRoot.solidRect(canvasW, canvasH, Colors.BLACK)
+        }
+
+        val loadingLogoWidth = canvasW * 0.34
+        if (loadingLogoBitmap != null) {
+            val logoScale = loadingLogoWidth / loadingLogoBitmap.width
+            loadingRoot.image(loadingLogoBitmap) { scale(logoScale) }
+                .xy((canvasW - loadingLogoBitmap.width * logoScale) / 2.0, canvasH * 0.26)
+        }
+
+        val loadingBarWidth = canvasW * 0.30
+        val loadingBarHeight = canvasH * 0.045
+        val loadingBarX = (canvasW - loadingBarWidth) / 2.0
+        val loadingBarY = canvasH * 0.58
+
+        val loadingBarFillContainer = loadingRoot.container().xy(loadingBarX, loadingBarY)
+        var loadingBarFillView: View? = null
+        fun setProgress(fraction: Double) {
+            val fillWidth = loadingBarWidth * fraction.coerceIn(0.0, 1.0)
+            loadingBarFillView?.removeFromParent()
+            loadingBarFillView = if (fillWidth <= 0.0) {
+                null
+            } else if (loadingBarTextureBitmap != null) {
+                loadingBarFillContainer.image(loadingBarTextureBitmap) { size(fillWidth, loadingBarHeight) }
+            } else {
+                loadingBarFillContainer.solidRect(fillWidth, loadingBarHeight, Colors.WHITE)
+            }
+        }
+        setProgress(0.0)
+        loadingRoot.uiGraphics().xy(loadingBarX, loadingBarY).updateShape {
+            stroke(Colors.WHITE.withAd(0.85), StrokeInfo(thickness = 1.5)) {
+                rect(0.0, 0.0, loadingBarWidth, loadingBarHeight)
+            }
+        }
+
+        val loadingLabel = loadingRoot.text(
+            "L O A D I N G . . .",
+            textSize = loadingBarHeight * 0.62,
+            font = loadingFont,
+            color = Colors.WHITE
+        )
+        loadingLabel.graphicsRenderer = GraphicsRenderer.GPU
+        loadingLabel.xy((canvasW - loadingLabel.width) / 2.0, loadingBarY + loadingBarHeight + canvasH * 0.035)
+
+        val blinkPeriodSeconds = 2.2
+        val blinkVisibleFraction = 0.88
+        var loadingFlickerT = 0.0
+        val loadingFlickerHandle = loadingLabel.addUpdater { dt ->
+            loadingFlickerT += dt.seconds
+            val phase = (loadingFlickerT % blinkPeriodSeconds) / blinkPeriodSeconds
+            alpha = if (phase < blinkVisibleFraction) 1.0 else 0.0
+        }
+
+        return LoadingScreenHandle(
+            setProgress = ::setProgress,
+            dismiss = {
+                loadingFlickerHandle.close()
+                loadingRoot.removeFromParent()
+            }
+        )
+    }
+
+    private fun SContainer.setupPauseOverlay(
+        canvasW: Double,
+        canvasH: Double,
+        levelName: String,
+        bebasFont: Font,
+        paperBtnBitmaps: List<Bitmap?>,
+        paperInk: RGBA,
+        playClick: (Double) -> Unit,
+        onResume: () -> Unit,
+        onRestart: suspend () -> Unit,
+        onQuit: suspend () -> Unit
+    ): Container {
+        val pauseOverlay = container()
+        pauseOverlay.solidRect(canvasW, canvasH, Colors["#07080A"].withAd(0.92))
+
+        val pauseBtnW = 300.0
+        val pauseBtnH = 52.0
+        val pauseBtnGap = 14.0
+        val pauseBlockH = 52.0 + 8.0 + 18.0 + 30.0 + 3 * pauseBtnH + 2 * pauseBtnGap
+        val pauseBlockTop = (canvasH - pauseBlockH) / 2.0
+        val pauseBtnX = (canvasW - pauseBtnW) / 2.0
+
+        val pauseTitle = pauseOverlay.text("PAUSED", textSize = 52.0, font = bebasFont, color = Colors["#F6F4EE"])
+        pauseTitle.graphicsRenderer = GraphicsRenderer.GPU
+        pauseTitle.xy((canvasW - pauseTitle.width) / 2.0, pauseBlockTop)
+
+        val pauseSubtitle = pauseOverlay.text(
+            levelName.uppercase(), textSize = 14.0, font = bebasFont, color = COLOR_TEXT_MUTED
+        )
+        pauseSubtitle.graphicsRenderer = GraphicsRenderer.GPU
+        pauseSubtitle.xy((canvasW - pauseSubtitle.width) / 2.0, pauseBlockTop + 62.0)
+
+        val pauseBtnY0 = pauseBlockTop + 52.0 + 8.0 + 18.0 + 30.0
+
+        pauseOverlay.createPaperMenuBtn(
+            "RESUME", paperBtnBitmaps[0], pauseBtnW, pauseBtnH, pauseBtnX, pauseBtnY0,
+            bebasFont, paperInk, playClick = playClick,
+            iconDrawer = { drawPlayIcon(false) }
+        ) {
+            pauseOverlay.visible = false
+            onResume()
+        }
+
+        pauseOverlay.createPaperMenuBtn(
+            "RESTART", paperBtnBitmaps[1], pauseBtnW, pauseBtnH, pauseBtnX, pauseBtnY0 + pauseBtnH + pauseBtnGap,
+            bebasFont, paperInk, playClick = playClick,
+            iconDrawer = { drawRestartIcon(paperInk) }
+        ) { onRestart() }
+
+        pauseOverlay.createPaperMenuBtn(
+            "QUIT", paperBtnBitmaps[2], pauseBtnW, pauseBtnH, pauseBtnX, pauseBtnY0 + 2 * (pauseBtnH + pauseBtnGap),
+            bebasFont, paperInk, playClick = playClick,
+            iconDrawer = { drawQuitIcon(false) }
+        ) { onQuit() }
+
+        pauseOverlay.visible = false
+        return pauseOverlay
+    }
+
+    private fun SContainer.setupCaughtOverlay(
+        canvasW: Double,
+        canvasH: Double,
+        dossierBitmap: Bitmap?,
+        bebasFont: Font,
+        handwrittenFont: Font,
+        paperBtnBitmaps: List<Bitmap?>,
+        levelData: LevelData,
+        paperInk: RGBA,
+        playClick: (Double) -> Unit,
+        onRequestContinueAd: () -> Unit,
+        onRetry: suspend () -> Unit,
+        onReturnToMenu: suspend () -> Unit
+    ): CaughtOverlayHandle {
+        val resScrim = Colors["#07080A"].withAd(0.92)
+        val inkStrong = Colors["#17140F"]
+        val inkBody = Colors["#17140F"].withAd(0.78)
+        val inkFaint = Colors["#17140F"].withAd(0.55)
+        val inkRuleColor = Colors["#17140F"].withAd(0.34)
+        val inkGold = Colors["#A8781A"]
+        val stampRed = Colors["#96222A"]
+
+        val DOSSIER_ASPECT = 1.5
+        val DOSSIER_TILT = (-5.2).degrees
+
+        val sheetH0 = min(416.0, canvasH - 48.0)
+        val sheetW0 = sheetH0 * DOSSIER_ASPECT
+        val resBtnW0 = 300.0
+        val resBtnH0 = 52.0
+        val resBtnGap0 = 14.0
+        val resColGap0 = 44.0
+        val S = min(1.0, (canvasW - 56.0) / (resBtnW0 + resColGap0 + sheetW0))
+
+        val sheetH = sheetH0 * S
+        val sheetW = sheetW0 * S
+        val resBtnW = resBtnW0 * S
+        val resBtnH = resBtnH0 * S
+        val resBtnGap = resBtnGap0 * S
+        val resGroupW = resBtnW + resColGap0 * S + sheetW
+        val resGroupX = (canvasW - resGroupW) / 2.0
+        val sheetX = resGroupX + resBtnW + resColGap0 * S
+        val sheetY = (canvasH - sheetH) / 2.0
+
+        val docX = sheetW * 0.15
+        val docW = sheetW * 0.76
+        val docY = sheetH * 0.055
+        val docH = sheetH * 0.805
+        fun dpx(x: Double): Double = docX + x * S - sheetW / 2.0
+        fun dpy(y: Double): Double = docY + y * S - sheetH / 2.0
+
+        fun Container.createDossierSheet(): Container {
+            val sheet = container().xy(sheetX, sheetY)
+            if (dossierBitmap != null) {
+                sheet.image(dossierBitmap) { size(sheetW, sheetH) }
+            } else {
+                sheet.uiGraphics().updateShape {
+                    fill(Colors["#D8D2C4"]) { rect(0.0, 0.0, sheetW, sheetH) }
+                }
+            }
+            val ink = sheet.container().xy(sheetW / 2.0, sheetH / 2.0)
+            ink.rotation = DOSSIER_TILT
+            return ink
+        }
+
+        fun Container.inkText(
+            value: String, size: Double, color: RGBA, x: Double, y: Double,
+            font: Font = bebasFont
+        ): Text {
+            val t = text(value, textSize = size * S, font = font, color = color)
+            t.graphicsRenderer = GraphicsRenderer.GPU
+            t.xy(dpx(x), dpy(y))
+            return t
+        }
+
+        fun Container.inkRule(y: Double, fromX: Double, toX: Double, dashedTail: Boolean = false) {
+            uiGraphics().updateShape {
+                val yy = dpy(y)
+                val weight = 1.6 * S
+                if (!dashedTail) {
+                    fill(inkRuleColor) { rect(dpx(fromX), yy, (toX - fromX) * S, weight) }
+                } else {
+                    val solidTo = toX - 54.0
+                    fill(inkRuleColor) {
+                        rect(dpx(fromX), yy, (solidTo - fromX) * S, weight)
+                        for (i in 0 until 3) rect(dpx(solidTo + 6.0 + i * 16.0), yy, 10.0 * S, weight)
+                    }
+                }
+            }
+        }
+
+        fun Container.inkField(x: Double, y: Double, label: String): (String, RGBA) -> Unit {
+            inkText(label, 11.0, inkFaint, x, y)
+            val valueText = text("", textSize = 17.0 * S, font = bebasFont, color = inkStrong)
+            valueText.graphicsRenderer = GraphicsRenderer.GPU
+            return { value, color ->
+                valueText.text = value
+                valueText.color = color
+                valueText.xy(dpx(x), dpy(y + 13.0))
+            }
+        }
+
+        fun Container.inkStamp(
+            cx: Double, cy: Double, w: Double, h: Double, label: String, color: RGBA
+        ): Text {
+            val stamp = container().xy(dpx(cx), dpy(cy))
+            stamp.rotation = (-10.0).degrees
+            stamp.alpha = 0.82
+            val halfW = w * S / 2.0
+            val halfH = h * S / 2.0
+            stamp.uiGraphics().updateShape {
+                stroke(color, StrokeInfo(thickness = 6.0 * S)) { rect(-halfW, -halfH, w * S, h * S) }
+                stroke(color, StrokeInfo(thickness = 1.2 * S)) {
+                    rect(-halfW + 7.0 * S, -halfH + 7.0 * S, w * S - 14.0 * S, h * S - 14.0 * S)
+                }
+            }
+            val t = stamp.text(label, textSize = 20.0 * S, font = bebasFont, color = color)
+            t.graphicsRenderer = GraphicsRenderer.GPU
+            t.xy(-t.width / 2.0, -t.height / 2.0)
+            return t
+        }
+
+        val missionFileNo = (Regex("^(\\d+)").find(levelData.name)?.groupValues?.get(1)
+            ?: levelData.id.filter { it.isDigit() }.ifEmpty { "1" }).padStart(2, '0')
+        val missionTitleText = levelData.name.replaceFirst(Regex("^\\d+:\\s*"), "").uppercase()
+
+        fun Container.inkMasthead(sectionTitle: String) {
+            inkText(missionFileNo, 26.0, inkStrong, 0.0, 0.0)
+            inkRule(34.0, 0.0, docW / S * 0.95, dashedTail = true)
+            inkText(missionTitleText, 12.0, inkFaint, 0.0, 44.0)
+            inkText(sectionTitle, 26.0, inkStrong, 0.0, 60.0)
+            inkRule(96.0, 0.0, docW / S)
+        }
+
+        val resBtnBlockH = 3.0 * resBtnH + 2.0 * resBtnGap
+        val resBtnY0 = (canvasH - resBtnBlockH) / 2.0
+
+        val caughtOverlay = container()
+        caughtOverlay.solidRect(canvasW, canvasH, resScrim)
+
+        val caughtInk = caughtOverlay.createDossierSheet()
+        caughtInk.inkMasthead("SITUATION REPORT")
+
+        val fieldCol = docW / S * 0.29
+        val setCaughtStatus = caughtInk.inkField(0.0, 108.0, "OPERATIVE STATUS")
+        val setCaughtAlerts = caughtInk.inkField(fieldCol, 108.0, "ALERTS RAISED")
+        val setCaughtTime = caughtInk.inkField(0.0, 150.0, "TIME ELAPSED")
+        val setCaughtRecord = caughtInk.inkField(fieldCol, 150.0, "MISSION RECORD")
+        val setCaughtCoins = caughtInk.inkField(0.0, 192.0, "COINS ON HAND")
+
+        caughtInk.inkStamp(docW / S - 104.0, 160.0, 176.0, 68.0, "MISSION FAILED", stampRed)
+
+        caughtInk.inkRule(236.0, 0.0, docW / S)
+        caughtInk.inkText("Recon notes", 16.0, inkFaint, 0.0, 246.0, font = handwrittenFont)
+        val caughtTips = listOf(
+            "Crouch-walk to eliminate movement noise.",
+            "Stay out of guard vision cones and use shipping crates as cover.",
+            "Tap the bolt beside pause to bring out your gadgets."
+        )
+        for ((i, line) in caughtTips.withIndex()) {
+            caughtInk.inkText(line, 14.0, inkBody, 8.0, 268.0 + i * 18.0, font = handwrittenFont)
+        }
+
+        caughtOverlay.createPaperMenuBtn(
+            "CONTINUE (WATCH AD)", paperBtnBitmaps[0], resBtnW, resBtnH, resGroupX, resBtnY0,
+            bebasFont, paperInk, playClick = playClick,
+            iconDrawer = { drawPlayIcon(false) }
+        ) { onRequestContinueAd() }
+
+        caughtOverlay.createPaperMenuBtn(
+            "RETRY INFILTRATION", paperBtnBitmaps[1], resBtnW, resBtnH, resGroupX, resBtnY0 + resBtnH + resBtnGap,
+            bebasFont, paperInk, playClick = playClick,
+            iconDrawer = { drawRestartIcon(paperInk) }
+        ) { onRetry() }
+
+        caughtOverlay.createPaperMenuBtn(
+            "RETURN TO MENU", paperBtnBitmaps[2], resBtnW, resBtnH, resGroupX, resBtnY0 + 2.0 * (resBtnH + resBtnGap),
+            bebasFont, paperInk, playClick = playClick,
+            iconDrawer = { drawQuitIcon(false) }
+        ) { onReturnToMenu() }
+
+        caughtOverlay.visible = false
+
+        return CaughtOverlayHandle(
+            container = caughtOverlay,
+            show = { timeTaken, alerts, best, coins ->
+                caughtOverlay.visible = true
+                setCaughtStatus("APPREHENDED", stampRed)
+                setCaughtAlerts("$alerts", inkStrong)
+                setCaughtTime(secondsText(timeTaken), inkStrong)
+                setCaughtRecord(
+                    if (best != null) "${best.starCount}/3 - ${secondsText(best.timeTaken)}" else "NO RECORD",
+                    if (best != null) inkStrong else inkFaint
+                )
+                setCaughtCoins("$coins", inkGold)
+            },
+            hide = { caughtOverlay.visible = false }
+        )
+    }
+
+    private fun SContainer.setupWinOverlay(
+        canvasW: Double,
+        canvasH: Double,
+        successBgBitmap: Bitmap?,
+        starSlices: List<BmpSlice>?,
+        paperBtnBitmaps: List<Bitmap?>,
+        bebasFont: Font,
+        levelData: LevelData,
+        nextLevel: LevelData?,
+        paperInk: RGBA,
+        playClick: (Double) -> Unit,
+        onRetry: suspend () -> Unit,
+        onReturnToMenu: suspend () -> Unit,
+        onNextMission: suspend () -> Unit
+    ): WinOverlayHandle {
+        val inkStrong = Colors["#17140F"]
+        val inkFaint = Colors["#17140F"].withAd(0.55)
+        val inkRuleColor = Colors["#17140F"].withAd(0.34)
+        val inkGold = Colors["#A8781A"]
+        val stampRed = Colors["#96222A"]
+        val stampGreen = Colors["#25603A"]
+
+        val winContainer = container()
+        val winScrim = winContainer.solidRect(canvasW, canvasH, Colors["#07080A"].withAd(0.80))
+
+        val winCardAspect = if (successBgBitmap != null) {
+            successBgBitmap.width.toDouble() / successBgBitmap.height.toDouble()
+        } else {
+            1.44
+        }
+        var winCardH = canvasH * 0.92
+        var winCardW = winCardH * winCardAspect
+        if (winCardW > canvasW * 0.74) {
+            winCardW = canvasW * 0.74
+            winCardH = winCardW / winCardAspect
+        }
+        val winCardY = (canvasH - winCardH) / 2.0
+
+        val winCardPivot = winContainer.container().xy(canvasW / 2.0, winCardY + winCardH / 2.0)
+        winCardPivot.alpha = 0.0
+        winCardPivot.scaleX = 0.90
+        winCardPivot.scaleY = 0.90
+        val winCard = winCardPivot.container().xy(-winCardW / 2.0, -winCardH / 2.0)
+        if (successBgBitmap != null) {
+            winCard.image(successBgBitmap) { size(winCardW, winCardH) }
+        } else {
+            winCard.uiGraphics().updateShape {
+                fill(Colors["#D8D2C4"]) { rect(0.0, 0.0, winCardW, winCardH) }
+            }
+        }
+
+        val WS = (winCardW / 640.0).coerceIn(0.5, 1.6)
+        val winTextL = winCardW * 0.315
+        val winTextR = winCardW * 0.725
+        val winTextW = winTextR - winTextL
+        val winCx = (winTextL + winTextR) / 2.0
+        val winTop = winCardH * 0.375
+
+        fun Container.winText(
+            value: String, size: Double, color: RGBA, x: Double, y: Double,
+            font: Font = bebasFont
+        ): Text {
+            val t = text(value, textSize = size * WS, font = font, color = color)
+            t.graphicsRenderer = GraphicsRenderer.GPU
+            t.xy(x, y)
+            return t
+        }
+
+        val winReveals = ArrayList<WinReveal>()
+        val WIN_REVEAL_DUR = 0.30
+        fun <T : View> T.revealAt(start: Double, slide: Double = 0.0): T {
+            winReveals.add(WinReveal(this, start, x, slide))
+            visible = false
+            return this
+        }
+
+        val WIN_CARD_POP = 0.30
+        val WIN_STAR_0 = 0.46
+        val WIN_STAR_STEP = 0.28
+        val WIN_STAR_DUR = 0.42
+        val WIN_ROW_0 = WIN_STAR_0 + 0.18
+        val WIN_PAYOUT_AT = 1.52
+        val WIN_BUTTONS_AT = 1.74
+        val WIN_ANIM_END = WIN_BUTTONS_AT + WIN_REVEAL_DUR
+
+        val missionFileNo = (Regex("^(\\d+)").find(levelData.name)?.groupValues?.get(1)
+            ?: levelData.id.filter { it.isDigit() }.ifEmpty { "1" }).padStart(2, '0')
+        val missionTitleText = levelData.name.replaceFirst(Regex("^\\d+:\\s*"), "").uppercase()
+
+        winCard.container().xy(winCx, winTop).also { holder ->
+            val t = holder.winText("MISSION $missionFileNo - $missionTitleText", 12.0, inkFaint, 0.0, 0.0)
+            t.xy(-t.width / 2.0, 0.0)
+        }.revealAt(0.22)
+
+        val winStarH = winCardH * 0.115
+        val winStarStep = winStarH * 1.42
+        val winStarsCy = winTop + 52.0 * WS
+        fun starSlotSize(i: Int): Pair<Double, Double> {
+            val slice = starSlices?.get(i)
+            val w = if (slice != null) {
+                winStarH * (slice.width.toDouble() / slice.height.toDouble())
+            } else {
+                winStarH
+            }
+            return w to winStarH
+        }
+        fun starSlotXY(i: Int): Pair<Double, Double> = (winCx + (i - 1) * winStarStep) to winStarsCy
+
+        fun Container.starSprite(i: Int): Container {
+            val (w, h) = starSlotSize(i)
+            val (x, y) = starSlotXY(i)
+            val holder = container().xy(x, y)
+            val slice = starSlices?.get(i)
+            if (slice != null) {
+                holder.image(slice) { size(w, h) }.xy(-w / 2.0, -h / 2.0)
+            } else {
+                holder.uiGraphics().updateShape {
+                    drawStar(0.0, 0.0, h / 2.0, h * 0.2, inkGold)
+                }
+            }
+            return holder
+        }
+
+        for (i in 0 until 3) {
+            winCard.starSprite(i).also {
+                it.colorMul = Colors["#4A443A"]
+                it.alpha = 0.34
+            }.revealAt(0.26)
+        }
+        val winStars = (0 until 3).map { i -> winCard.starSprite(i).also { it.visible = false } }
+        val winStarEarned = booleanArrayOf(false, false, false)
+
+        val winRowH = 19.0 * WS
+        val winListTop = winTop + 88.0 * WS
+        val winMarkR = 8.0 * WS
+        val winRowLabels = listOf(
+            levelData.objectiveHint.uppercase(),
+            "NO ALERTS RAISED",
+            "TARGET TIME ${clockText(levelData.timeTargetSeconds)}"
+        )
+        val winRows = (0 until 3).map { i ->
+            winCard.container().xy(winTextL, winListTop + i * winRowH)
+                .revealAt(WIN_ROW_0 + i * WIN_STAR_STEP, slide = 14.0 * WS)
+        }
+        for (i in 0 until 3) winRows[i].winText(winRowLabels[i], 14.0, inkStrong, 0.0, 0.0)
+        val winRowMarks = (0 until 2).map { i ->
+            winRows[i].uiGraphics().xy(winTextW - winMarkR, 7.5 * WS)
+        }
+        val winTimeValue = winRows[2].winText("", 14.0, inkFaint, 0.0, 0.0)
+
+        val winRuleY = winTop + 150.0 * WS
+        val winPayoutRow = winCard.container().xy(winTextL, winRuleY)
+        winPayoutRow.uiGraphics().updateShape {
+            fill(inkRuleColor) { rect(0.0, 0.0, winTextW, 1.6 * WS) }
+        }
+        val winBountyCaption = winPayoutRow.winText("BOUNTY", 11.0, inkFaint, 0.0, 8.0 * WS)
+        winBountyCaption.xy((winTextW - winBountyCaption.width) / 2.0, winBountyCaption.y)
+        val winCoinR = 7.5 * WS
+        val winCoinGap = 6.0 * WS
+        val winBountyCoin = winPayoutRow.uiGraphics()
+        winBountyCoin.updateShape { drawCoinIcon(winCoinR) }
+        val winBountyValue = winPayoutRow.winText("", 20.0, inkGold, 0.0, 20.0 * WS)
+        winPayoutRow.revealAt(WIN_PAYOUT_AT)
+
+        val winButtons = winContainer.container()
+        val winCardX = (canvasW - winCardW) / 2.0
+        val winBtnL = winCardX + winCardW * 0.06
+        val winBtnR = winCardX + winCardW * 0.94
+        val winBtnGap = 12.0 * WS
+        val winBtnW = (winBtnR - winBtnL - 2.0 * winBtnGap) / 3.0
+        val winNextLabel = if (nextLevel != null) "NEXT MISSION" else "ALL CLEAR!"
+        val winBtnLabels = listOf("RETRY", "MAIN MENU", winNextLabel)
+        var winBtnH = winCardH * 0.092
+        var winBtnFitGuard = 0
+        while (winBtnFitGuard++ < 6) {
+            val widest = winBtnLabels.maxOf { winButtons.paperMenuBtnWidth(it, winBtnH, bebasFont, paperInk) }
+            if (widest <= winBtnW) break
+            winBtnH *= (winBtnW / widest).coerceAtLeast(0.85)
+        }
+        winBtnH = winBtnH.coerceIn(20.0, 52.0)
+        val winBtnY = winCardY + winCardH * 0.885
+
+        winButtons.createPaperMenuBtn(
+            "RETRY", paperBtnBitmaps[1], winBtnW, winBtnH, winBtnL, winBtnY,
+            bebasFont, paperInk, centered = true, playClick = playClick,
+            iconDrawer = { drawRestartIcon(paperInk) }
+        ) { onRetry() }
+
+        winButtons.createPaperMenuBtn(
+            "MAIN MENU", paperBtnBitmaps[2], winBtnW, winBtnH, winBtnL + winBtnW + winBtnGap, winBtnY,
+            bebasFont, paperInk, centered = true, playClick = playClick,
+            iconDrawer = { drawQuitIcon(false) }
+        ) { onReturnToMenu() }
+
+        winButtons.createPaperMenuBtn(
+            winNextLabel, paperBtnBitmaps[0], winBtnW, winBtnH,
+            winBtnL + 2.0 * (winBtnW + winBtnGap), winBtnY,
+            bebasFont, paperInk, centered = true, playClick = playClick,
+            iconDrawer = { drawPlayIcon(false) }
+        ) { onNextMission() }
+        winButtons.revealAt(WIN_BUTTONS_AT)
+
+        val winSkipCatcher = winContainer.solidRect(canvasW, canvasH, Colors.TRANSPARENT)
+        var winAnimT = -1.0
+        winSkipCatcher.mouse { onClick { if (winAnimT >= 0.0) winAnimT = WIN_ANIM_END } }
+        winScrim.mouse { onClick { if (winAnimT >= 0.0) winAnimT = WIN_ANIM_END } }
+
+        winContainer.addUpdater { dt ->
+            if (!winContainer.visible || winAnimT < 0.0) return@addUpdater
+            if (winAnimT >= WIN_ANIM_END) {
+                winSkipCatcher.visible = false
+            } else {
+                winAnimT += dt.seconds
+            }
+            val t = winAnimT
+
+            val cardP = (t / WIN_CARD_POP).coerceIn(0.0, 1.0)
+            val cardE = easeOutBack(cardP)
+            winCardPivot.alpha = (cardP * 2.0).coerceAtMost(1.0)
+            winCardPivot.scaleX = 0.90 + 0.10 * cardE
+            winCardPivot.scaleY = winCardPivot.scaleX
+
+            for (r in winReveals) {
+                val p = ((t - r.start) / WIN_REVEAL_DUR).coerceIn(0.0, 1.0)
+                r.view.visible = p > 0.0
+                if (p <= 0.0) continue
+                val e = easeOutCubic(p)
+                r.view.alpha = e
+                if (r.slide != 0.0) r.view.x = r.baseX - r.slide * (1.0 - e)
+            }
+
+            for (i in 0 until 3) {
+                val star = winStars[i]
+                if (!winStarEarned[i]) {
+                    star.visible = false
+                    continue
+                }
+                val p = ((t - (WIN_STAR_0 + i * WIN_STAR_STEP)) / WIN_STAR_DUR).coerceIn(0.0, 1.0)
+                star.visible = p > 0.0
+                if (p <= 0.0) continue
+                val e = easeOutBack(p)
+                star.alpha = (p * 4.0).coerceAtMost(1.0)
+                star.scaleX = 1.0 + 1.0 * (1.0 - e)
+                star.scaleY = star.scaleX
+                star.rotation = (-22.0).degrees * (1.0 - e)
+            }
+        }
+
+        winContainer.visible = false
+
+        return WinOverlayHandle(
+            container = winContainer,
+            show = { result, earnedCoins ->
+                winContainer.visible = true
+                val starsEarned = listOf(result.star1, result.star2, result.star3)
+                for (i in 0 until 3) {
+                    winStarEarned[i] = starsEarned[i]
+                }
+                for ((i, met) in listOf(result.star1, result.star2).withIndex()) {
+                    winRowMarks[i].updateShape {
+                        clear()
+                        if (met) drawTickIcon(winMarkR, stampGreen) else drawCrossIcon(winMarkR, stampRed)
+                    }
+                }
+                winTimeValue.text = clockText(result.timeTaken)
+                winTimeValue.color = if (result.star3) stampGreen else stampRed
+                winTimeValue.xy(winTextW - winTimeValue.width, 0.0)
+
+                winBountyValue.text = "$earnedCoins"
+                val bountyGroupW = winCoinR * 2.0 + winCoinGap + winBountyValue.width
+                val bountyGroupX = (winTextW - bountyGroupW) / 2.0
+                winBountyValue.xy(bountyGroupX + winCoinR * 2.0 + winCoinGap, winBountyValue.y)
+                winBountyCoin.xy(
+                    bountyGroupX + winCoinR,
+                    winBountyValue.y + winBountyValue.height / 2.0
+                )
+                winAnimT = 0.0
+            }
+        )
     }
 }

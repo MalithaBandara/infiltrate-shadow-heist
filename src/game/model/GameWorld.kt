@@ -21,6 +21,8 @@ data class GameWorld(
     val hangingCrateVariant1: List<Rect> = emptyList(),
     val hangingCrateVariant2: List<Rect> = emptyList(),
     val movingPlatforms: List<MovingPlatform> = emptyList(),
+    /** Overhead hooks the player can swing from - see LevelLayout.swingHooks and Player's swing. */
+    val swingHooks: List<Rect> = emptyList(),
     /** Union of [truckParts] (front+middle+back) - the footprint the truck image is drawn into. */
     val truck: Rect? = null,
     /** Truck collision split into 3 tiers matching its silhouette: hood (front, low), cab roof
@@ -32,10 +34,12 @@ data class GameWorld(
     var onSpotted: ((Guard, Player) -> Unit)? = null,
     var onLevelComplete: (() -> Unit)? = null,
     var onLevelCompleteResult: ((LevelResult) -> Unit)? = null,
-    var onGameOver: (() -> Unit)? = null
+    var onGameOver: (() -> Unit)? = null,
+    val hasNoGuards: Boolean = false
 ) {
-    /** Every guard in the level. Single-guard levels simply have no [extraGuards]. */
-    val allGuards: List<Guard> = if (extraGuards.isEmpty()) listOf(guard) else listOf(guard) + extraGuards
+    /** Every guard in the level. Single-guard levels simply have no [extraGuards]. Guardless levels set [hasNoGuards] = true. */
+    val allGuards: List<Guard>
+        get() = if (hasNoGuards) emptyList() else if (extraGuards.isEmpty()) listOf(guard) else listOf(guard) + extraGuards
 
     /**
      * Reused buffer for the platform list handed to [Player.update] - the level's platforms plus
@@ -71,9 +75,30 @@ data class GameWorld(
     var isLevelComplete: Boolean = false
         private set
     var isGameOver: Boolean = false
-        private set
+        internal set
     var totalElapsedSeconds: Double = 0.0
         private set
+
+    var lastCheckpointX: Double = player.startX
+        private set
+    var lastCheckpointY: Double = player.startY
+        private set
+    var hasAdvancedCheckpoint: Boolean = false
+        private set
+    var onCheckpointSecured: ((Double, Double) -> Unit)? = null
+
+    fun respawnAtCheckpoint(): Boolean {
+        isGameOver = false
+        isSpotted = false
+        alertProgress = 0.0
+        detectingGuards = emptyList()
+        detectingCameras = emptyList()
+        recentlySeeingGuards.clear()
+        player.resetTo(lastCheckpointX, lastCheckpointY)
+        for (g in allGuards) g.returnToPatrol()
+        activePowerups.invisibilityTimer = 2.0
+        return true
+    }
 
     private val recentlySeeingGuards = LinkedHashSet<Guard>()
 
@@ -206,6 +231,16 @@ data class GameWorld(
             }
         }
 
+        // Safe checkpoint recording: update checkpoint when operative is safe on solid ground
+        if (!isGameOver && player.isGrounded && !inVision && alertProgress == 0.0) {
+            if (player.x > lastCheckpointX + 250.0) {
+                lastCheckpointX = player.x
+                lastCheckpointY = player.y
+                hasAdvancedCheckpoint = true
+                onCheckpointSecured?.invoke(lastCheckpointX, lastCheckpointY)
+            }
+        }
+
         totalElapsedSeconds += dt
 
         // Update moving platforms and translate grounded player if riding one
@@ -215,7 +250,7 @@ data class GameWorld(
             val playerFeetY = player.y + player.height
             val footCenter = player.x + player.width / 2.0
             val onThisPlatform = player.isGrounded &&
-                kotlin.math.abs(playerFeetY - oldBounds.top) < 2.0 &&
+                kotlin.math.abs(playerFeetY - oldBounds.top) < 4.5 &&
                 (footCenter >= oldBounds.left && footCenter <= oldBounds.right)
             if (onThisPlatform) {
                 player.x += delta.dx
@@ -243,7 +278,7 @@ data class GameWorld(
         playerPlatformsScratch.clear()
         playerPlatformsScratch.addAll(currentPlatforms)
         for (g in allGuards) playerPlatformsScratch.add(g.bounds)
-        player.update(dt, moveInput, jumpInput, crouchInput, playerPlatformsScratch, currentBoxes)
+        player.update(dt, moveInput, jumpInput, crouchInput, playerPlatformsScratch, currentBoxes, swingHooks)
 
         // Check Exit / Win condition
         if (player.bounds.intersects(exitZone)) {
@@ -335,7 +370,7 @@ data class GameWorld(
             // end. block3 starts exactly where the last barrel ends, so there's no bare ground left
             // in the gap at all.
             val barrelHeight = 48.0
-            val barrelWidth = 32.0 // matches barrel.png's tight-cropped aspect ratio (832x1274) at this height
+            val barrelWidth = 32.0 // NOT derived from barrel.png - the image is stretched to fit this box
             val barrelCount = 7 // 7 * 32 = 224, comfortably spanning the ~210 unit gap this replaces
             val barrels = (0 until barrelCount).map { i ->
                 Rect(x = block2.right + i * barrelWidth, y = groundY - barrelHeight, width = barrelWidth, height = barrelHeight)
@@ -474,7 +509,16 @@ data class GameWorld(
                     visionRange = spawn.visionRange
                 )
             }
-            require(guards.isNotEmpty()) { "Level layout must define at least one guard" }
+            val primaryGuard = guards.firstOrNull() ?: Guard(
+                x = -500.0,
+                y = groundY - 48.0,
+                patrolMinX = -10000.0,
+                patrolMaxX = 10000.0,
+                speed = 0.0,
+                facing = -1.0,
+                visionRange = 0.0
+            )
+            val extraGuards = if (guards.isNotEmpty()) guards.drop(1) else emptyList()
 
             val cameras = (layout.cameras.ifEmpty { levelData.cameras }).map { spawn ->
                 Camera(
@@ -509,13 +553,13 @@ data class GameWorld(
 
             return GameWorld(
                 player = player,
-                guard = guards.first(),
+                guard = primaryGuard,
                 crate = layout.boxes.firstOrNull() ?: Rect(0.0, 0.0, 0.0, 0.0),
                 platforms = platforms,
                 occluders = occluders,
                 exitZone = layout.exitZone,
                 levelData = levelData,
-                extraGuards = guards.drop(1),
+                extraGuards = extraGuards,
                 cameras = cameras,
                 boxes = allBoxes,
                 worldWidth = layout.worldWidth,
@@ -524,7 +568,9 @@ data class GameWorld(
                 hangingCrateVariant1 = layout.hangingCrateVariant1,
                 hangingCrateVariant2 = layout.hangingCrateVariant2,
                 barrels = layout.barrels,
-                movingPlatforms = movingPlatforms
+                movingPlatforms = movingPlatforms,
+                swingHooks = layout.swingHooks,
+                hasNoGuards = guards.isEmpty()
             )
         }
     }

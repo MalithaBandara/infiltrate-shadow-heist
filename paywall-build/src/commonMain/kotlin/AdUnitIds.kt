@@ -11,5 +11,6 @@ package com.infiltrate.ads
 expect object AdUnitIds {
     val REWARDED_CONTINUE: String
     val REWARDED_COINS: String
+    val REWARDED_GADGET: String
     val INTERSTITIAL_LEVEL_EXIT: String
 }

@@ -2,9 +2,11 @@ package com.infiltrate.ads
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import app.lexilabs.basic.ads.AdState
 import app.lexilabs.basic.ads.DependsOnGoogleMobileAds
-import app.lexilabs.basic.ads.composable.RewardedAd
+import app.lexilabs.basic.ads.composable.rememberRewardedAd
 import kotlin.native.ObjCName
 
 /**
@@ -53,15 +55,47 @@ object ContinueAdTrigger {
     }
 }
 
+/**
+ * Preloads the watch-ad-to-continue rewarded ad and shows it on request. Mirror of the Android
+ * [ContinueAdContent]; see that file for the full reasoning, which applies identically here.
+ *
+ * In short: the [rememberRewardedAd] call sits OUTSIDE the [ContinueAdTrigger.showRequested] gate
+ * so the fetch starts when this content first composes rather than after the player has already
+ * died and asked to continue. Two hazards come with that, neither of which exists in the
+ * load-then-show shape it replaces:
+ *
+ * 1. A preload that fails while nothing is pending must not call [ContinueAdTrigger.cancelShow] -
+ *    Swift polls `consumeOutcomeFinished()`, so a phantom outcome would hand control back to
+ *    KorGE for an offer the player was never shown. Hence the `showRequested` guard below.
+ * 2. `rememberRewardedAd` only re-loads from `NONE` or `DISMISSED`, never from `FAILING`, so an
+ *    early preload failure would otherwise leave the handler dead for the rest of the process and
+ *    hang the continue prompt. The `FAILING` branch resolves it as a load failure did before.
+ *
+ * The one iOS-specific difference is unchanged by this: [markRewardEarned] here resolves the
+ * outcome and drops `showRequested` immediately, where Android deliberately defers that to
+ * `onAdClosed()` (see the Android file's note on the grey-screen reload bug). The handler now
+ * lives outside the gate, so the ad still presents correctly after that flag flips.
+ */
 @OptIn(DependsOnGoogleMobileAds::class)
 @Composable
 fun ContinueAdContent() {
+    val ad by rememberRewardedAd(
+        adUnitId = AdUnitIds.REWARDED_CONTINUE,
+        onFailure = {
+            if (ContinueAdTrigger.showRequested.value) ContinueAdTrigger.cancelShow()
+        },
+    )
     if (ContinueAdTrigger.showRequested.value) {
-        RewardedAd(
-            adUnitId = AdUnitIds.REWARDED_CONTINUE,
-            onRewardEarned = { ContinueAdTrigger.markRewardEarned() },
-            onDismissed = { ContinueAdTrigger.cancelShow() },
-            onFailure = { ContinueAdTrigger.cancelShow() },
-        )
+        when (ad.state) {
+            AdState.READY -> {
+                ad.setListeners(
+                    onFailure = { ContinueAdTrigger.cancelShow() },
+                    onDismissed = { ContinueAdTrigger.cancelShow() },
+                )
+                ad.show { ContinueAdTrigger.markRewardEarned() }
+            }
+            AdState.FAILING -> ContinueAdTrigger.cancelShow()
+            else -> Unit
+        }
     }
 }

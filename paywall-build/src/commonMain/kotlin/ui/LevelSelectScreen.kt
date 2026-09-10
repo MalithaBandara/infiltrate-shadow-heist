@@ -53,7 +53,6 @@ import org.jetbrains.compose.resources.painterResource
 import paywall_build.generated.resources.Res
 import paywall_build.generated.resources.bebas_neue_regular
 import paywall_build.generated.resources.bg_menu
-import kotlin.math.roundToInt
 
 @Composable
 fun LevelSelectScreen(
@@ -399,7 +398,7 @@ private fun MissionCard(
                 }
 
                 // Bottom Best Time
-                val timeText = if (result != null) formatTime(result.timeTaken) else "--:--.--"
+                val timeText = if (result != null) formatTime(result.timeTaken) else "--:--"
                 Text(
                     text = timeText,
                     color = Color(0xFF9A9A9E),
@@ -435,10 +434,15 @@ private fun MissionCard(
     }
 }
 
+/**
+ * A best time as a stopwatch reads it, mm:ss. Hundredths were dropped: no time in this game is
+ * decided on them (the target-time star is a whole-second threshold), and a two-decimal clock on
+ * a mission card reads as telemetry rather than as a score. Truncated, not rounded, matching
+ * `GameplayScene`'s own clockText so the same run reads identically on the results card and here.
+ */
 private fun formatTime(seconds: Float): String {
-    val totalCentis = (seconds * 100).roundToInt().coerceAtLeast(0)
-    val mins = totalCentis / 6000
-    val secs = (totalCentis / 100) % 60
-    val centis = totalCentis % 100
-    return "${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${centis.toString().padStart(2, '0')}"
+    val total = seconds.toInt().coerceAtLeast(0)
+    val mins = total / 60
+    val secs = total % 60
+    return "${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}"
 }

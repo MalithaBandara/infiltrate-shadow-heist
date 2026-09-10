@@ -51,7 +51,19 @@ data class LevelLayout(
     val hangingCrateVariant1: List<Rect> = emptyList(),
     val hangingCrateVariant2: List<Rect> = emptyList(),
     val barrels: List<Rect> = emptyList(),
-    val movingPlatforms: List<MovingPlatformDef> = emptyList()
+    val movingPlatforms: List<MovingPlatformDef> = emptyList(),
+    // Purely decorative chain-and-hook dangling from off-screen above (hook.png, a single tall
+    // image, not tiled - unlike the hanging crates' chain there's no crate at the bottom needing
+    // an exact height, so one asset scaled to each Rect's bounds is enough). No collision box and
+    // nothing grabs onto these - for one the player can actually swing from, see [swingHooks].
+    // Both lists go through GameplayScene's dedicated hook render pass, which draws them alike.
+    val hangingHooks: List<Rect> = emptyList(),
+    // Hooks the player can swing across a gap from. Drawn exactly like [hangingHooks] - there is
+    // deliberately no badge or highlight marking one as usable, the same way nothing marks a
+    // climbable box - but each also becomes a grab point: the grip is the rect's bottom-centre,
+    // and Player.findSwingTarget decides from there whether a swing is on. Still no collision
+    // box; the player passes through the chain like the decorative ones.
+    val swingHooks: List<Rect> = emptyList()
 )
 
 enum class TutorialAction {
@@ -253,7 +265,7 @@ data class LevelData(
          */
         val LEVEL_2_LAYOUT = run {
             val groundY = 440.0
-            val worldWidth = 5300.0
+            val worldWidth = 5100.0
             val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
 
             // --- SECTION 1: Stationary Vault & Crossing ---
@@ -294,17 +306,17 @@ data class LevelData(
                 phaseOffsetSeconds = 0.0,
                 isVariant1 = false
             )
-            // Container 2 (Short, moving): oscillates between 2085 and 2165 (safely clear of crate 1 and stationary long crate).
+            // Container 2 (Short, moving): oscillates between 2075 and 2165, synchronized with Crate 1 so jump is available every cycle.
             val movingCrate2 = MovingPlatformDef(
                 id = "lvl2_move_2",
                 initialX = 2165.0,
                 y = 296.0,
                 width = 76.0,
                 height = 38.0,
-                minX = 2085.0,
+                minX = 2075.0,
                 maxX = 2165.0,
-                periodSeconds = 4.0,
-                phaseOffsetSeconds = 2.0,
+                periodSeconds = 3.6,
+                phaseOffsetSeconds = 1.8,
                 isVariant1 = false
             )
             // Container 3 (Long, stationary): center safe haven / island at x=2270, width=174 (ends at 2444).
@@ -319,11 +331,11 @@ data class LevelData(
                 height = 38.0,
                 minX = 2475.0,
                 maxX = 2555.0,
-                periodSeconds = 3.8,
-                phaseOffsetSeconds = 0.5,
+                periodSeconds = 3.6,
+                phaseOffsetSeconds = 0.0,
                 isVariant1 = false
             )
-            // Container 5 (Short, moving): oscillates between 2665 and 2745 (safely clear of crate 4 and endTerrain at 2855).
+            // Container 5 (Short, moving): oscillates between 2665 and 2745, synchronized with Crate 4.
             val movingCrate5 = MovingPlatformDef(
                 id = "lvl2_move_5",
                 initialX = 2745.0,
@@ -332,18 +344,18 @@ data class LevelData(
                 height = 38.0,
                 minX = 2665.0,
                 maxX = 2745.0,
-                periodSeconds = 4.2,
-                phaseOffsetSeconds = 2.6,
+                periodSeconds = 3.6,
+                phaseOffsetSeconds = 1.8,
                 isVariant1 = false
             )
 
-            // 8. Intermediate landing terrain block between Section 2 and Section 3 (x: 2855..3265).
-            val midTerrain2 = Rect(x = 2855.0, y = 296.0, width = 410.0, height = 144.0)
+            // 8. Intermediate landing terrain block between Section 2 and Section 3 (x: 2855..3295).
+            val midTerrain2 = Rect(x = 2855.0, y = 296.0, width = 440.0, height = 144.0)
 
             // --- SECTION 3: Dynamic Vertical Elevator Container Gauntlet ---
-            // 9. Rescue barrel 3: sits on the ground flush against midTerrain2's right face at x=3265.
+            // 9. Rescue barrel 3: sits on the ground flush against midTerrain2's right face at x=3295.
             // Players who miss a jump during the vertical elevator section can climb back up here.
-            val rescueBarrel3 = Rect(x = 3265.0, y = 392.0, width = 32.0, height = 48.0)
+            val rescueBarrel3 = Rect(x = 3295.0, y = 392.0, width = 32.0, height = 48.0)
 
             // 10. 5 Containers: 2 short moving vertically (seesaw pair), 1 long stationary island, 2 short moving vertically.
             // Container 1 (Short, moving Y: 250..320): oscillates up and down to catch the player from midTerrain2.
@@ -397,25 +409,25 @@ data class LevelData(
                 isVariant1 = false,
                 initialY = 280.0
             )
-            // Container 5 (Short, moving Y: 250..330): counter-phase elevator leading to final extraction platform.
+            // Container 5 (Short, moving Y: 220..285): counter-phase elevator leading to final extraction platform.
             val verticalCrate5 = MovingPlatformDef(
                 id = "lvl2_vert_5",
-                initialX = 4047.0,
-                y = 330.0,
+                initialX = 4055.0,
+                y = 285.0,
                 width = 76.0,
                 height = 38.0,
-                minX = 4047.0,
-                maxX = 4047.0,
-                minY = 250.0,
-                maxY = 330.0,
+                minX = 4055.0,
+                maxX = 4055.0,
+                minY = 220.0,
+                maxY = 285.0,
                 periodSeconds = 3.8,
                 phaseOffsetSeconds = 2.5,
                 isVariant1 = false,
-                initialY = 330.0
+                initialY = 285.0
             )
 
-            // 11. Final landing terrain block past Section 3 (x: 4193..4650).
-            val finalTerrain = Rect(x = 4193.0, y = 296.0, width = 457.0, height = 144.0)
+            // 11. Final landing terrain block past Section 3 (x: 4193..4373).
+            val finalTerrain = Rect(x = 4193.0, y = 296.0, width = 180.0, height = 144.0)
 
             val boxes = listOf(
                 crate1, terrain, rescueBarrel1,
@@ -430,19 +442,13 @@ data class LevelData(
             )
 
             LevelLayout(
-                worldWidth = 5300.0,
+                worldWidth = worldWidth,
                 playerStartX = 236.0,
                 playerStartY = groundY - 96.0,
-                exitZone = Rect(x = 5180.0, y = 340.0, width = 44.0, height = 100.0),
+                exitZone = Rect(x = 4680.0, y = 340.0, width = 44.0, height = 100.0),
                 platforms = listOf(ground),
                 boxes = boxes,
-                guards = listOf(
-                    GuardSpawn(
-                        startX = 5000.0, surfaceY = groundY,
-                        patrolMinX = 4700.0, patrolMaxX = 5120.0,
-                        speed = 75.0, facing = -1.0, visionRange = 220.0
-                    )
-                ),
+                guards = emptyList(),
                 hangingCrateVariant1 = listOf(hangingCrate1, stationaryLongCrate, stationaryLongCrate2),
                 hangingCrateVariant2 = listOf(hangingCrate2, hangingCrate3),
                 barrels = listOf(rescueBarrel1, rescueBarrel2, rescueBarrel3),
@@ -460,15 +466,114 @@ data class LevelData(
             backgroundImage = "bgmg5.png"
         )
 
+        /**
+         * Work in progress. First section built: a two-tier barrel staircase blocking the ground
+         * path - an 8-wide bottom layer with a 4-wide top layer sitting on its far half, so the
+         * near half of the bottom layer is left exposed as a real landing spot. That matters
+         * physically, not just visually: the engine's climb/jump check only ever looks at one
+         * box's own bottom/top face (see Player.findClimbTarget), so a second layer sitting
+         * directly above the first IN THE SAME COLUMNS would occupy the only spot the player could
+         * land on to reach it (the player's own height, 96, equals two stacked 48-tall layers),
+         * leaving no way up at all. Offsetting the top layer sideways instead of stacking it
+         * in-place turns the climb into two ordinary adjacent-box jumps (ground -> bottom layer's
+         * exposed half -> top layer -> terrain1), the same proven pattern as LEVEL_2_LAYOUT's
+         * crate1 (48 units, comfortably under Player.maxJumpHeight 51.2).
+         *
+         * Past the barrel stack, terrain1 sits one more 48-unit jump higher (296, matching this
+         * game's established "high tier" height - see SIDE_SCROLL_LEVEL_LAYOUT/LEVEL_2_LAYOUT) and
+         * is a solid block reaching all the way down to the ground (144 tall, like LEVEL_2's
+         * terrain blocks) rather than a thin floating platform with open air beneath it.
+         *
+         * The gap after terrain1 is crossed by swinging from the hook hanging over it: walk into
+         * it and press JUMP, which is the same button the climb already uses. It is the only way
+         * across - the gap is twice a running jump - and it is the one place in the game the swing
+         * exists at all, so the geometry here and Player's swing constants are a matched pair.
+         */
+        val LEVEL_3_LAYOUT = run {
+            val groundY = 440.0
+            val ground = Rect(x = 0.0, y = groundY, width = 1800.0, height = 100.0)
+
+            val barrelWidth = 32.0
+            val barrelLayerHeight = 48.0
+            val barrelWallX = 400.0 // a short run-up from the start fence, matching LEVEL_2's crate1 distance
+
+            val bottomLayerCount = 8
+            val topLayerCount = 4
+            val bottomLayerY = groundY - barrelLayerHeight
+            val topLayerX = barrelWallX + (bottomLayerCount - topLayerCount) * barrelWidth // top layer sits on the FAR half
+            val topLayerY = groundY - barrelLayerHeight * 2.0
+
+            val bottomBarrelLayer = (0 until bottomLayerCount).map { i ->
+                Rect(x = barrelWallX + i * barrelWidth, y = bottomLayerY, width = barrelWidth, height = barrelLayerHeight)
+            }
+            val topBarrelLayer = (0 until topLayerCount).map { i ->
+                Rect(x = topLayerX + i * barrelWidth, y = topLayerY, width = barrelWidth, height = barrelLayerHeight)
+            }
+            val barrelWall = bottomBarrelLayer + topBarrelLayer
+            val barrelWallEndX = topLayerX + topLayerCount * barrelWidth
+
+            // Solid elevated terrain, one more 48-unit jump above the barrel stack's top layer.
+            val terrainTopY = topLayerY - barrelLayerHeight
+            val terrainHeight = groundY - terrainTopY
+            val terrain1 = Rect(x = barrelWallEndX, y = terrainTopY, width = 300.0, height = terrainHeight)
+
+            // The gap is crossed by swinging from the hook below, and its width is derived from
+            // that move rather than chosen: the swing is a fixed shape (Player.swingLandAhead),
+            // so the level is sized to the swing, not the other way round. 150 is also well past
+            // a running jump - the arc covers about 84 units - so the hook is the only way over,
+            // which is the point of the section.
+            val gapWidth = 150.0
+            val terrain2 = Rect(x = terrain1.right + gapWidth, y = terrainTopY, width = 300.0, height = terrainHeight)
+
+            // The chain-and-hook (hook.png) the player swings from. Positioned by its GRIP - the
+            // point inside the bend the hand closes on, see Player.HOOK_GRIP_X/Y_FRACTION - with
+            // the art hung off that, not the other way round. Three numbers, all constrained:
+            //
+            //  - The grip sits at the centre of the gap, which is where a crane hook over a hole
+            //    in a dock belongs. That makes the leap to it the long half of the move - about 90
+            //    units from the lip, against 112 out of the release - so SWING_PACING_CURVE gives
+            //    the launch 0.45s to cover it at a believable ~200 units/sec rather than the rate
+            //    the clip itself runs at. Player.swingLandAhead is then set so the touchdown lands
+            //    34 units onto terrain2, so the two are a matched pair: moving one moves both.
+            //  - The grip hangs 112 above the ledge, which puts the hook's own business end - the
+            //    bottom ~12% of hook.png, the rest is chain - a few units clear of a standing
+            //    player's head (they are 96 tall), so it reads as something to jump for. It cannot
+            //    go much higher: this game's camera shows only about 140 units above a high tier,
+            //    and hanging the grip where the leap would gain real height puts the hook itself
+            //    off the top of the screen. See the swing notes in .junie/guidelines.md.
+            //  - Width 16 keeps the chain noticeably thinner than the player, and leaves a dozen
+            //    or so units of it visible running off-screen above the hook.
+            val hookWidth = 16.0
+            val hookHeight = hookWidth * (2136.0 / 154.0) // hook.png's own cropped aspect ratio
+            val hookGripX = terrain1.right + gapWidth / 2.0
+            val hookGripY = terrainTopY - 112.0
+            val swingHook = Rect(
+                x = hookGripX - hookWidth * Player.HOOK_GRIP_X_FRACTION,
+                y = hookGripY - hookHeight * Player.HOOK_GRIP_Y_FRACTION,
+                width = hookWidth,
+                height = hookHeight
+            )
+
+            LevelLayout(
+                worldWidth = 1800.0,
+                playerStartX = 236.0,
+                playerStartY = groundY - 96.0,
+                exitZone = Rect(x = terrain2.right + 100.0, y = groundY - 100.0, width = 44.0, height = 100.0),
+                platforms = listOf(ground),
+                boxes = barrelWall + listOf(terrain1, terrain2),
+                guards = emptyList(),
+                barrels = barrelWall,
+                swingHooks = listOf(swingHook)
+            )
+        }
+
         val DEFAULT_LEVEL_3 = LevelData(
             id = "level_3",
             name = "03: Blind Spot",
             timeTargetSeconds = 25.0f,
             description = "The shipyard is guarded. Slip through security and continue searching for signs of your old crew.",
             objectiveHint = "Get Past the Guards",
-            guardSpeed = 95.0,
-            guardPatrolMinX = 2600.0,
-            guardPatrolMaxX = 3100.0
+            layout = LEVEL_3_LAYOUT
         )
 
         /**

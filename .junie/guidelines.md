@@ -314,6 +314,59 @@ dossier sheets" below for the screen itself.
 `:game`'s stub actual). **iOS: not verified at all locally** — no Mac here;
 needs a real CI push, same as every iOS change in this file.
 
+## Ad preloading (2026-09-10) — and the two hazards it introduces
+
+`ContinueAdContent` (Android + iOS) and `InterstitialAdContent` (Android only) now **preload**:
+the `rememberRewardedAd` / `rememberInterstitialAd` call sits OUTSIDE the `showRequested` gate, so
+the fetch starts when the content first composes instead of when the player asks. They previously
+used basic-ads' one-shot `RewardedAd(...)` / `InterstitialAd(...)` composables, which are just
+`rememberXAd()` + `setListeners()` + `show()` - meaning nothing existed until request time and the
+player waited out the network fetch. `rememberXAd` re-loads whenever the handler is `NONE` or
+`DISMISSED`, so the next ad starts loading as soon as the previous one closes.
+
+**There is no `InterstitialAd(loadedAd = ...)` overload** - an earlier note claimed one. The only
+parameters are `adUnitId` plus callbacks. Preloading is done by hoisting the `remember` call, not
+by a different API.
+
+**Hazard 1: a background failure must not resolve a request the player never made.** `onAdClosed()`
+/ `cancelShow()` set `outcomeFinished`, which GameplayScene (Android) and the Swift poll loop (iOS)
+read as "the ad flow ended". Wiring those straight into the hoisted `onFailure` would fire them for
+a preload that failed while nothing was pending, skipping the player past an offer never shown.
+Every hoisted load-failure callback is therefore guarded on `showRequested.value`.
+
+**Hazard 2: `FAILING` is a dead end.** `rememberXAd` re-loads only from `NONE` or `DISMISSED` - it
+does *nothing* from `FAILING` (confirmed in basic-ads 1.2.1 sources; the `when` has no branch for
+it). Before preloading this was harmless: the handler was created on demand and its failure went
+straight to `onFailure`. With preloading, one early failure leaves the handler dead for the rest of
+the process, and a later request gets **no ad and no resolution** - a continue prompt the player can
+neither accept nor dismiss. Every show site therefore has an explicit `AdState.FAILING ->` branch
+that resolves the trigger exactly as a load failure did before.
+
+**TEST ADS CANNOT REPRODUCE EITHER HAZARD.** Google's test units always fill, instantly, and never
+fail, so both branches are unreachable while `USE_TEST_ADS = true`. They will look like dead code
+in every local test run. Force them by hand - airplane mode is the easy one - before trusting them.
+
+**The iOS interstitial is deliberately NOT preloaded.** `LevelExitBridge.ios.kt` is still a no-op
+stub, so nothing on iOS ever calls `requestShow()`. Hoisting its handler would fetch an ad on every
+composition, forever, for zero impressions - the exact pattern AdMob's invalid-traffic policy flags,
+and it would wreck that unit's fill-rate reporting. Preload it when the Swift poll loop is wired,
+not before; copy the Android version and its two hazard branches.
+
+**The Store's `CoinsRewardAdHost` / `GadgetRewardAdHost` are NOT preloaded either.** They are gated
+at the call site in `StoreScreen.kt` (`if (showCoinsRewardAd) { ... }`), so preloading them means
+restructuring commonMain plus four platform actuals to take a "show now" flag. The placement is a
+menu button where a brief wait is tolerable, so this was left alone on purpose rather than missed.
+
+**Verified**: `:paywall-build:compileDebugKotlinAndroid` and `compileKotlinJvm` clean, `jvmTest`
+green. **iOS not compile-verified** - `compileKotlinIosSimulatorArm64` reports `SKIPPED` on Windows
+(Kotlin/Native iOS needs a Mac), so `ios-build.yml` in CI is the first real check of the iOS edit.
+**Neither platform has been run on a device with preloading**, so the behaviour below is reasoned
+from the basic-ads sources, not observed:
+- ad appears immediately on level exit / continue prompt instead of after a fetch
+- declining still hands control straight back (`consumeOutcomeFinished()` unchanged)
+- reward still grants; on Android `markRewardEarned()` still does NOT resolve the outcome (see the
+  grey-screen reload bug note in `ContinueAdBridge.android.kt` - preloading did not change it)
+
 ## All three ad placements currently point at Google's TEST ad unit IDs (2026-09-08)
 
 `AdUnitIds.android.kt`/`AdUnitIds.ios.kt` each have a single `private const val USE_TEST_ADS = true`
@@ -400,6 +453,52 @@ gate wasn't hit the last time this file recorded a successful local
 `:paywall-build:compileKotlinIosSimulatorArm64`, so something in the Kotlin 2.3.20→2.4.10 bump (or
 another environment change since) may have newly triggered it - worth investigating if any other
 `paywall-build` iOS work hits the same wall. Never run on a real device/emulator.
+
+## Watch ad for a random gadget (Store) — new, real, mirrors "watch ad for coins"
+
+Sixth Store card, added to the existing 2x3 POWER-UPS grid (`StoreScreen.kt`) alongside the five
+real gadgets (CAMERA JAMMER/SLEEP DARTS/INVISIBILITY CLOAK/NOISE SUPPRESSION BOOTS/REMOTE TRIGGER,
+display names updated since this was written but the underlying `PowerupType` enum values and the
+mystery pool are unchanged).
+"MYSTERY GADGET" grants one of those same five, chosen with `List<PowerupType>.random()` (uniform,
+Kotlin stdlib) at the moment the ad is requested — not at reward time — so the granted type is fixed
+before the ad even shows. Grant path reuses `profileStorage.buyPowerup(type.id, cost = 0)` rather
+than adding a separate free-grant method: `spendCoins(0)` always succeeds, so this is exactly
+"buy for free" with no interface change.
+
+**Not the same thing as `PowerupType.PROTOTYPE`** (`Powerup.kt`) — that's a separate, already
+in-progress sixth *gadget type* (real id/cost/timer, no world effect yet, not wired into
+`StoreScreen.kt` at all). This feature doesn't touch `PowerupType` or `GameProfile.kt` — it only
+picks among the five existing real types. Don't conflate the two if PROTOTYPE gets its own Store
+card later; `gadget_prototype.png` belongs to PROTOTYPE, not to this feature (this card draws a
+vector five-pip die icon instead, `drawMysteryDiceIcon` in `StoreScreen.kt`, since it doesn't
+represent one fixed gadget).
+
+**New ad unit**: `AdUnitIds.REWARDED_GADGET`, its own placement (not shared with `REWARDED_COINS`
+or `REWARDED_CONTINUE`, same reporting/frequency-cap reasoning as the other placements). Real IDs
+now created in AdMob, named "Gadget Reward" (Android `ca-app-pub-7912148730700666/9048379643`,
+iOS `ca-app-pub-7912148730700666/6397813920`), same app IDs as every other placement in this table.
+`USE_TEST_ADS = true` still gates both to Google's shared test ID for now, same as the rest.
+
+**`GadgetAdLimiter`** (`paywall-build/src/commonMain/kotlin/GadgetAdLimiter.kt`) is a separate class
+from `CoinsAdLimiter`, not a shared generic base — same precedent as `InterstitialAdLimiter` already
+being its own class despite the thematic overlap. Capped at `MAX_WATCHES_PER_DAY = 3` (lower than
+coins' 5): a random gadget averages ~400 coins of value (the five cost 150-750 outright) versus the
+coin card's flat 250, so an equal daily count would make this the more generous of the two — 3/day
+was chosen to keep it a real but bounded alternative, not the better deal. Tunable in place if that
+balance needs revisiting. Own storage keys (`user_gadget_ad_day_bucket`/`user_gadget_ad_watch_count`),
+same UTC-day-bucket shape as `CoinsAdLimiter`.
+
+**`GadgetRewardAdHost`** (`expect` in commonMain, `actual` per platform) is a near-identical copy of
+`CoinsRewardAdHost` pointed at `AdUnitIds.REWARDED_GADGET` instead — kept as a separate small file
+per placement rather than parameterizing one host with an ad-unit-id argument, matching this
+project's existing one-file-per-placement convention for ad hosts/limiters/bridges.
+
+**Verified**: `:paywall-build:compileKotlinJvm`, `:paywall-build:compileDebugKotlinAndroid`, both
+`jvmTest` suites (root + `paywall-build`) all succeed. **Not verified**: iOS klib compilation
+skipped locally (`onlyIf 'Cross compilation should be supported on host' is false`, the same
+pre-existing Windows toolchain gate noted in the coins-ad section above, not a code error) — check
+via CI before trusting it compiles. Never run on a real device/emulator/JVM desktop preview UI.
 
 ## Level-exit interstitial ads — Android real, iOS plumbing only
 
@@ -968,6 +1067,88 @@ from screenshots across passes, not confirmed against a running app as
 final — if a sixth round of feedback comes in, these are the two knobs
 (the offset, the fixed gaps) to keep adjusting.
 
+## The swing move (level 3's hook) — added 2026-09-10, tuned on JVM desktop over ~8 rounds
+
+The one scripted move besides the climb, and built the same way: the animation is the source of
+truth for the pose, and code places the body so the pose is holding (or standing on) the right
+thing. Entry is **walking into the hook and pressing JUMP**, the same button the climb uses.
+Standing still and pressing it is an ordinary jump, deliberately: the clip opens on a push-off
+stride and there is no version of it that starts from a standstill (the owner confirmed this
+reading; do not "helpfully" allow it from idle).
+
+**The clip** (`resources/player/swing`, 52 frames at 165x264, from a 200-frame 360x640 half-res
+plate set): raw 59-69, raw 77, raw 114-153. Everything else is cut, and three of the four cuts
+came out of watching it rather than out of arithmetic - see the header comment on
+`PlayerAnimations`, which carries the full reasoning. The short version:
+
+- **The backswing (raw 78-113) is gone.** In the footage the character jumps straight up, so the
+  grab is followed by the legs swinging back before they come forward. In game he has run at the
+  hook, so his momentum should carry him forward and the wind-up reads as wrong.
+- **The settle (raw 70-76) is gone.** Eight frames of a body hanging almost still. Given real time
+  they read as him stopping to wait on the hook.
+- The walk-in and the landing run-out are gone for the ordinary reasons (the move is entered from
+  whatever the player was doing; the touchdown hands over to the jump's landing-absorb cushion,
+  which resolves into walk or idle - this clip never returns to a standing pose so it could not
+  meet idle frame 1 anyway).
+- **Every frame of what is left is kept**, not every second one. 52 frames at 165x264 still fit a
+  single atlas page (84 of these per page), so the smoother version costs nothing until the count
+  passes 84.
+
+**How the hang works, and why the collision box does not move during it.** The plates were shot
+with the camera locked on the hook, so within a frame the hand holds still and the body sweeps
+around it. `Player.SWING_GRIP_ABOVE_CURVE` / `SWING_GRIP_AHEAD_CURVE` are that hand measured off
+every frame from the grab to the release (fraction of player height above the feet, and ahead of
+the frame's centre), and `advanceSwing` places the body so the hand lands on the hook - the climb's
+grip curve idea in two axes. The horizontal half is nearly constant, so **the player rect sits
+still under the hook while the silhouette sweeps a body width either side of it**. That is correct,
+not a bug: travel comes from the launch and the release, the swing itself is drawn.
+
+**Where the hand goes on the hook is measured off `hook.png`, and getting it wrong is very
+visible.** `HOOK_GRIP_X/Y_FRACTION` (0.481, 0.960) are not the rect's bottom-centre, which is what
+they were first: that art is mostly chain and its lowest pixel is the *outside* of the bend, so a
+fist placed there hangs a whole fist below the metal and the character dangles under a hook he is
+plainly not holding. Scanning the image, the point and the shank stand as two runs from row 2040
+of 2136 to 2089 - that gap is the bell - and 0.960 drops the fist two thirds of the way down it,
+where the opening has closed to about the fist's own width so it meets metal on both sides. Sitting
+it at the top of the bell instead left a sliver of sky either side and still read as hovering.
+**Re-measure both if hook.png is ever recropped** (`LevelData`'s `hookHeight` hardcodes the same
+image's aspect and needs the same care).
+
+**The pacing curve is the whole feel of the move.** `swingDuration` (0.92s) and `SWING_PACING_CURVE`
+shape when each frame is shown to produce a full weighted takeoff, instant forward release at apex, and natural grounded landing:
+- ~0.38s (progress 0.00..0.41) for frames 0-11: running push-off and clear, weighted leap curving up to the hook (no rushed takeoff)
+- ~0.12s (progress 0.41..0.54) for frames 11-29: fast dynamic whip swing under hook and immediate snap forward release (zero waiting at forward apex)
+- ~0.29s (progress 0.54..0.86) for frames 29-45: fast ballistic flight arc across the gap to touchdown at frame 44.5 (`SWING_LAND_PHASE`)
+- ~0.13s (progress 0.86..1.00) for frames 45-51: feet plant firmly on `terrain2` and torso rolls forward over feet to stand up (zero foot sliding or weird leg extension)
+
+**Level geometry is derived from the move, not the other way round.** `swingLandAhead` (109) is how
+far past the grip the player comes down, and `findSwingTarget` refuses to start a swing unless
+there is solid ground there level with the ledge being left - so the fixed shape can never strand
+anyone. It works in either direction, so level 3's gap can also be re-crossed leftwards. The hook
+hangs at the centre of the 150-unit gap; `swingLandAhead` is then set so the touchdown lands 34
+units onto the far ledge, which makes the two a matched pair - move one and you move both.
+
+**`swingMinReach`/`swingMaxReach` (75..97) are a rule about where the player leaves the ground**,
+not a convenience. Standing at the very lip puts the grip 93 ahead, so that window confines the
+push-off to within a few units of the edge. A looser one let anyone holding jump take off with a
+third of the platform still under them, which reads as jumping at nothing. It plays looser than it
+reads because the existing jump buffer covers an early press and coyote time covers a late one.
+
+**The camera caps how high the hook can hang, and this is the non-obvious constraint.**
+`baseWorldViewY` leaves about 140 world units visible above a high tier (296 on level 3). The hook
+art's actual hook is only the bottom ~12% of a very tall image - so hanging the grip high enough
+for the leap to gain real height puts the hook itself off the top of the screen. Level 3's grip is
+112 above the ledge: clear of a standing player's head (96 tall) so it reads as something to jump
+for, with the hook fully visible and a dozen units of chain running off-screen. The launch gains
+little real height as a result, so `SWING_LAUNCH_ARC` bows it 16 units to sell the leap. **If a
+swing is ever wanted with a real vertical gain, the ledges have to come down, not the hook go up.**
+
+**Verified**: `jvmTest` (both suites, including four swing tests), `:paywall-build:jvmTest` (the
+korlibs lint - `Player.kt` stays pure Kotlin), both JVM compiles, **and the JVM desktop build was
+run and screenshotted across full swings after every one of the tuning rounds** - push-off, the
+fist meeting the hook, the sweep, the release and the landing were all read off real frames.
+**Not verified**: never run on Android, iOS, or any real device.
+
 ## Asset prep techniques
 
 Reusable, hand-verified techniques for prepping raw art drops
@@ -1104,6 +1285,83 @@ device — whether it actually connects to Layers' backend and events arrive
 is unconfirmed. iOS not attempted (scope was Android only, matching the
 vendor's own Android/iOS-ATT doc split).
 
+## Device heating on Android — measured root causes (2026-09-09)
+
+Investigated after "it heats very fast on a Galaxy S25 Ultra". Measured on JVM against the real
+level data (a throwaway `test/HeatProfileTest.kt`, deleted after use) plus KorGE 6.0.0's own
+decompiled Android classes and sources — **not** on a device, so the ranking is evidence-backed but
+the on-device improvement is unconfirmed. Ranked by cost.
+
+**1. The guard/camera vision cones are the only views in the game drawn with KorGE's SOFTWARE
+rasterizer, and they are rebuilt from scratch every frame.** This is the dominant cost and the one
+worth fixing first.
+
+`UiComponents.kt`'s own `uiGraphics()` helper correctly passes `GraphicsRenderer.GPU`, and every
+other shape in the scene uses it. The two exceptions are `GameplayScene.kt:448` and `:466`, which
+call KorGE's raw `worldView.graphics()` — whose default is `GraphicsRenderer.SYSTEM`, i.e.
+`CpuGraphics`. Read `BaseGraphics.redrawIfRequired()` in KorGE's sources: on every dirty frame it
+allocates a **brand-new `NativeImage` sized to the shape's bounds times the device scale**,
+software-rasterizes the whole antialiased polygon into it, uploads it as a fresh GPU texture and
+deletes the previous one. `Graphics.updateShape` builds a new `Shape` object each call, so the
+dirty flag is set every single frame.
+
+Measured bitmap footprint at `worldZoom` 1.35 and a 1440p landscape device (scale 3.0):
+
+| level | cones | bitmap per frame | at 60fps | at 120fps |
+|---|---|---|---|---|
+| 1 | 1 | 1053x1053 = 4.23 MB | 254 MB/s | 508 MB/s |
+| 2 | 1 | 891x591 = 2.01 MB | 121 MB/s | 241 MB/s |
+| 4 | 3 | 3.34 MB | 201 MB/s | 401 MB/s |
+
+**On level 1 that entire cost is for a guard that does not exist in play.** `guardEnabled = false`
+parks a real `Guard` off-map at `x = -500` (see "Level 1 geometry"), but `guardCones` is built from
+`world.allGuards` unconditionally, the cone `Graphics` is a direct child of `worldView`, and guards
+are deliberately excluded from the culling pass — so an invisible, off-screen cone is rasterized and
+re-uploaded at 4.23 MB/frame for the whole tutorial level.
+
+**2. Building the cone polygon allocates 275 KB per cone per frame.** Separate from the raster cost
+above. `GeometryUtils.castRay` calls `Rect.edges()` per occluder per ray, and `Rect.topLeft`/etc are
+computed getters — so each ray allocates 4 `Segment2d` + 8 `Vec2d` per occluder, and
+`Segment2d.intersects` allocates 3 more `Vec2d` per edge test. Measured on desktop x86:
+
+| level | occluders | cones | polygon build | garbage |
+|---|---|---|---|---|
+| 1 | 18 | 1 | 23.1 us/frame | 275 KB/frame (32 MB/s at 120fps) |
+| 2 | 16 | 1 | 21.0 us/frame | 244 KB/frame (29 MB/s at 120fps) |
+| 4 | 11 | 3 | 49.8 us/frame | 563 KB/frame (66 MB/s at 120fps) |
+
+For scale, `world.update` — all the physics, detection and noise logic — is **0.9-3.2 us and under
+2.5 KB per frame**. The simulation is not the problem; the cone rendering is, by roughly 20x.
+
+**3. Nothing caps the frame rate, so the whole loop runs at the panel's refresh rate — up to 120 Hz
+on this phone.** Verified in KorGE 6.0.0: `GameWindow.continuousRenderMode` defaults to `true`,
+`KorgwSurfaceView` is a `GLSurfaceView` left in `RENDERMODE_CONTINUOUSLY`, its `onDrawFrame` calls
+`gameWindow.frame(doUpdate = true, doRender = true)` with no throttle, and `Views.frameUpdateAndRender`
+uses the real wall-clock delta. **`KorgeConfig.targetFps` is a dead knob** — `Korge.kt:256` writes it
+into `Views.targetFps` and nothing anywhere reads it (checked in both the sources and the compiled
+classes). Nothing calls `Surface.setFrameRate` either. So every cost above is paid twice as often on
+a 120 Hz phone as the 60 Hz figures the rest of this file assumes.
+
+Note the trap: `Views.forceRenderEveryFrame` is an alias for `gameWindow.continuousRenderMode`, so
+setting it `false` does **not** cap anything — it flips the `GLSurfaceView` to `RENDERMODE_WHEN_DIRTY`
+and hands the update loop to `KorgwSurfaceView`'s `korgw-updater` thread, which is an infinite loop
+with a bare `Thread.sleep(1)` (it computes the elapsed time into a local and never uses it). That
+would run updates at ~1000 Hz. Do not reach for it as a fix.
+
+**4. That `korgw-updater` thread spins at ~1000 wakeups/second regardless**, doing nothing useful
+while `continuousRenderMode` is true. It is only stopped in `onDetachedFromWindow`, which does not
+fire when the app is merely backgrounded — and `MainActivity` never calls `onPause`/`onResume` on the
+surface view either (`KorgeAndroidView` exposes no such methods; it is a plain `RelativeLayout`).
+Small next to items 1-3, but it keeps the CPU out of deep idle.
+
+**5. The oversized textures and the always-rendering-under-the-menu behaviour** are the two already
+documented in the next section (items 2 and 4 there) and still apply unchanged.
+
+**Fix order, none of it done yet**: switch the two `worldView.graphics()` calls to `uiGraphics()`
+(GPU renderer); skip the cone entirely when `levelData.guardEnabled` is false; only recompute the
+polygon when the cone is on-screen and its inputs actually changed, the same "unchanged shape is
+skipped" guard the powerup chips already use; then look at a real frame cap.
+
 ## Runtime performance: where the frame budget actually goes (2026-09-08)
 
 Investigated after an "it lags on my Android phone" report. Measured off the assets and the
@@ -1119,22 +1377,29 @@ frames that are loaded but unreachable — climb's raw 1-69 run-up (`CLIMB_START
 to raw 70) and crouchwalk's raw 145-192 tail (the gait loop wraps at 144) — brought it to 20.3M
 (≥5 pages), ~34MB of heap and ~34MB of texture memory back for zero visual change. **Adding
 animation frames here is not free**; there is now an ATLAS BUDGET comment on `load()` saying so.
+Adding the swing clip (2026-09-10, 48 frames at 173x264) put it back up to **22.5M pixels**, which
+is roughly one more page — the cost was accepted knowingly and is why that clip is trimmed to 48
+frames out of 200 raw. Anything added next should assume it is paying ~16.8MB of heap and the same
+again of texture memory for the page it tips over into.
 Note the climb clip's START/END constants are in **loaded-index space** now, not raw file
 numbering — `loadAnimation(firstFile = ...)` skips the unloaded head.
 
-**2. Every texture is authored 10-26x larger than it is drawn, and mipmaps cannot fix it.**
-`barrel.png` is 832x1274 drawn at 32x48 (~26x, and level 1 has seven of them); `crate.png`
-851x595 at 48x68; the five touch buttons (`left/right/jump/crouch/interact.png`) are ~1200x1200
+**2. Every texture was authored 10-26x larger than it is drawn, and mipmaps could not fix it.**
+**FIXED 2026-09-10** - see "Item 1, DONE" below. Kept here because the diagnosis explains what
+mipmaps are for, and the failure mode is one this engine will happily reproduce on the next asset.
+
+`barrel.png` was 832x1274 drawn at 32x48 (~26x, and level 1 has seven of them); `crate.png`
+851x595 at 68x48; the five touch buttons (`left/right/jump/crouch/interact.png`) were ~1200x1200
 drawn at 96-108px. Minifying that hard without mipmaps means adjacent output pixels sample
-texels ~26 apart, so nearly every texture fetch misses the GPU cache — the classic mobile stall,
-and the likely source of any shimmer on the barrels while scrolling. Gameplay scene bitmaps
-total ~87MB decoded on top of the atlas.
-**The dead end worth recording: `bitmap.mipmaps(true)` is a silent no-op here.** KorGE 6.0.0's
-`AGObjects.kt` `doMipmaps()` returns `requestMipmaps && width.isPowerOfTwo && height.isPowerOfTwo`,
-and every asset in this project is NPOT — no error, no mipmap, no benefit. Getting mipmaps means
-re-encoding the source PNGs to power-of-two dimensions, which is an art-pipeline change, not a
-code one. **Re-encoding the oversized assets down to roughly their drawn size is the biggest
-un-taken win left.**
+texels ~26 apart, so nearly every texture fetch misses the GPU cache - the classic mobile stall,
+and the likely source of any shimmer on the barrels while scrolling.
+
+**The trap worth recording: `bitmap.mipmaps(true)` is a SILENT no-op on non-POT art.** KorGE
+6.0.0's `AGObjects.kt` `doMipmaps()` returns `requestMipmaps && width.isPowerOfTwo &&
+height.isPowerOfTwo` - no error, no log line, no mipmap. Every asset in the project was NPOT, so
+the engine had never built a single mip level. The ten worst offenders are now POT and
+`SceneAssets` requests mipmaps on load; it also **warns when a minified asset is not POT**, so this
+cannot silently come back. See "Adding new art".
 
 **3. Per-frame allocation in the updater** (all fixed, all mechanical):
 `InMemoryGameProfileStorage.getProfile()` returns a *deep copy* — a fresh `GameProfile` plus a
@@ -1220,19 +1485,53 @@ a 100ms hitch runs six physics steps — slow frames make themselves slower.
 - **`bg_menu.jpg` and `logo.jpg` deleted** (1.2MB). `test_minimal.ldtk` is **KEPT - it is used by
   `test/LdtkLoaderTest.kt`**, which the earlier note only guessed at.
 
-**DEFERRED, with a reason worth keeping: do NOT atlas the static world art yet.** It looks like an
-easy batching win and it is not, because `MutableAtlas` allocates a full 2048x2048 page (16.8MB)
-however little of it is used. The seven stretch-to-box world textures total 6.10M pixels - ~24MB as
-individually-sized textures, but 2-3 pages once packed, i.e. **34-50MB**. Atlasing them today would
-*raise* texture memory by 10-26MB to save a handful of texture binds. It only becomes worthwhile
-after the oversized source art is re-encoded down to roughly its drawn size, at which point the set
-fits one page. Same arithmetic applies to any future "just atlas it" idea here.
+**DECIDED NO (2026-09-10, revised): do not atlas the static world art. Not "not yet" - not at all.**
+This entry previously said it was deferred and "only becomes worthwhile after the oversized source
+art is re-encoded down to roughly its drawn size, at which point the set fits one page."
+**That was wrong on both halves, and item 1 disproved it.** Two independent reasons:
 
-### Item 1, not yet done: re-encode the oversized art (full spec, do it in one pass)
+*The cost.* `MutableAtlas` allocates its whole page up front (`Bitmap32(width, height)`,
+`MutableAtlas.kt:24` defaults `width = 2048, height = width`) however little of it is used. Before
+item 1 the seven stretch-to-box world textures totalled 6.10M px - ~24MB individually, but 2-3
+pages once packed, i.e. **34-50MB**, so atlasing would have *raised* texture memory by 10-26MB.
+After item 1 they total **1.96M px, ~7.8MB held individually** - less than *half* of one 16.8MB
+page, so atlasing now more than doubles them. Shrinking the art did not unblock atlasing; it
+removed the reason for it. Hand-sizing the page to ~2048x1280 only reaches break-even.
 
-The largest remaining performance win, deliberately left whole rather than done per-file, because
-two assets need CODE changes before they can be touched at all and four must be excluded outright.
-Everything needed to do it in one sitting is below.
+*The benefit, which was never counted.* Level 1 draws roughly **14 textured world sprites across 7
+textures** (2 fences, small crate, truck, step crate, 7 barrels, entrance, exit fence), and the
+culling pass means fewer are on screen at once. The ceiling is therefore ~10 fewer texture binds
+per frame. A mobile GPU absorbs hundreds of draw calls without noticing - ten is inside the noise
+floor. This half was true before item 1 as well; the resize only made it legible.
+
+*And it now conflicts with mipmaps*, which are live and are buying something real: mip levels
+average across slice boundaries and bleed neighbouring cutouts, so an atlas would need gutters
+sized for the whole mip chain.
+
+Atlasing pays when hundreds of small sprites thrash texture state - a bullet-hell, a tile-heavy
+scene, a particle system. This scene is a dozen large stretched props. The one place the reasoning
+does hold here is the player animation atlas, which is already atlased; shrinking it further is the
+alpha-trim item, a different job with different risks. **Same arithmetic - cost AND benefit -
+applies to any future "just atlas it" idea; count both sides before proposing it again.**
+
+### Item 1, DONE 2026-09-10: re-encoded the oversized art to POT + enabled mipmaps
+
+Done in one pass on 2026-09-10. Ten assets re-encoded, **50.5 MB -> 9.8 MB of texture memory
+(~13 MB with mipmaps, so ~37 MB recovered)**; on disk 10.2 MB -> 2.1 MB. Mipmaps now actually
+build, for the first time in this project's life. The spec that follows is kept because the RULES
+still apply to every asset added from here on - see "Adding new art" immediately below.
+
+**What was verified**: `compileKotlinJvm` clean, `jvmTest` 83/83 green, and the desktop build was
+run and screenshotted - fence, touch controls, tutorial callout, HUD all render as before. Beyond
+the screenshot, each asset was rendered into its exact device-pixel draw box both before and after
+and the two compared: **mean error below 0.6/255 for all ten** (worst: `fence2.png`, 0.60), with
+peak deviations confined to isolated hard-edge pixels. That comparison is the right test, because
+what matters is not whether the small file resembles the big one but whether what lands in the
+draw box changed - and it did not.
+
+**Originals**: the pre-shrink high-resolution art is NOT kept in the working tree. It lives in git
+history at `77a65b9` and earlier - `git show 77a65b9:resources/interact.png > interact.png` to get
+one back. Anything re-authored later should be prepped per the rule below rather than restored.
 
 **THE SIZING RULE - get this wrong and the art is blurry on exactly the phones you demo on.**
 The virtual canvas is 1040x480 (`main.kt` / `MainActivity.kt`), but the device renders at its
@@ -1249,7 +1548,7 @@ same mapping as before; only resample quality changes. The real rule is narrower
 POT, never pad to POT** - transparent padding becomes part of the image and gets stretched into the
 box with everything else, shrinking the art inside its own collision box.
 
-**Three code prerequisites, all small, all blocking:**
+**Five code prerequisites** (1, 3, 4 and 5 resolved in the pass; 2 sidestepped - see notes):
 1. `entrance.png` and `exitfence.png` have their drawn width derived from the bitmap's aspect
    **at runtime**: `entranceWidth = entranceHeight * (bitmap.width / bitmap.height)`, and the exit
    fence is then positioned at `exitZone.x + entranceWidth`. For these two the stored aspect is
@@ -1260,26 +1559,52 @@ box with everything else, shrinking the art inside its own collision box.
    `(26, 1222, 971, 226)` and `(235, 1134, 555, 287)` in `renderHangingCrate`, plus
    `chainDrawH = cropY * scale` using `cropY` as a pixel measure. Express them as fractions of the
    bitmap's dimensions first, or leave both files alone.
-3. Decide mipmaps-vs-atlas BEFORE building either. On an atlas page, higher mip levels average
+3. `stars.png` (added later than the rest of this spec) is the same trap as the chained crates:
+   the three gold stars are cut out of one strip with **hardcoded pixel coordinates** -
+   `sliceWithSize(69, 33, 636, 611)`, `(760, 33, 647, 611)`, `(1464, 33, 641, 611)` in
+   `sceneMain`. The runs were measured off the strip's alpha channel because the stars are
+   hand-painted and no two are the same width, so they cannot be re-derived as equal thirds.
+   Express as fractions of the bitmap first, or leave the file alone.
+4. `hook.png` derives its drawn height from its own aspect: `hookHeight = hookWidth * (2136.0 /
+   154.0)` in `LevelData.kt`. The literal is the file's current cropped size, so resampling to a
+   different aspect silently stretches the chain. Same fix as #1 - pin the ratio, or leave it.
+   (It is 154x2136, a shape no sane POT rounds well; low priority either way at 0.3 Mpx.)
+5. Decide mipmaps-vs-atlas BEFORE building either. On an atlas page, higher mip levels average
    across slice boundaries and bleed neighbours into one another; doing both needs gutters sized
    for the whole mip chain. This interacts with the deferred atlas item above.
 
-**Per-asset targets** (drawn size is virtual units; target is POT >= the 3x device size):
+**Per-asset results** (drawn size is virtual units; target is POT >= the 3x device size).
+"was -> is" is texture memory at 4 bytes/px. Exact drawn sizes, not the estimates this table
+originally carried - `fence1Width = 151.0`, `fence2Width = 172.0`, `fenceHeight = 140.0`, truck
+`38+45+179 = 262` wide by `truckBedHeight = 96`, `moveRadius = 54` and `actionRadius = 48` doubled:
 
-| asset | source | drawn | @3x | target | now -> new |
+| asset | source | drawn | @3x | now | was -> is |
 |---|---|---|---|---|---|
 | `barrel.png` | 832x1274 | 32x48 | 96x144 | 128x256 | 4.04 -> 0.13 MB |
 | `crate.png` | 851x595 | 68x48 | 204x144 | 256x256 | 1.93 -> 0.25 MB |
-| `fence.png` | 1225x1134 | ~150x140 | ~495x465 | 512x512 | 5.30 -> 1.00 MB |
-| `fence2.png` | 1289x1007 | ~180x140 | ~540x420 | 1024x512 | 4.95 -> 2.00 MB |
-| `truck.png` | 1683x617 | 262x96 | 786x288 | 1024x512 | 3.96 -> 2.00 MB |
+| `fence.png` | 1225x1134 | 151x140 | 453x420 | 512x512 | 5.56 -> 1.05 MB |
+| `fence2.png` | 1289x1007 | 172x140 | 516x420 | 512x512 | 5.19 -> 1.05 MB |
+| `truck.png` | 1683x617 | 262x96 | 786x288 | 1024x512 | 4.15 -> 2.10 MB |
 | `left.png` | 1202x1194 | 108x108 | 324x324 | 512x512 | 5.47 -> 1.00 MB |
 | `right.png` | 1083x1083 | 108x108 | 324x324 | 512x512 | 4.47 -> 1.00 MB |
 | `jump.png` | 1261x1247 | 96x96 | 288x288 | 512x512 | 6.00 -> 1.00 MB |
 | `crouch.png` | 1268x1241 | 96x96 | 288x288 | 512x512 | 6.00 -> 1.00 MB |
 | `interact.png` | 1267x1241 | 96x96 | 288x288 | 512x512 | 6.00 -> 1.00 MB |
 
-**~48 MB -> ~10 MB, about 38 MB back** (add a third for mipmaps: ~14 MB, still ~34 MB saved).
+**Actual: 12.62 Mpx -> 2.46 Mpx, 50.5 MB -> 9.8 MB, 40.6 MB back** (~13 MB with mipmaps, so
+~37 MB net). On disk 10.2 MB -> 2.1 MB.
+
+**One deliberate deviation from "always round UP".** `fence2.png` needs 516 device px of width and
+got 512, not 1024. Rounding up would have cost an extra 1 MB to gain 0.8% more horizontal
+resolution. It measured as the *largest* error of the ten and was still 0.60/255 - invisible. The
+refined rule: round up, unless you are within a couple of percent of the lower POT, in which case
+take it. `truck.png` at 786 needed is NOT such a case - that one genuinely rounds to 1024.
+
+**`truck.png` grew on disk, 8 KB -> 27 KB, and that is fine.** It is near-flat silhouette art that
+compressed absurdly well at 1683x617; resampling introduces smooth gradients that PNG cannot pack
+as tightly. Texture memory - the thing that actually causes the stutter - still halved, 4.15 MB ->
+2.10 MB, because GPU cost is `width * height * 4` and takes no notice of how well the file zips.
+Do not "optimise" this back by reverting it.
 
 **DO NOT SHRINK these - they are already at or below device resolution at 1440p**, and this is the
 non-obvious half of the job. Measured, not assumed:
@@ -1289,6 +1614,9 @@ non-obvious half of the job. Measured, not assumed:
   makes the tiling invisible. See "Asset prep techniques" for how that seam was made.
 - `loadingbg.png` / `logo_main.png` (2172x724) are near-fullscreen; 3120x1440 device pixels.
 - `dossier_paper.png` (1200x800) draws at 624x416 virtual = 1872x1248 device.
+- `success3.png` (1536x1024) draws at ~662x442 virtual = **1987x1325 device** - it is already
+  being upscaled ~1.3x, so it is under-resolution, not over. It also feeds `winCardAspect` from
+  its own `width/height` at runtime, which sets the whole MISSION SUCCESSFUL card's shape.
 - `button1-4.png` (~677x167) draw at 300x52 virtual = 900x156 device - already under-resolution
   horizontally. If anything these want to be bigger.
 
@@ -1297,6 +1625,72 @@ alpha edges picks up fringes bled from the RGB of fully-transparent pixels. And 
 `entrance.png` are **pre-mirrored on disk** (deliberate - a negative `scaleX` corrupts detailed
 images on this GL backend, see "Real device bugs" #8); any tool that normalises orientation would
 silently undo that fix.
+
+### Adding new art: shrink it on the way in, not in a cleanup pass later
+
+**This is a standing rule, not a one-off.** Item 1 above existed only because ~50 MB of
+over-resolution art accumulated one innocent-looking file at a time. Every asset added from here
+gets the same treatment when it is added, which costs about a minute per file and never again
+needs a dedicated pass.
+
+**The procedure, whenever a PNG lands in `resources/`:**
+
+1. **Find the size it is DRAWN at**, in virtual units - the `size(w, h)` on its `image()` call, or
+   the `Rect` it is drawn into. Not the size it was painted at.
+2. **Multiply by 3.** The virtual canvas is 1040x480; a 1440p phone renders it at 3x. This is the
+   step that is easy to skip and impossible to notice on desktop, where the window is smaller than
+   the phone - art sized off the virtual numbers is a third of the resolution it needs, and it
+   looks fine locally and mushy on the device.
+3. **Round to a power of two** - up, unless the lower POT is within a couple of percent (see the
+   `fence2.png` note above). POT in BOTH dimensions is what makes mipmaps build at all.
+4. **Resample, never pad.** Transparent padding becomes part of the image and gets stretched into
+   the draw box with the art, shrinking the visible content inside its own frame.
+5. **Run the tool**: `python tools/art/pot_resize.py resources/newthing.png 512 512`. It does
+   premultiplied-alpha-correct LANCZOS and refuses non-POT targets. `--check` reports current
+   sizes without touching anything.
+6. **Verify what reaches the screen**, not what is in the file: render old and new into the exact
+   device-pixel box and diff them. Under ~1/255 mean is invisible. Item 1's ten all came in under
+   0.6. A screenshot alone will not catch a subtle alpha fringe.
+
+**Do NOT shrink an asset that is drawn at or above its own resolution.** Backgrounds, full-screen
+art and wide UI strips are usually already being upscaled - shrinking those makes the game look
+worse and saves nothing. Measure before assuming; the exclusion list above is what that measuring
+found, and it was the half that was nearly got wrong.
+
+**Aspect ratio is NOT a reason to avoid resizing.** Every asset here is drawn with an explicit
+`size(w, h)`, so the whole image is stretched into a box whose dimensions come from code. The
+file's own aspect never reaches the screen. (This was stated backwards twice while working item 1
+out - a "24% squash" that does not exist. The real constraint is rule 4, padding, not aspect.)
+
+**Then wire it up in `SceneAssets`:**
+
+- `SceneAssets.bitmap("newthing.png")` - the default, `minified = true`. Asks for mipmaps, and
+  prints a one-line warning if the asset is not POT.
+- `SceneAssets.bitmap("newthing.png", minified = false)` - for anything drawn at ~1:1 or larger
+  (backgrounds, loading screen, dossier, button strips), and for anything **sub-sliced**, because
+  mip levels average across slice boundaries and bleed neighbouring cutouts together.
+
+**The guardrail.** `SceneAssets.warnIfNotPowerOfTwo` prints one line per offending asset per run:
+
+```
+[SceneAssets] 'hook.png' is 154x2136 - NOT power-of-two, so mipmaps are silently skipped for it.
+```
+
+This exists because KorGE's POT check (`AGTexture.doMipmaps`) fails **silently** - `mipmaps(true)`
+simply does nothing and nothing anywhere says so, which is how every asset in this project went its
+whole life without mipmaps while the code looked like it had asked for them. If a new asset shows
+up in that output, it is over-resolution; fix it or mark it `minified = false` with a reason.
+
+**Currently expected output: exactly one line, for `hook.png`.** That one is a genuine outstanding
+candidate (154x2136, 0.33 Mpx, drawn much smaller) left alone because its extreme aspect rounds
+badly to POT and the win is ~1 MB. If you ever see a SECOND line, something new needs sizing.
+
+**Never derive a drawn size from a loaded bitmap's dimensions.** `bitmap.width / bitmap.height` at
+runtime makes the stored file silently load-bearing - resample it and geometry moves. Write the
+number as a literal with a comment naming the file's authored size, the way `entranceWidth`,
+`exitFenceWidth` and `hookHeight` now do. Same for **sub-slice coordinates**: hardcoded pixel rects
+(`chainedcrate`, `stars`) pin their file's dimensions forever. Express them as fractions, or accept
+that the asset can never be resized.
 
 **One comment goes stale:** `GameWorld.kt`'s `barrelWidth = 32.0` is annotated "matches
 barrel.png's tight-cropped aspect ratio (832x1274) at this height". Rendering will not change, but
@@ -1314,12 +1708,20 @@ verifying by running the game over trusting a grep.
 build was run and screenshotted after both passes** - background, fence, truck, player, all five
 touch-control textures, the powerup chips with their counts, the Bebas HUD font and the handwritten
 tutorial callout all render exactly as before, confirming nothing deleted was actually in use.
-**Not verified**: never run on a real device or emulator; the actual frame-time improvement is unmeasured. Android compilation
-could not be checked — `:korge-ldtk:compileDebugKotlinAndroid` currently fails with "Inconsistent
-JVM-target compatibility ... 'compileDebugJavaWithJavac' (1.8) and 'compileDebugKotlinAndroid' (21)"
-under `JAVA_HOME` = JDK 21, and it fails identically on unmodified checkouts, so it is a
-pre-existing toolchain-config break in that module, not a code regression — but it does mean this
-file's older "Android compile verified" claims can no longer be reproduced as written.
+**Not verified**: never run on a real device or emulator; the actual frame-time improvement is
+unmeasured. That is the only outstanding gap - Android *compilation* is fine (see the trap below).
+
+**TRAP - do not use the root build to check Android compilation.** `:korge-ldtk:compileDebugKotlinAndroid`
+in THIS build fails with "Inconsistent JVM-target compatibility ... 'compileDebugJavaWithJavac' (1.8)
+and 'compileDebugKotlinAndroid' (21)" under `JAVA_HOME` = JDK 21, identically on unmodified checkouts.
+It was briefly written up here as a blocker on shipping. **It is not, and that entry was wrong.**
+`:korge-ldtk` is a KorGE-generated module that **nothing on the Android path ever builds**. The real
+app is `android-shell/`, a fully separate Gradle build (see the settings.gradle.kts note above): it
+compiles the game straight from source via `kotlin.srcDirs("../src/game/scene")`, takes assets via
+`assets.srcDirs("../resources")`, and resolves KorGE from Maven Central - it never invokes this
+build's Android target. CI is `./gradlew :paywall-build:publishToMavenLocal` then
+`cd android-shell && ./gradlew bundleRelease`, and that is the only sequence that matters.
+**To check that a change to `src/game/**` compiles for Android, build `android-shell`, not the root.**
 
 ## Keep this file up to date
 

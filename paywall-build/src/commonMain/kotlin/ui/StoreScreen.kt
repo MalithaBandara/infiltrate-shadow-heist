@@ -47,11 +47,14 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.infiltrate.ads.CoinsAdLimiter
 import com.infiltrate.ads.CoinsRewardAdHost
+import com.infiltrate.ads.GadgetAdLimiter
+import com.infiltrate.ads.GadgetRewardAdHost
 import com.infiltrate.billing.StoreBilling
 import com.infiltrate.storage.PlatformStorage
 import game.model.GameProfile
@@ -67,6 +70,12 @@ import paywall_build.generated.resources.bebas_neue_regular
 import paywall_build.generated.resources.button1
 import paywall_build.generated.resources.button2
 import paywall_build.generated.resources.button3
+import paywall_build.generated.resources.gadget_boots
+import paywall_build.generated.resources.gadget_checkpoint
+import paywall_build.generated.resources.gadget_darts
+import paywall_build.generated.resources.gadget_invis
+import paywall_build.generated.resources.gadget_jammer
+import paywall_build.generated.resources.gadget_mystery
 import paywall_build.generated.resources.noads
 import paywall_build.generated.resources.store_ad
 import paywall_build.generated.resources.store_briefcase
@@ -86,13 +95,15 @@ private data class PowerupItem(
     val title: String,
     val description: String,
     val cost: Int,
-    val icon: DrawScope.(Color) -> Unit
+    val imageRes: DrawableResource,
+    val imageSizeDp: Int = 86,
+    val isAd: Boolean = false
 )
 
 private data class InventoryItem(
     val type: PowerupType,
     val title: String,
-    val icon: DrawScope.(Color) -> Unit
+    val imageRes: DrawableResource
 )
 
 private data class CoinPackItem(
@@ -125,6 +136,16 @@ fun StoreScreen(
     var coinsAdWatchesRemaining by remember { mutableStateOf(coinsAdLimiter.watchesRemainingToday()) }
     var showCoinsRewardAd by remember { mutableStateOf(false) }
     var pendingCoinsAdAmount by remember { mutableStateOf(0) }
+
+    val gadgetAdLimiter = remember {
+        GadgetAdLimiter(
+            getRaw = { PlatformStorage.getRaw(it) },
+            setRaw = { k, v -> PlatformStorage.setRaw(k, v) }
+        )
+    }
+    var gadgetAdWatchesRemaining by remember { mutableStateOf(gadgetAdLimiter.watchesRemainingToday()) }
+    var showGadgetRewardAd by remember { mutableStateOf(false) }
+    var pendingGadgetType by remember { mutableStateOf<PowerupType?>(null) }
 
     var profile by remember {
         val p = profileStorage.getProfile()
@@ -165,23 +186,42 @@ fun StoreScreen(
         if (isSuccess) toastSuccessSound() else toastErrorSound()
     }
 
+    val basePowerupItems = remember {
+        listOf(
+            PowerupItem(PowerupType.SMOKE_SCREEN, "CAMERA JAMMER", "Disables all cameras for 10 seconds.", 150, Res.drawable.gadget_jammer, 86),
+            PowerupItem(PowerupType.PHANTOM_CLOAK, "SLEEP DARTS", "Puts all guards to sleep for 10 seconds.", 250, Res.drawable.gadget_darts, 86),
+            PowerupItem(PowerupType.INVISIBILITY, "INVISIBILITY CLOAK", "Total sight immunity for 10 seconds.", 350, Res.drawable.gadget_invis, 86),
+            PowerupItem(PowerupType.NOISE_SUPPRESSION, "NOISE SUPPRESSION BOOTS", "Silent movement for entire mission.", 500, Res.drawable.gadget_boots, 86),
+            PowerupItem(PowerupType.REMOTE_TRIGGER, "REMOTE TRIGGER", "Triggers closest mechanism without finding its switch.", 750, Res.drawable.gadget_checkpoint, 86)
+        )
+    }
+
+    // Every gadget above is an equally-likely outcome of the "watch ad" card below - a plain
+    // uniform List.random() pick, made at ad-request time (not at reward time), see onBuy below.
+    val mysteryGadgetPool = remember { basePowerupItems.map { it.type } }
+
     val powerupItems = remember {
         listOf(
-            PowerupItem(PowerupType.SMOKE_SCREEN, "SMOKE SCREEN", "Disables all cameras for 10 seconds.", PowerupType.SMOKE_SCREEN.defaultCost) { c -> drawSmokeIcon(c) },
-            PowerupItem(PowerupType.PHANTOM_CLOAK, "PHANTOM CLOAK", "Puts all guards to sleep for 10 seconds.", PowerupType.PHANTOM_CLOAK.defaultCost) { c -> drawCloakIcon(c) },
-            PowerupItem(PowerupType.INVISIBILITY, "INVISIBILITY", "Total sight immunity for 10 seconds.", PowerupType.INVISIBILITY.defaultCost) { c -> drawInvisIcon(c) },
-            PowerupItem(PowerupType.NOISE_SUPPRESSION, "NOISE SUPPRESSION", "Silent movement for entire mission.", PowerupType.NOISE_SUPPRESSION.defaultCost) { c -> drawBootIcon(c) },
-            PowerupItem(PowerupType.SMOKE_SCREEN, "SMOKE GRENADE", "Portable smoke canister for rapid evasion.", 150) { c -> drawSmokeIcon(c) },
-            PowerupItem(PowerupType.PHANTOM_CLOAK, "SLEEP DART", "Tranquilizer dart to pacify patrol guards.", 250) { c -> drawCloakIcon(c) }
-        )
+            // Unused placeholder - the actually-granted type is chosen from mysteryGadgetPool
+            // when the ad is requested, not from this field.
+            PowerupItem(
+                type = PowerupType.SMOKE_SCREEN,
+                title = "MYSTERY GADGET",
+                description = "Watch an ad for a random gadget from the field kit below.",
+                cost = 0,
+                imageRes = Res.drawable.gadget_mystery,
+                isAd = true
+            )
+        ) + basePowerupItems
     }
 
     val inventoryItems = remember {
         listOf(
-            InventoryItem(PowerupType.SMOKE_SCREEN, "SMOKE SCREEN") { c -> drawSmokeIcon(c) },
-            InventoryItem(PowerupType.PHANTOM_CLOAK, "PHANTOM CLOAK") { c -> drawCloakIcon(c) },
-            InventoryItem(PowerupType.INVISIBILITY, "INVISIBILITY") { c -> drawInvisIcon(c) },
-            InventoryItem(PowerupType.NOISE_SUPPRESSION, "NOISE SUPPRESSION") { c -> drawBootIcon(c) }
+            InventoryItem(PowerupType.SMOKE_SCREEN, "CAMERA JAMMER", Res.drawable.gadget_jammer),
+            InventoryItem(PowerupType.PHANTOM_CLOAK, "SLEEP DARTS", Res.drawable.gadget_darts),
+            InventoryItem(PowerupType.INVISIBILITY, "INVISIBILITY CLOAK", Res.drawable.gadget_invis),
+            InventoryItem(PowerupType.NOISE_SUPPRESSION, "NOISE SUPPRESSION BOOTS", Res.drawable.gadget_boots),
+            InventoryItem(PowerupType.REMOTE_TRIGGER, "REMOTE TRIGGER", Res.drawable.gadget_checkpoint)
         )
     }
 
@@ -193,7 +233,7 @@ fun StoreScreen(
                 amount = 250,
                 price = "WATCH AD",
                 imageRes = Res.drawable.store_ad,
-                imageSizeDp = 48,
+                imageSizeDp = 78,
                 isAd = true
             ),
             CoinPackItem(
@@ -202,7 +242,7 @@ fun StoreScreen(
                 amount = 1000,
                 price = "$0.99",
                 imageRes = Res.drawable.store_pouch,
-                imageSizeDp = 56
+                imageSizeDp = 80
             ),
             CoinPackItem(
                 id = "coins_tier_2",
@@ -210,7 +250,7 @@ fun StoreScreen(
                 amount = 2500,
                 price = "$1.99",
                 imageRes = Res.drawable.store_briefcase,
-                imageSizeDp = 64
+                imageSizeDp = 84
             ),
             CoinPackItem(
                 id = "coins_tier_3",
@@ -218,7 +258,7 @@ fun StoreScreen(
                 amount = 4000,
                 price = "$2.99",
                 imageRes = Res.drawable.store_stash,
-                imageSizeDp = 72
+                imageSizeDp = 88
             ),
             CoinPackItem(
                 id = "coins_tier_4",
@@ -226,7 +266,7 @@ fun StoreScreen(
                 amount = 7500,
                 price = "$4.99",
                 imageRes = Res.drawable.store_duffle,
-                imageSizeDp = 80
+                imageSizeDp = 92
             ),
             CoinPackItem(
                 id = "coins_tier_5",
@@ -234,7 +274,7 @@ fun StoreScreen(
                 amount = 20000,
                 price = "$9.99",
                 imageRes = Res.drawable.store_vault,
-                imageSizeDp = 90
+                imageSizeDp = 96
             )
         )
     }
@@ -334,9 +374,12 @@ fun StoreScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Canvas(modifier = Modifier.size(15.dp)) {
-                                        item.icon(this, Color(0xFFB7B7BC))
-                                    }
+                                    Image(
+                                        painter = painterResource(item.imageRes),
+                                        contentDescription = item.title,
+                                        modifier = Modifier.size((28 * scale).dp),
+                                        contentScale = ContentScale.Fit
+                                    )
                                     Text(
                                         text = item.title,
                                         color = Color(0xFFC9C9CC),
@@ -368,8 +411,17 @@ fun StoreScreen(
                                 profile = profile,
                                 font = bebasFont,
                                 scale = scale,
+                                adWatchesRemaining = gadgetAdWatchesRemaining,
+                                gadgetAdLimiter = gadgetAdLimiter,
                                 onBuy = { item ->
-                                    if (profileStorage.buyPowerup(item.type.id, item.cost)) {
+                                    if (item.isAd) {
+                                        if (gadgetAdLimiter.canWatch()) {
+                                            pendingGadgetType = mysteryGadgetPool.random()
+                                            showGadgetRewardAd = true
+                                        } else {
+                                            showToast("DAILY AD LIMIT REACHED - COME BACK TOMORROW", false)
+                                        }
+                                    } else if (profileStorage.buyPowerup(item.type.id, item.cost)) {
                                         refreshProfile()
                                         showToast("ACQUIRED ${item.title}", true)
                                     } else {
@@ -512,6 +564,33 @@ fun StoreScreen(
                 },
             )
         }
+
+        // "Watch ad for a random gadget" - same load-then-show shape as the coins ad above. The
+        // granted type was already chosen (uniformly) when the ad was requested; this only needs
+        // to apply it once the reward actually fires.
+        if (showGadgetRewardAd) {
+            GadgetRewardAdHost(
+                onRewardEarned = {
+                    val grantedType = pendingGadgetType
+                    if (grantedType != null) {
+                        // cost = 0: reuses buyPowerup's existing "spend then grant" path with a
+                        // free spend, rather than adding a separate free-grant method.
+                        profileStorage.buyPowerup(grantedType.id, 0)
+                        gadgetAdLimiter.recordWatch()
+                        gadgetAdWatchesRemaining = gadgetAdLimiter.watchesRemainingToday()
+                        refreshProfile()
+                        showToast("ACQUIRED ${grantedType.displayName}", true)
+                    }
+                    pendingGadgetType = null
+                },
+                onDismissed = { showGadgetRewardAd = false },
+                onFailure = {
+                    showGadgetRewardAd = false
+                    pendingGadgetType = null
+                    showToast("AD NOT AVAILABLE - TRY AGAIN LATER", false)
+                },
+            )
+        }
     }
 }
 
@@ -521,6 +600,8 @@ private fun PowerupsGrid(
     profile: GameProfile,
     font: FontFamily,
     scale: Float,
+    adWatchesRemaining: Int = GadgetAdLimiter.MAX_WATCHES_PER_DAY,
+    gadgetAdLimiter: GadgetAdLimiter? = null,
     onBuy: (PowerupItem) -> Unit
 ) {
     Column(
@@ -566,6 +647,8 @@ private fun PowerupsGrid(
                         canAfford = profile.coins >= item.cost,
                         font = font,
                         scale = scale,
+                        adWatchesRemaining = adWatchesRemaining,
+                        gadgetAdLimiter = gadgetAdLimiter,
                         onBuy = { onBuy(item) },
                         modifier = Modifier
                             .weight(1f)
@@ -586,101 +669,157 @@ private fun PowerupCard(
     canAfford: Boolean,
     font: FontFamily,
     scale: Float,
+    adWatchesRemaining: Int = GadgetAdLimiter.MAX_WATCHES_PER_DAY,
+    gadgetAdLimiter: GadgetAdLimiter? = null,
     onBuy: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val adLimitReached = item.isAd && adWatchesRemaining <= 0
+
+    // Ticks once a second only while the limit is actually reached, matching CoinPackCard's
+    // "AVAILABLE IN HH:MM:SS" treatment for its own ad card.
+    var secondsUntilAvailable by remember(adLimitReached) {
+        mutableStateOf(if (adLimitReached) gadgetAdLimiter?.secondsUntilReset() ?: 0L else 0L)
+    }
+    LaunchedEffect(adLimitReached) {
+        if (adLimitReached && gadgetAdLimiter != null) {
+            while (true) {
+                val remaining = gadgetAdLimiter.secondsUntilReset()
+                secondsUntilAvailable = remaining
+                if (remaining <= 0L) break
+                delay(1000)
+            }
+        }
+    }
     Box(
         modifier = modifier
             .background(Color(0xFF141416), RoundedCornerShape(8.dp))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+            .border(
+                1.dp,
+                if (item.isAd && !adLimitReached) Color(0xFF00E5FF).copy(alpha = 0.35f) else Color.White.copy(alpha = 0.08f),
+                RoundedCornerShape(8.dp)
+            )
             .padding((10 * scale).dp)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Row(
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy((8 * scale).dp)
-            ) {
+            Spacer(modifier = Modifier.height((2 * scale).dp))
+
+            // Graphic Image + Title + Description
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
-                    modifier = Modifier
-                        .size((34 * scale).dp)
-                        .background(Color(0xFF1B1B1F), RoundedCornerShape(6.dp))
-                        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(6.dp)),
+                    modifier = Modifier.height((98 * scale).dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Canvas(modifier = Modifier.size((18 * scale).dp)) {
-                        item.icon(this, Color(0xFF00E5FF))
-                    }
+                    Image(
+                        painter = painterResource(item.imageRes),
+                        contentDescription = item.title,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.size((item.imageSizeDp * scale).dp)
+                    )
                 }
+                Spacer(modifier = Modifier.height((3 * scale).dp))
+                Text(
+                    text = item.title,
+                    color = Color.White,
+                    fontSize = (15 * scale).sp,
+                    fontFamily = font,
+                    letterSpacing = 1.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height((2 * scale).dp))
+                Text(
+                    text = item.description,
+                    color = Color(0xFFB7B7BC),
+                    fontSize = (10 * scale).sp,
+                    lineHeight = (12 * scale).sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.3.sp,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
-                Column(modifier = Modifier.weight(1f)) {
+            Spacer(modifier = Modifier.height((8 * scale).dp))
+
+            // Price / Buy Action Button (matches CoinPackCard full-width button)
+            val interactionSource = remember { MutableInteractionSource() }
+            val click = LocalUiClick.current
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (adLimitReached) Color(0xFF242428)
+                        else if (item.isAd) Color(0xFF00E5FF)
+                        else if (canAfford) Color(0xFFECE7DA) else Color(0xFF242428),
+                        RoundedCornerShape(5.dp)
+                    )
+                    .clickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        enabled = if (item.isAd) !adLimitReached else canAfford,
+                        onClick = { click(); onBuy() }
+                    )
+                    .padding(vertical = (6 * scale).dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (adLimitReached) {
                     Text(
-                        text = item.title,
-                        color = Color.White,
-                        fontSize = (13 * scale).sp,
+                        text = "AVAILABLE IN ${formatCountdown(secondsUntilAvailable)}",
+                        color = Color(0xFF6E6E72),
+                        fontSize = (11 * scale).sp,
                         fontFamily = font,
                         letterSpacing = 0.5.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = item.description,
-                        color = Color(0xFFB7B7BC),
-                        fontSize = (10 * scale).sp,
-                        lineHeight = (12 * scale).sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            // Buy Button Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Canvas(modifier = Modifier.size(13.dp)) {
-                        drawCoinIcon(Color(0xFFFFD54F))
+                } else if (item.isAd) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Canvas(
+                            modifier = Modifier
+                                .size((12.5 * scale).dp, (10.5 * scale).dp)
+                                .offset(y = (-1 * scale).dp)
+                        ) {
+                            drawAdClapperIcon(Color(0xFF0A0A0C), Color(0xFF00E5FF))
+                        }
+                        Spacer(modifier = Modifier.width((5 * scale).dp))
+                        Text(
+                            text = "WATCH AD",
+                            color = Color(0xFF0A0A0C),
+                            fontSize = (13 * scale).sp,
+                            fontFamily = font,
+                            letterSpacing = 1.sp
+                        )
                     }
-                    Text(
-                        text = "${item.cost}",
-                        color = Color(0xFFFFD54F),
-                        fontSize = (14 * scale).sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                val interactionSource = remember { MutableInteractionSource() }
-                val click = LocalUiClick.current
-                Box(
-                    modifier = Modifier
-                        .background(
-                            if (canAfford) Color(0xFFECE7DA) else Color(0xFF242428),
-                            RoundedCornerShape(5.dp)
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Canvas(
+                            modifier = Modifier
+                                .size((13 * scale).dp)
+                                .offset(y = (-0.5 * scale).dp)
+                        ) {
+                            drawCoinIcon(if (canAfford) Color(0xFF0A0A0C) else Color(0xFFFFD54F))
+                        }
+                        Spacer(modifier = Modifier.width((5 * scale).dp))
+                        Text(
+                            text = "${item.cost} COINS",
+                            color = if (canAfford) Color(0xFF0A0A0C) else Color(0xFF6E6E72),
+                            fontSize = (13 * scale).sp,
+                            fontFamily = font,
+                            letterSpacing = 1.sp
                         )
-                        .clickable(
-                            interactionSource = interactionSource,
-                            indication = null,
-                            onClick = { click(); onBuy() }
-                        )
-                        .padding(horizontal = (12 * scale).dp, vertical = (5 * scale).dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "BUY",
-                        color = if (canAfford) ShadowTheme.Ink else Color(0xFF6E6E72),
-                        fontSize = (12 * scale).sp,
-                        fontFamily = font,
-                        letterSpacing = 1.sp
-                    )
+                    }
                 }
             }
         }
@@ -823,7 +962,7 @@ private fun CoinPackCard(
             // Graphic Image + Title + Amount
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
-                    modifier = Modifier.height((90 * scale).dp),
+                    modifier = Modifier.height((98 * scale).dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Image(
@@ -1070,7 +1209,7 @@ private fun RemoveAdsSection(
                     Image(
                         painter = painterResource(Res.drawable.noads),
                         contentDescription = "No Ads",
-                        modifier = Modifier.size((56 * scale).dp),
+                        modifier = Modifier.size((76 * scale).dp),
                         contentScale = ContentScale.Fit
                     )
 

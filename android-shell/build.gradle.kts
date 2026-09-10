@@ -52,8 +52,8 @@ android {
         // Must be >= paywall-build's own minSdk (24) - AGP fails the merge otherwise.
         minSdk = 24
         targetSdk = 37
-        versionCode = 8
-        versionName = "0.0.5"
+        versionCode = 9
+        versionName = "0.0.6"
 
         val revenueCatKey = localProperties.getProperty("REVENUECAT_GOOGLE_KEY")
             ?.takeIf { it.isNotBlank() } ?: "goog_DVKTWBbrxMSDhEimnQZBxQcGVxx"
@@ -162,4 +162,20 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
+
+    // play-services-base (pulled in transitively via play-services-ads-identifier, used by
+    // AdMob/RevenueCat/Layers) resolves androidx.fragment:fragment to 1.1.0, which Play Console
+    // flags as outdated - bump it explicitly. Nothing in this project uses Fragments directly.
+    constraints {
+        implementation("androidx.fragment:fragment:1.8.5") {
+            because("play-services-base transitively pulls in the outdated fragment 1.1.0")
+        }
+        // play-services-ads-api resolves com.google.android.play:hsdp to 2.0.1; 2.1.0 exists on
+        // Google's Maven repo (confirmed via maven-metadata.xml) - HsdpShimActivity is one of the
+        // two call sites Play Console names for the deprecated LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        // edge-to-edge warning, so bump it on the chance the newer release addresses it.
+        implementation("com.google.android.play:hsdp:2.1.0") {
+            because("newer hsdp release available; may address the HsdpShimActivity edge-to-edge warning")
+        }
+    }
 }

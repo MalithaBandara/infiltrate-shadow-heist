@@ -29,6 +29,20 @@ object InterstitialAdTrigger {
     }
 }
 
+/**
+ * NOT preloaded, deliberately - unlike the Android [InterstitialAdContent] and both platforms'
+ * ContinueAdContent, which now hoist their handler out of the `showRequested` gate.
+ *
+ * Preloading only pays off for a placement that actually gets shown, and this one never is:
+ * LevelExitBridge.ios.kt is still a no-op stub, so nothing on iOS ever calls [requestShow]. A
+ * hoisted `rememberInterstitialAd` would therefore fetch an ad on every composition and reload
+ * after each expiry, forever, for zero impressions - which is exactly the pattern AdMob's
+ * invalid-traffic policy flags, and it would quietly ruin this ad unit's fill-rate reporting.
+ *
+ * Preload this at the same time as wiring the Swift poll loop, not before. Copy the Android
+ * version when you do; its two hazard notes (a background failure must not resolve an unmade
+ * request, and `FAILING` is a dead end `rememberInterstitialAd` never retries) apply here too.
+ */
 @OptIn(DependsOnGoogleMobileAds::class)
 @Composable
 fun InterstitialAdContent() {

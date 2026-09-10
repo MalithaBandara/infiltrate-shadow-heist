@@ -25,6 +25,13 @@ actual object AdUnitIds {
         if (USE_TEST_ADS) "ca-app-pub-3940256099942544/5224354917"
         else "ca-app-pub-7912148730700666/8440619376"
 
+    // Real Android rewarded ad unit for the Store's "watch ad for a random gadget" placement (own
+    // ad unit, not shared with REWARDED_COINS - same reporting/frequency-cap reasoning as above).
+    // Named "Gadget Reward" in the AdMob console.
+    actual val REWARDED_GADGET: String =
+        if (USE_TEST_ADS) "ca-app-pub-3940256099942544/5224354917"
+        else "ca-app-pub-7912148730700666/9048379643"
+
     // Real Android interstitial ad unit, created for the level-exit placement (LevelExitBridge).
     actual val INTERSTITIAL_LEVEL_EXIT: String =
         if (USE_TEST_ADS) "ca-app-pub-3940256099942544/1033173712"

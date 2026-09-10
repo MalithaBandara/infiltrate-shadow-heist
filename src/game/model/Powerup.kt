@@ -9,31 +9,53 @@ enum class PowerupType(
 ) {
     SMOKE_SCREEN(
         id = "smoke_screen",
-        displayName = "SMOKE SCREEN",
-        shortName = "SMOKE",
+        displayName = "CAMERA JAMMER",
+        shortName = "JAMMER",
         duration = 10.0,
         defaultCost = 150
     ),
     PHANTOM_CLOAK(
         id = "phantom_cloak",
-        displayName = "PHANTOM CLOAK",
-        shortName = "CLOAK",
+        displayName = "SLEEP DARTS",
+        shortName = "DARTS",
         duration = 10.0,
         defaultCost = 250
     ),
     INVISIBILITY(
         id = "invisibility",
-        displayName = "INVISIBILITY",
+        displayName = "INVISIBILITY CLOAK",
         shortName = "INVIS",
         duration = 10.0,
         defaultCost = 350
     ),
     NOISE_SUPPRESSION(
         id = "noise_suppression",
-        displayName = "NOISE SUPPRESSION",
+        displayName = "NOISE SUPPRESSION BOOTS",
         shortName = "SILENCE",
         duration = -1.0, // Level-duration
         defaultCost = 500
+    ),
+    REMOTE_TRIGGER(
+        id = "remote_trigger",
+        displayName = "REMOTE TRIGGER",
+        shortName = "TRIGGER",
+        duration = 0.0,
+        defaultCost = 750
+    ),
+
+    /**
+     * Placeholder for the sixth gadget, so the store grid and the in-game quick-slot can both be
+     * built and balanced against their final counts rather than being retrofitted later. It is a
+     * real, buyable, spendable powerup with a real 10s timer - it simply has no world effect yet,
+     * because nothing in GameWorld reads [ActivePowerups.prototypeTimer]. Give it a behaviour and
+     * a name and it stops being a placeholder; nothing else has to change.
+     */
+    PROTOTYPE(
+        id = "prototype",
+        displayName = "PROTOTYPE GADGET",
+        shortName = "PROTO",
+        duration = 10.0,
+        defaultCost = 400
     );
 
     val isLevelDuration: Boolean get() = duration <= 0.0
@@ -41,10 +63,12 @@ enum class PowerupType(
     companion object {
         fun fromId(id: String): PowerupType? {
             return when (id.lowercase().trim()) {
-                "smoke_screen", "smoke_bomb", "camera_disable", "smoke" -> SMOKE_SCREEN
-                "phantom_cloak", "guard_sleep", "cloak" -> PHANTOM_CLOAK
+                "camera_jammer", "jammer", "smoke_screen", "smoke_bomb", "camera_disable", "smoke" -> SMOKE_SCREEN
+                "sleep_darts", "sleep_dart", "darts", "phantom_cloak", "guard_sleep", "cloak" -> PHANTOM_CLOAK
                 "invisibility", "invisibility_cloak", "invis" -> INVISIBILITY
                 "noise_suppression", "stealth_boots", "silence" -> NOISE_SUPPRESSION
+                "remote_trigger", "trigger", "remote", "checkpoint", "checkpoints", "tactical_checkpoint" -> REMOTE_TRIGGER
+                "prototype", "proto", "prototype_gadget" -> PROTOTYPE
                 else -> entries.firstOrNull {
                     it.id.equals(id, ignoreCase = true) || it.name.equals(id, ignoreCase = true)
                 }
@@ -57,11 +81,13 @@ data class ActivePowerups(
     var smokeScreenTimer: Double = 0.0,
     var phantomCloakTimer: Double = 0.0,
     var invisibilityTimer: Double = 0.0,
-    var isNoiseSuppressed: Boolean = false
+    var isNoiseSuppressed: Boolean = false,
+    var prototypeTimer: Double = 0.0
 ) {
     val isSmokeScreenActive: Boolean get() = smokeScreenTimer > 0.0
     val isPhantomCloakActive: Boolean get() = phantomCloakTimer > 0.0
     val isInvisibilityActive: Boolean get() = invisibilityTimer > 0.0
+    val isPrototypeActive: Boolean get() = prototypeTimer > 0.0
 
     val anyActive: Boolean
         get() = isSmokeScreenActive || isPhantomCloakActive || isInvisibilityActive || isNoiseSuppressed
@@ -72,6 +98,8 @@ data class ActivePowerups(
             PowerupType.PHANTOM_CLOAK -> phantomCloakTimer = type.duration
             PowerupType.INVISIBILITY -> invisibilityTimer = type.duration
             PowerupType.NOISE_SUPPRESSION -> isNoiseSuppressed = true
+            PowerupType.REMOTE_TRIGGER -> Unit
+            PowerupType.PROTOTYPE -> prototypeTimer = type.duration
         }
     }
 
@@ -85,6 +113,9 @@ data class ActivePowerups(
         if (invisibilityTimer > 0.0) {
             invisibilityTimer = (invisibilityTimer - dt).coerceAtLeast(0.0)
         }
+        if (prototypeTimer > 0.0) {
+            prototypeTimer = (prototypeTimer - dt).coerceAtLeast(0.0)
+        }
     }
 
     fun isActive(type: PowerupType): Boolean = when (type) {
@@ -92,6 +123,8 @@ data class ActivePowerups(
         PowerupType.PHANTOM_CLOAK -> isPhantomCloakActive
         PowerupType.INVISIBILITY -> isInvisibilityActive
         PowerupType.NOISE_SUPPRESSION -> isNoiseSuppressed
+        PowerupType.REMOTE_TRIGGER -> false
+        PowerupType.PROTOTYPE -> isPrototypeActive
     }
 
     fun getRemainingTime(type: PowerupType): Double = when (type) {
@@ -99,6 +132,8 @@ data class ActivePowerups(
         PowerupType.PHANTOM_CLOAK -> phantomCloakTimer
         PowerupType.INVISIBILITY -> invisibilityTimer
         PowerupType.NOISE_SUPPRESSION -> if (isNoiseSuppressed) -1.0 else 0.0
+        PowerupType.REMOTE_TRIGGER -> 0.0
+        PowerupType.PROTOTYPE -> prototypeTimer
     }
 
     fun reset() {
@@ -106,5 +141,6 @@ data class ActivePowerups(
         phantomCloakTimer = 0.0
         invisibilityTimer = 0.0
         isNoiseSuppressed = false
+        prototypeTimer = 0.0
     }
 }

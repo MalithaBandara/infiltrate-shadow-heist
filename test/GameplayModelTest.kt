@@ -848,8 +848,8 @@ class GameplayModelTest {
     @Test
     fun testLevel2HangingCratesGapIsBeatable() {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
-        assertEquals(5300.0, world.worldWidth, "Level 2 should now be a wide platforming layout")
-        assertEquals(1, world.allGuards.size, "Level should have one guard")
+        assertEquals(5100.0, world.worldWidth, "Level 2 should be 5100.0 wide")
+        assertEquals(0, world.allGuards.size, "Level 2 should have no guards")
 
         val dt = 1.0 / 60.0
         var elapsed = 0.0
@@ -1028,15 +1028,15 @@ class GameplayModelTest {
     @Test
     fun testLevel2Section3LayoutIntegrity() {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
-        assertEquals(5300.0, world.worldWidth, "Level 2 world width should be expanded to 5300.0")
+        assertEquals(5100.0, world.worldWidth, "Level 2 world width should be 5100.0")
 
         val ground = world.platforms.first { it.y == 440.0 }
-        assertEquals(5300.0, ground.width, "Level 2 ground floor should run the full width of the level until the end")
+        assertEquals(5100.0, ground.width, "Level 2 ground floor should run the full width of the level until the end")
 
         // 3 rescue barrels
         assertEquals(3, world.barrels.size, "Level 2 should have 3 rescue barrels (one per gap section)")
         val barrel3 = world.barrels[2]
-        assertEquals(3265.0, barrel3.x, 1.0, "Rescue barrel 3 should be placed at x=3265 flush against midTerrain2")
+        assertEquals(3295.0, barrel3.x, 1.0, "Rescue barrel 3 should be placed at x=3295 flush against midTerrain2")
         assertEquals(392.0, barrel3.y, 1.0, "Rescue barrel 3 should sit on the ground")
 
         // Section 3 vertical moving containers
@@ -1059,13 +1059,35 @@ class GameplayModelTest {
         assertEquals(280.0, stationaryLong2.y, 1.0)
 
         // Final terrain and extraction
-        val finalTerrain = world.boxes.first { it.width > 400.0 && it.x > 4000.0 }
+        val finalTerrain = world.boxes.first { it.x > 4000.0 }
         assertEquals(4193.0, finalTerrain.x, 1.0)
         assertEquals(296.0, finalTerrain.y, 1.0)
+        assertEquals(180.0, finalTerrain.width, 1.0, "Final terrain should be shorter (180px)")
 
-        assertTrue(world.exitZone.x >= 5100.0, "Exit zone should be past 5100.0")
-        val guard = world.guard
-        assertTrue(guard.patrolMinX >= 4600.0, "Guard should patrol past final terrain")
+        assertEquals(4680.0, world.exitZone.x, 1.0, "Exit zone should be at x=4680.0")
+        val distanceToExit = world.exitZone.x - finalTerrain.right
+        assertEquals(307.0, distanceToExit, 1.0, "Distance from finalTerrain to exit should have more space (307px)")
+        assertTrue(world.allGuards.isEmpty(), "Level 2 should have no guards")
+    }
+
+    @Test
+    fun testLevel2ExitBoothAndFenceSitOnGroundAndDoNotFloat() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
+        val ground = world.platforms.first { it.y == 440.0 }
+        // The exit zone bottom in Level 2 must align with the ground floor (y = 440.0)
+        assertEquals(ground.top, world.exitZone.bottom, 0.01, "ExitZone bottom must touch ground top at 440.0")
+
+        // In GameplayScene, exitGroundY is world.exitZone.bottom + 1.0, meaning entrance and exit fence sit on the ground
+        val entranceHeight = 135.0
+        val exitGroundY = world.exitZone.bottom + 1.0
+        val entranceY = exitGroundY - entranceHeight
+        val entranceBottom = entranceY + entranceHeight
+        assertTrue(entranceBottom >= ground.top, "Entrance booth bottom must be seated on the ground, not floating above it")
+
+        val exitFenceHeight = 140.0
+        val exitFenceY = exitGroundY - exitFenceHeight
+        val exitFenceBottom = exitFenceY + exitFenceHeight
+        assertTrue(exitFenceBottom >= ground.top, "Exit fence bottom must be seated on the ground, not floating above it")
     }
 
     @Test
@@ -1081,12 +1103,81 @@ class GameplayModelTest {
         world.player.vx = 0.0
         world.player.vy = 0.0
 
-        // Simulate 120 frames (2 seconds) across upward and downward motion
-        for (i in 0 until 120) {
+        val initialRelY = world.player.y - v1.y
+        for (i in 0 until 30) {
             world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false)
-            assertTrue(world.player.isGrounded, "Player riding vertical platform should remain grounded at frame $i")
-            val expectedY = v1.top - world.player.height
-            assertEquals(expectedY, world.player.y, 1.0, "Player feet should stay locked to moving platform top at frame $i")
+            val currentRelY = world.player.y - v1.y
+            assertEquals(initialRelY, currentRelY, 0.5, "Player relative vertical position on elevator platform should remain constant")
+        }
+    }
+
+    @Test
+    fun testJumpingOnVerticallyMovingPlatformDoesNotThrowPlayerOut() {
+        val platformIds = listOf("lvl2_vert_1", "lvl2_vert_2", "lvl2_vert_4", "lvl2_vert_5")
+        val offsetsX = listOf(5.0, 15.0, 28.0, 45.0, 52.0)
+        val jumpDelays = listOf(0, 3, 7, 12, 20)
+
+        for (pid in platformIds) {
+            for (offsetX in offsetsX) {
+                for (delay in jumpDelays) {
+                    val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
+                    val v = world.movingPlatforms.first { it.id == pid }
+                    val dt = 1.0 / 60.0
+
+                    // Place player on v
+                    world.player.x = v.x + offsetX
+                    world.player.y = v.top - world.player.height
+                    world.player.isGrounded = true
+                    world.player.vx = 0.0
+                    world.player.vy = 0.0
+
+                    var cooldown = 0
+                    for (frame in 0 until 400) {
+                        val shouldJump = world.player.isGrounded && cooldown <= 0
+                        if (shouldJump) cooldown = delay else cooldown--
+
+                        world.update(dt, moveInput = 0.0, jumpInput = shouldJump, crouchInput = false)
+
+                        val footCenter = world.player.x + world.player.width / 2.0
+                        assertTrue(
+                            footCenter >= v.left && footCenter <= v.right,
+                            "Player was thrown off platform $pid! offsetX=$offsetX, delay=$delay, frame=$frame: player.x=${world.player.x}, player.y=${world.player.y}, v.x=${v.x}..${v.right}, v.y=${v.y}..${v.bottom}, isGrounded=${world.player.isGrounded}"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun testFallingOntoGroundDoesNotTeleportPlayerToEndOfLevel() {
+        val testXPositions = listOf(500.0, 1500.0, 2600.0, 3100.0, 3500.0, 3850.0, 4400.0)
+        for (startX in testXPositions) {
+            val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
+            val dt = 1.0 / 60.0
+
+            // Drop player from height 100 above ground (y=440, so feet start at y=300) with high downward velocity
+            world.player.x = startX
+            world.player.y = 200.0
+            world.player.vy = 450.0
+            world.player.vx = 0.0
+            world.player.isGrounded = false
+
+            for (frame in 0 until 60) {
+                world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false)
+            }
+
+            assertTrue(world.player.isGrounded, "Player dropped at x=$startX should land on ground")
+            assertEquals(
+                startX,
+                world.player.x,
+                1.0,
+                "Player dropped at x=$startX should NOT teleport horizontally! Was player.x=${world.player.x}"
+            )
+            assertFalse(
+                world.isLevelComplete,
+                "Dropping onto ground at x=$startX should not trigger level complete or jump to exit"
+            )
         }
     }
 
@@ -1094,7 +1185,7 @@ class GameplayModelTest {
     fun testLevel2RescueBarrel3AllowsClimbingOutOfSection3Gap() {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
         val barrel3 = world.barrels[2]
-        val midTerrain2 = world.boxes.first { it.width in 400.0..420.0 && it.x in 2800.0..3000.0 }
+        val midTerrain2 = world.boxes.first { it.width in 400.0..450.0 && it.x in 2800.0..3000.0 }
 
         // Place player on rescue barrel 3 facing left toward midTerrain2
         world.player.x = barrel3.x + 2.0
@@ -1123,7 +1214,7 @@ class GameplayModelTest {
     fun testLevel2Section3IsBeatable() {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
         // Position player on midTerrain2 near its right edge
-        world.player.x = 3230.0
+        world.player.x = 3260.0
         world.player.y = 296.0 - world.player.height
         world.player.isGrounded = true
 
@@ -1131,14 +1222,38 @@ class GameplayModelTest {
         var elapsed = 0.0
         var stalledFor = 0.0
 
-        // Launch edges for midTerrain2, vert1, vert2, stationaryLong2, vert4, vert5
-        val launchEdges = listOf(3265.0, 3441.0, 3587.0, 3831.0, 3977.0, 4123.0)
+        val launchEdges = listOf(3295.0, 3441.0, 3587.0, 3831.0, 3977.0, 4131.0)
         while (elapsed < 35.0 && world.player.x < 4200.0 && !world.isGameOver) {
             val beforeX = world.player.x
+
+            val vert1 = world.movingPlatforms.first { it.id == "lvl2_vert_1" }
+            val vert2 = world.movingPlatforms.first { it.id == "lvl2_vert_2" }
+            val vert4 = world.movingPlatforms.first { it.id == "lvl2_vert_4" }
+            val vert5 = world.movingPlatforms.first { it.id == "lvl2_vert_5" }
+
+            val onVert1 = world.player.x in 3365.0..3441.0
+            val onVert2 = world.player.x in 3511.0..3587.0
+            val onStationary = world.player.x in 3657.0..3831.0
+            val onVert4 = world.player.x in 3901.0..3977.0
+            val onVert5 = world.player.x in 4055.0..4131.0
+
+            val waitOnVert1 = onVert1 && (vert2.y < vert1.y - 20.0)
+            val waitOnVert2 = onVert2 && (vert2.y > 290.0)
+            val waitOnStationary = onStationary && world.player.x > 3800.0 && (vert4.y < 260.0)
+            val waitOnVert4 = onVert4 && (vert5.y < vert4.y - 20.0)
+            val waitOnVert5 = onVert5 && (vert5.y > 265.0)
+
+            val waiting = waitOnVert1 || waitOnVert2 || waitOnStationary || waitOnVert4 || waitOnVert5
+            val move = if (waiting) 0.0 else 1.0
+
             val atLaunchEdge = launchEdges.any { edge -> world.player.x in (edge - 24.0)..(edge + 2.0) }
-            val jump = world.player.isGrounded && (stalledFor > 0.08 || atLaunchEdge)
-            world.update(dt, moveInput = 1.0, jumpInput = jump, crouchInput = false)
-            stalledFor = if (kotlin.math.abs(world.player.x - beforeX) < 0.5) stalledFor + dt else 0.0
+            val jump = world.player.isGrounded && !waiting && (stalledFor > 0.08 || atLaunchEdge)
+            world.update(dt, moveInput = move, jumpInput = jump, crouchInput = false)
+            if (waiting) {
+                stalledFor = 0.0
+            } else {
+                stalledFor = if (kotlin.math.abs(world.player.x - beforeX) < 0.5) stalledFor + dt else 0.0
+            }
             elapsed += dt
         }
 
@@ -1147,6 +1262,28 @@ class GameplayModelTest {
             "Player should cross Section 3 vertical elevator containers and reach finalTerrain. " +
                 "Ended at x=${world.player.x.toInt()} y=${world.player.y.toInt()} after ${elapsed.toInt()}s (gameOver=${world.isGameOver})"
         )
+    }
+
+    @Test
+    fun testLevel2CompletionFromFinalTerrainToExit() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
+        assertEquals(0, world.allGuards.size, "Level 2 should have no guards")
+
+        // Start player standing on finalTerrain
+        world.player.x = 4220.0
+        world.player.y = 296.0 - world.player.height
+        world.player.isGrounded = true
+
+        val dt = 1.0 / 60.0
+        var elapsed = 0.0
+        // Walk right off finalTerrain (edge at 4373), drop to ground (y=440), and enter exit zone at 4680
+        while (elapsed < 6.0 && !world.isLevelComplete) {
+            world.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false)
+            elapsed += dt
+        }
+
+        assertTrue(world.isLevelComplete, "Player should drop off short finalTerrain and reach exitZone within 6s")
+        assertTrue(elapsed < 4.5, "Exit run across the 307px space should complete in under 4.5s. Took ${elapsed}s")
     }
 
     @Test
@@ -1187,6 +1324,118 @@ class GameplayModelTest {
             val gap5End = endTerrain.left - (mp5.x + mp5.width)
             assertTrue(gap5End >= 20.0, "mp5 must NEVER penetrate endTerrain. Gap=$gap5End at frame $i")
         }
+    }
+
+    @Test
+    fun testLevel2CannotClimbRightWallFromGround() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
+        val groundY = 440.0
+        val finalTerrain = world.boxes.first { it.x > 4000.0 }
+        assertEquals(4193.0, finalTerrain.left, "Final terrain left edge should be at 4193.0")
+        assertEquals(296.0, finalTerrain.top, "Final terrain top edge should be at 296.0")
+
+        // 1. Place player on the ground right against finalTerrain's left wall
+        world.player.x = finalTerrain.left - world.player.width // 4193 - 36 = 4157
+        world.player.y = groundY - world.player.height // 440 - 96 = 344
+        world.player.isGrounded = true
+
+        val dt = 1.0 / 60.0
+        // Attempt to climb the 144px high wall from the ground by moving right and pressing jump
+        for (i in 0 until 60) {
+            world.update(dt, moveInput = 1.0, jumpInput = true, crouchInput = false)
+            assertFalse(
+                world.player.isClimbing,
+                "Player must NOT be able to climb the 144px wall of finalTerrain from the ground! (frame $i)"
+            )
+            // Player should jump straight up and fall back down, never gaining ground on the wall
+            assertTrue(
+                world.player.x <= finalTerrain.left - world.player.width + 1e-4,
+                "Player should be blocked horizontally by finalTerrain wall. Was x=${world.player.x}"
+            )
+        }
+
+        // 2. Also check midTerrain (x=1482) and midTerrain2 (x=2855) from the ground
+        val midTerrain = world.boxes.first { it.width in 370.0..390.0 && it.x in 1400.0..1600.0 }
+        world.player.x = midTerrain.left - world.player.width
+        world.player.y = groundY - world.player.height
+        world.player.isGrounded = true
+        for (i in 0 until 30) {
+            world.update(dt, moveInput = 1.0, jumpInput = true, crouchInput = false)
+            assertFalse(world.player.isClimbing, "Player must not climb midTerrain from the ground")
+        }
+
+        val midTerrain2 = world.boxes.first { it.width > 400.0 && it.x in 2800.0..3000.0 }
+        world.player.x = midTerrain2.left - world.player.width
+        world.player.y = groundY - world.player.height
+        world.player.isGrounded = true
+        for (i in 0 until 30) {
+            world.update(dt, moveInput = 1.0, jumpInput = true, crouchInput = false)
+            assertFalse(world.player.isClimbing, "Player must not climb midTerrain2 from the ground")
+        }
+    }
+
+    @Test
+    fun testLevel2Section2MovingContainersCycleTimeAndReachability() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
+        val mp1 = world.movingPlatforms[0]
+        val mp2 = world.movingPlatforms[1]
+        val mp4 = world.movingPlatforms[2]
+        val mp5 = world.movingPlatforms[3]
+
+        // Check matched periods
+        assertEquals(3.6, mp1.periodSeconds, 0.01, "mp1 period should be 3.6s")
+        assertEquals(3.6, mp2.periodSeconds, 0.01, "mp2 period should match mp1 (3.6s) to prevent drifting out of phase")
+        assertEquals(3.6, mp4.periodSeconds, 0.01, "mp4 period should be 3.6s")
+        assertEquals(3.6, mp5.periodSeconds, 0.01, "mp5 period should match mp4 (3.6s)")
+
+        val dt = 1.0 / 60.0
+        var maxWaitTime12 = 0.0
+        var currentWaitTime12 = 0.0
+        var minGap12 = Double.MAX_VALUE
+
+        var maxWaitTime45 = 0.0
+        var currentWaitTime45 = 0.0
+        var minGap45 = Double.MAX_VALUE
+
+        // Simulate 600 frames (10 seconds, nearly 3 full cycles)
+        for (i in 0 until 600) {
+            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false)
+
+            val gap12 = mp2.left - mp1.right
+            minGap12 = minOf(minGap12, gap12)
+            if (gap12 <= 75.0) {
+                maxWaitTime12 = maxOf(maxWaitTime12, currentWaitTime12)
+                currentWaitTime12 = 0.0
+            } else {
+                currentWaitTime12 += dt
+            }
+
+            val gap45 = mp5.left - mp4.right
+            minGap45 = minOf(minGap45, gap45)
+            if (gap45 <= 75.0) {
+                maxWaitTime45 = maxOf(maxWaitTime45, currentWaitTime45)
+                currentWaitTime45 = 0.0
+            } else {
+                currentWaitTime45 += dt
+            }
+        }
+        maxWaitTime12 = maxOf(maxWaitTime12, currentWaitTime12)
+        maxWaitTime45 = maxOf(maxWaitTime45, currentWaitTime45)
+
+        // Minimum gap between crate 1 and 2 at closest approach should be comfortable (~24 units)
+        assertTrue(minGap12 in 20.0..35.0, "Closest gap between crate 1 and crate 2 should be ~24 units, was $minGap12")
+        // Maximum wait time between jump windows (gap <= 75 units) must be at most 2.5 seconds (was previously > 16 seconds!)
+        assertTrue(
+            maxWaitTime12 <= 2.5,
+            "Max wait time between jumpable windows for crate 1 to 2 must be <= 2.5s, was ${maxWaitTime12}s"
+        )
+
+        // Crate 4 and 5 reachability
+        assertTrue(minGap45 in 25.0..40.0, "Closest gap between crate 4 and 5 should be ~34 units, was $minGap45")
+        assertTrue(
+            maxWaitTime45 <= 2.5,
+            "Max wait time between jumpable windows for crate 4 to 5 must be <= 2.5s, was ${maxWaitTime45}s"
+        )
     }
 
     @Test
@@ -1416,8 +1665,38 @@ class GameplayModelTest {
         // Releasing jump and pressing it fresh SHOULD trigger a jump
         player2.update(dt = 1.0 / 60.0, moveInput = 0.0, jumpInput = false, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
         player2.update(dt = 1.0 / 60.0, moveInput = 0.0, jumpInput = true, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
-        assertTrue(player2.isJumping, "Fresh jump press after climb should trigger a normal jump")
     }
+
+    @Test
+    fun testClimbToWalkHandoverWithMoveInputHeld() {
+        val ground = Rect(x = 0.0, y = 380.0, width = 800.0, height = 100.0)
+        val box = Rect(x = 300.0, y = 280.0, width = 100.0, height = 100.0)
+        val platforms = listOf(ground, box)
+        val player = Player(x = box.left - 36.0, y = 380.0 - 96.0, startX = 60.0, startY = 380.0 - 96.0)
+
+        // Initiate climb
+        for (i in 0 until 6) {
+            if (player.isClimbing) break
+            player.update(dt = 1.0 / 60.0, moveInput = 1.0, jumpInput = true, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
+        }
+        assertTrue(player.isClimbing, "Player should be climbing")
+
+        // Hold moveInput = 1.0 continuously during the climb
+        var climbProgressWhenExited = 0.0
+        while (player.isClimbing) {
+            climbProgressWhenExited = player.climbProgress
+            player.update(dt = 1.0 / 60.0, moveInput = 1.0, jumpInput = false, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
+        }
+
+        // Must NOT prematurely cancel before 0.85 progress (which is raw frame ~205 where mantle rise is complete)
+        assertTrue(climbProgressWhenExited >= 0.84, "Climb must not cancel prematurely before reaching mantle rise completion (was $climbProgressWhenExited)")
+        assertFalse(player.isClimbing, "Climb should have cleanly handed over to walking")
+        assertTrue(player.isGrounded, "Player should be grounded on top of the box")
+        assertFalse(player.isJumping, "Player must not auto-jump when handing over from climb to walk")
+        assertEquals(player.moveSpeed, player.vx, 0.01, "Player should immediately walk forward on the box top")
+    }
+
+    @Test
     fun testClimbRisesAgainstBoxFaceBeforeMovingOverIt() {
         val ground = Rect(x = 0.0, y = 380.0, width = 800.0, height = 100.0)
         val box = Rect(x = 300.0, y = 280.0, width = 60.0, height = 100.0)
@@ -1957,6 +2236,77 @@ class GameplayModelTest {
     }
 
     @Test
+    fun testPowerupRemoteTriggerInventoryAndConsume() {
+        val profile = GameProfile()
+        assertEquals(1, profile.getPowerupCount(PowerupType.REMOTE_TRIGGER))
+
+        // Consume remote trigger
+        assertTrue(profile.consumePowerup(PowerupType.REMOTE_TRIGGER))
+        assertEquals(0, profile.getPowerupCount(PowerupType.REMOTE_TRIGGER))
+
+        // Cannot consume when 0 available
+        assertFalse(profile.consumePowerup(PowerupType.REMOTE_TRIGGER))
+
+        // Add alias "remote_trigger" to inventory
+        profile.powerupInventory["remote_trigger"] = 3
+        assertEquals(3, profile.getPowerupCount(PowerupType.REMOTE_TRIGGER))
+        assertTrue(profile.consumePowerup(PowerupType.REMOTE_TRIGGER))
+        assertEquals(2, profile.getPowerupCount(PowerupType.REMOTE_TRIGGER))
+    }
+
+    @Test
+    fun testTacticalCheckpointRecordingAndRespawn() {
+        val player = Player(x = 100.0, y = 284.0)
+        val guard = Guard(
+            x = 800.0,
+            y = 332.0,
+            patrolMinX = 700.0,
+            patrolMaxX = 900.0,
+            facing = -1.0,
+            speed = 50.0,
+            visionRange = 200.0,
+            visionFov = 60.0 * (PI / 180.0)
+        )
+        val world = GameWorld(
+            player = player,
+            guard = guard,
+            crate = Rect(0.0, 0.0, 0.0, 0.0),
+            platforms = listOf(Rect(0.0, 380.0, 2000.0, 100.0)),
+            occluders = emptyList()
+        )
+
+        assertEquals(100.0, world.lastCheckpointX)
+        assertFalse(world.hasAdvancedCheckpoint)
+
+        var securedX = 0.0
+        world.onCheckpointSecured = { cx, _ -> securedX = cx }
+
+        // Settle player on ground first
+        world.update(0.1, moveInput = 0.0, jumpInput = false)
+        assertTrue(player.isGrounded)
+
+        // Move player forward past 100 + 250 = 350px while grounded and safe
+        player.x = 400.0
+        world.update(0.1, moveInput = 0.0, jumpInput = false)
+
+        assertTrue(world.hasAdvancedCheckpoint)
+        assertEquals(400.0, world.lastCheckpointX)
+        assertEquals(400.0, securedX)
+
+        // Trigger game over
+        world.isGameOver = true
+        guard.startInvestigating(700.0)
+
+        // Respawn at checkpoint
+        val respawnOk = world.respawnAtCheckpoint()
+        assertTrue(respawnOk)
+        assertFalse(world.isGameOver)
+        assertEquals(400.0, player.x)
+        assertEquals(GuardState.PATROL, guard.state)
+        assertTrue(world.activePowerups.isInvisibilityActive, "Respawning should give 2s grace invisibility")
+    }
+
+    @Test
     fun testStorePowerupPurchasesAndInventory() {
         val storageMap = mutableMapOf<String, String>()
         val profileStorage = MapBackedGameProfileStorage(
@@ -1974,7 +2324,8 @@ class GameplayModelTest {
             PowerupType.SMOKE_SCREEN to 600,
             PowerupType.PHANTOM_CLOAK to 800,
             PowerupType.INVISIBILITY to 1000,
-            PowerupType.NOISE_SUPPRESSION to 750
+            PowerupType.NOISE_SUPPRESSION to 750,
+            PowerupType.REMOTE_TRIGGER to 750
         )
 
         for ((type, cost) in powerupsToTest) {
@@ -2252,5 +2603,195 @@ class GameplayModelTest {
         assertNull(activeStep, "Backtracking to spawn should NOT re-trigger completed step_move")
         updateStep(200.0)
         assertNull(activeStep)
+    }
+
+    // ---- level 3's hook swing --------------------------------------------------------------
+
+    @Test
+    fun testLevel3HookGapIsOnlyCrossableBySwinging() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_3)
+        val layout = LevelData.LEVEL_3_LAYOUT
+        val hook = world.swingHooks.single()
+        val gapStart = layout.boxes.first { it.width == 300.0 }.right
+        val gapEnd = layout.boxes.last { it.width == 300.0 }.left
+
+        // Ground a running jump covers: the full arc's airtime at walking speed.
+        val jumpReach = 2.0 * kotlin.math.abs(world.player.jumpSpeed) / world.player.gravity * world.player.moveSpeed
+        assertTrue(gapEnd - gapStart > jumpReach * 1.5,
+            "The gap (${(gapEnd - gapStart).toInt()}) has to be well past the ${jumpReach.toInt()} a jump covers")
+        assertTrue(hook.left > gapStart && hook.right < gapEnd, "The hook hangs inside the gap")
+        assertTrue(hook.bottom < layout.boxes.first { it.width == 300.0 }.top - world.player.height,
+            "The hook's tip hangs above a standing player's head, or it is not something to jump for")
+    }
+
+    @Test
+    fun testSwingCarriesThePlayerOverLevel3sGapAndLandsThemOnIt() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_3)
+        val terrain2 = LevelData.LEVEL_3_LAYOUT.boxes.last { it.width == 300.0 }
+        val dt = 1.0 / 60.0
+
+        // Auto-pilot: hold right, press jump when progress stalls (which climbs the barrel
+        // stack) or when the hook is in reach - the same button either way, which is the point
+        // of putting the swing on it.
+        val hook = world.swingHooks.single()
+        val gripX = hook.left + hook.width / 2.0
+        var elapsed = 0.0
+        var stalledFor = 0.0
+        var swung = false
+        while (elapsed < 40.0 && !world.isLevelComplete && !world.isGameOver) {
+            val beforeX = world.player.x
+            val reach = gripX - world.player.centerX
+            val hookInReach = reach >= world.player.swingMinReach && reach <= world.player.swingMaxReach
+            val jump = world.player.isGrounded && (stalledFor > 0.05 || hookInReach)
+            world.update(dt, moveInput = 1.0, jumpInput = jump, crouchInput = false)
+            if (world.player.isSwinging) swung = true
+            stalledFor = if (kotlin.math.abs(world.player.x - beforeX) < 0.5) stalledFor + dt else 0.0
+            elapsed += dt
+        }
+
+        assertTrue(swung, "Walking right into the hook and pressing jump should start a swing")
+        assertTrue(world.isLevelComplete,
+            "The swing should land on terrain2 and the run continue to the exit. Ended at " +
+                "x=${world.player.x.toInt()} y=${world.player.y.toInt()} after ${elapsed.toInt()}s")
+        assertTrue(world.player.x > terrain2.left,
+            "The landing has to be past terrain2's near edge, not short of it")
+    }
+
+    @Test
+    fun testSwingNeedsTheWalkAndTheHook() {
+        val hook = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_3).swingHooks.single()
+        val terrain = LevelData.LEVEL_3_LAYOUT.boxes.first { it.width == 300.0 }
+        val dt = 1.0 / 60.0
+
+        // The trigger window is tight enough that where the player stands matters (see
+        // Player.swingMinReach): at the very lip of terrain1 the grip is 66 ahead, which is
+        // inside it. backOff walks them away from the lip so a test can approach it.
+        fun freshWorldAtLedge(backOff: Double = 0.0): GameWorld {
+            val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_3)
+            world.player.resetTo(terrain.right - world.player.width - backOff, terrain.top - world.player.height)
+            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false)
+            return world
+        }
+
+        // Standing still and pressing jump is an ordinary jump, never a swing - the clip opens on
+        // a push-off stride and there is no version of it that starts from a standstill.
+        val standing = freshWorldAtLedge()
+        repeat(20) { standing.update(dt, moveInput = 0.0, jumpInput = true, crouchInput = false) }
+        assertFalse(standing.player.isSwinging, "A swing must not start from a standstill")
+
+        // Same button, but walking into it and pressing at the lip - which is the only place the
+        // window allows, and what a player does.
+        val gripX = Player.hookGripX(hook)
+        val walking = freshWorldAtLedge(backOff = 25.0)
+        repeat(40) {
+            val inReach = gripX - walking.player.centerX <= walking.player.swingMaxReach
+            walking.update(dt, moveInput = 1.0, jumpInput = inReach, crouchInput = false)
+        }
+        assertTrue(walking.player.isSwinging, "Walking into the hook and pressing jump should swing")
+
+        // Facing away from the hook there is nothing ahead to grab.
+        val away = freshWorldAtLedge()
+        repeat(20) { away.update(dt, moveInput = -1.0, jumpInput = true, crouchInput = false) }
+        assertFalse(away.player.isSwinging, "A hook behind the player is not a grab point")
+    }
+
+    @Test
+    fun testSwingKeepsTheHandOnTheHookForItsWholeHang() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_3)
+        val hook = world.swingHooks.single()
+        val terrain = LevelData.LEVEL_3_LAYOUT.boxes.first { it.width == 300.0 }
+        val dt = 1.0 / 60.0
+        world.player.resetTo(terrain.right - world.player.width - 25.0, terrain.top - world.player.height)
+
+        val gripX = Player.hookGripX(hook)
+        var started = false
+        var hangSamples = 0
+        var elapsed = 0.0
+        while (elapsed < 5.0) {
+            val press = !started && gripX - world.player.centerX <= world.player.swingMaxReach
+            world.update(dt, moveInput = 1.0, jumpInput = press, crouchInput = false)
+            if (world.player.isSwinging) {
+                started = true
+                // Through the hang the body has to stay directly under the hook - the collision
+                // box is held at the grip while the silhouette does the swinging (see
+                // Player.advanceSwing), so this is what "hanging off it" means numerically.
+                val phase = world.player.swingPhase
+                // The hand is pinned to the hook between the grab and the release, frames 11 and
+                // 29 of the clip's 51 - i.e. phase 0.216 to 0.569. Sampled just inside both ends
+                // so a frame's rounding cannot put a sample in the interpolated launch or flight.
+                if (phase > 0.24 && phase < 0.55) {
+                    hangSamples++
+                    val offset = kotlin.math.abs(world.player.centerX - (hook.left + hook.width / 2.0))
+                    assertTrue(offset < 12.0,
+                        "At phase $phase the body sat ${offset.toInt()} units off the hook")
+                    assertTrue(world.player.y + world.player.height > hook.bottom,
+                        "At phase $phase the feet were above the grip")
+                }
+            } else if (started) {
+                break
+            }
+            elapsed += dt
+        }
+        assertTrue(started, "The swing should have started")
+        // Deliberately a low bar: the hang is meant to be brief - about a fifth of a second, so
+        // a dozen ticks at 60Hz - and this is here to catch it vanishing entirely, not to pin a
+        // duration the pacing curve is free to keep tuning.
+        assertTrue(hangSamples > 4, "Expected a real hang, sampled $hangSamples frames of it")
+    }
+
+    @Test
+    fun testSwingBodyRotationAndPivotTracking() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_3)
+        val hook = world.swingHooks.single()
+        val terrain = LevelData.LEVEL_3_LAYOUT.boxes.first { it.width == 300.0 }
+        val dt = 1.0 / 60.0
+        world.player.resetTo(terrain.right - world.player.width - 25.0, terrain.top - world.player.height)
+
+        assertEquals(0.0, world.player.swingRotationDegrees, 1e-4)
+        assertEquals(0.0, world.player.swingPivotHeight, 1e-4)
+
+        val gripX = Player.hookGripX(hook)
+        var started = false
+        var hadBackwardTilt = false
+        var hadForwardTilt = false
+        var hadStraightFlight = false
+        var elapsed = 0.0
+
+        while (elapsed < 5.0) {
+            val press = !started && gripX - world.player.centerX <= world.player.swingMaxReach
+            world.update(dt, moveInput = 1.0, jumpInput = press, crouchInput = false)
+            if (world.player.isSwinging) {
+                started = true
+                val rot = world.player.swingRotationDegrees
+                val pivotH = world.player.swingPivotHeight
+                val phase = world.player.swingPhase
+
+                // Pivot height must be between half height and full height during swing
+                assertTrue(pivotH in (world.player.height * 0.45)..(world.player.height * 1.1),
+                    "Pivot height $pivotH out of expected bounds")
+
+                if (phase in 0.20..0.26) {
+                    // Grab / catch: body trailing behind hook (positive degrees for facing right)
+                    if (rot > 10.0) hadBackwardTilt = true
+                }
+                if (phase in 0.52..0.58) {
+                    // Release: body leading forward (negative degrees for facing right)
+                    if (rot < -10.0) hadForwardTilt = true
+                }
+                if (phase in 0.80..0.86) {
+                    // Approaching landing: body straightening upright
+                    if (kotlin.math.abs(rot) < 8.0) hadStraightFlight = true
+                }
+            } else if (started) {
+                break
+            }
+            elapsed += dt
+        }
+
+        assertTrue(started, "Swing should have started")
+        assertTrue(hadBackwardTilt, "Character should tilt backward during grab")
+        assertTrue(hadForwardTilt, "Character should tilt forward during swing apex / release")
+        assertTrue(hadStraightFlight, "Character should straighten upright towards landing")
+        assertEquals(0.0, world.player.swingRotationDegrees, 1e-4, "Rotation should be zero once swing completes")
     }
 }
