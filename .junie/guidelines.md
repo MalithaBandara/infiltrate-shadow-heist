@@ -15,12 +15,26 @@ to `kotlin.jvm.Volatile`, which is JVM-only and doesn't exist for Kotlin/Native 
 compiles fine (it's in the JVM default imports) so this hid behind green `compileKotlinJvm`/
 `jvmTest` runs, exactly the class of trap the paragraph below warns about. Fixed by adding an
 explicit `import kotlin.concurrent.Volatile` (the multiplatform-safe annotation, actual-mapped
-per target) to both files. **Not yet re-verified in CI** — push and check
-`ios-build.yml` before assuming this is closed:
-https://github.com/MalithaBandara/infiltrate-shadow-heist/actions
-Cosmetic, still true as of the last GREEN run: the built app is named `unnamed.app` because
-`build.gradle.kts`'s `korge {}` block only sets `id`, never `name` (easy fix: `korge { name =
-"..." }`).
+per target) to both files. **Confirmed fixed in CI** (commit `e5557b2`, run 34643588882,
+2026-09-11): the `Build unsigned iOS Simulator app (KorGE)` step's raw log shows real
+`** BUILD SUCCEEDED **` / `BUILD SUCCESSFUL in 9m 4s` for `compileKotlinIosSimulatorArm64` -
+checked the actual build output, not just the job's overall conclusion (see the
+`continue-on-error` trap immediately below for why that distinction matters here specifically).
+Cosmetic, still true: the built app is named `unnamed.app` because `build.gradle.kts`'s `korge
+{}` block only sets `id`, never `name` (easy fix: `korge { name = "..." }`).
+
+**Fixing the above unblocked the workflow far enough to reveal a separate, unrelated, pre-existing
+failure that every earlier run's early exit had been hiding**: the `SPIKE: link paywall-build
+framework for iOS (RevenueCat 3.6.0 / Kotlin 2.3.20)` step now actually runs (previously skipped
+outright) and fails for real - `e: .../paywall-build/src/iosMain/kotlin/TimeProvider.ios.kt:5:51
+Unresolved reference 'timeIntervalSince1970'` - and that cascades into `Shell app: build` failing
+too (`unable to resolve module dependency: 'PaywallModule'`, since the framework it needs was
+never produced). Both steps are `continue-on-error: true` by design (labeled spike/experimental,
+not the real game build gate - see the workflow file's own comments), so the job's overall
+conclusion is still green and this is NOT the same bug as the `@Volatile` one above. Not
+investigated further yet - `NSDate().timeIntervalSince1970` reads like standard Foundation
+interop, so this may be specific to Kotlin/Native 2.3.20's cinterop generation for this dependency
+chain. Worth a fresh look next time paywall-build's iOS RevenueCat integration is touched.
 
 A prior commit (`d7ab110`) similarly broke iOS-only compilation by introducing Java
 `String.format()` calls (`LevelSelectScene.kt`) with no Kotlin/Native implementation; fixed
