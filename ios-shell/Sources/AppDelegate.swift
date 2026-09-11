@@ -96,7 +96,31 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 print("SHELL: Continue-with-ad requested -> showing rewarded ad")
                 self?.showContinueAd()
             }
+            // QUIT / RETURN TO MENU / MAIN MENU / ALL CLEAR in GameplayScene.kt all reach this via
+            // GameLevelExitBridge (src@ios/LevelExitBridge.ios.kt) - same shape as
+            // AndroidLevelExitBridgeState.onReturnToMenuRequested in MainActivity.kt. Previously a
+            // true no-op on iOS: these buttons compiled and ran but nothing ever switched the
+            // shell back to the Compose menu.
+            if GameLevelExitBridge.shared.consumeReturnToMenuRequest() {
+                print("SHELL: Return-to-menu requested -> returning to Compose")
+                self?.switchToCompose()
+                self?.maybeShowLevelExitInterstitial()
+            }
         }
+    }
+
+    // Mirrors MainActivity.kt's maybeShowLevelExitInterstitial() - gated by InterstitialAdLimiter
+    // (checked Kotlin-side in InterstitialAdTrigger.maybeRequestShow so Swift doesn't duplicate its
+    // cooldown/session-cap constants) and by DebugStorageBridge's real on-disk profile fields, not
+    // hardcoded values.
+    private func maybeShowLevelExitInterstitial() {
+        let isPremium = DebugStorageBridge.shared.readIsPremiumForDebug()
+        let totalLevelsCompleted = DebugStorageBridge.shared.readTotalLevelsCompletedForDebug()
+        let requested = InterstitialAdTrigger.shared.maybeRequestShow(
+            totalLevelsCompleted: totalLevelsCompleted,
+            isPremium: isPremium
+        )
+        print("SHELL: Level-exit interstitial \(requested ? "requested" : "skipped (limiter/premium)")")
     }
 
     private func stopObservingLevelEnd() {

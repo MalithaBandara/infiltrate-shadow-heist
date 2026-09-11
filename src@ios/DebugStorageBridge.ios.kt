@@ -33,4 +33,12 @@ object DebugStorageBridge {
         getRaw = { DarwinNativeStorage.getOrNull(it) },
         setRaw = { k, v -> DarwinNativeStorage.set(k, v) }
     ).getProfile().isPremium
+
+    // Read by AppDelegate.swift's level-exit interstitial gate (see InterstitialAdTrigger's
+    // maybeRequestShow, PaywallModule.framework) - mirrors MainActivity.kt's
+    // maybeShowLevelExitInterstitial() reading profileStorage.getProfile().totalLevelsCompleted.
+    fun readTotalLevelsCompletedForDebug(): Int = MapBackedGameProfileStorage(
+        getRaw = { DarwinNativeStorage.getOrNull(it) },
+        setRaw = { k, v -> DarwinNativeStorage.set(k, v) }
+    ).getProfile().totalLevelsCompleted
 }
