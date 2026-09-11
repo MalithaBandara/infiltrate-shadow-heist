@@ -47,10 +47,13 @@ CI run (commit `eaa73a2`, run 34647810647) still failed with the exact same
 and switched to `platform.posix.time(null)` - the plain C stdlib call, sidestepping whatever
 Foundation/ObjC property-interop quirk this toolchain (Kotlin 2.4.10) has with that specific
 member, and matching Android/JVM's own "just get raw seconds since epoch" idiom
-(`System.currentTimeMillis() / 1000L`) more closely anyway. **Not yet re-verified in CI** - push
-and check the SPIKE step specifically (still `continue-on-error: true`, so watch the raw log via
-`gh run view <id> --job <id> --log`, not just the job's overall conclusion or even the per-step
-checkmark).
+(`System.currentTimeMillis() / 1000L`) more closely anyway. **Confirmed fixed in CI** (commit `0c1f53a`, run 34650821928, 2026-09-11) - checked the raw log,
+not just the checkmark: `SPIKE: link paywall-build framework for iOS` → `BUILD SUCCESSFUL in 7m
+31s`, and everything downstream that was cascading off it now passes too: `Shell app: build` →
+`** BUILD SUCCEEDED **`, on-device storage bridge → `OK:coins=350:unlocked=level_1;level_2;
+level_4`, level transition → `TRANSITION_OK`, AdMob verify → `OK:initializeCalled=true:
+bannerLoaded=true`. This is the first CI run where every one of `ios-build.yml`'s steps passed for
+real, not just the job's overall `continue-on-error`-masked conclusion.
 
 A prior commit (`d7ab110`) similarly broke iOS-only compilation by introducing Java
 `String.format()` calls (`LevelSelectScene.kt`) with no Kotlin/Native implementation; fixed
@@ -1318,7 +1321,10 @@ from screenshots across passes, not confirmed against a running app as
 final — if a sixth round of feedback comes in, these are the two knobs
 (the offset, the fixed gaps) to keep adjusting.
 
-## The swing move (level 3's hook) — added 2026-09-10, tuned on JVM desktop over ~8 rounds
+## The swing move (level 4's hook) — added 2026-09-10, tuned on JVM desktop over ~8 rounds
+
+(Was "level 3's hook" when written - that layout, "Blind Spot", was renumbered to `level_4` when the
+current level 3 was started; see "Level 3" below. Every "level 3" in this section means `LEVEL_4_LAYOUT`.)
 
 The one scripted move besides the climb, and built the same way: the animation is the source of
 truth for the pose, and code places the body so the pose is holding (or standing on) the right
@@ -1375,7 +1381,7 @@ shape when each frame is shown to produce a full weighted takeoff, instant forwa
 **Level geometry is derived from the move, not the other way round.** `swingLandAhead` (109) is how
 far past the grip the player comes down, and `findSwingTarget` refuses to start a swing unless
 there is solid ground there level with the ledge being left - so the fixed shape can never strand
-anyone. It works in either direction, so level 3's gap can also be re-crossed leftwards. The hook
+anyone. It works in either direction, so level 4's gap can also be re-crossed leftwards. The hook
 hangs at the centre of the 150-unit gap; `swingLandAhead` is then set so the touchdown lands 34
 units onto the far ledge, which makes the two a matched pair - move one and you move both.
 
@@ -1386,9 +1392,9 @@ third of the platform still under them, which reads as jumping at nothing. It pl
 reads because the existing jump buffer covers an early press and coyote time covers a late one.
 
 **The camera caps how high the hook can hang, and this is the non-obvious constraint.**
-`baseWorldViewY` leaves about 140 world units visible above a high tier (296 on level 3). The hook
+`baseWorldViewY` leaves about 140 world units visible above a high tier (296 on level 4). The hook
 art's actual hook is only the bottom ~12% of a very tall image - so hanging the grip high enough
-for the leap to gain real height puts the hook itself off the top of the screen. Level 3's grip is
+for the leap to gain real height puts the hook itself off the top of the screen. Level 4's grip is
 112 above the ledge: clear of a standing player's head (96 tall) so it reads as something to jump
 for, with the hook fully visible and a dozen units of chain running off-screen. The launch gains
 little real height as a result, so `SWING_LAUNCH_ARC` bows it 16 units to sell the leap. **If a
@@ -1399,6 +1405,63 @@ korlibs lint - `Player.kt` stays pure Kotlin), both JVM compiles, **and the JVM 
 run and screenshotted across full swings after every one of the tuning rounds** - push-off, the
 fist meeting the hook, the sweep, the release and the landing were all read off real frames.
 **Not verified**: never run on Android, iOS, or any real device.
+
+## Level 3 ("03: New Level", WIP) — the roof table and the guard under it (2026-09-12)
+
+`LEVEL_3_LAYOUT` is the owner's in-progress level: start fence, one crate, a 450-wide cantilevered
+"roof" (`table.png`, the plank-on-one-leg art), exit. The doc comment on the layout carries the full
+reasoning; the parts a future session needs are:
+
+- **The table's collision is two boxes now, not one** (`LevelLayout.tableParts`, mirrored on
+  `GameWorld`): a 30-deep plank along the top and a 30-wide leg column at the left end from plank
+  top to ground. `tables` holds only the ART rect, drawn once in its own pass in `GameplayScene`
+  (same arrangement as level 1's `truckParts`/`truck`); the two part boxes are skipped by the box
+  loop. The leg is what the crate->roof mantle braces against (`Player.findClimbTarget` needs the
+  face's bottom to reach the feet and its top to be the landing surface), so **the leg's top must
+  stay at the plank top and its bottom at the ground** - shortening either breaks the climb, and
+  `testLevel3ClimbOntoRoofAndCrossItUnseen` will say so. The measured numbers (slab rows 0..102 of
+  512 = 28.7 units, leg columns 36..79 = 8..17 units in) are in the layout's comments.
+- **The guard stands in the open underside, 860..890, facing LEFT, speed 0**, 30x96 (player
+  height - `GuardSpawn` grew `width`/`height` for this; every other guard still defaults to the old
+  26x48). He can see nothing the player does on the intended route: the leg and plank are occluders,
+  so his cone is boxed under the roof. The beat is the drop off the far end - walk after landing and
+  the NORMAL noise radius (180) reaches him with a clear line, he turns to it, and the player is in
+  his cone at point-blank; crouch-walk away and he never turns. Four tests pin this
+  (`testLevel3*` in `GameplayModelTest.kt`). **A stationary guard needs `patrolMinX < x < patrolMaxX`
+  with `speed = 0`** - an equal min/max makes `Guard.updatePatrol` flip his facing every frame.
+- Verified on the JVM desktop build with screenshots (guard under the roof, cone boxed by the
+  plank, the climb, the drop-and-turn with the pip filling) plus `jvmTest` green. **Not run on
+  Android or iOS.**
+
+## Guard sprite (`GuardAnimations.kt`, `resources/guard/idle/`) — 2026-09-12
+
+Guards are drawn with real art now, not the black 26x48 rect: `GuardAnimations` is a copy of
+`PlayerAnimations`' recipe (own 1024x2048 atlas, cached once per process, feet-anchored sprite
+scaled so the standing silhouette equals the hitbox height, `scaleX` negated to face left - the
+crop box is symmetric about the character so the flip does not shift him). `tools/art/prep_guard_idle.py`
+cuts the frames from the owner's 144 raw 360x640 plates (`Downloads/charAnimations/guardidle`,
+copied to the gitignored `art-source/guard/idle`) and **prints the constants the Kotlin file needs**
+- re-run and paste, don't hand-edit them. Every other frame is kept (72 at 75x246, 1.33 Mpx), and
+because the plates do not loop (frame 144 is ~30 adjacent-steps away from frame 1) the animation is
+ping-ponged by listing the same slices out and back - no atlas cost. `IDLE_FEET_Y = 241` is the same
+back-heel over-correction the player's idle uses.
+
+**Only an idle exists.** A guard using this art must stand still (level 3's does); a patrolling
+guard would slide across the ground in an idle pose. Levels 5+ guards still patrol and still have
+48-tall hitboxes, so they now draw as half-height idle men gliding along - unchanged in behaviour,
+worse-looking than the rect was. They need walk footage and a 96-tall hitbox pass of their own
+(`SIDE_SCROLL_LEVEL_LAYOUT`'s walkthrough test and patrol geometry are tuned to 48).
+
+**Rendering decisions the owner made on seeing it**: the red "visor" rectangle is gone (it only
+survives in the no-art fallback, where a featureless rect has no other facing cue), and **guard
+vision cones are one flat white** (`GUARD_CONE_COLOR`, `Colors.WHITE.withAd(0.30)`) in every
+state - the old orange/gold/pulsing-red ramp duplicated what the detection pip over the guard's
+head already shows. Don't reintroduce a colour ramp on the cone. Camera cones were not touched and
+still use the old orange/red ramp - a mismatch, left for the owner to call.
+
+If `GuardAnimations.load()` throws (the iOS shell does not bundle `resources/` - see "Audio"),
+`GameplayScene` logs `[GuardAnimations] load failed` and falls back to the rect + visor rather than
+failing the level.
 
 ## Asset prep techniques
 
