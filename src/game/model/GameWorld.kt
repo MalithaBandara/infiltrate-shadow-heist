@@ -341,7 +341,15 @@ data class GameWorld(
             // tall cab+bed stretching away towards the long platform.
             val truckBedHeight = 96.0
             val truckFrontHeight = 66.0 // hood sits at ~68% of the cab/bed roofline height
-            val truckFront = Rect(x = smallCrate.right, y = groundY - truckFrontHeight, width = 38.0, height = truckFrontHeight)
+            // Width was 38 (a guess, not a measurement) - a per-column alpha scan of truck.png
+            // found the art's own hood-to-windshield step actually lands at ~11.2% of the truck's
+            // total width, not 14.5% (38/262). At the old 38 the last ~9 units of the "hood" tier
+            // were already standing under the drawn windshield/cab wall rather than the flat hood,
+            // which is what read as floating while walking that stretch - the feet were still
+            // governed by the low hood height while the art above them had already risen to the
+            // tall cab. 29 puts the tier boundary back under the art's real step (29/(29+45+179)
+            // = 11.46%, matching the measured ~11.2%).
+            val truckFront = Rect(x = smallCrate.right, y = groundY - truckFrontHeight, width = 29.0, height = truckFrontHeight)
             val truckMiddle = Rect(x = truckFront.right, y = groundY - truckBedHeight, width = 45.0, height = truckBedHeight)
             val truckBack = Rect(x = truckMiddle.right, y = groundY - truckBedHeight, width = 179.0, height = truckBedHeight)
             val truckParts = listOf(truckFront, truckMiddle, truckBack)

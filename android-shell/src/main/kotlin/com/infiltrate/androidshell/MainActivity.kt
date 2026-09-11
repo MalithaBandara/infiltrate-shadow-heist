@@ -24,6 +24,7 @@ import com.infiltrate.billing.StoreBilling
 import com.infiltrate.storage.PlatformStorage
 import com.infiltrate.ui.NavigationRoot
 import com.sample.demo.ads.AndroidContinueAdBridgeState
+import com.sample.demo.audio.AndroidGameSfxOutputState
 import com.sample.demo.nav.AndroidLevelExitBridgeState
 import game.model.GameProfileStorage
 import game.model.LevelData
@@ -85,6 +86,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         PlatformStorage.init(this)
+        // applicationContext, not this Activity - AndroidGameSfxOutputState is a long-lived
+        // singleton (see GameSfxOutput's own doc comment), and this Activity is never recreated
+        // in practice (single-Activity app, KorGE view never torn down), but there is no reason
+        // for a static holder to pin an Activity when the application Context does everything
+        // SoundPool's asset loading needs.
+        AndroidGameSfxOutputState.context = applicationContext
         StoreBilling.setApplication(application)
         StoreBilling.initialize(BuildConfig.REVENUECAT_GOOGLE_KEY)
         hideSystemBars()
@@ -216,5 +223,19 @@ class MainActivity : ComponentActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemBars()
+    }
+
+    // GameSfxOutput.kt's mixer thread/AudioTrack (see its own doc comment) runs forever once
+    // started, with no lifecycle awareness of its own - without this it kept playing gameplay
+    // audio (music + any in-flight one-shots) after leaving the app entirely, not just returning
+    // to the in-app menu (which already stops music via stopBgMusic/stopMusic on its own).
+    override fun onPause() {
+        super.onPause()
+        AndroidGameSfxOutputState.pauseEngine()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        AndroidGameSfxOutputState.resumeEngine()
     }
 }

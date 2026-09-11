@@ -1,9 +1,19 @@
 package game.scene
 
+import com.sample.demo.audio.GameSfxOutput
+import com.sample.demo.audio.getGameSfxOutput
 import korlibs.audio.sound.*
 import korlibs.io.file.std.*
+import kotlin.concurrent.Volatile
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
+
+/**
+ * Android-only native path for one-shots, alongside korlibs' own per-call `AudioTrack` - see
+ * [GameSfxOutput]'s own doc comment for why. Lazy so platforms that return null (everything but
+ * Android) never pay even the lookup cost more than once.
+ */
+private val gameSfxOutput: GameSfxOutput? by lazy { getGameSfxOutput() }
 
 /**
  * The movement foley, loaded once per gameplay scene.
@@ -56,6 +66,7 @@ class GameSounds(
      * with it. Priming is a latency optimization; the scene loading at all is not optional.
      */
     fun primeAll(context: CoroutineContext) {
+        gameSfxOutput?.prepare(GameAudio.SfxFile.ALL)
         for (sound in listOf(stepA, stepB, impact, climb, uiClick, guardInvestigate, toastSuccess, cameraDetect)) {
             try {
                 sound?.play(context, PlaybackParameters(volume = 0.0))?.stop()
@@ -86,12 +97,17 @@ object GameAudio {
     const val CLIMB_GAIN = 0.7
 
     /**
-     * One click serves every button and tap surface in the game, at two different weights.
-     *
-     * [UI_CLICK_GAIN] is for deliberate presses - the pause button, the pause-menu strips, the
-     * Mission Failed buttons. [HUD_TAP_GAIN] is for the on-screen D-pad, jump and crouch
-     * controls, which fire continuously while the player is moving; the same sample at the same
-     * level would become the loudest recurring thing in a level, so it is mixed well under.
+     * One click for deliberate presses - the pause button, the pause-menu strips, the Mission
+     * Failed buttons. The on-screen D-pad/jump/crouch/interact touch controls do NOT play this -
+     * they fire continuously while the player is moving, and the owner's explicit call (2026-09-11,
+     * on real-device feedback) was that a click on every movement tap reads as noise, not
+     * feedback. There used to be a quieter `HUD_TAP_GAIN` weight wired into those controls, but on
+     * korlibs' old per-call `AudioTrack` path (see GameSfxOutput's own doc comment) real device
+     * latency largely swallowed it, so it went unnoticed for a long time - switching gameplay SFX
+     * onto a pooled, always-ready output (fixing an unrelated static/glitch bug) made it play
+     * cleanly and audibly for the first time, which is what actually surfaced the complaint.
+     * Removed outright rather than just lowered further - don't re-add a tap sound to
+     * `createTouchBtn`/`createImgBtn` without the owner asking again.
      *
      * Was 0.6, raised to 0.85 after real-device feedback that presses on the pause/death-menu
      * buttons weren't audible - then brought back down to 0.65 after further feedback that 0.85
@@ -101,7 +117,6 @@ object GameAudio {
      * exact click since it was first added; only the level has moved.
      */
     const val UI_CLICK_GAIN = 0.65
-    const val HUD_TAP_GAIN = 0.3
 
     /**
      * Owner-supplied clip (Downloads/charAnimations/music/guard_investigate.wav), peak-normalised
@@ -132,6 +147,32 @@ object GameAudio {
     const val BG_MUSIC_GAIN = 0.65
 
     /**
+     * How fast `GameplayScene.kt`'s `syncBgMusicVolume` ramps toward a changed target volume,
+     * in volume-units-per-second (full 0..1 sweep in 1/5s = 0.2s). See that function's own doc
+     * comment - this replaced an instant step, which on pause's baseVol -> baseVol*0.35 change
+     * was an audible click (a waveform discontinuity) on real hardware.
+     */
+    const val BG_MUSIC_VOLUME_RAMP_PER_SEC = 5.0
+
+    /**
+     * Asset paths for [gameSfxOutput]'s Android-only pooled path, mirrored against [GameAudio.load]'s
+     * `clip(name)` calls below so both sides name the same file. `bgMusic` is deliberately absent -
+     * it's a long, continuously-streamed track, not a short decoded-in-memory one-shot, so it stays
+     * on korlibs' own output the way it always has; only the one-shots move.
+     */
+    object SfxFile {
+        const val STEP_A = "sfx/step_a.wav"
+        const val STEP_B = "sfx/step_b.wav"
+        const val IMPACT = "sfx/impact.wav"
+        const val CLIMB = "sfx/climb.wav"
+        const val UI_CLICK = "sfx/ui_click.wav"
+        const val GUARD_INVESTIGATE = "sfx/guard_investigate.wav"
+        const val TOAST_SUCCESS = "sfx/toast_success.wav"
+        const val CAMERA_DETECT = "sfx/camera_detect.wav"
+        val ALL = listOf(STEP_A, STEP_B, IMPACT, CLIMB, UI_CLICK, GUARD_INVESTIGATE, TOAST_SUCCESS, CAMERA_DETECT)
+    }
+
+    /**
      * Phases within one gait cycle at which a foot reaches the ground, measured off the walk
      * plate rather than assumed to be 0.0 and 0.5: a per-frame scan of the bottom of the
      * silhouette puts the front foot's contact at loop frames 3 and 15 of 22, and the footage's
@@ -156,6 +197,35 @@ object GameAudio {
     // redundant work, not just occasionally risky work.
     @Volatile
     private var audioPrimed = false
+
+    /** `resourcesVfs`-relative path korlibs' own `music("bgmusic")` loader reads - see [load]. */
+    const val MUSIC_FILE = "music/bgmusic.mp3"
+
+    /**
+     * Whether [gameSfxOutput]'s native mixer took over bgmusic for this process - see
+     * GameplayScene.kt's `syncBgMusicVolume` for how this changes its own behavior. Process-wide,
+     * matching [audioPrimed]: the native engine (when present) is one continuous stream for the
+     * app's whole life, not something each scene restarts.
+     */
+    @Volatile
+    private var nativeMusicActive = false
+
+    /** Best-effort; returns whether the native path is handling music from here on. */
+    fun startNativeMusic(): Boolean {
+        if (!nativeMusicActive) {
+            nativeMusicActive = gameSfxOutput?.prepareMusic(MUSIC_FILE) == true
+        }
+        return nativeMusicActive
+    }
+
+    fun setNativeMusicVolume(volume: Float) {
+        gameSfxOutput?.setMusicVolume(volume)
+    }
+
+    fun stopNativeMusic() {
+        gameSfxOutput?.stopMusic()
+        nativeMusicActive = false
+    }
 
     suspend fun load(): GameSounds {
         suspend fun clip(name: String): Sound? =
@@ -187,10 +257,15 @@ object GameAudio {
  *
  * Missing clips are a no-op rather than a crash: the sounds are loaded defensively, since a
  * stripped build or a bad asset path should cost the player their audio, not the level.
+ *
+ * [clipFile] (one of [GameAudio.SfxFile]) routes through [gameSfxOutput] first when present -
+ * see that property's doc comment for why Android needs this. Any other platform, or a null
+ * clipFile, falls straight through to the line below exactly as before this existed.
  */
-fun Sound?.playSfx(context: CoroutineContext, gain: Double, sfxVolume: Float) {
+fun Sound?.playSfx(context: CoroutineContext, gain: Double, sfxVolume: Float, clipFile: String? = null) {
     val sound = this ?: return
     val volume = gain * sfxVolume.toDouble()
     if (volume <= 0.001) return
+    if (clipFile != null && gameSfxOutput?.play(clipFile, volume.toFloat()) == true) return
     sound.play(context, PlaybackParameters(volume = volume.coerceIn(0.0, 1.0)))
 }

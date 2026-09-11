@@ -5,6 +5,7 @@ import korlibs.image.format.*
 import korlibs.io.file.std.*
 import korlibs.korge.view.*
 import korlibs.time.*
+import kotlin.concurrent.Volatile
 
 class PlayerAnimationSet(
     val idle: SpriteAnimation,
@@ -281,8 +282,18 @@ object PlayerAnimations {
     /** Where the ground line sits inside a frame: the crop pins it to the bottom edge. */
     const val SOURCE_FEET_Y = 255.76
 
-    /** Where the higher leg rests in idle stance (row 247.0), so both feet connect with the ground. */
-    const val IDLE_FEET_Y = 247.0
+    /**
+     * Where the higher (back) leg rests in idle stance, so both feet connect with the ground.
+     * A per-column alpha scan across all 45 idle frames (`resources/player/idle/0001..0045.png`,
+     * identical in every one - this is a static two-footed stance, not something that shifts
+     * during the breathing loop) puts the front foot's sole at row 255 (on `SOURCE_FEET_Y`) and
+     * the back foot's at row 248, a stable 7px short of it. The value here is set a further few
+     * rows below that measured 248, not exactly on it: on a real device report the back foot still
+     * read as floating at the exact measured value, so this is deliberately over-corrected the
+     * same direction as the fix rather than tuned to the pixel - preferred over leaving either
+     * foot visibly short of the ground, per this file's own standing rule (see `CROUCH_FEET_Y`).
+     */
+    const val IDLE_FEET_Y = 245.0
 
     /**
      * Where the higher (back) leg rests in the held crouch pose - a per-column scan of
