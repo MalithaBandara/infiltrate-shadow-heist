@@ -13,7 +13,7 @@ version = "1.0"
 
 korge {
 	id = "com.sample.demo"
-	name = "Infiltrate: Shadow Heist"
+	name = "Infiltrate - Shadow Heist"
 	icon = file("icon.png")
 
 // To enable all targets at once

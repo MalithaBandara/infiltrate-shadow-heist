@@ -21,7 +21,17 @@ per target) to both files. **Confirmed fixed in CI** (commit `e5557b2`, run 3464
 checked the actual build output, not just the job's overall conclusion (see the
 `continue-on-error` trap immediately below for why that distinction matters here specifically).
 Cosmetic, fixed: the built app used to be named `unnamed.app` because `build.gradle.kts`'s `korge
-{}` block only set `id`, never `name` - added `name = "Infiltrate: Shadow Heist"`.
+{}` block only set `id`, never `name` - added `name = "Infiltrate - Shadow Heist"`.
+**TRAP, caught in CI (2026-09-11, commit `eaa73a2`)**: a first attempt used `name = "Infiltrate:
+Shadow Heist"` (with a colon) - KorGE's iOS project generator writes `name` verbatim into a
+generated YAML project spec as `PRODUCT_NAME: <name>` with no quoting, so the colon inside the
+value was parsed as a second YAML mapping key, failing `:prepareKotlinNativeIosProject` with
+`Parsing project spec failed: ... mapping values are not allowed in this context`. This broke the
+**real gate** (`Build unsigned iOS Simulator app (KorGE)`), not a `continue-on-error` step - a
+genuine regression from a "cosmetic" change. Avoid `:` (and likely other YAML-significant
+characters - `{`, `}`, `[`, `]`, `,`, `&`, `*`, `#`, `?`, `|`, `-` at start of value, `<`, `>`, `=`,
+`!`, `%`, `@`, backtick) in `korge { name = ... }` until/unless KorGE's generator is confirmed to
+quote it.
 
 **Fixing the `@Volatile` bug unblocked the workflow far enough to reveal a separate, unrelated,
 pre-existing failure that every earlier run's early exit had been hiding**: the `SPIKE: link
@@ -1464,6 +1474,27 @@ Selecting a language just persists the code; every screen still renders
 English regardless of selection. Deliberately not using the display font
 (Bebas Neue, Latin-only) for language names, and deliberately no
 `letterSpacing` on them (breaks Arabic glyph joining).
+
+## Reset Progress in Settings — implemented 2026-09-12
+
+The "RESET PROGRESS & SETTINGS" button in `SettingsScreen.kt` completely restores
+starter state while preserving real-money IAPs:
+- **Confirmation dialog**: tapping the card opens a modal overlay (`showResetConfirmDialog`)
+  styled in `#16161A` with a `#FF5252` accent border and Bebas Neue title ("CONFIRM PROGRESS RESET")
+  with CANCEL and RESET EVERYTHING buttons, preventing accidental one-tap wipes.
+- **Gameplay reset (`profileStorage.resetProgress(preservePremium = true)`)**: resets coins to 100,
+  starter powerup inventory (2 jammer, 2 smoke, 1 bomb, 2 darts, 2 phantom, 2 invis, 2 boots, 1 trigger),
+  unlocked level IDs back to `["level_1", "level_5"]`, and `totalLevelsCompleted` to 0. Controls
+  layout resets to Default (left), language resets to English ("en"), and volumes reset to 0.8 / 1.0.
+  **`isPremium` (Remove Ads) is explicitly preserved** so paid entitlements are not lost.
+- **Mission progress reset (`levelStorage.clear()`)**: clears `inMemoryFallback` and purges all
+  stored `level_result_$id` keys and `level_results_ids` via `removeRaw` and empty-string fallbacks.
+- **Ad limiter reset**: removes `user_coin_ad_watch_count` and `user_gadget_ad_watch_count` so the player
+  gets fresh daily rewarded watches on the new save.
+- **Storage deletion support (`PlatformStorage.removeRaw(key)`)**: added to `PlatformStorage` expect/actual
+  across JVM (`ConcurrentHashMap.remove`), Android (`SharedPreferences.Editor.remove().apply()`), and
+  iOS (`PaywallStorage.removeRaw` via `NSUserDefaults.removeObjectForKey`).
+
 
 ## Web presence (`site/`)
 
