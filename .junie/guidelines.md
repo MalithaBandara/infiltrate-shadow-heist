@@ -20,21 +20,22 @@ per target) to both files. **Confirmed fixed in CI** (commit `e5557b2`, run 3464
 `** BUILD SUCCEEDED **` / `BUILD SUCCESSFUL in 9m 4s` for `compileKotlinIosSimulatorArm64` -
 checked the actual build output, not just the job's overall conclusion (see the
 `continue-on-error` trap immediately below for why that distinction matters here specifically).
-Cosmetic, still true: the built app is named `unnamed.app` because `build.gradle.kts`'s `korge
-{}` block only sets `id`, never `name` (easy fix: `korge { name = "..." }`).
+Cosmetic, fixed: the built app used to be named `unnamed.app` because `build.gradle.kts`'s `korge
+{}` block only set `id`, never `name` - added `name = "Infiltrate: Shadow Heist"`.
 
-**Fixing the above unblocked the workflow far enough to reveal a separate, unrelated, pre-existing
-failure that every earlier run's early exit had been hiding**: the `SPIKE: link paywall-build
-framework for iOS (RevenueCat 3.6.0 / Kotlin 2.3.20)` step now actually runs (previously skipped
-outright) and fails for real - `e: .../paywall-build/src/iosMain/kotlin/TimeProvider.ios.kt:5:51
-Unresolved reference 'timeIntervalSince1970'` - and that cascades into `Shell app: build` failing
-too (`unable to resolve module dependency: 'PaywallModule'`, since the framework it needs was
-never produced). Both steps are `continue-on-error: true` by design (labeled spike/experimental,
-not the real game build gate - see the workflow file's own comments), so the job's overall
-conclusion is still green and this is NOT the same bug as the `@Volatile` one above. Not
-investigated further yet - `NSDate().timeIntervalSince1970` reads like standard Foundation
-interop, so this may be specific to Kotlin/Native 2.3.20's cinterop generation for this dependency
-chain. Worth a fresh look next time paywall-build's iOS RevenueCat integration is touched.
+**Fixing the `@Volatile` bug unblocked the workflow far enough to reveal a separate, unrelated,
+pre-existing failure that every earlier run's early exit had been hiding**: the `SPIKE: link
+paywall-build framework for iOS (RevenueCat 3.6.0 / Kotlin 2.3.20)` step started actually running
+(previously skipped outright) and failed for real - `e: .../paywall-build/src/iosMain/kotlin/
+TimeProvider.ios.kt:5:51 Unresolved reference 'timeIntervalSince1970'` - cascading into `Shell app:
+build` failing too (`unable to resolve module dependency: 'PaywallModule'`, since the framework it
+needs was never produced). **Root cause found and fixed**: every other `platform.Foundation`-
+touching file in `paywall-build` (`MenuMusic.ios.kt`, `MenuSfx.ios.kt`, `VideoBackground.ios.kt`)
+has `@OptIn(ExperimentalForeignApi::class)`; `TimeProvider.ios.kt` was missing it - Kotlin 2.4.10
+gates `NSDate`'s members behind that opt-in and Kotlin/Native reports the un-opted-in access as
+"unresolved reference" rather than a clearer opt-in error. Fixed by adding the same annotation.
+**Not yet re-verified in CI** - push and check the SPIKE step specifically (still
+`continue-on-error: true`, so watch the raw log, not just the job's overall conclusion).
 
 A prior commit (`d7ab110`) similarly broke iOS-only compilation by introducing Java
 `String.format()` calls (`LevelSelectScene.kt`) with no Kotlin/Native implementation; fixed
@@ -583,12 +584,24 @@ instead of one: flips `showingGameplay.value = false` (unchanged) and separately
 `showContinueAd()` already uses, letting the ad's own full-screen Activity cover whatever's already
 on screen once it loads, rather than blocking navigation on it.
 
-**iOS: plumbing only, matching this file's existing "Native iOS shell" section's known gap** -
-`AdUnitIds.ios.kt`'s real ID and `InterstitialAdBridge.kt`'s `@ObjCName(exact = true)`-exported
-trigger both exist and compile, but nothing calls `InterstitialAdTrigger.requestShow()` on iOS: like
-`LevelExitBridge.ios.kt` generally, there is still no Swift poll loop for "leaving gameplay" the way
-`ContinueAdBridge` has one for the watch-ad-to-continue flow. Building that Swift-side wiring is a
-distinct, not-yet-started follow-up, deliberately scoped out of this pass.
+**iOS: wired (2026-09-12), was plumbing-only before.** `GameLevelExitBridge` (a real
+`@ObjCName(exact = true)`-exported object added to `src@ios/LevelExitBridge.ios.kt`, same shape as
+`GameContinueAdBridge`) replaces what used to be a true no-op `IosLevelExitBridge.
+requestReturnToMenu()` - meaning QUIT/RETURN TO MENU/MAIN MENU/ALL CLEAR previously compiled and
+ran on iOS but silently did nothing at all (not even returning to the menu), a bigger gap than just
+"no ad." `AppDelegate.swift`'s `startObservingLevelEnd()` timer now polls
+`GameLevelExitBridge.shared.consumeReturnToMenuRequest()` alongside its existing `SpikeBridge`/
+`GameContinueAdBridge` checks, switches to Compose, then calls a new
+`InterstitialAdTrigger.maybeRequestShow(totalLevelsCompleted:isPremium:)` (added to
+`InterstitialAdBridge.kt`) that checks `InterstitialAdLimiter` itself - mirroring
+`MainActivity.kt`'s `maybeShowLevelExitInterstitial()` exactly rather than duplicating its
+constants in Swift. The profile fields it needs came from a new `DebugStorageBridge.
+readTotalLevelsCompletedForDebug()` (existing `readIsPremiumForDebug()` already covered the other
+half). `InterstitialAdContent()` is now also composed in `MainMenuComposeViewController.kt`
+(previously missing entirely - Android's `InterstitialAdContent()` was composed, iOS's never was).
+**Not yet verified in CI or on a real device/simulator** - this is all iOS-only source, so it
+cannot be compile-checked from Windows at all (see the `compileKotlinIosSimulatorArm64`-on-Windows
+trap elsewhere in this file); push and check `ios-build.yml`.
 
 **Verified**: `:compileKotlinJvm`, `:paywall-build:compileKotlinJvm`,
 `:paywall-build:compileDebugKotlinAndroid`, `jvmTest` (both suites), `:paywall-build:publishToMavenLocal`,
@@ -1135,8 +1148,10 @@ that could easily be reintroduced elsewhere in the same codebase.
     apparent earlier, never-finished feature attempt. "Returning to menu"
     was actually silently reloading the same level. Fixed with a proper
     one-way `LevelExitBridge` (`expect`/`actual`, same shape as
-    `ContinueAdBridge`) with a real Android implementation; iOS still has no
-    poll loop wired up for this (only the watch-ad flow has one).
+    `ContinueAdBridge`) with a real Android implementation. **iOS poll loop
+    added 2026-09-12** (`GameLevelExitBridge` + `AppDelegate.swift` - see
+    "Ad preloading" section above for the full wiring); not yet CI/device
+    verified.
 11. **Settings' Music/SFX sliders had no live effect on the Settings screen
     itself.** `NavigationRoot` re-read volume from storage only when the
     *screen* changed (`remember(currentScreen) { ... }`), not when
@@ -1383,10 +1398,35 @@ for this project:
   horizontally by `width // 2` — this makes the far-left/far-right columns
   mathematically adjacent by construction, relocating the one real seam to
   a band near the image's center; (2) heal that single center seam with a
-  narrow (~170px), falloff-weighted blend against a Gaussian-blurred copy
-  of itself (too wide/strong reads as an obvious smudge; too narrow leaves
-  a hard line); (3) verify by diffing the final left/right edge columns and
-  rendering a synthetic "tile join" strip.
+  narrow, falloff-weighted blend against a Gaussian-blurred copy of itself
+  (too wide/strong reads as an obvious smudge; too narrow leaves a hard
+  line); (3) verify by diffing the final left/right edge columns and
+  rendering a synthetic "tile join" strip. **Band width and blur radius have
+  to scale down with source detail/contrast, not just image size** — a first
+  pass on `bgmg6.png` (see below) at 170px half-width / 24px blur (the
+  figures originally written here, based on `bgmg5.png`'s fog-heavy source)
+  produced a clearly visible vertical haze band on a crisper, higher-contrast
+  source; a second pass at **80px half-width / 10px blur with a smoothstep
+  (not linear) falloff** brought it down to reading as atmospheric haze
+  consistent with the rest of the shipped `bgmg*` set. Compare the wrap-edge
+  diff (`col[0]` vs `col[-1]`) against the existing `bgmg2-5.png` files as a
+  sanity check (all sit around mean 0.7-2.7, max 16-138) rather than chasing
+  a specific number — the right target is "look of the seam band", not the
+  diff statistic, since the diff only measures the true wrap edge, not the
+  healed band itself.
+  - **`bgmg6.png`** (level 4's background, `DEFAULT_LEVEL_4.backgroundImage`)
+    is made this way from `darkbg3.png` in the owner's usual source drop, at
+    its native 2172x724 (identical to `bgmg5.png`'s own size, same batch/
+    style) — not resized, per the "DO NOT SHRINK" list below, since it's
+    already at/under device resolution at that height. **A first version was
+    made from `darkbg2.png` instead, then fully replaced** (same filename,
+    same technique, different source) at the owner's request before ever
+    being committed — `darkbg2.png` has no trace left in the repo or in any
+    shipped build. Verified: `compileKotlinJvm`/`jvmTest` clean, and a full
+    JVM desktop playthrough of level 4 end-to-end
+    (`./gradlew runJvm --args="level_4"`) reached MISSION SUCCESSFUL with the
+    background visibly tiling the whole way, screenshotted at several scroll
+    positions. Not run on Android or iOS.
 - **Tight-cropping a silhouette asset to its real alpha bounds** before
   using it as a stretched collision-box texture (`box.width`/`box.height`
   stretch with no render-time cropping, so any dead margin in the source
@@ -1652,7 +1692,10 @@ a 100ms hitch runs six physics steps — slow frames make themselves slower.
   `Res.drawable.*`, which resolves to **paywall-build's own separate copies** under
   `src/commonMain/composeResources/drawable/` - the `resources/` copies were shipping twice. The
   live backgrounds are `bgmg2/3/4` (`LevelData.resolvedBackgroundImage`'s rotation) plus `bgmg5`
-  (level 4's literal). The app icon is `icon.png` at the repo root, not `resources/korge.png`.
+  (`DEFAULT_LEVEL_2`/"02: Cargo Yard"'s literal - this entry previously said "level 4's literal",
+  which was already wrong when written; corrected here) and `bgmg6` (`DEFAULT_LEVEL_4`/"04: Blind
+  Spot"'s literal, added 2026-09-12). The app icon is `icon.png` at the repo root, not
+  `resources/korge.png`.
   **Before deleting anything else here, grep the whole repo excluding `build/` - the only hits for
   a dead asset are in `build/intermediates/.../merger.xml`, which is the packaging evidence, not a
   reference.**
@@ -1829,7 +1872,7 @@ Do not "optimise" this back by reverting it.
 
 **DO NOT SHRINK these - they are already at or below device resolution at 1440p**, and this is the
 non-obvious half of the job. Measured, not assumed:
-- `bgmg2/3/4/5.png` (~1992x724) fill 480 virtual units = **1440 device px** tall, so they are
+- `bgmg2/3/4/5/6.png` (~1992x724) fill 480 virtual units = **1440 device px** tall, so they are
   already upscaled ~2x. They are also tiled edge-to-edge with a 1px overlap (`size(tileW + 1.0,
   canvasH)`) over a hand-healed seam - resampling can disturb the left/right edge continuity that
   makes the tiling invisible. See "Asset prep techniques" for how that seam was made.

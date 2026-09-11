@@ -8,12 +8,13 @@ import app.lexilabs.basic.ads.composable.InterstitialAd
 import kotlin.native.ObjCName
 
 /**
- * Level-exit interstitial trigger - iOS plumbing only, matching ContinueAdTrigger's exported
- * shape. Nothing polls this yet: LevelExitBridge.ios.kt is still a no-op stub (ios-shell has no
- * Swift poll loop for "leaving gameplay" the way it does for the watch-ad-to-continue flow - see
- * .junie/guidelines.md). This exists so that future Swift wiring has a real object to call against,
- * following the exact @ObjCName(exact = true) export pattern ContinueAdTrigger already proved out
- * (without it, the linked ObjC symbol keeps the framework-name prefix and Swift can't resolve it).
+ * Level-exit interstitial trigger, matching ContinueAdTrigger's exported shape. Polled from
+ * ios-shell/Sources/AppDelegate.swift's `startObservingLevelEnd()` alongside `GameLevelExitBridge`
+ * (`src@ios/LevelExitBridge.ios.kt`) - when that bridge reports a real QUIT/RETURN TO
+ * MENU/MAIN MENU/ALL CLEAR request, Swift calls [maybeRequestShow] before switching to the
+ * Compose menu, following the exact @ObjCName(exact = true) export pattern ContinueAdTrigger
+ * already proved out (without it, the linked ObjC symbol keeps the framework-name prefix and
+ * Swift can't resolve it).
  */
 @OptIn(kotlin.experimental.ExperimentalObjCName::class, kotlin.experimental.ExperimentalObjCRefinement::class)
 @ObjCName(name = "InterstitialAdTrigger", exact = true)
@@ -27,21 +28,35 @@ object InterstitialAdTrigger {
     fun onAdClosed() {
         showRequested.value = false
     }
+
+    /**
+     * Real (non-spike) gate for Swift: mirrors MainActivity.kt's maybeShowLevelExitInterstitial()
+     * exactly, checking [InterstitialAdLimiter] itself rather than duplicating its constants/state
+     * on the Swift side. Returns whether an ad was actually requested, purely for logging - Swift
+     * doesn't need to branch on it, since [InterstitialAdContent] is already inert until
+     * [requestShow] actually fires.
+     */
+    fun maybeRequestShow(totalLevelsCompleted: Int, isPremium: Boolean): Boolean {
+        if (isPremium) return false
+        if (!InterstitialAdLimiter.canShow(totalLevelsCompleted)) return false
+        InterstitialAdLimiter.recordShown()
+        requestShow()
+        return true
+    }
 }
 
 /**
  * NOT preloaded, deliberately - unlike the Android [InterstitialAdContent] and both platforms'
- * ContinueAdContent, which now hoist their handler out of the `showRequested` gate.
+ * ContinueAdContent, which now hoist their handler out of the `showRequested` gate. [requestShow]
+ * is now real (see [InterstitialAdTrigger.maybeRequestShow] and `GameLevelExitBridge`'s Swift poll
+ * loop in AppDelegate.swift), but this placement's own fetch is still load-on-demand rather than
+ * preloaded - level exits are infrequent enough (gated by [InterstitialAdLimiter]'s cooldown/
+ * session cap) that the load-latency gap is a real but minor cost, not worth the preload hazards
+ * below yet.
  *
- * Preloading only pays off for a placement that actually gets shown, and this one never is:
- * LevelExitBridge.ios.kt is still a no-op stub, so nothing on iOS ever calls [requestShow]. A
- * hoisted `rememberInterstitialAd` would therefore fetch an ad on every composition and reload
- * after each expiry, forever, for zero impressions - which is exactly the pattern AdMob's
- * invalid-traffic policy flags, and it would quietly ruin this ad unit's fill-rate reporting.
- *
- * Preload this at the same time as wiring the Swift poll loop, not before. Copy the Android
- * version when you do; its two hazard notes (a background failure must not resolve an unmade
- * request, and `FAILING` is a dead end `rememberInterstitialAd` never retries) apply here too.
+ * If preloading this is ever done, copy the Android version; its two hazard notes (a background
+ * failure must not resolve an unmade request, and `FAILING` is a dead end `rememberInterstitialAd`
+ * never retries) apply here too.
  */
 @OptIn(DependsOnGoogleMobileAds::class)
 @Composable
