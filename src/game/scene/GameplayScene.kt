@@ -42,17 +42,29 @@ import korlibs.time.*
 import kotlin.math.*
 
 class GameplayScene(
-    val levelData: LevelData = LevelData.DEFAULT_LEVEL_1
+    val levelData: LevelData = LevelData.DEFAULT_LEVEL_1,
+    // True only for the fresh instance QUIT/RETURN TO MENU reloads in the background so a later
+    // "start level" gets a clean state - see the class doc comment on KorGE never being hidden
+    // behind the Compose menu. That instance sits idle forever behind the menu (nothing ever
+    // reactivates it; the next real play creates yet another GameplayScene), so it must never
+    // start bgmusic - real bug, reported as "menu music" playing after quitting to the main menu.
+    private val startDormant: Boolean = false
 ) : Scene() {
 
     private var bgMusicChannel: SoundChannel? = null
 
-    override suspend fun sceneDestroy() {
-        super.sceneDestroy()
+    /** Stops whichever of korlibs' channel / the native mixer's music voice is actually active. */
+    private fun stopBgMusic() {
         try {
             bgMusicChannel?.stop()
-            bgMusicChannel = null
         } catch (_: Throwable) {}
+        bgMusicChannel = null
+        GameAudio.stopNativeMusic()
+    }
+
+    override suspend fun sceneDestroy() {
+        super.sceneDestroy()
+        stopBgMusic()
     }
 
     override suspend fun SContainer.sceneMain() {
@@ -72,7 +84,7 @@ class GameplayScene(
         // One full frame so the loading screen is actually painted before the loads below
         delayFrame()
 
-        val totalLoadSteps = 23
+        val totalLoadSteps = 24
         var loadStepsDone = 0
         suspend fun markLoadProgress() {
             loadStepsDone++
@@ -175,6 +187,13 @@ class GameplayScene(
             "gadget_jammer.png", "gadget_darts.png", "gadget_invis.png",
             "gadget_boots.png", "gadget_prototype.png"
         ).map { SceneAssets.bitmap(it) }
+        markLoadProgress()
+        // The quick-slot's own "gadgets are here" mark before it's tapped open. Replaces the
+        // earlier hand-drawn vector polygon with real bolt art - tight-cropped from
+        // Downloads/charAnimations/assets/lighting.png to its alpha bounds (102x235) then
+        // resized to 32x64 POT. White source art, tinted at draw time via colorMul exactly like
+        // the paper-strip buttons already are, so it still goes white/green with gadget state.
+        val gadgetBoltBitmap = SceneAssets.bitmap("gadget_bolt.png")
         markLoadProgress()
         // The MISSION SUCCESSFUL card: a desk of case photos with the header already printed on
         // the sheet, so the results screen draws no title of its own and only fills the blank
@@ -505,6 +524,8 @@ class GameplayScene(
         var jumpStartY = world.player.y
         var dropFromWalk = false
         var climbExitTimer = 0.0
+        var swingExitTimer = 0.0
+        var swingImpactSoundPlayed = false
 
         // Landing absorption: when the player lands while moving, play a brief cushion of the
         // initial touchdown frames (27..28) before handing over to the forward walk stride (frame 5..17).
@@ -536,25 +557,69 @@ class GameplayScene(
         val sfxVolume = { cachedProfile.sfxVolume }
         val musicVolume = { cachedProfile.musicVolume }
 
-        fun syncBgMusicVolume() {
+        // -1.0 is a sentinel, not a real volume: it means "nothing applied yet", distinct from a
+        // legitimate 0.0 (muted). See syncBgMusicVolume's own doc comment for why this exists.
+        var bgMusicAppliedVolume = -1.0
+
+        /**
+         * Tries [GameAudio.startNativeMusic] first - Android's software mixer, one continuous
+         * stream for the whole process (see GameSfxOutput's own doc comment for why that
+         * replaced korlibs' bgMusicChannel entirely on that platform). Every other platform, or
+         * Android if the native engine failed to start, falls through to korlibs' own
+         * `playForever` exactly as before.
+         *
+         * Either way this was an unconditional `channel.volume = effectiveVol` every single frame
+         * (up to 120/sec on this project's uncapped render loop) - a real volume-set call
+         * regardless of whether the value had actually changed, which read as intermittent static
+         * independent of which SFX backend gameplay one-shots used. Two real fixes, applied to
+         * both paths: skip the call outright when nothing changed (below the RAMP_PER_SEC step
+         * size), and ramp toward a changed target over [GameAudio.BG_MUSIC_VOLUME_RAMP_PER_SEC]
+         * rather than stepping it instantly - an un-ramped gain jump is a textbook click (a
+         * waveform discontinuity), most reproducible on pause's baseVol -> baseVol*0.35 step.
+         */
+        fun syncBgMusicVolume(dtSec: Double = 0.0) {
+            if (startDormant) return
             val baseVol = GameAudio.BG_MUSIC_GAIN * musicVolume().toDouble()
-            val effectiveVol = if (isPaused || world.isGameOver || world.isLevelComplete) {
+            val targetVol = (if (isPaused || world.isGameOver || world.isLevelComplete) {
                 baseVol * 0.35
             } else {
                 baseVol
+            }).coerceIn(0.0, 1.0)
+
+            fun rampedVolume(): Double {
+                val step = GameAudio.BG_MUSIC_VOLUME_RAMP_PER_SEC * dtSec
+                return when {
+                    bgMusicAppliedVolume < 0.0 -> targetVol
+                    bgMusicAppliedVolume < targetVol -> min(targetVol, bgMusicAppliedVolume + step)
+                    bgMusicAppliedVolume > targetVol -> max(targetVol, bgMusicAppliedVolume - step)
+                    else -> bgMusicAppliedVolume
+                }
             }
+
+            if (GameAudio.startNativeMusic()) {
+                val next = rampedVolume()
+                if (abs(next - bgMusicAppliedVolume) <= 0.0005) return
+                GameAudio.setNativeMusicVolume(next.toFloat())
+                bgMusicAppliedVolume = next
+                return
+            }
+
             val channel = bgMusicChannel
             if (channel == null) {
-                if (effectiveVol > 0.001 && sounds.bgMusic != null) {
+                if (targetVol > 0.001 && sounds.bgMusic != null) {
                     try {
                         bgMusicChannel = sounds.bgMusic.playForever(coroutineContext).also {
-                            it.volume = effectiveVol.coerceIn(0.0, 1.0)
+                            it.volume = targetVol
                         }
+                        bgMusicAppliedVolume = targetVol
                     } catch (_: Throwable) {}
                 }
             } else {
+                val next = rampedVolume()
+                if (abs(next - bgMusicAppliedVolume) <= 0.0005) return
                 try {
-                    channel.volume = effectiveVol.coerceIn(0.0, 1.0)
+                    channel.volume = next
+                    bgMusicAppliedVolume = next
                 } catch (_: Throwable) {}
             }
         }
@@ -564,7 +629,7 @@ class GameplayScene(
         // pause-menu strips, the Mission Failed buttons) use the full weight; the on-screen
         // D-pad uses the quiet one, because it fires on every movement input and would otherwise
         // become the loudest recurring sound in a level.
-        val playClick = { gain: Double -> sounds.uiClick.playSfx(sfxContext, gain, sfxVolume()) }
+        val playClick = { gain: Double -> sounds.uiClick.playSfx(sfxContext, gain, sfxVolume(), GameAudio.SfxFile.UI_CLICK) }
 
         val crouchLastFrame = PlayerAnimations.CROUCH_LAST
         val crouchDownDuration = 0.22
@@ -655,7 +720,7 @@ class GameplayScene(
         val objPanel = hudLayer.container().xy(24.0, 20.0)
 
         val objTitle = objPanel.text(
-            "OBJECTIVES", textSize = 13.0, font = bebasFont, color = COLOR_PRIMARY
+            "OBJECTIVES", textSize = 15.0, font = bebasFont, color = COLOR_PRIMARY
         )
         objTitle.graphicsRenderer = GraphicsRenderer.GPU
         objTitle.xy(0.0, 4.0)
@@ -671,7 +736,7 @@ class GameplayScene(
         val objMarkR = 5.4
 
         val objMainText = objPanel.text(
-            levelData.objectiveHint.uppercase(), textSize = 11.0, font = bebasFont, color = COLOR_TEXT_LIGHT
+            levelData.objectiveHint.uppercase(), textSize = 12.5, font = bebasFont, color = COLOR_TEXT_LIGHT
         )
         objMainText.graphicsRenderer = GraphicsRenderer.GPU
         objMainText.xy(objTextX, objRow1Y)
@@ -680,14 +745,14 @@ class GameplayScene(
         // still a separate view rather than one string because the gap after it is set from its
         // measured width, and because the qualifier may yet want its own treatment.
         val objOptTag = objPanel.text(
-            "(OPTIONAL)", textSize = 11.0, font = bebasFont, color = COLOR_TEXT_LIGHT
+            "(OPTIONAL)", textSize = 12.5, font = bebasFont, color = COLOR_TEXT_LIGHT
         )
         objOptTag.graphicsRenderer = GraphicsRenderer.GPU
         objOptTag.xy(objTextX, objRow2Y)
 
         val objOptText = objPanel.text(
             "FINISH UNDER ${clockText(levelData.timeTargetSeconds)}",
-            textSize = 11.0, font = bebasFont, color = COLOR_TEXT_LIGHT
+            textSize = 12.5, font = bebasFont, color = COLOR_TEXT_LIGHT
         )
         objOptText.graphicsRenderer = GraphicsRenderer.GPU
         objOptText.xy(objTextX + objOptTag.width + 4.0, objRow2Y)
@@ -732,9 +797,15 @@ class GameplayScene(
         // a transparent rect the size of the old disc stays underneath, because hit-testing here
         // is geometric and two 5px bars would otherwise be all there is left to hit.
         val pauseRadius = 21.0
-        val pauseBtn = hudLayer.container().xy(canvasW - 24.0 - pauseRadius * 2.0, 20.0)
+        val pauseBtn = hudLayer.container().xy(canvasW - 14.0 - pauseRadius * 2.0, 20.0)
         pauseBtn.solidRect(pauseRadius * 2.0, pauseRadius * 2.0, Colors.TRANSPARENT)
         val pauseBg = pauseBtn.uiGraphics()
+        // The bars are drawn off-centre toward the gadget slot's side of this box (not the
+        // symmetric pauseRadius +-7/+2 they started at) so the two HUD icons visually sit close
+        // together rather than each centred in its own 42px box with the tap-target padding
+        // showing as a gap between them. The tap target itself (the transparent rect above)
+        // keeps its full size and position - only the drawn bars move.
+        val pauseBarsShiftLeft = 4.0
         fun drawPauseBtn(isHover: Boolean, isDown: Boolean) {
             pauseBg.updateShape {
                 clear()
@@ -744,8 +815,8 @@ class GameplayScene(
                     else -> Colors.WHITE.withAd(0.92)
                 }
                 fill(barCol) {
-                    roundRect(pauseRadius - 7.0, pauseRadius - 8.5, 5.0, 17.0, 1.8, 1.8)
-                    roundRect(pauseRadius + 2.0, pauseRadius - 8.5, 5.0, 17.0, 1.8, 1.8)
+                    roundRect(pauseRadius - 7.0 - pauseBarsShiftLeft, pauseRadius - 8.5, 5.0, 17.0, 1.8, 1.8)
+                    roundRect(pauseRadius + 2.0 - pauseBarsShiftLeft, pauseRadius - 8.5, 5.0, 17.0, 1.8, 1.8)
                 }
             }
         }
@@ -877,7 +948,6 @@ class GameplayScene(
                 start {
                     onTouchChange(true)
                     drawState(true)
-                    playClick(GameAudio.HUD_TAP_GAIN)
                 }
                 end {
                     onTouchChange(false)
@@ -965,7 +1035,7 @@ class GameplayScene(
                 // press came first. singleTouch tracks each finger by its own id, independently
                 // per button, so multiple on-screen controls can be held down at once.
                 btn.singleTouch {
-                    start { onTouch(true); img.alpha = 0.6; playClick(GameAudio.HUD_TAP_GAIN) }
+                    start { onTouch(true); img.alpha = 0.6 }
                     end { onTouch(false); img.alpha = 1.0 }
                     endAnywhere { onTouch(false); img.alpha = 1.0 }
                     moveAnywhere { if (btn.hitTest(it.global) == null) { onTouch(false); img.alpha = 1.0 } }
@@ -1065,14 +1135,16 @@ class GameplayScene(
             PowerupType.PROTOTYPE
         )
 
-        // 42x42 matches the pause button's box exactly, and with only a 4px gutter left between
-        // them the pair reads as one top-right cluster rather than two separate controls. The
-        // boxes no longer have gutter to count as touch slop, so each is exactly its own 42 -
-        // the same target pause has always had on its own.
+        // 42x42 matches the pause button's box exactly. The boxes now sit flush (no gutter left
+        // between them at all) because closing the visible distance between the two icons turned
+        // out to need the drawn art shifted off-centre inside each box (see slotBoltShiftRight
+        // below and pauseBarsShiftLeft above) - the boxes touching is just the other half of that,
+        // not the thing doing the work on its own. Each box is still the same 42 tap target it
+        // always was, just with no dead strip between them.
         val slotSize = 42.0
         val slotIconSize = 30.0
-        val slotGap = 4.0
-        val slotX = canvasW - 24.0 - pauseRadius * 2.0 - slotGap - slotSize
+        val slotGap = 3.0
+        val slotX = canvasW - 14.0 - pauseRadius * 2.0 - slotGap - slotSize
         val slotY = 20.0
         val trayExpandSeconds = 0.17
 
@@ -1222,9 +1294,27 @@ class GameplayScene(
         // The drain bar for a live gadget, and nothing else. It sits under the bolt rather than
         // around it because there is no longer a frame to run it along.
         val slotDrain = gadgetSlot.uiGraphics()
-        // Centred in the box on both axes, exactly like the pause bars, so the two icons sit on
-        // one line.
-        val slotIcon = gadgetSlot.uiGraphics().xy(slotSize / 2.0, slotSize / 2.0)
+        // Centred vertically like the pause bars, so the two icons sit on one line - but shifted
+        // toward the pause button horizontally (see pauseBarsShiftLeft above), for the same reason
+        // pause's own bars moved: centring both icons in their own 42px box left a wide dead gap
+        // of tap-target padding between them. Real bolt art when it loaded; falls back to the old
+        // drawn polygon (same as every other SceneAssets load in this file) if the PNG is ever
+        // missing, rather than leaving the corner blank.
+        // Widened well past the source art's own 102:235 aspect (~11 wide at this height) -
+        // asked to read as thicker/bolder in the corner, not just taller.
+        val slotBoltW = 16.0
+        val slotBoltH = 22.0
+        val slotBoltShiftRight = 2.0
+        val slotIconImg: Image? = gadgetBoltBitmap?.let { bmp ->
+            gadgetSlot.image(bmp).also {
+                it.size(slotBoltW, slotBoltH)
+                it.xy(slotSize / 2.0 - slotBoltW / 2.0 + slotBoltShiftRight, slotSize / 2.0 - slotBoltH / 2.0)
+            }
+        }
+        val slotIconFallback: Graphics? = if (slotIconImg == null) {
+            gadgetSlot.uiGraphics().xy(slotSize / 2.0 + slotBoltShiftRight, slotSize / 2.0)
+        } else null
+        val slotIcon: View = slotIconImg ?: slotIconFallback!!
 
         gadgetSlot.singleTouch {
             start { slotIcon.alpha = 0.55 }
@@ -1261,15 +1351,13 @@ class GameplayScene(
                 isPaused = false
             },
             onRestart = {
-                bgMusicChannel?.stop()
-                bgMusicChannel = null
+                stopBgMusic()
                 sceneContainer.changeTo { GameplayScene(levelData) }
             },
             onQuit = {
-                bgMusicChannel?.stop()
-                bgMusicChannel = null
+                stopBgMusic()
                 getLevelExitBridge().requestReturnToMenu()
-                sceneContainer.changeTo { GameplayScene(levelData) }
+                sceneContainer.changeTo { GameplayScene(levelData, startDormant = true) }
             }
         )
 
@@ -1295,15 +1383,13 @@ class GameplayScene(
                 getAnalyticsBridge().track("watch_ad_continue_requested", mapOf("level_id" to levelData.id))
             },
             onRetry = {
-                bgMusicChannel?.stop()
-                bgMusicChannel = null
+                stopBgMusic()
                 sceneContainer.changeTo { GameplayScene(levelData) }
             },
             onReturnToMenu = {
-                bgMusicChannel?.stop()
-                bgMusicChannel = null
+                stopBgMusic()
                 getLevelExitBridge().requestReturnToMenu()
-                sceneContainer.changeTo { GameplayScene(levelData) }
+                sceneContainer.changeTo { GameplayScene(levelData, startDormant = true) }
             }
         )
 
@@ -1322,24 +1408,21 @@ class GameplayScene(
             paperInk = paperInk,
             playClick = playClick,
             onRetry = {
-                bgMusicChannel?.stop()
-                bgMusicChannel = null
+                stopBgMusic()
                 sceneContainer.changeTo { GameplayScene(levelData) }
             },
             onReturnToMenu = {
-                bgMusicChannel?.stop()
-                bgMusicChannel = null
+                stopBgMusic()
                 getLevelExitBridge().requestReturnToMenu()
-                sceneContainer.changeTo { GameplayScene(levelData) }
+                sceneContainer.changeTo { GameplayScene(levelData, startDormant = true) }
             },
             onNextMission = {
-                bgMusicChannel?.stop()
-                bgMusicChannel = null
+                stopBgMusic()
                 if (nextLevel != null) {
                     sceneContainer.changeTo { GameplayScene(nextLevel) }
                 } else {
                     getLevelExitBridge().requestReturnToMenu()
-                    sceneContainer.changeTo { GameplayScene(levelData) }
+                    sceneContainer.changeTo { GameplayScene(levelData, startDormant = true) }
                 }
             }
         )
@@ -1414,15 +1497,19 @@ class GameplayScene(
 
         // Main game update loop
         addUpdater { dt ->
+            // Hoisted above every early-return in this block (including the pause/game-over one)
+            // so syncBgMusicVolume's ramp below has a real per-frame delta even on frames that
+            // return before the "active gameplay" dtSec further down - see that call's own site.
+            val dtSec = dt.seconds.coerceIn(0.0, 0.1)
+
             // Checked unconditionally (ahead of the isGameOver early-return below), since that's
             // exactly the state this fires in: the native shell has shown the rewarded ad while
             // this scene stayed alive in the background, and grants the continue once the player
             // actually watched it. Restarts the same way "RETRY INFILTRATION" already does.
             if (getContinueAdBridge().consumeContinueGranted()) {
                 getAnalyticsBridge().track("watch_ad_continue_granted", mapOf("level_id" to levelData.id))
-                sounds.toastSuccess.playSfx(sfxContext, GameAudio.TOAST_SUCCESS_GAIN, sfxVolume())
-                bgMusicChannel?.stop()
-                bgMusicChannel = null
+                sounds.toastSuccess.playSfx(sfxContext, GameAudio.TOAST_SUCCESS_GAIN, sfxVolume(), GameAudio.SfxFile.TOAST_SUCCESS)
+                stopBgMusic()
                 // Hidden immediately, not left for changeTo to sort out: this scene (with its
                 // MISSION FAILED overlay still visible) stays on screen for however many frames
                 // the transition to the new GameplayScene instance takes, which is exactly the
@@ -1443,7 +1530,7 @@ class GameplayScene(
             // Everything below reads volumes and the powerup inventory off this one snapshot.
             refreshProfile()
 
-            syncBgMusicVolume()
+            syncBgMusicVolume(dtSec)
 
             if (isPaused || world.isLevelComplete || world.isGameOver) {
                 if (world.isLevelComplete || world.isGameOver) {
@@ -1454,7 +1541,6 @@ class GameplayScene(
                 return@addUpdater
             }
 
-            val dtSec = dt.seconds.coerceIn(0.0, 0.1)
             totalElapsedSeconds += dtSec
 
             // Read Inputs (Merging Keyboard + On-Screen Touch Controls)
@@ -1890,10 +1976,16 @@ class GameplayScene(
                 if (playerAnimState != "swing") {
                     playerAnimState = "swing"
                     landingAbsorb = false
+                    swingImpactSoundPlayed = false
                     // The push-off is a jump, and the clip opens on one, so it gets the jump's
                     // grunt. There is no dedicated swing sample.
-                    sounds.climb.playSfx(sfxContext, GameAudio.CLIMB_GAIN, sfxVolume())
+                    sounds.climb.playSfx(sfxContext, GameAudio.CLIMB_GAIN, sfxVolume(), GameAudio.SfxFile.CLIMB)
                     playerSprite.playAnimationLooped(playerAnimations.swing, manualFrameTime)
+                }
+                // Play landing impact sound right as the feet plant on the far ledge (frame 44.5)
+                if (!swingImpactSoundPlayed && world.player.swingPhase >= (44.0 / 51.0)) {
+                    swingImpactSoundPlayed = true
+                    sounds.impact.playSfx(sfxContext, GameAudio.LANDING_GAIN, sfxVolume(), GameAudio.SfxFile.IMPACT)
                 }
                 playerSprite.setFrame(
                     (world.player.swingPhase * swingFrameSpan).toInt().coerceIn(0, swingFrameSpan)
@@ -1901,24 +1993,31 @@ class GameplayScene(
             } else if (world.player.isClimbing) {
                 if (playerAnimState != "climb") {
                     playerAnimState = "climb"
-                    sounds.climb.playSfx(sfxContext, GameAudio.CLIMB_GAIN, sfxVolume())
+                    sounds.climb.playSfx(sfxContext, GameAudio.CLIMB_GAIN, sfxVolume(), GameAudio.SfxFile.CLIMB)
                     playerSprite.playAnimationLooped(playerAnimations.climb, manualFrameTime)
                 }
                 val frame = climbFirstFrame + (world.player.climbPhase * climbFrameSpan).toInt()
                 playerSprite.setFrame(frame.coerceIn(climbFirstFrame, climbLastFrame))
             } else {
                 if (playerAnimState == "swing") {
-                    // The clip ends on contact rather than carrying its own recovery (see the
-                    // swing notes in PlayerAnimations), so the touchdown goes through the same
-                    // brief cushion every jump landing uses - which resolves into walk or idle.
+                    // The swing clip already carries its own complete landing absorption and standup
+                    // over planted feet (frames 44.5 to 51). Hand over directly to walk or idle without
+                    // triggering jump landingAbsorb, which would otherwise flash a jarring 2-frame squat.
                     playerAnimState = "none"
-                    landingAbsorb = true
-                    landingAbsorbElapsed = 0.0
-                    sounds.impact.playSfx(sfxContext, GameAudio.LANDING_GAIN, sfxVolume())
+                    swingExitTimer = 0.20
+                } else if (swingExitTimer > 0.0) {
+                    swingExitTimer = maxOf(0.0, swingExitTimer - dtSec)
                 }
                 if (playerAnimState == "climb") {
+                    // Feet planting on the ledge - fires right here, unconditionally, rather than
+                    // only in the walk-handover branch below: that branch is gated on the player
+                    // still holding a direction the instant the climb ends, so a climb followed by
+                    // standing still played no sound at all.
                     playerAnimState = "none"
                     climbExitTimer = 0.20
+                    val step = if (stepAlternate) sounds.stepB else sounds.stepA
+                    stepAlternate = !stepAlternate
+                    step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume(), if (step === sounds.stepA) GameAudio.SfxFile.STEP_A else GameAudio.SfxFile.STEP_B)
                 } else if (climbExitTimer > 0.0) {
                     climbExitTimer = maxOf(0.0, climbExitTimer - dtSec)
                 }
@@ -1948,7 +2047,7 @@ class GameplayScene(
                         // reads as gliding forward in a standing pose for those 0.24s before the
                         // walk cut-over. Moving into the touchdown skips straight past it instead.
                         "air", "drop" -> if (world.player.isGrounded) {
-                            sounds.impact.playSfx(sfxContext, GameAudio.LANDING_GAIN, sfxVolume())
+                            sounds.impact.playSfx(sfxContext, GameAudio.LANDING_GAIN, sfxVolume(), GameAudio.SfxFile.IMPACT)
                             if (world.player.isMoving) {
                                 // Cushion the landing impact before transitioning into the forward walk stride.
                                 jumpPhase = "none"
@@ -2101,12 +2200,17 @@ class GameplayScene(
                 if (wantsWalk) {
                     if (playerAnimState != "walk") {
                         val fromClimb = climbExitTimer > 0.0
+                        val fromSwing = swingExitTimer > 0.0
                         climbExitTimer = 0.0
+                        swingExitTimer = 0.0
                         playerAnimState = "walk"
                         playerSprite.playAnimationLooped(playerAnimations.walk, manualFrameTime)
-                        if (fromClimb) {
-                            // Handover directly from climb mantle into athletic push-off:
-                            // Start at Walk frame 4 rather than 0 so there is no upright pop or sluggish lean-in
+                        if (fromClimb || fromSwing) {
+                            // Handover directly from climb mantle or swing landing into athletic push-off:
+                            // Start at Walk frame 4 rather than 0 so there is no upright pop or sluggish lean-in.
+                            // No footstep here - climb now plays its own foot-plant sound the instant it ends
+                            // (see playerAnimState == "climb" above) and swing already has its landing impact,
+                            // so one straight into a walk would otherwise double up.
                             walkCycleProgress = 0.0
                             walkInTransition = true
                             walkTransitionStartFrame = 4
@@ -2115,9 +2219,6 @@ class GameplayScene(
                             walkTransitionCurrentDuration = walkTransitionDuration * (framesRemaining.toDouble() / totalFrames)
                             walkTransitionElapsed = 0.0
                             playerSprite.setFrame(walkTransitionStartFrame)
-                            val step = if (stepAlternate) sounds.stepB else sounds.stepA
-                            stepAlternate = !stepAlternate
-                            step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume())
                         } else if (stationaryElapsed >= 0.15) {
                             // Only play lean-in transition if starting from a sustained stationary stop
                             walkCycleProgress = 0.0
@@ -2128,7 +2229,7 @@ class GameplayScene(
                             playerSprite.setFrame(PlayerAnimations.WALK_TRANSITION_START)
                             val step = if (stepAlternate) sounds.stepB else sounds.stepA
                             stepAlternate = !stepAlternate
-                            step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume())
+                            step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume(), if (step === sounds.stepA) GameAudio.SfxFile.STEP_A else GameAudio.SfxFile.STEP_B)
                         } else {
                             walkInTransition = false
                         }
@@ -2252,7 +2353,7 @@ class GameplayScene(
                                 // clip on repeat, which is what gives a single footstep away.
                                 val step = if (stepAlternate) sounds.stepB else sounds.stepA
                                 stepAlternate = !stepAlternate
-                                step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume())
+                                step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume(), if (step === sounds.stepA) GameAudio.SfxFile.STEP_A else GameAudio.SfxFile.STEP_B)
                             }
                         }
                     }
@@ -2306,7 +2407,7 @@ class GameplayScene(
 
                 val isInvestigating = g.state == GuardState.INVESTIGATING
                 if (isInvestigating && !guardWasInvestigating[i]) {
-                    sounds.guardInvestigate.playSfx(sfxContext, GameAudio.GUARD_INVESTIGATE_GAIN, sfxVolume())
+                    sounds.guardInvestigate.playSfx(sfxContext, GameAudio.GUARD_INVESTIGATE_GAIN, sfxVolume(), GameAudio.SfxFile.GUARD_INVESTIGATE)
                 }
                 guardWasInvestigating[i] = isInvestigating
             }
@@ -2448,9 +2549,14 @@ class GameplayScene(
                 val isLive = liveGadget != null
                 if (slotLastLive != isLive) {
                     slotLastLive = isLive
-                    slotIcon.updateShape {
-                        clear()
-                        drawPowerupIcon(9.0, if (isLive) COLOR_BORDER_GREEN else Colors.WHITE)
+                    val color = if (isLive) COLOR_BORDER_GREEN else Colors.WHITE
+                    if (slotIconImg != null) {
+                        slotIconImg.colorMul = color
+                    } else {
+                        slotIconFallback?.updateShape {
+                            clear()
+                            drawPowerupIcon(9.0, color)
+                        }
                     }
                 }
                 // Quantised to fortieths: the bar is 26px wide, so anything finer redraws it for
@@ -2519,7 +2625,7 @@ class GameplayScene(
             for (i in world.cameras.indices) {
                 val isDetecting = world.cameras[i] in world.detectingCameras
                 if (isDetecting && !cameraWasDetecting[i]) {
-                    sounds.cameraDetect.playSfx(sfxContext, GameAudio.CAMERA_DETECT_GAIN, sfxVolume())
+                    sounds.cameraDetect.playSfx(sfxContext, GameAudio.CAMERA_DETECT_GAIN, sfxVolume(), GameAudio.SfxFile.CAMERA_DETECT)
                 }
                 cameraWasDetecting[i] = isDetecting
                 paintPip(

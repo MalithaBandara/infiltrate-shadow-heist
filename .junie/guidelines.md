@@ -7,23 +7,31 @@ with a heist/infiltration objective similar to Robbery Bob.
 cross-platform Kotlin Multiplatform hackathon submission (Shipaton 2026),
 and the app must work on both platforms.**
 
-**iOS CI status (2026-08-25): GREEN.** `ios-build.yml` run #16 (commit
-`991a54a`) completed with real `BUILD SUCCEEDED`/`BUILD SUCCESSFUL` — a
-complete, unsigned `.app` for iOS Simulator, through Kotlin/Native
-compile+link, KorGE's XcodeGen project generation, and `xcodebuild` with
-ad-hoc simulator signing. Don't assume it's still broken — check the
-latest Actions run before redoing investigation:
+**iOS CI status (2026-09-12): every push since `9acdf7c` (2026-09-08) has failed** at the
+`compileKotlinIosSimulatorArm64` step — `e: ... Unresolved reference 'Volatile'` in both
+`GameAudio.kt` and `PlayerAnimations.kt` (confirmed from the real run logs via `gh run view
+<id> --job <id> --log`, not guessed). Root cause: unqualified `@Volatile` in commonMain resolves
+to `kotlin.jvm.Volatile`, which is JVM-only and doesn't exist for Kotlin/Native — the JVM target
+compiles fine (it's in the JVM default imports) so this hid behind green `compileKotlinJvm`/
+`jvmTest` runs, exactly the class of trap the paragraph below warns about. Fixed by adding an
+explicit `import kotlin.concurrent.Volatile` (the multiplatform-safe annotation, actual-mapped
+per target) to both files. **Not yet re-verified in CI** — push and check
+`ios-build.yml` before assuming this is closed:
 https://github.com/MalithaBandara/infiltrate-shadow-heist/actions
-Cosmetic: the built app is named `unnamed.app` because `build.gradle.kts`'s
-`korge {}` block only sets `id`, never `name` (easy fix: `korge { name = "..." }`).
+Cosmetic, still true as of the last GREEN run: the built app is named `unnamed.app` because
+`build.gradle.kts`'s `korge {}` block only sets `id`, never `name` (easy fix: `korge { name =
+"..." }`).
 
-A later commit (`d7ab110`) briefly broke iOS-only compilation by introducing
-Java `String.format()` calls (`LevelSelectScene.kt`) with no Kotlin/Native
-implementation; fixed (`eeb627d`) by switching to `n.toString().padStart(2, '0')`.
-**Lesson kept because it generalizes: JVM `Testing` CI going green does NOT
-mean iOS is still green** — they compile different code paths, and iOS CI
-sat un-rerun for two commits while a real regression existed. Always check
-the iOS workflow specifically after any change, not just JVM tests.
+A prior commit (`d7ab110`) similarly broke iOS-only compilation by introducing Java
+`String.format()` calls (`LevelSelectScene.kt`) with no Kotlin/Native implementation; fixed
+(`eeb627d`) by switching to `n.toString().padStart(2, '0')`. **Lesson kept because it keeps
+recurring: JVM `Testing` CI going green does NOT mean iOS is still green** — they compile
+different code paths (JVM has its own default-imported `@Volatile`/`String.format` etc. that
+Kotlin/Native simply doesn't), and iOS CI sat un-rerun for multiple commits both times while a
+real regression existed. Always check the iOS workflow specifically after any change that touches
+`src/game/**`, not just JVM tests — and when introducing a new JVM-only-sounding API in shared
+code, check it has a `kotlin.concurrent`/multiplatform equivalent before reaching for the
+`kotlin.jvm` one.
 
 ## Read this first: verification discipline
 
@@ -870,6 +878,130 @@ that file is part of the hard-won working iOS config.
 Sound credits are tracked in `SOUND_CREDITS` (`SettingsScreen.kt`'s Credits
 & Licenses list) kept in sync with `ATTRIBUTION.md` by hand.
 
+## Android gameplay audio "static" — RESOLVED 2026-09-11, real device (Galaxy S25 Ultra)
+
+**Symptom**: occasional brief crackle during gameplay on Android, reported as tied to specific
+moments (footstep/landing transitions, pause, the level-3 swing) rather than continuous. Confirmed
+real via a captured `adb logcat` and, later, decisively via a screen recording with audio - its
+extracted waveform (analysed with a small `numpy` script, `ffmpeg`/`ffprobe` for decode) showed
+every anomalous moment lining up with an actual game-state transition, including one instance that
+reproduced **starting the phone's own screen recorder while sitting in the main menu** - a system
+action with zero game code involved, which is what proved this was not a specific SFX/API misuse.
+
+**Root cause**: korlibs' own `Sound.play()` (`AndroidNativeSoundProvider`, decompiled from the real
+jar in the Gradle cache to confirm rather than guess) constructs a **brand-new `android.media.
+AudioTrack` on every single call**. Gameplay was therefore opening a new audio session for every
+footstep/landing/click while `bgmusic.mp3`'s own continuous `AudioTrack` was already playing. On
+most devices this is harmless; on this Galaxy S25 Ultra specifically, the phone's own "Voice
+Booster" DSP effect chain re-initializes on every such session-open/reconfigure event, audible as
+the reported crackle. Confirmed device-specific to *this app's* audio shape, not a blanket
+device/DSP quirk, because it never reproduces in any other game on the same phone.
+
+**Four narrower fixes were tried first, each real but insufficient** (kept here so the same ground
+isn't re-covered blind if this regresses on a different device):
+1. Pooling gameplay SFX through Android `SoundPool` instead of korlibs' per-call path - measurably
+   reduced frequency, did not close it. A follow-up logcat capture showed why: `SoundPool` itself
+   requests Android's low-latency "fast" output path per play (`AudioFlinger: createTrack_l():
+   mismatch between requested flags (00000004) and output flags (00000000)`, at footstep cadence),
+   which this phone's Voice Booster chain can't grant - `SoundPool` has no public API to refuse it.
+2. A hand-rolled `MODE_STATIC` `AudioTrack` pool (`AudioTrack.Builder().setPerformanceMode(
+   PERFORMANCE_MODE_NONE)`, explicitly refusing the fast path) - real fix for the flag-mismatch
+   mechanism specifically, still didn't close the crackle.
+3. Two "keep the output warm" attempts (a periodic near-silent `SoundPool` ping, then a
+   continuously looping real-silence stream) - both reverted. Neither touched the remaining
+   crackle, and the second introduced a real regression (no gameplay-only lifecycle, so it kept
+   running into the main menu, heard as bgmusic bleeding through after quitting).
+4. Matching korlibs' own `AudioAttributes` (`USAGE_GAME` + `CONTENT_TYPE_UNKNOWN`, not
+   `CONTENT_TYPE_SONIFICATION`) and **joining korlibs' own shared audio session** via its public
+   `AndroidNativeSoundProvider.audioSessionId`/`ensureAudioManager()` API (confirmed accessible,
+   not internal, by compiling against it) instead of each `AudioTrack.Builder()` auto-generating
+   its own - a real, confirmed difference from korlibs' setup, still didn't close it.
+
+**The actual fix**: stop opening multiple audio sessions at all. `GameSfxOutput` (see below) is now
+a from-scratch software mixer - **one** `AudioTrack` (`MODE_STREAM`, `PERFORMANCE_MODE_NONE` where
+available, joined to korlibs' session id as a defensive fallback) opened once for the process's
+whole life, fed by one dedicated thread (`THREAD_PRIORITY_URGENT_AUDIO`) that sums PCM samples from
+a list of active "voices" (bgmusic + every in-flight one-shot) into a small buffer (20ms/882 frames)
+every iteration and blocking-writes it. This is the same shape real engines use on Android (Unity,
+Unreal, FMOD/Wwise all mix in software down to one hardware stream) - the four fixes above were all
+still opening a separate stream per concept; this is the first version where there is structurally
+only one, so there is nothing left for a device's DSP chain to reconcile.
+
+**Files**: `src/GameSfxOutput.kt` (common `expect`/interface - `prepare`/`play` for one-shots,
+`prepareMusic`/`setMusicVolume`/`stopMusic` for background music), real implementation in
+`android-shell/src/main/kotlin/com/infiltrate/androidshell/GameSfxOutput.kt` (the one that ships)
+and mirrored in `src@android/GameSfxOutput.android.kt` (for `:game`'s own KMP Android target, which
+nothing currently ships from - see "TRAP - do not use the root build to check Android compilation"
+below). Every other platform's `getGameSfxOutput()` returns `null`; `GameAudio.kt`'s `playSfx` and
+the new music façade (`startNativeMusic`/`setNativeMusicVolume`/`stopNativeMusic`) fall straight
+back to korlibs' original per-call `Sound.play()`/`playForever()` path whenever the native one is
+unavailable or fails - additive only, iOS/JVM/JS/wasmJs are unaffected.
+
+**`bgmusic.mp3` decode**: real `MediaExtractor`/`MediaCodec` decode-to-PCM, run once at
+`prepareMusic()` time and cached (confirmed 44.1kHz stereo via `ffprobe`, not assumed) - the mixer's
+whole output format is fixed at 44.1kHz stereo to match it exactly, so mono SFX (also 44.1kHz, this
+project's existing WAV convention) are just upmixed into both channels with no resampling anywhere.
+
+**A real, separate regression found and fixed along the way**: the mixer thread/`AudioTrack` has no
+lifecycle awareness on its own and ran forever once started - without a fix, gameplay audio kept
+playing after leaving the app entirely (not just returning to the in-app menu, which already goes
+through `stopBgMusic()`/`GameAudio.stopNativeMusic()`). Fixed with `AudioTrack.pause()`/`play()` on
+`MainActivity`'s `onPause`/`onResume` (`AndroidGameSfxOutputState.pauseEngine()`/`resumeEngine()`,
+routed through a small `PausableAudioEngine` interface since a public property can't hold a
+reference to the file-private engine class directly) - `pause()` alone is enough, since the mixer
+thread's blocking `write()` call simply stops draining and blocks once the `AudioTrack`'s internal
+buffer fills, with no separate thread-suspend logic needed.
+
+**Two more real, separate bugs found and fixed during this investigation, unrelated to the audio
+backend itself**:
+- A background `GameplayScene` instance that QUIT/RETURN TO MENU reloads (to have a clean state
+  ready behind the Compose menu - see "Compose/KorGE view-switching architecture" below for why a
+  fresh instance exists at all) was unconditionally starting bgmusic in `sceneMain()`'s setup,
+  even though it's never actually shown - reported as "menu music playing after quitting". Fixed
+  with a `startDormant: Boolean` constructor flag (true only for those four reload call sites) that
+  short-circuits `syncBgMusicVolume()` entirely.
+- The on-screen D-pad/jump/crouch/interact touch controls had a quiet click wired in
+  (`HUD_TAP_GAIN`) that had gone unnoticed for a long time because korlibs' per-call `AudioTrack`
+  latency was largely swallowing it; switching to a pooled/always-ready output made it play
+  cleanly and audibly for the first time, surfacing it as a new-seeming complaint. Removed outright
+  (not just lowered) per explicit owner feedback - deliberate presses (pause, menu strips, Mission
+  Failed buttons) still click, the movement/action HUD does not. Don't re-add a tap sound to
+  `createTouchBtn`/`createImgBtn` without the owner asking again.
+
+**How the actual click was pinpointed, worth reusing if a similarly vague audio/visual bug ever
+comes up again**: `adb logcat` correlation got partway there but was inconclusive on its own; what
+actually nailed it down was a phone screen recording (with audio) of a repro, its audio track pulled
+out with `ffmpeg`, and a short `numpy` script scoring short-time high-frequency energy per 20ms
+window to rank click candidates - then pulling video frames at those exact timestamps (`ffmpeg -ss`)
+to see what was on screen at each one. Turning "I hear static sometimes" into concrete timestamped
+evidence is what broke five straight rounds of plausible-but-wrong fixes.
+
+**Verified**: `compileKotlinJvm` + `jvmTest` clean, `android-shell`'s real `assembleDebug` succeeds
+(per the root-build Android trap below, that's the correct check, not the root project's own broken
+Android target). **On-device**: confirmed fixed on the one Galaxy S25 Ultra this was debugged
+against, across multiple rebuild/retest rounds targeting pause, jump/fall transitions, and the
+level-3 swing specifically. **Not verified**: any other Android device/OEM - the whole mechanism is
+Samsung-Voice-Booster-specific by evidence, so it's unknown whether this was ever reproducible
+elsewhere, or whether the fix has any measurable cost (battery, latency) on other hardware. A
+write-up for the KorGE community (the `Sound.play()`-constructs-a-new-`AudioTrack`-per-call finding
+specifically) is planned but not yet written.
+
+**A separate, unrelated defect found immediately after, while chasing a report of "a weird sound"/
+"crackle just after climb and swing"**: not an engine/session bug at all this time, a bad source
+clip. A first guess (the footstep deliberately wired into the climb/swing -> walk handover, see
+"The swing move" below) was wrong and reverted. The real cause: `resources/sfx/climb.wav` (played
+at both climb start and swing launch - "no dedicated swing sample," it reuses climb's) was 1.75s
+long but the real recorded grunt only occupies its first ~0.66s (confirmed with `ffmpeg`'s
+`silencedetect`: silence from 0.66s to 1.33s, then a second, unrelated burst - three sharp spikes,
+crest factor 5+ vs ~1.5-2 for the real transient - running uncut to the file's own end with no
+fade-out). That second burst, arriving 1.3-1.7s after triggering climb/swing, is what was being
+heard as a delayed crackle. Fixed by trimming to 0.66s with a 40ms fade-out
+(`ffmpeg -af "atrim=0:0.66,afade=t=out:st=0.62:d=0.04"`), same PCM s16le/44.1kHz/mono convention as
+every other clip here - same category of fix as the already-documented `takeoff.wav` removal above
+(a real defect in the source recording, not a cutting choice), just a trim instead of a full
+removal since the real transient here was fine. Only one copy of `climb.wav` exists in the repo (no
+`ios-shell/Resources/` duplicate to keep in sync, unlike `ui_click.wav`/the toast sounds).
+
 ## Compose Resources package trap
 
 `paywall-build/build.gradle.kts` sets `group = "com.infiltrate"` (needed so
@@ -1005,6 +1137,81 @@ were tried and ruled out. What actually broke the loop of wrong guesses was
 adding real on-screen exception diagnostics to `sceneMain()`'s try/catch
 instead of continuing to theorize — worth reaching for that first next time
 a similar "blank/grey screen, no error" report comes in.
+
+## HUD: objectives panel and gadget-slot bolt (2026-09-11)
+
+The objectives panel (top-left HUD block, `GameplayScene.kt` around `objPanel`) stays on
+**Bebas Neue** for its title and both rows - **Inter was tried and explicitly rejected by the
+owner** ("previous font was better"), so don't re-attempt a body-text font swap here without
+being asked again. What did stick: `objTitle` 13→15, and both `objMainText`/`objOptTag`/
+`objOptText` unified at 12.5 (they started at 11/11 with the optional row briefly at a
+mismatched 12.5 mid-session - keep all three body rows the same size if this is touched again,
+only the title should read larger).
+
+The gadget quick-slot's idle icon (the "gadgets are here" mark beside pause) is now real bolt
+art, not the old hand-drawn vector polygon (`drawPowerupIcon`, still kept as a fallback if
+`gadget_bolt.png` ever fails to load - see `slotIconImg`/`slotIconFallback` in
+`GameplayScene.kt`). `resources/gadget_bolt.png` is `Downloads/charAnimations/assets/lighting.png`
+tight-cropped to its alpha bounds (102x235) then resized to 32x64 POT, following this file's own
+"Adding new art" procedure. Drawn at 16x22 virtual units (widened past the source's own ~0.43
+aspect on request - "make it more thick" - so don't re-derive the display width from the source
+aspect if this is revisited). White source art, recoloured white/green via `colorMul` exactly
+like the paper-strip buttons already are, so it still tracks live-gadget state.
+
+**Closing the visual gap between the pause bars and the bolt turned out to need the drawn art
+shifted off-centre inside each control's own 42px box, not just a smaller `slotGap`** - centring
+both icons in their own box (the original approach) left most of the gap as tap-target padding
+that `slotGap` alone couldn't close. `pauseBarsShiftLeft` (pause bars, drawn off-centre toward the
+gadget slot) and `slotBoltShiftRight` (the bolt, shifted toward pause) are the actual levers;
+`slotGap` still exists but is now a minor trim on top of that, not the mechanism. Went through
+three rounds on real feedback - too far apart, then too close, then settled at
+`pauseBarsShiftLeft = 4.0` / `slotBoltShiftRight = 2.0` / `slotGap = 3.0` with the cluster's own
+right-edge inset brought in from 24 to 14 (both `pauseBtn`'s and `slotX`'s `canvasW - 14.0 -
+pauseRadius * 2.0`) to sit the whole pair closer to the screen's corner on request. If this needs
+another pass, adjust the two shift constants first and treat `slotGap`/the edge inset as fine trim.
+
+Verified on JVM desktop only (compiled, `jvmTest` green, screenshotted with `SetProcessDPIAware`
+called first - the first attempt without it silently captured the wrong screen region, exactly
+the trap "Asset prep techniques" already warns about). Not run on Android or iOS.
+
+## Player foot-planting: truck hood/cab boundary and idle stance (2026-09-11)
+
+Two real, measured fixes, both from the same complaint ("walking on the truck feels like floating"
+/ "idle on crates, one leg floats") and the same technique this file already uses elsewhere -
+per-column alpha scanning of the actual PNG rather than guessing from a screenshot.
+
+**Truck hood/cab tier boundary was off by ~9 world units.** `GameWorld.kt`'s `truckFront` (the
+hood, the short low tier) was `width = 38.0` - a guess, never measured against `truck.png` itself.
+A per-column scan of the image's alpha channel found the art's own hood-to-windshield step
+actually lands at ~11.2% of the truck's total drawn width, not 14.5% (`38/(38+45+179)`). In that
+~9-unit gap, the collision still said "hood, 66 tall" while the art had already risen to the tall
+cab wall above it - not floating in the vertical sense (the hood height itself measures correct,
+within a fraction of a unit, everywhere it actually applies), but a real mismatch band nonetheless.
+Fixed by narrowing `truckFront` to `width = 29.0` (`29/(29+45+179) = 11.46%`, matching the
+measured step). `truckMiddle`/`truckBack` and both height constants are unaffected and still
+correct - re-verified by measuring the cab-roof/bed region separately, which sits flat at the very
+top of the image (row 0) all the way from ~16% to ~98% of the width, matching their shared
+`truckBedHeight = 96.0` exactly. **The one-off "floating" screenshot that first suggested a much
+bigger bug turned out to be a landing-animation frame caught immediately after a debug spawn, not
+a persistent state** - a second screenshot at the same world position, given a couple more seconds
+to settle into real idle, showed clean, flush contact. Re-check settle time before trusting a
+single screenshot if this area is revisited.
+
+**Idle's `IDLE_FEET_Y` was 1 row optimistic.** A per-column scan across all 45 idle frames (not
+just one - they're identical in foot position across the whole breathing loop, confirmed) puts the
+front foot's sole at row 255 and the back foot's at row 248, a stable 7px gap, every single frame.
+The existing constant (247) was calibrated close but not exact. Per an on-device report the back
+foot still read as floating at that value, so this was deliberately over-corrected rather than set
+to the newly-measured 248: `IDLE_FEET_Y` is now `245.0`, a couple of rows past the measured value,
+in the same direction as the fix. Screenshotted standing on both a crate and the truck cab roof
+after the change - both feet flush, no gap, front foot's extra sink invisible against the dark
+silhouette. If a floating foot is ever reported again on a *different* pose, this is the pattern to
+repeat (`CROUCH_FEET_Y`/`JUMP_LAND_FEET_Y` already follow it) - scan every frame of that clip, not
+one, and bias past the measured value rather than landing exactly on it.
+
+Verified: `compileKotlinJvm` clean, `jvmTest` green, and both fixes screenshotted on a real running
+JVM desktop build via a temporary debug player-spawn override (reverted before finishing - `
+GameWorld.kt`'s real spawn is unchanged at `x = 235.0`). Not run on Android or iOS.
 
 ## Level 1 geometry — current state
 
