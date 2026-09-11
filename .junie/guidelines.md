@@ -39,13 +39,18 @@ paywall-build framework for iOS (RevenueCat 3.6.0 / Kotlin 2.3.20)` step started
 (previously skipped outright) and failed for real - `e: .../paywall-build/src/iosMain/kotlin/
 TimeProvider.ios.kt:5:51 Unresolved reference 'timeIntervalSince1970'` - cascading into `Shell app:
 build` failing too (`unable to resolve module dependency: 'PaywallModule'`, since the framework it
-needs was never produced). **Root cause found and fixed**: every other `platform.Foundation`-
-touching file in `paywall-build` (`MenuMusic.ios.kt`, `MenuSfx.ios.kt`, `VideoBackground.ios.kt`)
-has `@OptIn(ExperimentalForeignApi::class)`; `TimeProvider.ios.kt` was missing it - Kotlin 2.4.10
-gates `NSDate`'s members behind that opt-in and Kotlin/Native reports the un-opted-in access as
-"unresolved reference" rather than a clearer opt-in error. Fixed by adding the same annotation.
-**Not yet re-verified in CI** - push and check the SPIKE step specifically (still
-`continue-on-error: true`, so watch the raw log, not just the job's overall conclusion).
+needs was never produced). **First theory (adding `@OptIn(ExperimentalForeignApi::class)`) was WRONG** - every other
+`platform.Foundation`-touching file in `paywall-build` has it, so it looked promising, but a real
+CI run (commit `eaa73a2`, run 34647810647) still failed with the exact same
+`Unresolved reference 'timeIntervalSince1970'` even with the opt-in added. **Actual fix (commit
+`09180e3`, unverified as of this writing)**: gave up on `NSDate().timeIntervalSince1970` entirely
+and switched to `platform.posix.time(null)` - the plain C stdlib call, sidestepping whatever
+Foundation/ObjC property-interop quirk this toolchain (Kotlin 2.4.10) has with that specific
+member, and matching Android/JVM's own "just get raw seconds since epoch" idiom
+(`System.currentTimeMillis() / 1000L`) more closely anyway. **Not yet re-verified in CI** - push
+and check the SPIKE step specifically (still `continue-on-error: true`, so watch the raw log via
+`gh run view <id> --job <id> --log`, not just the job's overall conclusion or even the per-step
+checkmark).
 
 A prior commit (`d7ab110`) similarly broke iOS-only compilation by introducing Java
 `String.format()` calls (`LevelSelectScene.kt`) with no Kotlin/Native implementation; fixed
@@ -1504,7 +1509,7 @@ Guideline 1.5 support page with a Netlify Form — 4 fields: Name, Email,
 Category, Message; no visible email address, no platform/subject fields, no
 FAQ content — an earlier note claiming otherwise was wrong and has been
 corrected), `site/privacy/index.html` (privacy policy, covers on-device
-storage, AdMob/UMP consent, RevenueCat, COPPA/GDPR/CCPA, Layers — see below),
+storage, AdMob/UMP consent, RevenueCat, COPPA/GDPR/CCPA),
 `site/styles.css`, `site/_redirects` + `site/netlify.toml`.
 
 **Two known, unresolved compliance gaps, flagged not fixed:**
@@ -1529,53 +1534,15 @@ genuine deletion flow is ever wanted, it should lead with that reality
 (all game data is local-only, deleted by uninstalling) rather than implying
 a database lookup.
 
-## Layers Events SDK integration — Android only, real, linked into the APK
+## Layers Events SDK — REMOVED (2026-09-12)
 
-`app_a1f9dbc126c1c779`. Real coordinates: `io.layers:layers-android:3.3.0`
-(the owner's original integration guide cited a stale/unofficial version —
-verified against Layers' actual product docs before writing any code, not
-their GitHub org, which turned out to be a red herring).
+Previously integrated (`com.layers.sdk:layers-android:3.3.0`, `app_a1f9dbc126c1c779`) on Android via
+an `AnalyticsBridge` pattern and configured in `InfiltrateApplication.kt`. Fully removed on 2026-09-12:
+dependency removed from `android-shell/build.gradle.kts`, configuration stripped from
+`InfiltrateApplication.kt`, tracking calls removed from `GameplayScene.kt`, all 7 `AnalyticsBridge`
+files deleted, and disclosures removed from `site/privacy/index.html`. The app currently has
+zero third-party product analytics SDKs.
 
-Same `expect`/`actual` bridge pattern as `ContinueAdBridge`/`LevelExitBridge`:
-`AnalyticsBridge` in `:game` common code, no-op on every platform except a
-**genuine no-op even on Android** in `:game`'s own build — the real SDK call
-only happens in `android-shell`'s separate duplicate copy. This split was
-forced, not stylistic: adding the real SDK to `:game`'s own `androidMainApi`
-transitively pulled `androidx.lifecycle`/`androidx.work` requiring
-`compileSdk 34+`, conflicting with `:game`'s own `compileSdk 33` — reverted
-rather than bump `:game`'s compileSdk as an unrelated, unrequested change.
-
-`InfiltrateApplication.kt` (android-shell's first `Application` subclass,
-since Layers must init in `Application.onCreate()`) has two deliberate
-deviations from the vendor's own snippet, both found by decompiling the
-real `.aar` rather than trusting the docs: no manual `track("app_open")`
-call (the SDK's `autoTrackAppOpen` already defaults to `true` — the vendor's
-own guide would have double-counted every launch), and `environment` is
-derived from `ApplicationInfo.FLAG_DEBUGGABLE` rather than hardcoded to
-production (so local debug builds don't pollute production analytics).
-`automaticExceptionTrackingEnabled` (true) and `consentRequired` (false) are
-both left at their SDK defaults — the latter deliberately, since flipping it
-would silently drop every event until a consent UI exists (none does yet);
-revisit if a consent flow is built or EEA/UK distribution requires it sooner.
-
-Real events wired into `GameplayScene.kt`: `watch_ad_continue_requested`/
-`_granted`, `level_complete` (with `level_id`/`stars`/`time_taken_seconds`/`alerts`),
-`mission_failed`. **Deliberately not implemented**: any purchase/sign-up
-events, since there's no real purchase flow or account system to hang them
-off honestly (see below) — the owner explicitly chose to skip rather than
-fire a fabricated/zero-revenue event.
-
-**Store screen has no real purchase flow yet**: `StoreScreen.kt`'s
-`onPurchase` handler just calls `profileStorage.addCoins(pack.amount)` — no
-RevenueCat call, no Play Billing call. Consistent with `PurchasesBridge`
-being a stub elsewhere in this file.
-
-**Verified**: full APK build succeeds and packages the real
-`liblayers_core.so` native library (confirmed in the build log, not just
-present on the Kotlin classpath). **Not verified**: never run on a real
-device — whether it actually connects to Layers' backend and events arrive
-is unconfirmed. iOS not attempted (scope was Android only, matching the
-vendor's own Android/iOS-ATT doc split).
 
 ## Device heating on Android — measured root causes (2026-09-09)
 
