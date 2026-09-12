@@ -9,8 +9,6 @@ import PaywallModule
 ///  2. Resident warm KorGE Engine for gameplay (swapped in when starting a level).
 ///  3. Storage bridge between Compose Multiplatform and KorGE (:game).
 class AppDelegate: UIResponder, UIApplicationDelegate {
-    private var resultLabel: UILabel?
-
     // MARK: - View Controllers & Shell State
 
     private var korgeVC: UIViewController?
@@ -26,7 +24,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         let window = ShellAppDelegate.shared.window
         self.shellWindow = window
 
-        addDebugOverlay()
         runStorageBridgeCheck()
 
         // ShellAppDelegate initialized the warm KorGE ViewController.
@@ -162,29 +159,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     // MARK: - Storage Bridge Real Profile Check
 
-    private func addDebugOverlay() {
-        let window = ShellAppDelegate.shared.window
-
-        let button = UIButton(type: .system)
-        button.setTitle("Storage Bridge Check", for: .normal)
-        button.backgroundColor = UIColor.black.withAlphaComponent(0.6)
-        button.setTitleColor(.white, for: .normal)
-        button.frame = CGRect(x: 12, y: 44, width: 220, height: 36)
-        button.addTarget(self, action: #selector(runStorageBridgeCheckTapped), for: .touchUpInside)
-        window.addSubview(button)
-
-        let label = UILabel(frame: CGRect(x: 12, y: 84, width: 400, height: 20))
-        label.textColor = .white
-        label.font = UIFont.systemFont(ofSize: 12)
-        label.text = "Storage bridge: not yet run"
-        window.addSubview(label)
-        resultLabel = label
-    }
-
-    @objc private func runStorageBridgeCheckTapped() {
-        runStorageBridgeCheck()
-    }
-
     @discardableResult
     private func runStorageBridgeCheck() -> Bool {
         // Step 1: Write real profile fields through PaywallStorage (PaywallModule.framework)
@@ -213,7 +187,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
 
         print("SHELL: Storage bridge verification -> \(resultText)")
-        resultLabel?.text = "Storage bridge: \(resultText)"
         writeTextFile("storage_bridge_result.txt", resultText)
         return ok
     }
