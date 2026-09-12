@@ -181,6 +181,28 @@ jobs:
           xcrun simctl launch --console-pty "$DEVICE_ID" "$BUNDLE_ID" > /tmp/shellapp_console.log 2>&1 &
           CONSOLE_PID=$!
 
+          mkdir -p ios-shell/spike-screenshots
+
+          # Deliberately targeted at the KorGE gameplay window, not left to chance like the
+          # main-menu loop below. AppDelegate.swift's runAutomatedLevelTransition() fires
+          # switchToKorGE() at t=2.0s after didFinishLaunchingWithOptions returns and dwells 1.5s
+          # before switching back to Compose - a prior round confirmed (2026-09-12) that the
+          # unguided 10-shot loop below never once landed inside that window across a full run,
+          # so TRANSITION_OK alone was being trusted as proof gameplay rendered, when it only
+          # proves the Compose<->KorGE view-swap mechanism itself works (it calls SpikeBridge
+          # directly, bypassing whatever scene is actually loaded).
+          #
+          # A single fixed sleep is too fragile to trust here: "t=2.0s" is measured from
+          # didFinishLaunchingWithOptions returning, not from this script issuing `simctl launch`
+          # (backgrounded above), and process spawn + Kotlin/Native runtime init + Compose's first
+          # frame add unknown latency before that method even runs. Six attempts spread across
+          # ~2-6s hedge against that uncertainty; at least one should land inside the real window
+          # regardless of exact launch timing on this runner.
+          for i in $(seq 1 6); do
+            sleep 0.7
+            xcrun simctl io "$DEVICE_ID" screenshot "ios-shell/spike-screenshots/gameplay_check_$(printf '%02d' "$i").png" || true
+          done
+
           # Switch-spike diagnostic round (run 33417902658) showed the whole automated 6-cycle
           # run completes within ~13-14s of launch. Capturing screenshots here (foreground, right
           # after launch) instead of a plain `sleep 5` means their natural per-shot cost (1-13s
@@ -188,7 +210,6 @@ jobs:
           # before checking results, while actually landing during the window where the switching
           # happens, unlike capturing them in the next step (which starts only after the result
           # file already exists, i.e. too late to see anything mid-switch).
-          mkdir -p ios-shell/spike-screenshots
           for i in $(seq 1 10); do
             xcrun simctl io "$DEVICE_ID" screenshot "ios-shell/spike-screenshots/frame_$(printf '%02d' "$i").png" || true
           done
