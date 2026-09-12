@@ -11,6 +11,10 @@ actual object PlatformStorage {
         memoryStore[key] = value
     }
 
+    actual fun removeRaw(key: String) {
+        memoryStore.remove(key)
+    }
+
     fun clear() {
         memoryStore.clear()
     }

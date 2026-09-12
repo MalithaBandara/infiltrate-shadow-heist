@@ -1,8 +1,0 @@
-package com.sample.demo.analytics
-
-// No-op stub - Layers is only integrated on Android so far. See AnalyticsBridge.kt.
-class IosAnalyticsBridge : AnalyticsBridge {
-    override fun track(event: String, properties: Map<String, Any>) {}
-}
-
-actual fun getAnalyticsBridge(): AnalyticsBridge = IosAnalyticsBridge()

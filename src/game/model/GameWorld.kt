@@ -16,6 +16,10 @@ data class GameWorld(
     val fence1: Rect? = null,
     val fence2: Rect? = null,
     val barrels: List<Rect> = emptyList(),
+    /** Tables (table.png) - the art rects. See LevelLayout.tables and GameplayScene.kt's box loop. */
+    val tables: List<Rect> = emptyList(),
+    /** Collision boxes covered by a table's art, drawn by nothing - see LevelLayout.tableParts. */
+    val tableParts: List<Rect> = emptyList(),
     // Jump-crate gap crossings, tagged by which of the two hanging-crate art variants each box
     // renders with - see LevelLayout.hangingCrateVariant1/2 and GameplayScene.kt's box loop.
     val hangingCrateVariant1: List<Rect> = emptyList(),
@@ -509,12 +513,15 @@ data class GameWorld(
             val guards = layout.guards.map { spawn ->
                 Guard(
                     x = spawn.startX,
-                    y = spawn.surfaceY - 48.0,
+                    y = spawn.surfaceY - spawn.height,
+                    width = spawn.width,
+                    height = spawn.height,
                     patrolMinX = spawn.patrolMinX,
                     patrolMaxX = spawn.patrolMaxX,
                     speed = spawn.speed,
                     facing = spawn.facing,
-                    visionRange = spawn.visionRange
+                    visionRange = spawn.visionRange,
+                    patrolPauseDuration = spawn.patrolPauseDuration
                 )
             }
             val primaryGuard = guards.firstOrNull() ?: Guard(
@@ -576,6 +583,8 @@ data class GameWorld(
                 hangingCrateVariant1 = layout.hangingCrateVariant1,
                 hangingCrateVariant2 = layout.hangingCrateVariant2,
                 barrels = layout.barrels,
+                tables = layout.tables,
+                tableParts = layout.tableParts,
                 movingPlatforms = movingPlatforms,
                 swingHooks = layout.swingHooks,
                 hasNoGuards = guards.isEmpty()

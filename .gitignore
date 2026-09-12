@@ -9,6 +9,7 @@
 *.iml
 *.hprof
 *.log
+__pycache__/
 korge.keystore
 local.properties
 src/main/*

@@ -19,4 +19,8 @@ actual object PlatformStorage {
     actual fun setRaw(key: String, value: String) {
         prefs?.edit()?.putString(key, value)?.apply()
     }
+
+    actual fun removeRaw(key: String) {
+        prefs?.edit()?.remove(key)?.apply()
+    }
 }

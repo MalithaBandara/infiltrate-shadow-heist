@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -47,7 +48,9 @@ import androidx.compose.ui.window.PopupProperties
 import com.infiltrate.storage.PlatformStorage
 import game.model.GameProfile
 import game.model.GameProfileStorage
+import game.model.LevelStorage
 import game.model.MapBackedGameProfileStorage
+import game.model.MapBackedLevelStorage
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.Font
 import paywall_build.generated.resources.Res
@@ -107,11 +110,19 @@ fun SettingsScreen(
             setRaw = { k, v -> PlatformStorage.setRaw(k, v) }
         )
     }
+    val levelStorage: LevelStorage = remember {
+        MapBackedLevelStorage(
+            getRaw = { PlatformStorage.getRaw(it) },
+            setRaw = { k, v -> PlatformStorage.setRaw(k, v) },
+            removeRaw = { PlatformStorage.removeRaw(it) }
+        )
+    }
 
     var profile by remember { mutableStateOf(profileStorage.getProfile()) }
     var currentTab by remember { mutableStateOf(initialTab) }
     var controlsSwapped by remember { mutableStateOf(profile.controlsSwapped) }
     var currentLanguage by remember { mutableStateOf(profile.language) }
+    var showResetConfirmDialog by remember { mutableStateOf(false) }
     val bebasFont = FontFamily(Font(Res.font.bebas_neue_regular))
 
     var toastMessage by remember { mutableStateOf<String?>(null) }
@@ -126,11 +137,40 @@ fun SettingsScreen(
 
     val toastSuccessSound = LocalToastSuccess.current
     val toastErrorSound = LocalToastError.current
+    val click = LocalUiClick.current
 
     fun showToast(msg: String, isSuccess: Boolean) {
         toastMessage = msg
         toastIsSuccess = isSuccess
         if (isSuccess) toastSuccessSound() else toastErrorSound()
+    }
+
+    fun performResetProgress() {
+        // Reset gameplay profile (coins, inventory, unlocked levels, totalLevelsCompleted, settings)
+        // while preserving Remove Ads / isPremium purchase
+        profileStorage.resetProgress(preservePremium = true)
+
+        // Clear all mission progress, best times, stars, and alerts
+        levelStorage.clear()
+
+        // Clear daily ad watch counters
+        try {
+            PlatformStorage.removeRaw("user_coin_ad_watch_count")
+            PlatformStorage.removeRaw("user_gadget_ad_watch_count")
+        } catch (_: Throwable) {
+        }
+
+        // Reset volume state in NavigationRoot (which also persists them)
+        onMusicVolumeChange(0.8f)
+        onSfxVolumeChange(1.0f)
+
+        // Reset local UI states
+        controlsSwapped = false
+        currentLanguage = "en"
+        profile = profileStorage.getProfile()
+
+        showResetConfirmDialog = false
+        showToast("SETTINGS & PROGRESS RESET TO DEFAULT", false)
     }
 
     BoxWithConstraints(
@@ -211,16 +251,7 @@ fun SettingsScreen(
                                     profileStorage.setControlsSwapped(swapped)
                                 },
                                 onResetProgress = {
-                                    // Music/SFX go through the callbacks (NavigationRoot owns
-                                    // that state and persists it) - controls/language are still
-                                    // local to this screen, so they're reset directly.
-                                    onMusicVolumeChange(0.8f)
-                                    onSfxVolumeChange(1.0f)
-                                    profileStorage.setControlsSwapped(false)
-                                    profileStorage.setLanguage("en")
-                                    controlsSwapped = false
-                                    currentLanguage = "en"
-                                    showToast("SETTINGS & PROGRESS RESET TO DEFAULT", false)
+                                    showResetConfirmDialog = true
                                 }
                             )
                         }
@@ -230,6 +261,140 @@ fun SettingsScreen(
                                 scale = scale,
                                 onActionToast = { showToast(it, true) }
                             )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Confirmation Modal Dialog for Reset Progress
+        if (showResetConfirmDialog) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.75f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { showResetConfirmDialog = false }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width((480 * scale).dp)
+                        .background(Color(0xFF16161A), RoundedCornerShape(12.dp))
+                        .border(1.dp, Color(0xFFFF5252).copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {}
+                        )
+                        .padding((24 * scale).dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy((14 * scale).dp)
+                    ) {
+                        // Title
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size((10 * scale).dp)
+                                    .background(Color(0xFFFF5252), RoundedCornerShape(2.dp))
+                            )
+                            Text(
+                                text = "CONFIRM PROGRESS RESET",
+                                color = Color(0xFFFF5252),
+                                fontSize = (18 * scale).sp,
+                                fontFamily = bebasFont,
+                                letterSpacing = 1.sp
+                            )
+                        }
+
+                        // Divider line
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(Color.White.copy(alpha = 0.12f))
+                        )
+
+                        // Description
+                        Text(
+                            text = "Are you sure you want to reset all game data? This will permanently erase:\n" +
+                                "• All completed missions, best times, and star ratings\n" +
+                                "• Coin balance and gadget inventory\n" +
+                                "• Audio, language, and control preferences\n\n" +
+                                "Note: Any active Remove Ads purchase will be preserved.",
+                            color = Color(0xFFD0D0D4),
+                            fontSize = (13 * scale).sp,
+                            lineHeight = (18 * scale).sp
+                        )
+
+                        Spacer(modifier = Modifier.height((8 * scale).dp))
+
+                        // Action Buttons
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // CANCEL Button
+                            Box(
+                                modifier = Modifier
+                                    .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(6.dp))
+                                    .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onClick = {
+                                            click()
+                                            showResetConfirmDialog = false
+                                        }
+                                    )
+                                    .padding(horizontal = (18 * scale).dp, vertical = (10 * scale).dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "CANCEL",
+                                    color = Color.White,
+                                    fontSize = (12 * scale).sp,
+                                    fontFamily = bebasFont,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width((12 * scale).dp))
+
+                            // RESET EVERYTHING Button
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xFFFF5252), RoundedCornerShape(6.dp))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onClick = {
+                                            click()
+                                            performResetProgress()
+                                        }
+                                    )
+                                    .padding(horizontal = (18 * scale).dp, vertical = (10 * scale).dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "RESET EVERYTHING",
+                                    color = Color(0xFF0A0A0C),
+                                    fontSize = (12 * scale).sp,
+                                    fontFamily = bebasFont,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 1.sp
+                                )
+                            }
                         }
                     }
                 }
@@ -616,7 +781,10 @@ private fun GeneralSettingsPanel(
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
-                    onClick = onResetProgress
+                    onClick = {
+                        click()
+                        onResetProgress()
+                    }
                 )
                 .padding((14 * scale).dp)
         ) {

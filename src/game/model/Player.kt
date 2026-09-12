@@ -152,7 +152,7 @@ data class Player(
     /**
      * How far past the hook's grip column the player comes down, in world units. The move is a
      * fixed shape rather than something that reaches for whatever ledge happens to be there:
-     * levels are built around the distance, not the other way round (see LEVEL_3_LAYOUT, whose
+     * levels are built around the distance, not the other way round (see LEVEL_4_LAYOUT, whose
      * gap and hook position are both derived from this). [findSwingTarget] refuses to start a
      * swing that would land on nothing, so the fixed shape can never strand the player.
      *

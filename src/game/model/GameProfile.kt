@@ -11,9 +11,9 @@ data class GameProfile(
     // gate the level-exit interstitial (InterstitialAdLimiter.MIN_LEVELS_COMPLETED) so a brand
     // new player's first couple of levels stay ad-free.
     var totalLevelsCompleted: Int = 0,
-    // level_4 is the side-scrolling sample level; unlocked from the start so it can be
-    // played without first clearing the three single-screen levels.
-    val unlockedLevelIds: MutableSet<String> = mutableSetOf("level_1", "level_4"),
+    // level_5 is the side-scrolling sample level; unlocked from the start so it can be
+    // played without first clearing the earlier single-screen levels.
+    val unlockedLevelIds: MutableSet<String> = mutableSetOf("level_1", "level_5"),
     val powerupInventory: MutableMap<String, Int> = mutableMapOf(
         "camera_jammer" to 2,
         "smoke_screen" to 2,
@@ -102,6 +102,7 @@ interface GameProfileStorage {
     fun grantDebugPowerups(amount: Int = 3)
     fun activatePremium()
     fun incrementLevelsCompleted(): Int
+    fun resetProgress(preservePremium: Boolean = true)
 }
 
 class InMemoryGameProfileStorage(
@@ -208,6 +209,12 @@ class InMemoryGameProfileStorage(
     override fun incrementLevelsCompleted(): Int {
         profile.totalLevelsCompleted += 1
         return profile.totalLevelsCompleted
+    }
+
+    override fun resetProgress(preservePremium: Boolean) {
+        val keepPremium = if (preservePremium) profile.isPremium else false
+        val defaultProfile = GameProfile(isPremium = keepPremium)
+        saveProfile(defaultProfile)
     }
 }
 
@@ -357,5 +364,10 @@ class MapBackedGameProfileStorage(
         val res = inMemoryFallback.incrementLevelsCompleted()
         persist()
         return res
+    }
+
+    override fun resetProgress(preservePremium: Boolean) {
+        inMemoryFallback.resetProgress(preservePremium)
+        persist()
     }
 }

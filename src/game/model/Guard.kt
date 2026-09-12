@@ -20,7 +20,14 @@ data class Guard(
     var visionRange: Double = 260.0,
     var visionFov: Double = 60.0 * (PI / 180.0), // 60 degrees in radians
     var investigateDuration: Double = 2.5,
-    var investigatePauseDuration: Double = 2.0
+    var investigatePauseDuration: Double = 2.0,
+    /**
+     * How long the guard stands at each end of his patrol before turning back. 0 (every guard
+     * before level 3's) turns on the spot the frame he arrives. With a pause he holds his
+     * arriving facing for the whole dwell, so a post at the right end of the route is watched
+     * to the right - see LEVEL_3_LAYOUT for the beat that builds on this.
+     */
+    val patrolPauseDuration: Double = 0.0
 ) {
     var state: GuardState = GuardState.PATROL
         private set
@@ -38,6 +45,20 @@ data class Guard(
         private set
 
     var investigatePauseTimer: Double = 0.0
+        private set
+
+    /** Time left standing at a patrol post before turning back; 0 while walking. */
+    var patrolPauseTimer: Double = 0.0
+        private set
+
+    /** The facing to take when the current post dwell ends. */
+    private var facingAfterPause: Double = facing
+
+    /**
+     * True on a frame the guard actually moved along his route - what GameplayScene keys the
+     * walk animation on. False while dwelling at a post, investigating, blocked, or at speed 0.
+     */
+    var isWalking: Boolean = false
         private set
 
     val bounds: Rect get() = Rect(x, y, width, height)
@@ -104,6 +125,7 @@ data class Guard(
         isAtInvestigateTarget = true
         investigateTimer = 0.0
         investigatePauseTimer = 0.0
+        patrolPauseTimer = 0.0
 
         // Resume original route
         when {
@@ -122,6 +144,7 @@ data class Guard(
     }
 
     fun update(dt: Double, obstacles: List<Rect> = emptyList()) {
+        isWalking = false
         when (state) {
             GuardState.PATROL -> updatePatrol(dt, obstacles)
             GuardState.INVESTIGATING -> updateInvestigating(dt)
@@ -129,6 +152,17 @@ data class Guard(
     }
 
     private fun updatePatrol(dt: Double, obstacles: List<Rect>) {
+        if (patrolPauseTimer > 0.0) {
+            patrolPauseTimer -= dt
+            if (patrolPauseTimer <= 0.0) {
+                patrolPauseTimer = 0.0
+                facing = facingAfterPause
+                patrolFacing = facing
+            }
+            return
+        }
+
+        val before = x
         val targetX = x + facing * speed * dt
         val blocker = obstacles.firstOrNull { it.intersects(Rect(targetX, y, width, height)) }
 
@@ -143,12 +177,22 @@ data class Guard(
 
         if (facing > 0.0 && x >= patrolMaxX) {
             x = patrolMaxX
-            facing = -1.0
-            patrolFacing = -1.0
+            turnAtPost(-1.0)
         } else if (facing < 0.0 && x <= patrolMinX) {
             x = patrolMinX
-            facing = 1.0
-            patrolFacing = 1.0
+            turnAtPost(1.0)
+        }
+        isWalking = x != before
+    }
+
+    /** Reached the end of the route: turn now, or stand the dwell out first and turn after. */
+    private fun turnAtPost(newFacing: Double) {
+        if (patrolPauseDuration > 0.0) {
+            patrolPauseTimer = patrolPauseDuration
+            facingAfterPause = newFacing
+        } else {
+            facing = newFacing
+            patrolFacing = newFacing
         }
     }
 

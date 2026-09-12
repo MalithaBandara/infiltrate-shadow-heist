@@ -5,4 +5,5 @@ import PaywallStorage
 actual object PlatformStorage {
     actual fun getRaw(key: String): String? = PaywallStorage.getRaw(key)
     actual fun setRaw(key: String, value: String) = PaywallStorage.setRaw(key, value)
+    actual fun removeRaw(key: String) = PaywallStorage.removeRaw(key)
 }

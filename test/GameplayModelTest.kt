@@ -2605,12 +2605,12 @@ class GameplayModelTest {
         assertNull(activeStep)
     }
 
-    // ---- level 3's hook swing --------------------------------------------------------------
+    // ---- level 4's hook swing --------------------------------------------------------------
 
     @Test
-    fun testLevel3HookGapIsOnlyCrossableBySwinging() {
-        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_3)
-        val layout = LevelData.LEVEL_3_LAYOUT
+    fun testLevel4HookGapIsOnlyCrossableBySwinging() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
+        val layout = LevelData.LEVEL_4_LAYOUT
         val hook = world.swingHooks.single()
         val gapStart = layout.boxes.first { it.width == 300.0 }.right
         val gapEnd = layout.boxes.last { it.width == 300.0 }.left
@@ -2625,9 +2625,9 @@ class GameplayModelTest {
     }
 
     @Test
-    fun testSwingCarriesThePlayerOverLevel3sGapAndLandsThemOnIt() {
-        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_3)
-        val terrain2 = LevelData.LEVEL_3_LAYOUT.boxes.last { it.width == 300.0 }
+    fun testSwingCarriesThePlayerOverLevel4sGapAndLandsThemOnIt() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
+        val terrain2 = LevelData.LEVEL_4_LAYOUT.boxes.last { it.width == 300.0 }
         val dt = 1.0 / 60.0
 
         // Auto-pilot: hold right, press jump when progress stalls (which climbs the barrel
@@ -2659,15 +2659,15 @@ class GameplayModelTest {
 
     @Test
     fun testSwingNeedsTheWalkAndTheHook() {
-        val hook = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_3).swingHooks.single()
-        val terrain = LevelData.LEVEL_3_LAYOUT.boxes.first { it.width == 300.0 }
+        val hook = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4).swingHooks.single()
+        val terrain = LevelData.LEVEL_4_LAYOUT.boxes.first { it.width == 300.0 }
         val dt = 1.0 / 60.0
 
         // The trigger window is tight enough that where the player stands matters (see
         // Player.swingMinReach): at the very lip of terrain1 the grip is 66 ahead, which is
         // inside it. backOff walks them away from the lip so a test can approach it.
         fun freshWorldAtLedge(backOff: Double = 0.0): GameWorld {
-            val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_3)
+            val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
             world.player.resetTo(terrain.right - world.player.width - backOff, terrain.top - world.player.height)
             world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false)
             return world
@@ -2697,9 +2697,9 @@ class GameplayModelTest {
 
     @Test
     fun testSwingKeepsTheHandOnTheHookForItsWholeHang() {
-        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_3)
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
         val hook = world.swingHooks.single()
-        val terrain = LevelData.LEVEL_3_LAYOUT.boxes.first { it.width == 300.0 }
+        val terrain = LevelData.LEVEL_4_LAYOUT.boxes.first { it.width == 300.0 }
         val dt = 1.0 / 60.0
         world.player.resetTo(terrain.right - world.player.width - 25.0, terrain.top - world.player.height)
 
@@ -2741,9 +2741,9 @@ class GameplayModelTest {
 
     @Test
     fun testSwingBodyRotationAndPivotTracking() {
-        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_3)
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
         val hook = world.swingHooks.single()
-        val terrain = LevelData.LEVEL_3_LAYOUT.boxes.first { it.width == 300.0 }
+        val terrain = LevelData.LEVEL_4_LAYOUT.boxes.first { it.width == 300.0 }
         val dt = 1.0 / 60.0
         world.player.resetTo(terrain.right - world.player.width - 25.0, terrain.top - world.player.height)
 
@@ -2793,5 +2793,154 @@ class GameplayModelTest {
         assertTrue(hadForwardTilt, "Character should tilt forward during swing apex / release")
         assertTrue(hadStraightFlight, "Character should straighten upright towards landing")
         assertEquals(0.0, world.player.swingRotationDegrees, 1e-4, "Rotation should be zero once swing completes")
+    }
+
+    // ---- level 3: the roof table and the guard under it ------------------------------------
+
+    private fun level3(): GameWorld = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_3)
+
+    @Test
+    fun testLevel3RoofGuardPacesUnderThePlank() {
+        val world = level3()
+        assertEquals(1, world.allGuards.size, "Level 3 has exactly one guard")
+        val g = world.guard
+        val table = world.tables.single()
+        val plank = world.tableParts.first { it.width > it.height }
+        val leg = world.tableParts.first { it.height > it.width }
+        val dt = 1.0 / 60.0
+        val farPost = g.patrolMaxX
+        val nearPost = g.patrolMinX
+
+        assertEquals(96.0, g.height, "The roof guard is drawn with the real idle/walk art, so player height")
+        assertEquals(440.0, g.bounds.bottom, 1e-9, "Feet on the ground")
+        assertEquals(farPost, g.x, "Starts at the far post")
+        assertEquals(1.0, g.facing, "...looking right, out past the roof's end")
+        assertTrue(g.patrolPauseDuration > 0.0)
+
+        // The owner's spec: stay idle -> walk -> stay idle -> come back -> repeat. Walk the model
+        // through one full lap and check each leg, plus that he never leaves the underside.
+        fun step() {
+            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false)
+            assertTrue(g.bounds.top >= plank.bottom, "Head clears the plank at x=${g.x}")
+            assertTrue(g.x >= leg.right && g.bounds.right <= table.right, "Stays under the roof at x=${g.x}")
+            assertTrue(world.occluders.none { it.intersects(g.bounds) }, "Never inside a collision box")
+        }
+        fun stepUntil(limitSeconds: Double, done: () -> Boolean): Double {
+            var t = 0.0
+            while (!done() && t < limitSeconds) { step(); t += dt }
+            assertTrue(done(), "Timed out after ${limitSeconds}s at x=${g.x} walking=${g.isWalking} facing=${g.facing}")
+            return t
+        }
+
+        // 1. Idle at the far post, facing right, for the whole dwell.
+        val dwell = stepUntil(10.0) { g.isWalking }
+        // A frame to arm the dwell on arrival and a frame to turn when it ends bracket the wait.
+        assertEquals(g.patrolPauseDuration, dwell, dt * 3.5, "Stands the full dwell before moving")
+        assertEquals(-1.0, g.facing, "Turns to face the way he is about to walk")
+        // 2. Walks to the near post.
+        stepUntil(10.0) { !g.isWalking }
+        assertEquals(nearPost, g.x, 1e-9, "Stops exactly on the near post")
+        assertEquals(-1.0, g.facing, "Holds his arriving facing (left) while standing there")
+        // 3. Idle there for the dwell, then 4. comes back to the original position.
+        val dwell2 = stepUntil(10.0) { g.isWalking }
+        assertEquals(g.patrolPauseDuration, dwell2, dt * 3.5)
+        assertEquals(1.0, g.facing)
+        stepUntil(10.0) { !g.isWalking }
+        assertEquals(farPost, g.x, 1e-9, "Back at the original position")
+        assertEquals(1.0, g.facing, "...looking right again")
+        assertEquals(GuardState.PATROL, g.state)
+        // 5. Repeat: the next leg starts the same way.
+        stepUntil(10.0) { g.isWalking }
+        assertEquals(-1.0, g.facing)
+    }
+
+    @Test
+    fun testGuardWithoutPauseStillTurnsOnTheSpot() {
+        // The dwell is opt-in: every pre-existing guard has patrolPauseDuration 0 and must turn
+        // the frame it arrives, exactly as before.
+        val g = Guard(x = 190.0, y = 0.0, patrolMinX = 100.0, patrolMaxX = 200.0, speed = 100.0, facing = 1.0)
+        repeat(12) { g.update(1.0 / 60.0) }
+        assertEquals(-1.0, g.facing, "Turned at patrolMaxX without waiting")
+        assertTrue(g.x < 200.0, "...and is already walking back")
+        assertTrue(g.isWalking)
+        assertEquals(0.0, g.patrolPauseTimer)
+    }
+
+    @Test
+    fun testLevel3TableCollisionIsPlankPlusLegWithOpenUnderside() {
+        val world = level3()
+        val table = world.tables.single()
+        val parts = world.tableParts
+        assertEquals(2, parts.size)
+        assertTrue(parts.all { it in world.boxes }, "Table parts collide")
+        assertFalse(table in world.boxes, "The art rect itself is not a collision box any more")
+        val plank = parts.first { it.width > it.height }
+        val leg = parts.first { it.height > it.width }
+        assertEquals(table.top, plank.top, 1e-9)
+        assertEquals(table.top, leg.top, 1e-9)
+        assertEquals(table.bottom, leg.bottom, 1e-9, "The leg reaches the ground - it is the climb's face")
+        assertEquals(table.right, plank.right, 1e-9)
+        assertEquals(leg.right, plank.left, 1e-9, "Leg and plank meet edge to edge, no overlap")
+        // A player-sized rect under the plank, right of the leg, must be free space.
+        val underside = Rect(leg.right + 1.0, plank.bottom + 1.0, 96.0, table.bottom - plank.bottom - 2.0)
+        assertTrue(world.boxes.none { it.intersects(underside) }, "Open underside")
+    }
+
+    @Test
+    fun testLevel3ClimbOntoRoofAndCrossItUnseen() {
+        val world = level3()
+        val table = world.tables.single()
+        val dt = 1.0 / 60.0
+        var elapsed = 0.0
+        var stalledFor = 0.0
+        // Hold right; jump whenever grounded progress stalls - the same auto-pilot the level 5
+        // walkthrough uses. Stop as soon as the feet are on the roof, then walk to its end.
+        while (elapsed < 20.0 && !(world.player.isGrounded && world.player.x > table.right - 60.0)) {
+            val beforeX = world.player.x
+            val jump = world.player.isGrounded && stalledFor > 0.05
+            world.update(dt, moveInput = 1.0, jumpInput = jump, crouchInput = false)
+            stalledFor = if (kotlin.math.abs(world.player.x - beforeX) < 0.5) stalledFor + dt else 0.0
+            elapsed += dt
+            if (world.player.isGrounded && world.player.x > table.left + 20.0) {
+                assertEquals(table.top, world.player.y + world.player.height, 1e-6,
+                    "On the roof at x=${world.player.x.toInt()}, feet should be on the plank top")
+            }
+        }
+        assertTrue(world.player.x > table.right - 60.0, "Reached the far end of the roof (x=${world.player.x.toInt()}, t=${elapsed.toInt()}s)")
+        assertFalse(world.wasDetected, "The climb and the crossing are blind to the guard under the roof")
+        assertEquals(GuardState.PATROL, world.guard.state, "Footsteps on the roof do not reach him - the plank blocks the line")
+    }
+
+    @Test
+    fun testLevel3DropIsSeenFromTheFarPostAndSafeWhileHeIsAway() {
+        val dt = 1.0 / 60.0
+        fun landPastTheRoof(world: GameWorld) {
+            val table = world.tables.single()
+            world.player.x = table.right + 20.0
+            world.player.y = 440.0 - world.player.height
+        }
+
+        // Guard at the far post, facing right: the landing zone is inside his beam.
+        val seen = level3()
+        landPastTheRoof(seen)
+        repeat(6) { seen.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false) }
+        assertTrue(seen.alertProgress > 0.0, "Dropping while he watches the drop zone lands in his cone")
+
+        // Wait for him to reach the near post, then drop and walk to the exit: he is 400 away
+        // and looking the other way, and the dwell plus the walk back is longer than the run in.
+        val safe = level3()
+        var t = 0.0
+        while (!(safe.guard.x == safe.guard.patrolMinX && !safe.guard.isWalking) && t < 30.0) {
+            safe.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false); t += dt
+        }
+        assertEquals(safe.guard.patrolMinX, safe.guard.x, "Guard is standing at the near post")
+        landPastTheRoof(safe)
+        t = 0.0
+        while (!safe.isLevelComplete && !safe.isGameOver && t < 20.0) {
+            safe.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false); t += dt
+        }
+        assertTrue(safe.isLevelComplete, "Reached the exit (x=${safe.player.x.toInt()} after ${t.toInt()}s)")
+        assertFalse(safe.wasDetected, "Dropping while he is away at the near post is never seen")
+        assertEquals(GuardState.PATROL, safe.guard.state, "Nor heard - the run in is out of earshot")
     }
 }

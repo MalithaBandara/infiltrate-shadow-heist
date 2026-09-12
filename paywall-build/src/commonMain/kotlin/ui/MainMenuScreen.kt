@@ -87,7 +87,8 @@ fun MainMenuScreen(
     val levelStorage: LevelStorage = remember {
         MapBackedLevelStorage(
             getRaw = { PlatformStorage.getRaw(it) },
-            setRaw = { k, v -> PlatformStorage.setRaw(k, v) }
+            setRaw = { k, v -> PlatformStorage.setRaw(k, v) },
+            removeRaw = { PlatformStorage.removeRaw(it) }
         )
     }
 
