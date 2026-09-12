@@ -266,7 +266,12 @@ jobs:
           CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" data)
           RESULT_FILE="$CONTAINER/Documents/transition_test_result.txt"
 
-          for i in $(seq 1 30); do
+          # 120s, not 30s: AppDelegate.swift's own gameplay dwell (waiting for this CI script's
+          # screenshot_taken.txt ack, see its comment) has a 90s hard cap of its own - confirmed
+          # from a real run (2026-09-12) that the full round trip from korge_visible.txt appearing
+          # to the screenshot actually being written can take ~46s, so this poll budget must stay
+          # comfortably above whatever the dwell's own cap is, or it will always time out first.
+          for i in $(seq 1 120); do
             if [ -f "$RESULT_FILE" ]; then
               echo "Transition result file appeared after ~${i}s of polling."
               break
