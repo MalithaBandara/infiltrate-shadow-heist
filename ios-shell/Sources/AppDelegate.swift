@@ -190,7 +190,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     private func runStorageBridgeCheck() -> Bool {
         // Step 1: Write real profile fields through PaywallStorage (PaywallModule.framework)
         let expectedCoins: Int32 = 350
-        let expectedUnlocked = "level_1;level_2;level_4"
+        // Written as "level_1;level_2;level_4", but GameProfile.kt's loadFromStorage() (commonMain,
+        // shared with Android) merges whatever it reads INTO the profile's default unlocked set
+        // rather than replacing it - and level_5 (the side-scrolling sample level) is one of those
+        // defaults, "unlocked from the start" by design (see GameProfile.kt's own comment on
+        // unlockedLevelIds). That's very likely intentional - it's what grandfathers level_5 in for
+        // existing Android players whose saved progress predates it - so this expectation reflects
+        // the real, intended round-trip result instead of the literal written string. Confirmed via
+        // real on-device CI output (2026-09-12): read-back was
+        // "level_1;level_2;level_4;level_5" (readUnlockedLevelsForDebug() sorts alphabetically).
+        let expectedUnlocked = "level_1;level_2;level_4;level_5"
 
         PaywallStorage.shared.setRaw(key: "user_coins", value: String(expectedCoins))
         PaywallStorage.shared.setRaw(key: "user_unlocked_levels", value: expectedUnlocked)
