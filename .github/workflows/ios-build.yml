@@ -184,24 +184,32 @@ jobs:
           mkdir -p ios-shell/spike-screenshots
 
           # Deliberately targeted at the KorGE gameplay window, not left to chance like the
-          # main-menu loop below. AppDelegate.swift's runAutomatedLevelTransition() fires
-          # switchToKorGE() at t=2.0s after didFinishLaunchingWithOptions returns and dwells 1.5s
-          # before switching back to Compose - a prior round confirmed (2026-09-12) that the
-          # unguided 10-shot loop below never once landed inside that window across a full run,
-          # so TRANSITION_OK alone was being trusted as proof gameplay rendered, when it only
-          # proves the Compose<->KorGE view-swap mechanism itself works (it calls SpikeBridge
-          # directly, bypassing whatever scene is actually loaded).
+          # main-menu loop below. TRANSITION_OK alone doesn't prove gameplay rendered - that check
+          # calls SpikeBridge directly, bypassing whatever scene is actually loaded.
           #
-          # A single fixed sleep is too fragile to trust here: "t=2.0s" is measured from
-          # didFinishLaunchingWithOptions returning, not from this script issuing `simctl launch`
-          # (backgrounded above), and process spawn + Kotlin/Native runtime init + Compose's first
-          # frame add unknown latency before that method even runs. Six attempts spread across
-          # ~2-6s hedge against that uncertainty; at least one should land inside the real window
-          # regardless of exact launch timing on this runner.
-          for i in $(seq 1 6); do
-            sleep 0.7
-            xcrun simctl io "$DEVICE_ID" screenshot "ios-shell/spike-screenshots/gameplay_check_$(printf '%02d' "$i").png" || true
+          # Two blind sleep-based attempts (fixed 2.5s, then six tries spread across ~2-6s) both
+          # missed the ~1.5s KorGE-visible window across full runs (2026-09-12) - wall-clock timing
+          # from this script's side is unpredictable, since each `simctl io screenshot` call can
+          # itself take 1-13s on this runner (confirmed empirically), on top of unknown process
+          # spawn/runtime-init latency before AppDelegate.swift's own 2.0s post-launch timer even
+          # starts. Polling for a marker file switchToKorGE() now writes the instant it fires
+          # (korge_visible.txt) is deterministic instead - the same "read a result file CI polls
+          # for" pattern already used for storage_bridge_result.txt/transition_test_result.txt.
+          CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" data)
+          KORGE_VISIBLE_FILE="$CONTAINER/Documents/korge_visible.txt"
+          KORGE_SHOT_TAKEN=0
+          for i in $(seq 1 15); do
+            if [ -f "$KORGE_VISIBLE_FILE" ]; then
+              echo "korge_visible.txt appeared after ~${i}s of polling - capturing screenshot now."
+              xcrun simctl io "$DEVICE_ID" screenshot "ios-shell/spike-screenshots/gameplay_check.png" || true
+              KORGE_SHOT_TAKEN=1
+              break
+            fi
+            sleep 1
           done
+          if [ "$KORGE_SHOT_TAKEN" -eq 0 ]; then
+            echo "korge_visible.txt never appeared within 15s - the automated switch to KorGE may not have happened, or takes longer than expected."
+          fi
 
           # Switch-spike diagnostic round (run 33417902658) showed the whole automated 6-cycle
           # run completes within ~13-14s of launch. Capturing screenshots here (foreground, right
