@@ -9,8 +9,8 @@ package com.sample.demo.ads
  *
  * Real implementation only exists on iOS (see src@ios/ContinueAdBridge.ios.kt), which is the
  * only platform with a native shell that can actually show the ad. Every other target gets a
- * deliberate no-op stub, same as PurchasesBridge's iOS stub - consumeContinueGranted() must
- * never return true unless a real ad was actually watched.
+ * deliberate no-op stub - consumeContinueGranted() must never return true unless a real ad was
+ * actually watched.
  */
 interface ContinueAdBridge {
     fun requestContinueAd()

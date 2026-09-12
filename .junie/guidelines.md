@@ -211,26 +211,33 @@ path filters if this becomes a cost/noise problem — not done yet.
 
 Two separate, unrelated version lines exist — don't conflate them:
 
-**`:game`'s own dependency (Android-only, old, unchanged since 2026-08-25):**
-pinned to `purchases-kmp-core:1.9.0+14.3.0` via `androidMainApi`, zero iOS
-dependency. `PurchasesBridge.kt` (common + platform actuals) are still empty
-stubs — no real RevenueCat API call anywhere; iOS's stub returns
-`onResult(false)` from `purchase()` (an honest no-op). This version is
-pinned this low because of a **klib ABI ceiling**, not choice: this
-toolchain's Kotlin/Native compiler can only read klib ABI `1.8.0`.
-RevenueCat's own toolchain moved to ABI `1.201.0` starting at package
-`2.0.0+15.0.0` (confirmed by downloading klibs from Maven Central and
-reading `unzip -p <klib> default/manifest`), and `3.5.1` is even further
-ahead (ABI `2.3.0`, compiler `2.3.20`) — every version `2.0.0+15.0.0` and
-above is unreadable under Kotlin 2.0.20, confirmed failing in CI. `1.9.0+14.3.0`
-is the newest compatible release. If bumped again, re-check the new
-version's klib manifest before assuming compatibility — Android/JVM
-compiling clean is not a valid proxy for iOS klib readability.
-Separately, there is still no `Podfile`/`cocoapods {}` block anywhere for
-`:game`, and this pinned version needs `pod 'PurchasesHybridCommon', '14.3.0'`
-linked for iOS to actually work — confirmed failing at the link step
-(`ld: framework 'PurchasesHybridCommon' not found`) in a 2026-08-24 CI run.
-This remains unresolved for `:game` itself.
+**`:game`'s own dependency — REMOVED (2026-09-12).** Used to be pinned to
+`purchases-kmp-core:1.9.0+14.3.0` via `androidMainApi`, Android-only, zero iOS dependency, backing
+a `PurchasesBridge.kt` (common + platform actuals) that stayed empty stubs the whole time - no real
+RevenueCat API call anywhere on any platform, ever. `getPurchasesBridge()` was never called from
+any real code path (confirmed by grepping the whole repo before deleting) - genuinely dead code,
+not a paused feature. Deleted outright rather than fixed: the dependency, `PurchasesBridge.kt` and
+all five platform actuals (`src@android`/`src@ios`/`src@jvm`/`src@js`/`src@wasmJs`), the
+now-purposeless "Check for a generated Podfile" step in `ios-build.yml` (existed solely to probe
+whether this dependency's CocoaPods need was met), and every stale comment referencing it
+(`android-shell/build.gradle.kts`, `src/LevelExitBridge.kt`, `src/ContinueAdBridge.kt`). Real
+purchases on both platforms go through `paywall-build`'s `StoreBilling` (see "Watch ad for coins"
+section below) - this was never that path, and removing it changes nothing observable on either
+platform.
+
+Kept here for the record, in case a similar low-ABI RevenueCat integration is ever attempted again
+in `:game` directly: this old dependency was pinned to `1.9.0+14.3.0` because of a **klib ABI
+ceiling** - this toolchain's Kotlin/Native compiler could only read klib ABI `1.8.0`, while
+RevenueCat's own toolchain moved to ABI `1.201.0` starting at package `2.0.0+15.0.0` (confirmed by
+downloading klibs from Maven Central and reading `unzip -p <klib> default/manifest`), with `3.5.1`
+even further ahead (ABI `2.3.0`, compiler `2.3.20`) - every version `2.0.0+15.0.0` and above was
+unreadable under Kotlin 2.0.20, confirmed failing in CI. Separately, this pinned version needed
+`pod 'PurchasesHybridCommon', '14.3.0'` linked for iOS to actually work, with no `Podfile`/
+`cocoapods {}` block anywhere for `:game` - confirmed failing at the link step (`ld: framework
+'PurchasesHybridCommon' not found`) in a 2026-08-24 CI run. `paywall-build`'s `3.x` line below
+doesn't hit either problem (newer ABI support, bundles its native SDK directly with no CocoaPods
+needed) - if `:game` ever wants real purchases of its own again, start from that approach, not
+this one.
 
 **`paywall-build`'s dependency (proven working on iOS, isolated, 2026-08-29):**
 `purchases-kmp-core:3.6.0` genuinely **compiles and links** into a real
@@ -271,12 +278,11 @@ inside each target's `binaries.framework {}` (or, once CocoaPods is involved
 for AdMob, inside `cocoapods { framework { ... } }` — see below). Re-check
 this if a runner image bumps its default Xcode.
 
-**What's still NOT done**: `:game` itself is not migrated onto the `3.x`
-path — still Android-only, still pinned to `1.9.0+14.3.0`. `PurchasesBridge`
-stubs are untouched by this work; nothing calls into `paywall-build` from
-either bridge. No real paywall UI exists in `:game`'s own KorGE scenes.
-Only `iosSimulatorArm64` has ever been linked/verified — `iosArm64` (real
-device) mirrors the same config by construction but has never been run.
+**What's still NOT done**: `:game` itself has no RevenueCat dependency of its own at all now (see
+above - the old `1.9.0+14.3.0` one was dead code, deleted). No real paywall UI exists in `:game`'s
+own KorGE scenes; real purchases only exist in `paywall-build`'s Compose Store screen. Only
+`iosSimulatorArm64` has ever been linked/verified — `iosArm64` (real device) mirrors the same
+config by construction but has never been run.
 
 ## AdMob / ads
 
@@ -1421,36 +1427,47 @@ reasoning; the parts a future session needs are:
   stay at the plank top and its bottom at the ground** - shortening either breaks the climb, and
   `testLevel3ClimbOntoRoofAndCrossItUnseen` will say so. The measured numbers (slab rows 0..102 of
   512 = 28.7 units, leg columns 36..79 = 8..17 units in) are in the layout's comments.
-- **The guard stands in the open underside, 860..890, facing LEFT, speed 0**, 30x96 (player
-  height - `GuardSpawn` grew `width`/`height` for this; every other guard still defaults to the old
-  26x48). He can see nothing the player does on the intended route: the leg and plank are occluders,
-  so his cone is boxed under the roof. The beat is the drop off the far end - walk after landing and
-  the NORMAL noise radius (180) reaches him with a clear line, he turns to it, and the player is in
-  his cone at point-blank; crouch-walk away and he never turns. Four tests pin this
-  (`testLevel3*` in `GameplayModelTest.kt`). **A stationary guard needs `patrolMinX < x < patrolMaxX`
-  with `speed = 0`** - an equal min/max makes `Guard.updatePatrol` flip his facing every frame.
-- Verified on the JVM desktop build with screenshots (guard under the roof, cone boxed by the
-  plank, the climb, the drop-and-turn with the pip filling) plus `jvmTest` green. **Not run on
-  Android or iOS.**
+- **The guard paces the open underside**: stands at the far post (860, facing right, out past
+  the roof's end) for 3s, walks to the near post by the leg (560), stands 3s facing left, walks
+  back, repeats - the owner's spec "stay idle -> walk -> stay idle -> come back". Built on a new
+  opt-in `Guard.patrolPauseDuration` (via `GuardSpawn`; 0 = the old instant turn every other
+  guard still has) and `Guard.isWalking`, which the scene keys the walk/idle animation on. He is
+  30x96 (player height - `GuardSpawn` grew `width`/`height` for this; every other guard still
+  defaults to the old 26x48). Wherever he is, the climb and the crossing above are blind to him
+  (leg and plank occlude). The beat is the drop off the far end: from the far post his cone
+  covers the landing zone out to ~1100, and the player on the roof can see the beam poke out
+  past the plank's end - drop while he is away at the near post. Four tests pin this
+  (`testLevel3*` plus `testGuardWithoutPauseStillTurnsOnTheSpot` in `GameplayModelTest.kt`).
+- The stationary version (speed 0, facing left, a noise-triggered turn) was built first and
+  screenshotted on the JVM desktop build; **the pacing version is model-tested only** - the owner
+  said not to run it, so the walk animation has never been seen on screen. First thing to check
+  when it is: feet planted (stride constant `WALK_STRIDE_PER_HEIGHT`) and the idle<->walk pop at
+  each post. **Not run on Android or iOS.**
 
-## Guard sprite (`GuardAnimations.kt`, `resources/guard/idle/`) — 2026-09-12
+## Guard sprite (`GuardAnimations.kt`, `resources/guard/{idle,walk}/`) — 2026-09-12
 
 Guards are drawn with real art now, not the black 26x48 rect: `GuardAnimations` is a copy of
-`PlayerAnimations`' recipe (own 1024x2048 atlas, cached once per process, feet-anchored sprite
-scaled so the standing silhouette equals the hitbox height, `scaleX` negated to face left - the
-crop box is symmetric about the character so the flip does not shift him). `tools/art/prep_guard_idle.py`
-cuts the frames from the owner's 144 raw 360x640 plates (`Downloads/charAnimations/guardidle`,
-copied to the gitignored `art-source/guard/idle`) and **prints the constants the Kotlin file needs**
-- re-run and paste, don't hand-edit them. Every other frame is kept (72 at 75x246, 1.33 Mpx), and
-because the plates do not loop (frame 144 is ~30 adjacent-steps away from frame 1) the animation is
-ping-ponged by listing the same slices out and back - no atlas cost. `IDLE_FEET_Y = 241` is the same
-back-heel over-correction the player's idle uses.
+`PlayerAnimations`' recipe (own 2048x2048 atlas - 16.8MB, the same step the player's pages come
+in - cached once per process, feet-anchored sprite scaled so the standing silhouette equals the
+hitbox height, `scaleX` negated to face left - the crop boxes are symmetric about the character
+so the flip does not shift him). `tools/art/prep_guard.py` cuts both clips from the owner's raw
+360x640 plates (`Downloads/charAnimations/guardidle` and `guardwalk`, copied to the gitignored
+`art-source/guard/`) and **prints the constants the Kotlin file needs** - re-run and paste, don't
+hand-edit them. Its header carries the per-clip reasoning; the short version:
+- **Idle**: every other frame (72 at 75x246). The plates do not loop (frame 144 is ~30
+  adjacent-steps from frame 1), so the animation is ping-ponged by listing the same slices out
+  and back - no atlas cost. `IDLE_FEET_Y = 241` is the player idle's back-heel over-correction.
+- **Walk**: raw 66..105, every frame (40 at 120x256) - the 40-frame window with the tightest
+  wrap of a walk-in-place plate. **The walk plates are framed 6.5% smaller than the idle plates**
+  (542 vs 577px standing), so the script scales them up on the way in or he would shrink the
+  moment he moved. Each walk frame is cut at its own lowest row (the plate's ground line wanders
+  10px with the stride), the way the player's crouch-walk had to be. Driven by distance
+  travelled in `GameplayScene` (`WALK_STRIDE_PER_HEIGHT = 0.554`, planted foot measured at
+  ~7.5 plate px/frame), so the feet stay planted at any patrol speed.
 
-**Only an idle exists.** A guard using this art must stand still (level 3's does); a patrolling
-guard would slide across the ground in an idle pose. Levels 5+ guards still patrol and still have
-48-tall hitboxes, so they now draw as half-height idle men gliding along - unchanged in behaviour,
-worse-looking than the rect was. They need walk footage and a 96-tall hitbox pass of their own
-(`SIDE_SCROLL_LEVEL_LAYOUT`'s walkthrough test and patrol geometry are tuned to 48).
+Levels 5+ guards still have 48-tall hitboxes, so they draw as half-height men - they now walk
+properly (the walk clip is driven by their real movement) but need a 96-tall hitbox pass of
+their own (`SIDE_SCROLL_LEVEL_LAYOUT`'s walkthrough test and patrol geometry are tuned to 48).
 
 **Rendering decisions the owner made on seeing it**: the red "visor" rectangle is gone (it only
 survives in the no-art fallback, where a featureless rect has no other facing cue), and **guard

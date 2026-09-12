@@ -13,9 +13,9 @@ package com.sample.demo.nav
  * of actually leaving it.
  *
  * Real implementation only exists where a native shell can actually switch away from the KorGE
- * view - currently Android only (see src@android/LevelExitBridge.android.kt and
- * android-shell/.../LevelExitBridge.kt). Every other target gets a no-op stub, same convention as
- * PurchasesBridge/ContinueAdBridge.
+ * view - Android (see src@android/LevelExitBridge.android.kt and android-shell/.../
+ * LevelExitBridge.kt) and iOS (see src@ios/LevelExitBridge.ios.kt's GameLevelExitBridge). Every
+ * other target gets a no-op stub, same convention as ContinueAdBridge.
  */
 interface LevelExitBridge {
     fun requestReturnToMenu()
