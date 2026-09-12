@@ -100,7 +100,7 @@ android {
             // slice of the same source tree.
             //
             // Deliberately NOT the whole ../src (only model + scene): the root of ../src also
-            // holds ContinueAdBridge.kt/PurchasesBridge.kt, which declare `expect fun` paired
+            // holds ContinueAdBridge.kt, which declares `expect fun` paired
             // with `actual fun` in ../src@android - expect/actual only means something across
             // separate Kotlin Multiplatform source sets. Dumped into this single plain Android
             // module's one source set, both declarations become two identically-signatured
@@ -142,11 +142,6 @@ dependencies {
     // BasicAds.Initialize() directly (same as AdMobVerifyContent() does on iOS), so it needs its
     // own explicit reference to the same version.
     implementation("app.lexilabs.basic:basic-ads:1.2.1")
-    // Layers Events SDK (layers.com/docs/sdk/installation) - InfiltrateApplication.kt configures
-    // it once at process startup; AnalyticsBridge.kt (this module's plain, non-KMP copy) forwards
-    // GameplayScene.kt's track() calls to it. Version confirmed against Layers' own current docs
-    // 2026-09-06 (the integration guide the owner was given pinned 3.2.11, one minor version
-    implementation("com.layers.sdk:layers-android:3.3.0")
     // Google Play Billing Library (v8.0.0+ compliant with Google Play Console requirements)
     implementation("com.android.billingclient:billing-ktx:8.0.0")
 
@@ -164,7 +159,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
 
     // play-services-base (pulled in transitively via play-services-ads-identifier, used by
-    // AdMob/RevenueCat/Layers) resolves androidx.fragment:fragment to 1.1.0, which Play Console
+    // AdMob/RevenueCat) resolves androidx.fragment:fragment to 1.1.0, which Play Console
     // flags as outdated - bump it explicitly. Nothing in this project uses Fragments directly.
     constraints {
         implementation("androidx.fragment:fragment:1.8.5") {

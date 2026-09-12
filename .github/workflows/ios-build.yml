@@ -4,13 +4,9 @@
 # - KorGE's targetIos() generates its own Xcode project under build/platforms/ios via
 #   Gradle tasks like `iosBuildSimulatorDebug` (confirmed at https://docs.korge.org/targets/ios/).
 #   This is KorGE's own pipeline, NOT the standard Kotlin Multiplatform `cocoapods {}` plugin -
-#   nothing in KorGE's docs mentions CocoaPods.
-# - RevenueCat's purchases-kmp-core:2.10.2+17.55.1 needs `pod 'PurchasesHybridCommon', '17.55.1'`
-#   linked into the final iOS app/framework. There is currently no Podfile anywhere in this repo,
-#   and it's unknown whether KorGE's generated Xcode project has a hook for injecting one.
-# - This workflow attempts the real KorGE build task (the actual signal we need), then checks
-#   whether a Podfile shows up under the generated project so `pod install` can run. If none is
-#   found, it explains that rather than failing silently or faking success.
+#   nothing in KorGE's docs mentions CocoaPods. :game itself has no CocoaPods dependency of its
+#   own (the old RevenueCat purchases-kmp-core dependency that once needed one was dead code -
+#   nothing called it - and was removed; see .junie/guidelines.md "RevenueCat status").
 # - No code signing / TestFlight upload here on purpose - unsigned simulator build only, for now.
 
 name: "🍎 iOS Build"
@@ -311,21 +307,6 @@ jobs:
             ios-shell/project.yml
           if-no-files-found: warn
           retention-days: 7
-
-      - name: Check for a generated Podfile and run pod install if present
-        if: always()
-        run: |
-          PODFILE=$(find build/platforms/ios -iname "Podfile" 2>/dev/null | head -n 1)
-          if [ -n "$PODFILE" ]; then
-            echo "Found Podfile at: $PODFILE"
-            pod install --project-directory="$(dirname "$PODFILE")"
-          else
-            echo "No Podfile found under build/platforms/ios."
-            echo "KorGE's Xcode project generator does not appear to wire CocoaPods in automatically."
-            echo "RevenueCat purchases-kmp-core 1.9.0+14.3.0 needs PurchasesHybridCommon (14.3.0)"
-            echo "linked in via CocoaPods - this likely needs a Podfile authored and placed into"
-            echo "build/platforms/ios (or copied in by a build step) before pod install has anything to do."
-          fi
 
       - name: Upload generated Xcode project for inspection
         if: always()
