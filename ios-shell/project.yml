@@ -72,6 +72,18 @@ targets:
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # android-shell's MainActivity.kt calls hideSystemBars() for the same reason: this is a
+        # fullscreen game whose own top HUD/menu bar spans edge-to-edge, with no safe-area inset
+        # padding reserved for a system status bar. Without this, the status bar (clock/battery/
+        # signal, plus the Dynamic Island cutout on newer models) renders on top of that content,
+        # visually blocking/overlapping it - reported as "parts of the screen blocked by that
+        # thing at the top". UIViewControllerBasedStatusBarAppearance defaults to true, which
+        # would make this app-wide key get ignored in favor of each UIViewController's own
+        # prefersStatusBarHidden (Compose's ComposeUIViewController and KorGE's own
+        # UIViewController don't override it) - setting it false here makes this single key
+        # authoritative for every screen instead of needing a per-VC override on both frameworks.
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
         # Compose Multiplatform's ComposeUIViewController deliberately crashes (via its own
         # PlistSanityCheck, dispatched on a low-priority background queue - see
         # .junie/guidelines.md for the full trace) if this is missing/false. Unrelated to the

@@ -30,8 +30,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Compose Multiplatform owns non-gameplay screens, so MainMenu is the initial rootViewController.
         korgeVC = window.rootViewController
 
-        let compose = MainMenuComposeScreen.shared.makeViewController { [weak self] in
-            print("MAIN_MENU: Start Level tapped -> Swapping rootViewController to KorGE gameplay")
+        let compose = MainMenuComposeScreen.shared.makeViewController { [weak self] levelId in
+            print("MAIN_MENU: Start Level tapped (\(levelId)) -> Swapping rootViewController to KorGE gameplay")
+            GameLevelStartBridge.shared.startLevel(levelId: levelId)
             self?.switchToKorGE()
         }
         composeVC = compose
