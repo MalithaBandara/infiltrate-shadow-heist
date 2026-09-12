@@ -225,9 +225,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // 1. Switch to KorGE
         switchToKorGE()
 
-        // 2. Dwell in gameplay for 1 second
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            print("CI_TEST: Gameplay active, triggering level completion")
+        // 2. Dwell in gameplay until CI acknowledges it captured a screenshot during this window
+        // (screenshot_taken.txt), rather than a fixed short delay. A fixed ~1.5s dwell (this used
+        // to be requestLevelEnd() after 1.0s + a further 0.5s before switching back) was too short
+        // for CI's own `xcrun simctl io screenshot` call to complete before the view switched back
+        // - confirmed empirically (2026-09-12): that command alone can take 1-13s on the runner
+        // (see ios-build.yml), well past a 1.5s window, so gameplay_check.png kept capturing the
+        // main menu again by the time the screenshot actually got taken, even though the trigger
+        // (korge_visible.txt) fired at exactly the right moment. Polling for an ack avoids both
+        // guessing a longer fixed dwell that still might not be enough, and stalling forever if
+        // CI's screenshot step is ever skipped/fails (20s hard cap).
+        let dwellDeadline = Date().addingTimeInterval(20.0)
+        var dwellPollTimer: Timer?
+        dwellPollTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] t in
+            let acked = self?.readTextFile("screenshot_taken.txt") != nil
+            let timedOut = Date() >= dwellDeadline
+            guard acked || timedOut else { return }
+            t.invalidate()
+            print("CI_TEST: Gameplay dwell ended (screenshotAcked=\(acked), timedOut=\(timedOut)) - triggering level completion")
             SpikeBridge.shared.requestLevelEnd()
 
             // 3. Return to Compose MainMenu
@@ -241,6 +256,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 self?.runAdMobVerification()
             }
         }
+        _ = dwellPollTimer
     }
 
     // MARK: - AdMob On-Device Verification (see .junie/guidelines.md "AdMob (basic-ads)
@@ -284,5 +300,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         let url = docs.appendingPathComponent(name)
         try? text.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    // Used by runAutomatedLevelTransition()'s dwell poll to detect ios-build.yml's
+    // screenshot_taken.txt ack, written directly onto the host filesystem (the app container's
+    // Documents directory is a real path on the Mac runner, not something simctl virtualizes) the
+    // same way this app's own result files are read back by the CI script.
+    private func readTextFile(_ name: String) -> String? {
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        let url = docs.appendingPathComponent(name)
+        return try? String(contentsOf: url, encoding: .utf8)
     }
 }
