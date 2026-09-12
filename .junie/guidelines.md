@@ -703,6 +703,33 @@ Also needed: `EXCLUDED_ARCHS[sdk=iphonesimulator*] = x86_64` in
 `-destination` defaults to building both arm64 and x86_64 slices, but the
 embedded Kotlin/Native frameworks are arm64-only.
 
+**Landscape lock added (2026-09-12), root-caused via a real limrun.com simulator screenshot.**
+`ios-shell/project.yml`'s Info.plist had no `UISupportedInterfaceOrientations` key at all, so it
+fell back to Xcode's default (portrait allowed) - every Compose menu screen is laid out assuming a
+landscape-wide canvas (`StoreScreen.kt`'s `scale = screenHeight / 720.dp` assumes 720 is the SHORT
+dimension), so portrait rendered every screen squished into a narrow column, text wrapping
+character-by-character. Fixed by adding `UISupportedInterfaceOrientations`/`~ipad` (both landscape
+only) to `project.yml`, matching `android-shell/AndroidManifest.xml`'s existing
+`android:screenOrientation="landscape"`. **Not yet re-verified in CI/on-device** - push and check.
+
+**A second, unrelated real bug found from the same screenshot report ("back button in Store/
+Settings doesn't work"): `AppDelegate.swift`'s `addDebugOverlay()` was silently eating the taps.**
+It added a real, always-interactive `UIButton` ("Storage Bridge Check", frame `(12, 44, 220, 36)`)
+and a `UILabel` directly to the `UIWindow` itself (`window.addSubview(...)`, not to any specific
+view controller's view) from `didFinishLaunchingWithOptions`, with nothing anywhere ever removing
+it - so it sat on top of *every* screen (MainMenu, Store, Settings, gameplay) for the app's entire
+life, since window-level subviews stack above `rootViewController.view` regardless of when they're
+added. Its frame directly overlaps `MenuTopBar`'s back button (top-left, every screen, same
+region) - taps meant for the real back button were landing on this invisible-in-intent debug
+button instead. Removed outright (the button, its `@objc` target, and the `resultLabel` property/
+updates) rather than repositioned: CI never actually reads it (it polls
+`storage_bridge_result.txt` from disk via `simctl get_app_container`, written by
+`runStorageBridgeCheck()` regardless of whether the button exists), so it was purely a manual-QA
+convenience that outlived its usefulness once the automated write-to-file path was proven out. If
+a manual on-device re-trigger is ever needed again, don't reintroduce it as an unremoved
+window-level subview - gate it behind a debug build flag or at minimum give it a frame nowhere
+near the top-left corner every menu screen's back button lives in.
+
 **Still open**: `:game`'s own `compileKotlinIosSimulatorArm64` is disabled
 by a KorGE-plugin-specific gate on this Windows machine (root cause not
 traced) — any iOS-only `:game` change can only be compile-checked via CI,

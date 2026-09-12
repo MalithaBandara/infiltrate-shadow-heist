@@ -55,6 +55,23 @@ targets:
       properties:
         CFBundleDisplayName: Shadow Heist Shell
         UILaunchScreen: {}
+        # This is a side-scrolling stealth game - both KorGE gameplay and the Compose menu/
+        # Store/Settings screens are laid out assuming a landscape-wide canvas (see e.g.
+        # StoreScreen.kt's `scale = screenHeight / 720.dp`, which assumes 720 is the SHORT
+        # (height) dimension of a landscape screen). With no orientation restriction here at
+        # all, the default Xcode template behavior supports portrait too, and portrait renders
+        # every screen squished into a narrow column - text wrapping character-by-character,
+        # and (more importantly) breaks touch targets sized/positioned for the intended
+        # landscape layout. Android already locks this via
+        # android:screenOrientation="landscape" in android-shell's AndroidManifest.xml; this is
+        # the iOS equivalent. Both keys needed since TARGETED_DEVICE_FAMILY above covers iPad
+        # too, which reads the ~ipad-suffixed key separately from the iPhone one.
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         # Compose Multiplatform's ComposeUIViewController deliberately crashes (via its own
         # PlistSanityCheck, dispatched on a low-priority background queue - see
         # .junie/guidelines.md for the full trace) if this is missing/false. Unrelated to the
