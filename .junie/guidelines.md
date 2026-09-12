@@ -703,31 +703,31 @@ Also needed: `EXCLUDED_ARCHS[sdk=iphonesimulator*] = x86_64` in
 `-destination` defaults to building both arm64 and x86_64 slices, but the
 embedded Kotlin/Native frameworks are arm64-only.
 
-**Landscape lock — two attempts, root-caused via real limrun.com AND real `xcrun simctl`
-screenshots.** `ios-shell/project.yml`'s Info.plist had no `UISupportedInterfaceOrientations` key
-at all, so it fell back to Xcode's default (portrait allowed) - every Compose menu screen is laid
-out assuming a landscape-wide canvas (`StoreScreen.kt`'s `scale = screenHeight / 720.dp` assumes
-720 is the SHORT dimension), so portrait rendered every screen squished into a narrow column, text
-wrapping character-by-character.
+**Landscape lock — CONFIRMED WORKING (2026-09-12), but the verification method itself was wrong
+for a while first.** `ios-shell/project.yml`'s Info.plist had no `UISupportedInterfaceOrientations`
+key at all originally, so it fell back to Xcode's default (portrait allowed) - every Compose menu
+screen is laid out assuming a landscape-wide canvas (`StoreScreen.kt`'s `scale = screenHeight /
+720.dp` assumes 720 is the SHORT dimension), so portrait genuinely rendered every screen squished
+into a narrow column, text wrapping character-by-character. Fixed by adding the Info.plist key
+(commit `c0ecff9`).
 
-**First attempt (2026-09-12, commit `c0ecff9`) - added the Info.plist key, did NOT actually
-work.** Confirmed wrong by downloading the real `xcrun simctl`-captured screenshots from CI itself
-(run 34690299984) rather than trusting the fix by inspection alone: the PNGs were still
-1206×2622 (portrait aspect) with menu text still rotated 90 degrees. This is real evidence from
-Apple's own Simulator, not a limrun-side rendering quirk as first suspected when the same symptom
-showed up in a limrun.com screenshot.
-
-**Actual fix (2026-09-12, unverified as of this writing)**: `AppDelegate.swift`'s
-`application(_:supportedInterfaceOrientationsFor:)` now returns `.landscape` unconditionally. The
-Info.plist key alone wasn't enough because UIKit lets any `UIViewController` in the chain override
-`supportedInterfaceOrientations` and take precedence over the Info.plist default for its own
-presentation - Compose Multiplatform's `ComposeUIViewController` (the root VC for
-`MainMenuComposeScreen`) very likely does exactly that. The `UIApplicationDelegate` method is
-consulted for the window's orientation mask regardless of what any individual view controller
-reports, so it's the reliable way to force this app-wide. Kept the Info.plist key too (harmless,
-still the documented baseline), but the delegate method is what's actually doing the work.
-**Lesson**: for this kind of "did the visual fix actually work" question, pull the real CI
-screenshot artifact and look at it - don't just confirm the code change compiles and looks right.
+**A real trap, worth remembering**: after that fix, both a limrun.com screenshot and real
+`xcrun simctl io screenshot` PNGs pulled straight from CI (run 34690299984) still *looked* broken -
+1206×2622 (portrait-dimensioned), with menu text rotated 90 degrees - which read as "the fix didn't
+work" and led to a second fix (`AppDelegate.swift`'s `application(_:supportedInterfaceOrientationsFor:)`
+forcing `.landscape`, commit `2e4f599`). That second fix also "still looked broken" the same way.
+**The screenshots were correct and readable the whole time - they just needed a 90° rotation to
+view**, because an iPhone's physical display panel is always portrait-shaped; a genuinely-landscape
+app still renders into that same portrait-shaped buffer, with content rotated 90° within it, and a
+raw `simctl`/limrun screenshot captures exactly that raw buffer rather than transposing it for
+convenient viewing on a normal monitor. Confirmed by literally rotating a `gameplay_check` PNG 90°
+clockwise with PIL (`img.rotate(90, expand=True)`) - the result is a perfectly laid-out, correctly-
+proportioned landscape main menu (title top-left, PLAY/MISSIONS/STORE/SETTINGS stacked left,
+artwork filling the right two-thirds). The Info.plist key alone was very likely already sufficient;
+the `AppDelegate` override is redundant but harmless, kept as a belt-and-suspenders default.
+**Lesson, and it cost real time twice in a row**: before concluding a landscape-locked app's
+screenshot "still looks wrong," rotate it 90° first and look again - don't judge a raw device-buffer
+capture as if it were a rendered-for-viewing image.
 
 **A second, unrelated real bug found from the same screenshot report ("back button in Store/
 Settings doesn't work"): `AppDelegate.swift`'s `addDebugOverlay()` was silently eating the taps.**
@@ -789,6 +789,23 @@ unused - the no-arg overload was the one actually wired) and calls
 verified in CI or on-device** - push and check; in particular, whether picking a second, different
 level after already having played one correctly re-targets the scene has not been observed, only
 reasoned from mirroring Android's proven mechanism.
+
+**Getting real photographic proof of this specific fix turned out to be its own small project.**
+`ios-build.yml`'s automated test already reports `TRANSITION_OK`, but that doesn't prove gameplay
+rendered at all - it calls `SpikeBridge.shared.requestLevelEnd()` directly from Swift, bypassing
+whatever scene is actually loaded, so it would have said `TRANSITION_OK` even with the old broken
+`spikeMain()` wiring. Two blind sleep-based screenshot attempts (a fixed 2.5s delay, then six
+attempts spread across ~2-6s) both missed the ~1.5s KorGE-visible window across full CI runs
+(checked all 10+6 frames from two separate runs - every single one was either the home screen mid-
+launch-animation or the Compose main menu, never gameplay). Wall-clock timing from the CI script's
+side is unpredictable here: each `xcrun simctl io screenshot` call can itself take 1-13s on this
+runner, on top of unknown process-spawn/runtime-init latency before `AppDelegate.swift`'s own
+2-second post-launch timer even starts. **Fixed properly** by having `switchToKorGE()` write a
+`korge_visible.txt` marker file the instant it fires (same pattern as `storage_bridge_result.txt`/
+`transition_test_result.txt`), and having the CI script poll for that file (up to 15s) before
+taking one screenshot immediately on detection - deterministic instead of guessed. **Not yet run** -
+this is the mechanism that will finally show, photographically, whether real gameplay or some
+blank/debug state is what's actually on screen during that window.
 
 **A third, unrelated bug found from the same report ("parts of the screen blocked by that thing at
 the top")**: nothing on iOS ever hid the system status bar - `android-shell/MainActivity.kt` calls

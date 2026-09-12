@@ -89,6 +89,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func switchToKorGE() {
         guard let window = self.shellWindow, let korge = self.korgeVC else { return }
         print("SHELL: Swapping to KorGE (Gameplay)")
+        // Lets CI poll for this instead of guessing a sleep duration - a prior attempt (2026-09-12)
+        // spread 6 blind, fixed-interval screenshot attempts across the automated test's ~1.5s
+        // KorGE-visible window and missed it every time, since each `simctl io screenshot` call
+        // can itself take 1-13s on this runner (see ios-build.yml's own comment on that), making
+        // wall-clock timing from this script's side unpredictable. Writing this the instant the
+        // real switch happens is the same "read a result file CI polls for" pattern already used
+        // for storage_bridge_result.txt/transition_test_result.txt, just marking a moment instead
+        // of a final result.
+        writeTextFile("korge_visible.txt", "\(Date())")
         window.rootViewController = korge
         startObservingLevelEnd()
     }
