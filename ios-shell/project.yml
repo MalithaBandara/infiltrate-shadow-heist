@@ -109,3 +109,27 @@ targets:
       - framework: ../paywall-build/build/bin/iosSimulatorArm64/podDebugFramework/PaywallModule.framework
         embed: true
         codeSign: false
+    postbuildScripts:
+      # Real bug found via the console diagnostic added to GameplayScene.kt's asset-loading
+      # catch block + a CI screenshot proving the game reaches gameplay at all: korlibs threw
+      # "File case not matched" for resources/player/idle/0001.png. That message is misleading -
+      # confirmed by downloading a real CI-built ShellApp.app and inspecting it directly: there is
+      # no player/ anywhere in the bundle, and Frameworks/GameMain.framework contains only the
+      # compiled binary + Info.plist, no resources at all. GameMain.framework never embeds :game's
+      # root resources/ folder - only KorGE's own generated Xcode project (build/platforms/ios/
+      # app, NOT used by this hand-authored shell) has a Copy Bundle Resources phase for it.
+      # korlibs' resourcesVfs on iOS resolves against NSBundle.mainBundle's own directory (see
+      # StandardBasePathsDarwin.executableFolder / applicationVfs in
+      # korlibs-io-iossimulatorarm64's sources) - i.e. ShellApp.app's own bundle root, not
+      # GameMain.framework's bundle - so resources need to land flat there, e.g.
+      # ShellApp.app/player/idle/0001.png, not nested under a resources/ subfolder. Hence rsync
+      # copies resources/*'s CONTENTS (trailing slash on source, not dest) straight into the app
+      # bundle root, mirroring what KorGE's own generated project does automatically.
+      - name: "Embed :game's resources/ (sprites, audio, level data) into the app bundle root"
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          SRC="${SRCROOT}/../resources"
+          DEST="${TARGET_BUILD_DIR}/${WRAPPER_NAME}"
+          echo "Copying game resources from $SRC to $DEST"
+          rsync -a --exclude='.*' "$SRC/" "$DEST/"

@@ -818,6 +818,41 @@ switching back, instead of a fixed delay. Both sides now wait on the other rathe
 duration. **Not yet re-run** - this is the version that should finally show, photographically,
 whether real gameplay or some blank/debug state is what's on screen during that window.
 
+**That handshake worked and surfaced a real, fourth bug - FIXED 2026-09-12: `resources/` (all
+of :game's sprites/audio/level data, e.g. `resources/player/idle/0001.png`) was never bundled
+into `ShellApp.app` at all.** Once the screenshot mechanism above reliably caught the
+KorGE-visible window, the on-screen result was a "LEVEL LOAD FAILED" error screen (added by a
+`println` + on-screen dump in `GameplayScene.kt`'s asset-loading catch block, specifically to
+get the *real* exception text instead of a silent freeze): `korlibs.io.lang.IOException: File
+case not matched pathExpected=.../ShellApp.app/player/idle/0001.png !=
+pathResolved=.../ShellApp.app/player`. **The "case not matched" wording is misleading - this is
+not a filename-casing bug.** `resolveOrError()` (korlibs-io's `LocalVfsNativeBase`) calls the
+POSIX `realpath()` C function on the full path and only compares the final path segment
+(`baseName`) of what it gets back; when an intermediate directory doesn't exist at all, Darwin's
+`realpath()` still returns a best-effort resolved prefix in the buffer (here, as far as it could
+get: `.../ShellApp.app`, then the literal next requested segment `player`) rather than failing
+cleanly - korlibs turns that mismatch into a "case not matched" `IOException` regardless of
+whether the real problem is a case difference or (as here) a flat-out missing path. Confirmed by
+downloading a real CI-built `ShellApp.app` (via `gh run download <run-id> -n ios-shell-app`) and
+inspecting it directly: there is no `player/` anywhere in the bundle, and
+`Frameworks/GameMain.framework` contains only the compiled binary + `Info.plist` - no resources
+at all, confirming the gap is structural, not a one-file typo. **Root cause**: `GameMain.
+framework` (built by KorGE's own `iosBuildSimulatorDebug` Gradle task) never embeds the
+project's root `resources/` folder - only KorGE's own separately-generated Xcode project
+(`build/platforms/ios/app`, **not used by this hand-authored shell** - see this file's opening
+notes) has a "Copy Bundle Resources" phase for it, and nothing in `ios-shell/project.yml`
+replicated that. Confirmed from korlibs' own iOS source
+(`korlibs-io-iossimulatorarm64-6.0.0-sources.jar`, `StandardBasePathsDarwin.executableFolder`)
+that `resourcesVfs`/`applicationVfs` on iOS resolves against `NSBundle.mainBundle`'s own
+directory - i.e. `ShellApp.app`'s bundle root itself, NOT `GameMain.framework`'s own bundle -
+so resources must land flat there (`ShellApp.app/player/idle/0001.png`), not nested under a
+`resources/` subfolder. **Fix**: a `postbuildScripts` entry in `ios-shell/project.yml` that
+rsyncs `resources/`'s *contents* (trailing slash on source, not dest - copies what's inside,
+not the folder itself) straight into the built app bundle root, mirroring what KorGE's own
+generated project does automatically. **Not yet re-verified in CI** - push and check the next
+`ios-build.yml` run's `gameplay_check.png` / console log for whether the LEVEL LOAD FAILED
+screen is gone.
+
 **A third, unrelated bug found from the same report ("parts of the screen blocked by that thing at
 the top")**: nothing on iOS ever hid the system status bar - `android-shell/MainActivity.kt` calls
 `hideSystemBars()` for exactly this reason (a fullscreen game with its own edge-to-edge top HUD/
