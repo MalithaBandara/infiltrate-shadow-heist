@@ -703,14 +703,31 @@ Also needed: `EXCLUDED_ARCHS[sdk=iphonesimulator*] = x86_64` in
 `-destination` defaults to building both arm64 and x86_64 slices, but the
 embedded Kotlin/Native frameworks are arm64-only.
 
-**Landscape lock added (2026-09-12), root-caused via a real limrun.com simulator screenshot.**
-`ios-shell/project.yml`'s Info.plist had no `UISupportedInterfaceOrientations` key at all, so it
-fell back to Xcode's default (portrait allowed) - every Compose menu screen is laid out assuming a
-landscape-wide canvas (`StoreScreen.kt`'s `scale = screenHeight / 720.dp` assumes 720 is the SHORT
-dimension), so portrait rendered every screen squished into a narrow column, text wrapping
-character-by-character. Fixed by adding `UISupportedInterfaceOrientations`/`~ipad` (both landscape
-only) to `project.yml`, matching `android-shell/AndroidManifest.xml`'s existing
-`android:screenOrientation="landscape"`. **Not yet re-verified in CI/on-device** - push and check.
+**Landscape lock — two attempts, root-caused via real limrun.com AND real `xcrun simctl`
+screenshots.** `ios-shell/project.yml`'s Info.plist had no `UISupportedInterfaceOrientations` key
+at all, so it fell back to Xcode's default (portrait allowed) - every Compose menu screen is laid
+out assuming a landscape-wide canvas (`StoreScreen.kt`'s `scale = screenHeight / 720.dp` assumes
+720 is the SHORT dimension), so portrait rendered every screen squished into a narrow column, text
+wrapping character-by-character.
+
+**First attempt (2026-09-12, commit `c0ecff9`) - added the Info.plist key, did NOT actually
+work.** Confirmed wrong by downloading the real `xcrun simctl`-captured screenshots from CI itself
+(run 34690299984) rather than trusting the fix by inspection alone: the PNGs were still
+1206×2622 (portrait aspect) with menu text still rotated 90 degrees. This is real evidence from
+Apple's own Simulator, not a limrun-side rendering quirk as first suspected when the same symptom
+showed up in a limrun.com screenshot.
+
+**Actual fix (2026-09-12, unverified as of this writing)**: `AppDelegate.swift`'s
+`application(_:supportedInterfaceOrientationsFor:)` now returns `.landscape` unconditionally. The
+Info.plist key alone wasn't enough because UIKit lets any `UIViewController` in the chain override
+`supportedInterfaceOrientations` and take precedence over the Info.plist default for its own
+presentation - Compose Multiplatform's `ComposeUIViewController` (the root VC for
+`MainMenuComposeScreen`) very likely does exactly that. The `UIApplicationDelegate` method is
+consulted for the window's orientation mask regardless of what any individual view controller
+reports, so it's the reliable way to force this app-wide. Kept the Info.plist key too (harmless,
+still the documented baseline), but the delegate method is what's actually doing the work.
+**Lesson**: for this kind of "did the visual fix actually work" question, pull the real CI
+screenshot artifact and look at it - don't just confirm the code change compiles and looks right.
 
 **A second, unrelated real bug found from the same screenshot report ("back button in Store/
 Settings doesn't work"): `AppDelegate.swift`'s `addDebugOverlay()` was silently eating the taps.**
@@ -782,7 +799,13 @@ Island cutout on newer models) rendered on top of and overlapped that content. F
 `ios-shell/project.yml`'s Info.plist (the latter is needed because it defaults to `true`, which
 would make the global key get ignored in favor of each `UIViewController`'s own
 `prefersStatusBarHidden` - neither Compose's `ComposeUIViewController` nor KorGE's own view
-controller override that, so without this the global key does nothing). Not yet re-verified either.
+controller override that, so without this the global key does nothing). **Confirmed working** from
+the same real `xcrun simctl` CI screenshots used to catch the orientation bug above (run
+34690299984): the clock/battery/signal icons are genuinely gone. **The black rounded shape at the
+top is NOT the status bar and this fix does not (and cannot) remove it** - it's the Dynamic Island
+hardware cutout on whichever simulated iPhone model CI happens to pick, a physical display
+characteristic the OS always reserves space for regardless of app-level status-bar flags. Not an
+app bug; the only way to avoid it is picking a simulator/device model without a Dynamic Island.
 
 **Method**: a debug KorGE scene increments a per-frame counter
 (`SpikeBridge.frameTicks`) regardless of UIKit visibility; native Swift

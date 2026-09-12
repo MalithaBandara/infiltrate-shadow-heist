@@ -47,6 +47,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
 
+    // Info.plist's UISupportedInterfaceOrientations alone did NOT force landscape in practice -
+    // confirmed from real xcrun simctl screenshots in CI (run 34690299984, 2026-09-12): the menu
+    // still rendered portrait-shaped and rotated 90 degrees. UIKit's rotation resolution lets any
+    // UIViewController in the chain override supportedInterfaceOrientations and take precedence
+    // over the Info.plist default for its own presentation - Compose Multiplatform's
+    // ComposeUIViewController (MainMenuComposeScreen's root) very likely does exactly that,
+    // ignoring the Info.plist key entirely. This delegate method is consulted for the window's
+    // orientation mask regardless of what any individual view controller reports, so it's the
+    // reliable way to force it app-wide. Keep the Info.plist key too (harmless, and it's the
+    // documented baseline default) but this is what's actually doing the work.
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        return .landscape
+    }
+
     func applicationWillResignActive(_ application: UIApplication) {
         ShellAppDelegate.shared.applicationWillResignActive(app: application)
     }
