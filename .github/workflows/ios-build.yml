@@ -195,10 +195,18 @@ jobs:
           # starts. Polling for a marker file switchToKorGE() now writes the instant it fires
           # (korge_visible.txt) is deterministic instead - the same "read a result file CI polls
           # for" pattern already used for storage_bridge_result.txt/transition_test_result.txt.
+          #
+          # A first attempt (2026-09-12) budgeted only 15s and timed out every time - cold app
+          # launch on this runner is apparently much slower than assumed: the storage bridge
+          # check (which runs synchronously as the very first thing in didFinishLaunchingWithOptions,
+          # before this one even gets a chance to fire) wasn't confirmed until ~5 minutes into this
+          # same step in that run. 90s gives real headroom instead of guessing a second too-short
+          # number; the rest of the job already tolerates slow timing elsewhere (the next two steps
+          # alone budget up to 70s combined).
           CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" data)
           KORGE_VISIBLE_FILE="$CONTAINER/Documents/korge_visible.txt"
           KORGE_SHOT_TAKEN=0
-          for i in $(seq 1 15); do
+          for i in $(seq 1 90); do
             if [ -f "$KORGE_VISIBLE_FILE" ]; then
               echo "korge_visible.txt appeared after ~${i}s of polling - capturing screenshot now."
               xcrun simctl io "$DEVICE_ID" screenshot "ios-shell/spike-screenshots/gameplay_check.png" || true
@@ -208,7 +216,7 @@ jobs:
             sleep 1
           done
           if [ "$KORGE_SHOT_TAKEN" -eq 0 ]; then
-            echo "korge_visible.txt never appeared within 15s - the automated switch to KorGE may not have happened, or takes longer than expected."
+            echo "korge_visible.txt never appeared within 90s - the automated switch to KorGE may not have happened, or takes longer than expected."
           fi
 
           # Switch-spike diagnostic round (run 33417902658) showed the whole automated 6-cycle
