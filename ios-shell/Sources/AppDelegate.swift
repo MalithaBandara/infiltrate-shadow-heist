@@ -234,8 +234,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // main menu again by the time the screenshot actually got taken, even though the trigger
         // (korge_visible.txt) fired at exactly the right moment. Polling for an ack avoids both
         // guessing a longer fixed dwell that still might not be enough, and stalling forever if
-        // CI's screenshot step is ever skipped/fails (20s hard cap).
-        let dwellDeadline = Date().addingTimeInterval(20.0)
+        // CI's screenshot step is ever skipped/fails.
+        //
+        // The original 20s hard cap was ALSO too short - confirmed from a real run (2026-09-12):
+        // the console diagnostic below logged `screenshotAcked=false, timedOut=true` even though
+        // CI's own step log showed the screenshot completing successfully, because the full round
+        // trip (korge_visible.txt detected -> xcrun simctl io screenshot process spawned/connects
+        // to the device -> framebuffer read -> file written -> screenshot_taken.txt written) took
+        // ~46s that run, more than double the 20s cap. Bumped to 90s to match the same latency
+        // budget already given to the korge_visible.txt poll itself in ios-build.yml.
+        let dwellDeadline = Date().addingTimeInterval(90.0)
         var dwellPollTimer: Timer?
         dwellPollTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] t in
             let acked = self?.readTextFile("screenshot_taken.txt") != nil
