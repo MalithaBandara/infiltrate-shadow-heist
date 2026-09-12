@@ -10,7 +10,15 @@ data class GuardSpawn(
     val patrolMaxX: Double,
     val speed: Double = 55.0,
     val facing: Double = 1.0,
-    val visionRange: Double = 220.0
+    val visionRange: Double = 220.0,
+    // Hitbox. The 26x48 default predates the guard sprite and is half the player's size - level 5's
+    // guards still use it because its walkthrough test and the guards' patrol geometry are tuned
+    // to it. A guard drawn with the real idle art (resources/guard/idle) wants the player's own
+    // 96-unit height so the two silhouettes match on screen; see LEVEL_3_LAYOUT.
+    val width: Double = 26.0,
+    val height: Double = 48.0,
+    /** Seconds spent standing at each end of the route before turning back; see Guard.patrolPauseDuration. */
+    val patrolPauseDuration: Double = 0.0
 )
 
 /** A security camera placed in a [LevelLayout] or [LevelData]. */
@@ -51,6 +59,16 @@ data class LevelLayout(
     val hangingCrateVariant1: List<Rect> = emptyList(),
     val hangingCrateVariant2: List<Rect> = emptyList(),
     val barrels: List<Rect> = emptyList(),
+    // Tables (table.png): a flat plank on a single off-center leg with a diagonal brace, tagged
+    // here the same way barrels are - a solid block like any other climbable box (matches its own
+    // bounding box exactly), just with this art instead of the plain crate/rough-block look. See
+    // GameplayScene.kt's box-rendering loop.
+    val tables: List<Rect> = emptyList(),
+    // Collision boxes that belong to a table whose art rect (in [tables]) is NOT itself a box -
+    // i.e. a table whose underside is open. Each must also be in [boxes]; this only tells the
+    // renderer not to draw them, since the table art already covers them. Same arrangement as
+    // level 1's truck (truckParts collide, the one truck image is drawn over the union).
+    val tableParts: List<Rect> = emptyList(),
     val movingPlatforms: List<MovingPlatformDef> = emptyList(),
     // Purely decorative chain-and-hook dangling from off-screen above (hook.png, a single tall
     // image, not tiled - unlike the hanging crates' chain there's no crate at the bottom needing
@@ -124,13 +142,13 @@ data class LevelData(
     /**
      * Calculates coin reward based on 2-tier progression:
      * Levels 1–6 (Standard): 1★ = 100, 2★ = 200, 3★ = 350 (Lifetime 3★ = 2,100)
-     * Levels 7–12 (Hard/Advanced): 1★ = 200, 2★ = 400, 3★ = 700 (Lifetime 3★ = 4,200)
-     * Total lifetime earn across 12 levels = 6,300 coins.
+     * Levels 7–13 (Hard/Advanced): 1★ = 200, 2★ = 400, 3★ = 700 (Lifetime 3★ = 4,900)
+     * Total lifetime earn across 13 levels = 7,000 coins.
      */
     fun getCoinReward(starCount: Int): Int {
         if (starCount <= 0) return 0
         val levelNum = id.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 1
-        val isHard = levelNum in 7..12 || id.contains("hard") || id.contains("dlc")
+        val isHard = levelNum in 7..13 || id.contains("hard") || id.contains("dlc")
         return if (isHard) {
             when (starCount) {
                 1 -> 200
@@ -489,7 +507,7 @@ data class LevelData(
          * across - the gap is twice a running jump - and it is the one place in the game the swing
          * exists at all, so the geometry here and Player's swing constants are a matched pair.
          */
-        val LEVEL_3_LAYOUT = run {
+        val LEVEL_4_LAYOUT = run {
             val groundY = 440.0
             val ground = Rect(x = 0.0, y = groundY, width = 1800.0, height = 100.0)
 
@@ -567,13 +585,115 @@ data class LevelData(
             )
         }
 
+        /**
+         * Work in progress - first section built. Old level_3 ("Blind Spot", the barrel-wall +
+         * hook-swing layout) moved to level_4 to make room for this new one, following the same
+         * "first section only" pattern LEVEL_4_LAYOUT itself started from.
+         *
+         * The one obstacle so far: a table (table.png - real art, cropped from the owner's
+         * Downloads/charAnimations/assets/beam.png and re-composited: the source's flat tabletop
+         * midsection, which is otherwise a fixed length, is repeated 8x so the plank reads as a
+         * long cantilevered shelf rather than a short desk) blocking the ground path outright, one
+         * proven climb up from a single crate - the exact shape of LEVEL_2_LAYOUT's crate1 ->
+         * terrain step (crate flush against the target box's left face, climb rise 96 - inside
+         * Player's climbMinHeight..climbMaxHeight window of 51.2..115.0). Unlike the barrel-wall
+         * climbs elsewhere, which stay reachable by plain jump, this one is a real mantle: the
+         * table's own collision is solid from its top down to the ground (see LevelLayout.tables),
+         * matching what Player.findClimbTarget requires - a real face to brace against, not a
+         * floating ledge - and coincidentally means the art (drawn at exactly this box's own
+         * width/height) needs no separate "draw past the box to the ground" logic; the leg's own
+         * foot already lands exactly on the ground because the box does. Being solid, the table
+         * also blocks the ground path entirely - the climb isn't a shortcut here, it's the only
+         * way past. Past the table, the player crosses it and drops back to the ground (a fall is
+         * never fatal) to reach the exit.
+         *
+         * The table's collision is two boxes, not one (see [LevelLayout.tableParts]): the plank
+         * along the top, 30 deep to match the art's own slab, and a leg column at the left end
+         * from the plank top to the ground. The leg is what the climb braces against (its top is
+         * the plank top, so the mantle lands on the roof; its bottom reaches the crate top, which
+         * Player.findClimbTarget requires of a face), and it still blocks the ground path from
+         * the left. What that buys is the open underside, which is where the guard stands.
+         *
+         * The guard. One, pacing the underside: he stands at the far-end post (860, facing RIGHT,
+         * out past the roof's end) for [Guard.patrolPauseDuration], walks to the near post by the
+         * leg (560), stands there facing left, walks back, and repeats - the owner's spec, "stay
+         * idle -> walk -> stay idle -> come back". The leg and plank are occluders, so wherever he
+         * is, the climb and the crossing above are blind to him. The beat is the drop off the far
+         * end: from the far post facing right his cone (220) covers the landing zone out to ~1100,
+         * so the player on the roof watches the beam poke out past the plank's end and drops
+         * while he is away at the near post - a timing read, with the cone itself as the tell.
+         * Dropping while he stands at 860 lands in the beam at point-blank. He is 30 wide by 96
+         * tall, the player's own height, so the two silhouettes read at one scale.
+         *
+         * table.png's crop is now the STRICT alpha bbox (threshold >10), not PIL's own getbbox() -
+         * an earlier pass used getbbox() directly and it turned out to include ~55px of nearly
+         * (but not fully) transparent fringe below the leg's real foot, invisible in the source
+         * but a visible sliver of "floating" once that fringe got stretched across the full box
+         * height in-game. Re-derive with the strict threshold if this asset is ever rebuilt.
+         */
+        val LEVEL_3_LAYOUT = run {
+            val groundY = 440.0
+            val worldWidth = 1550.0
+            val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
+
+            val crateWidth = 68.0
+            val crateHeight = 48.0
+            val crateX = 420.0 // short run-up from the start fence, matching this file's own "400" convention
+            val crate = Rect(x = crateX, y = groundY - crateHeight, width = crateWidth, height = crateHeight)
+
+            val tableWidth = 450.0 // much longer cantilevered plank
+            val tableElevation = 144.0 // crate top (392) to table top (296) = 96, inside the 51.2..115.0 climb window
+            val table = Rect(x = crate.right, y = groundY - tableElevation, width = tableWidth, height = tableElevation)
+            // Measured off table.png (2048x512): the slab is rows 0..102 = 28.7 of 144 units, with
+            // hanging brackets to row ~118; the leg is columns 36..79 = 8..17 units in from the
+            // left edge, its brace reaching ~31 units in. The leg box starts at the table's own
+            // left edge so the climb's lip is where the art's lip is, and is wide enough to cover
+            // the brace so nothing pokes out of it.
+            val tablePlankDepth = 30.0
+            val tableLegWidth = 30.0
+            val tableLeg = Rect(x = table.x, y = table.y, width = tableLegWidth, height = table.height)
+            val tablePlank = Rect(x = tableLeg.right, y = table.y, width = table.width - tableLegWidth, height = tablePlankDepth)
+
+            val guardWidth = 30.0
+            val guardHeight = 96.0
+            val guardFarPost = table.right - 78.0 // 860: under the roof, 48 short of its end, 30 wide
+            val guardNearPost = tableLeg.right + 42.0 // 560: a stride clear of the leg's brace
+            val roofGuard = GuardSpawn(
+                startX = guardFarPost, surfaceY = groundY,
+                patrolMinX = guardNearPost, patrolMaxX = guardFarPost,
+                speed = 55.0, facing = 1.0, visionRange = 220.0,
+                width = guardWidth, height = guardHeight,
+                patrolPauseDuration = 3.0
+            )
+
+            LevelLayout(
+                worldWidth = worldWidth,
+                playerStartX = 236.0,
+                playerStartY = groundY - 96.0,
+                exitZone = Rect(x = table.right + 300.0, y = groundY - 100.0, width = 44.0, height = 100.0),
+                platforms = listOf(ground),
+                boxes = listOf(crate, tableLeg, tablePlank),
+                guards = listOf(roofGuard),
+                tables = listOf(table),
+                tableParts = listOf(tableLeg, tablePlank)
+            )
+        }
+
         val DEFAULT_LEVEL_3 = LevelData(
             id = "level_3",
-            name = "03: Blind Spot",
+            name = "03: New Level",
+            timeTargetSeconds = 25.0f,
+            layout = LEVEL_3_LAYOUT
+        )
+
+        val DEFAULT_LEVEL_4 = LevelData(
+            id = "level_4",
+            name = "04: Blind Spot",
             timeTargetSeconds = 25.0f,
             description = "The shipyard is guarded. Slip through security and continue searching for signs of your old crew.",
             objectiveHint = "Get Past the Guards",
-            layout = LEVEL_3_LAYOUT
+            layout = LEVEL_4_LAYOUT,
+            backgroundImage = "bgmg6.png"
         )
 
         /**
@@ -637,8 +757,8 @@ data class LevelData(
         )
 
         val SIDE_SCROLL_LEVEL = LevelData(
-            id = "level_4",
-            name = "04: Restricted Zone",
+            id = "level_5",
+            name = "05: Restricted Zone",
             timeTargetSeconds = 60.0f,
             description = "The trail leads into a guarded cargo section. Get inside and discover what they are protecting.",
             objectiveHint = "Get Into the Restricted Area",
@@ -647,13 +767,13 @@ data class LevelData(
             layout = SIDE_SCROLL_LEVEL_LAYOUT
         )
 
-        // Levels 5-12 continue the shipyard story on the same single-screen arena
-        // (GameWorld.createDefault) levels 1-3 already use - no layout of their own yet, just a
+        // Levels 6-13 continue the shipyard story on the same single-screen arena
+        // (GameWorld.createDefault) levels 1 and 3 already use - no layout of their own yet, just a
         // progressively faster/tighter guard per level for a difficulty curve. timeTargetSeconds
         // is an estimate carried forward from that same pattern, not device/playtest-verified.
-        val DEFAULT_LEVEL_5 = LevelData(
-            id = "level_5",
-            name = "05: Missing Container",
+        val DEFAULT_LEVEL_6 = LevelData(
+            id = "level_6",
+            name = "06: Missing Container",
             timeTargetSeconds = 26.0f,
             description = "Container 17 appears in the records from your crew's final job. Find it and learn where it went.",
             objectiveHint = "Find Container 17",
@@ -662,9 +782,9 @@ data class LevelData(
             guardPatrolMaxX = 3150.0
         )
 
-        val DEFAULT_LEVEL_6 = LevelData(
-            id = "level_6",
-            name = "06: Stolen Manifest",
+        val DEFAULT_LEVEL_7 = LevelData(
+            id = "level_7",
+            name = "07: Stolen Manifest",
             timeTargetSeconds = 25.0f,
             description = "The container is missing. Search the offices for records that reveal who moved it and where it went.",
             objectiveHint = "Find the Shipping Records",
@@ -673,9 +793,9 @@ data class LevelData(
             guardPatrolMaxX = 3120.0
         )
 
-        val DEFAULT_LEVEL_7 = LevelData(
-            id = "level_7",
-            name = "07: Cold Trail",
+        val DEFAULT_LEVEL_8 = LevelData(
+            id = "level_8",
+            name = "08: Cold Trail",
             timeTargetSeconds = 24.0f,
             description = "The records point deeper into the shipyard. Follow the trail and uncover evidence of recent activity.",
             objectiveHint = "Follow the Cargo Trail",
@@ -684,9 +804,9 @@ data class LevelData(
             guardPatrolMaxX = 3100.0
         )
 
-        val DEFAULT_LEVEL_8 = LevelData(
-            id = "level_8",
-            name = "08: Old Signature",
+        val DEFAULT_LEVEL_9 = LevelData(
+            id = "level_9",
+            name = "09: Old Signature",
             timeTargetSeconds = 23.0f,
             description = "You find your crew's signature at the shipyard. Follow the clues to prove someone from the crew survived.",
             objectiveHint = "Find Your Crew's Mark",
@@ -695,9 +815,9 @@ data class LevelData(
             guardPatrolMaxX = 3080.0
         )
 
-        val DEFAULT_LEVEL_9 = LevelData(
-            id = "level_9",
-            name = "09: Open Yard",
+        val DEFAULT_LEVEL_10 = LevelData(
+            id = "level_10",
+            name = "10: Open Yard",
             timeTargetSeconds = 24.0f,
             description = "The trail continues across an exposed yard. Cross it unseen and stay close to the evidence.",
             objectiveHint = "Cross the Yard Undetected",
@@ -706,9 +826,9 @@ data class LevelData(
             guardPatrolMaxX = 3050.0
         )
 
-        val DEFAULT_LEVEL_10 = LevelData(
-            id = "level_10",
-            name = "10: Ghost Chase",
+        val DEFAULT_LEVEL_11 = LevelData(
+            id = "level_11",
+            name = "11: Ghost Chase",
             timeTargetSeconds = 23.0f,
             description = "A mysterious figure appears ahead, moving like one of your old crew. Follow them before they vanish.",
             objectiveHint = "Follow the Stranger",
@@ -717,9 +837,9 @@ data class LevelData(
             guardPatrolMaxX = 3030.0
         )
 
-        val DEFAULT_LEVEL_11 = LevelData(
-            id = "level_11",
-            name = "11: Hidden Cargo",
+        val DEFAULT_LEVEL_12 = LevelData(
+            id = "level_12",
+            name = "12: Hidden Cargo",
             timeTargetSeconds = 22.0f,
             description = "You finally reach Container 17. Open it and uncover what links the cargo to your crew's disappearance.",
             objectiveHint = "Open Container 17",
@@ -728,9 +848,9 @@ data class LevelData(
             guardPatrolMaxX = 3000.0
         )
 
-        val DEFAULT_LEVEL_12 = LevelData(
-            id = "level_12",
-            name = "12: Final Proof",
+        val DEFAULT_LEVEL_13 = LevelData(
+            id = "level_13",
+            name = "13: Final Proof",
             timeTargetSeconds = 22.0f,
             description = "The final evidence may reveal the truth about that night and which member of your crew survived.",
             objectiveHint = "Recover the Evidence",
@@ -743,15 +863,16 @@ data class LevelData(
             DEFAULT_LEVEL_1,
             DEFAULT_LEVEL_2,
             DEFAULT_LEVEL_3,
+            DEFAULT_LEVEL_4,
             SIDE_SCROLL_LEVEL,
-            DEFAULT_LEVEL_5,
             DEFAULT_LEVEL_6,
             DEFAULT_LEVEL_7,
             DEFAULT_LEVEL_8,
             DEFAULT_LEVEL_9,
             DEFAULT_LEVEL_10,
             DEFAULT_LEVEL_11,
-            DEFAULT_LEVEL_12
+            DEFAULT_LEVEL_12,
+            DEFAULT_LEVEL_13
         )
     }
 }
@@ -911,10 +1032,13 @@ class MapBackedLevelStorage(
         inMemoryFallback.clear()
         try {
             val storedIds = getRaw("level_results_ids")?.split(";")?.filter { it.isNotBlank() } ?: emptyList()
-            for (id in storedIds) {
+            val allIds = (LevelData.DEFAULT_LEVELS.map { it.id } + storedIds).distinct()
+            for (id in allIds) {
                 removeRaw?.invoke("level_result_$id")
+                setRaw("level_result_$id", "")
             }
             removeRaw?.invoke("level_results_ids")
+            setRaw("level_results_ids", "")
         } catch (_: Throwable) {
         }
     }

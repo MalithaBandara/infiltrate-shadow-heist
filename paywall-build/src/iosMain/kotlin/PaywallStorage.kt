@@ -30,4 +30,9 @@ object PaywallStorage {
         defaults.setObject(value, KorgeStorageKey.iosKey(key))
         defaults.synchronize()
     }
+
+    fun removeRaw(key: String) {
+        defaults.removeObjectForKey(KorgeStorageKey.iosKey(key))
+        defaults.synchronize()
+    }
 }
