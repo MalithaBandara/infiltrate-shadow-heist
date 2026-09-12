@@ -746,6 +746,44 @@ Compose Multiplatform owns everything else, reusing `ios-shell/`'s
 `GameMain.framework` + `PaywallModule.framework` embedding. **Status:
 viable, build the real menu/store/gameplay architecture around this.**
 
+**The "build the real architecture around this" step was never actually done - FIXED
+2026-09-12, found from a real limrun.com screenshot report ("game doesn't load, I just get a
+purple debug screen").** `ShellAppDelegate.ios.kt` was still wired to `spikeMain()` (this
+section's own `SwitchSpikeScene` debug scene - purple background, a "ticks: N" counter, an
+"END LEVEL (debug)" button) instead of the real game, with a comment literally saying "Revert to
+`{ main() }` once the spike is done" that nobody had come back to. Every real level launch on iOS
+showed this debug scene, not gameplay - the spike itself was real and correct, the revert step
+afterward just never happened.
+
+**Fixing the revert surfaced a second, deeper gap**: commonMain's own `main()` (`src/main.kt`)
+only ever picks ONE level, once, from `Environment["startLevel"]`/`args.firstOrNull()` - fine for
+JVM desktop dev, but iOS never sets either, so a bare `{ main() }` would always load
+`DEFAULT_LEVEL_1` regardless of which level the player actually tapped in the Compose
+`LevelSelectScreen`. `android-shell/MainActivity.kt` already solved the identical problem for
+Android with its own `activeSceneContainer` var (capture the `SceneContainer` once, `sc.changeTo`
+it again on every subsequent level pick, without reloading the whole KorGE module) - `GameEntry.
+ios.kt` (new file) does the same for iOS: `gameMain()` replaces `spikeMain()` as
+`ShellAppDelegate.ios.kt`'s entry, and `GameLevelStartBridge` (`@ObjCName(exact = true)`, same
+export convention as every other Swift-visible bridge in this file) captures the `SceneContainer`
+and exposes `startLevel(levelId:)` for Swift to call. `AppDelegate.swift` now uses
+`MainMenuComposeScreen`'s level-aware `makeViewController` overload (it already existed,
+unused - the no-arg overload was the one actually wired) and calls
+`GameLevelStartBridge.shared.startLevel(levelId:)` right before `switchToKorGE()`. **Not yet
+verified in CI or on-device** - push and check; in particular, whether picking a second, different
+level after already having played one correctly re-targets the scene has not been observed, only
+reasoned from mirroring Android's proven mechanism.
+
+**A third, unrelated bug found from the same report ("parts of the screen blocked by that thing at
+the top")**: nothing on iOS ever hid the system status bar - `android-shell/MainActivity.kt` calls
+`hideSystemBars()` for exactly this reason (a fullscreen game with its own edge-to-edge top HUD/
+menu bar), but iOS had no equivalent, so the status bar (clock/battery/signal, plus the Dynamic
+Island cutout on newer models) rendered on top of and overlapped that content. Fixed with
+`UIStatusBarHidden: true` + `UIViewControllerBasedStatusBarAppearance: false` in
+`ios-shell/project.yml`'s Info.plist (the latter is needed because it defaults to `true`, which
+would make the global key get ignored in favor of each `UIViewController`'s own
+`prefersStatusBarHidden` - neither Compose's `ComposeUIViewController` nor KorGE's own view
+controller override that, so without this the global key does nothing). Not yet re-verified either.
+
 **Method**: a debug KorGE scene increments a per-frame counter
 (`SpikeBridge.frameTicks`) regardless of UIKit visibility; native Swift
 swaps `window.rootViewController` between a Compose screen and the
