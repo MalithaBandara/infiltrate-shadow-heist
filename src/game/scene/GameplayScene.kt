@@ -1,7 +1,6 @@
 package game.scene
 
 import com.sample.demo.ads.getContinueAdBridge
-import com.sample.demo.analytics.getAnalyticsBridge
 import com.sample.demo.nav.getLevelExitBridge
 import game.model.*
 import game.scene.UiComponents.COLOR_PRIMARY
@@ -40,6 +39,9 @@ import korlibs.korge.view.vector.*
 import korlibs.math.geom.*
 import korlibs.time.*
 import kotlin.math.*
+
+/** Guard vision cones are one flat white; see the cone loop in sceneMain for why. */
+private val GUARD_CONE_COLOR = Colors.WHITE.withAd(0.30)
 
 class GameplayScene(
     val levelData: LevelData = LevelData.DEFAULT_LEVEL_1,
@@ -84,7 +86,7 @@ class GameplayScene(
         // One full frame so the loading screen is actually painted before the loads below
         delayFrame()
 
-        val totalLoadSteps = 24
+        val totalLoadSteps = 26
         var loadStepsDone = 0
         suspend fun markLoadProgress() {
             loadStepsDone++
@@ -113,6 +115,13 @@ class GameplayScene(
             markLoadProgress()
             Triple(loadedWorld, loadedAnimations, loadedSounds)
         } catch (e: Throwable) {
+            // Also to console, not just on-screen: the on-screen text doesn't wrap, so a long
+            // exception message (e.g. a full simulator sandbox path) can render almost entirely
+            // off-canvas - confirmed exactly this way in CI (2026-09-12), the on-screen render cut
+            // off mid-path with no way to read the actual mismatched filename from a screenshot
+            // alone. println goes to stdout, which ios-build.yml already captures via
+            // --console-pty and dumps as plain, searchable text.
+            println("[GameplayScene] LEVEL LOAD FAILED: ${e::class.simpleName}: ${e.message}\n${e.stackTraceToString()}")
             loadingScreen.dismiss()
             solidRect(sceneWidth, sceneHeight, Colors["#16161d"])
             text(
@@ -122,6 +131,17 @@ class GameplayScene(
             ).xy(16.0, 16.0)
             return
         }
+        // Unlike the player's frames this one may be absent (the iOS shell does not bundle
+        // resources/ yet - see guidelines "Audio" for the known gap) and a guard without art is
+        // still a guard, so a failure here falls back to the old black-rect body, the same way
+        // every SceneAssets.bitmap() load degrades to null rather than taking the level down.
+        val guardAnimations = try {
+            GuardAnimations.load()
+        } catch (e: Throwable) {
+            println("[GuardAnimations] load failed, guards fall back to plain rects: $e")
+            null
+        }
+        markLoadProgress()
         val sfxContext = coroutineContext
         val levelStorage: LevelStorage = MapBackedLevelStorage(
             getRaw = { views.storage[it] },
@@ -151,6 +171,8 @@ class GameplayScene(
         val fence2Bitmap = SceneAssets.bitmap("fence2.png")
         markLoadProgress()
         val barrelBitmap = SceneAssets.bitmap("barrel.png")
+        markLoadProgress()
+        val tableBitmap = SceneAssets.bitmap("table.png")
         markLoadProgress()
         val hookBitmap = SceneAssets.bitmap("hook.png")
         markLoadProgress()
@@ -378,7 +400,7 @@ class GameplayScene(
             }
             // 3. Barrels (jump on, walk across, jump off / rescue climb points). A barrel wall
             // taller than one barrel (e.g. level 3's stacked climb obstacle) is a single tall
-            // collision/climb box under the hood - see LEVEL_3_LAYOUT's comment - so it's tiled
+            // collision/climb box under the hood - see LEVEL_4_LAYOUT's comment - so it's tiled
             // here in real barrel-height (48) increments from the ground up instead of being
             // stretched into one distorted image, the same tiling approach used for the hanging
             // crates' chain above.
@@ -400,6 +422,12 @@ class GameplayScene(
                         remaining -= h
                     }
                 }
+            }
+            // 3b. Tables (table.png): drawn in their own pass below, once per art rect, since
+            // the collision under one is two boxes (a plank and a leg, LevelLayout.tableParts)
+            // with an open underside for a guard to stand in. Nothing to draw per box here.
+            else if (box in world.tables || box in world.tableParts) {
+                // covered by the table art
             }
             // 4. Truck (parked next to the small crate, climbed onto en route to the long platform).
             else if (box in world.truckParts && truckBitmap != null) {
@@ -438,6 +466,20 @@ class GameplayScene(
             }
         }
 
+        // Tables: a flat plank on a single off-centre leg with a diagonal brace, one image
+        // stretched over the whole art rect. Its collision boxes (the plank, the leg) are in
+        // world.boxes and skipped in the loop above; the art already spans them both.
+        if (tableBitmap != null) {
+            for (table in world.tables) {
+                cullable(
+                    worldView.image(tableBitmap) {
+                        size(table.width, table.height)
+                    }.xy(table.x, table.y),
+                    table.x, table.width
+                )
+            }
+        }
+
         // Chain-and-hooks dangling from off-screen above. Both the decorative ones and the ones
         // the player can swing from draw identically and on purpose - a usable hook is recognised
         // by where it hangs, the same way a climbable box is recognised by its height, not by a
@@ -465,9 +507,41 @@ class GameplayScene(
         // Guards: vision cones first so they render beneath the bodies
         val guardCones = world.allGuards.map { worldView.graphics() }
         val guardContainers = world.allGuards.map { g -> worldView.container().xy(g.x, g.y) }
+        // The body is the idle sprite, scaled so its standing silhouette is exactly the hitbox
+        // height and anchored at the feet like the player's - see GuardAnimations for the frame
+        // geometry. Without the art (load failed) it is the old black rect plus the old red
+        // visor, since a featureless rect shows no facing. With the art there is no visor: the
+        // silhouette shows which way he looks, and the detection pip over his head (guardPips)
+        // carries state - the owner asked for the rectangle to go.
+        val guardBaseScale = world.allGuards.map { g -> g.height / GuardAnimations.SOURCE_SILHOUETTE_HEIGHT }
+        val guardFeetAnchorY = GuardAnimations.SOURCE_FEET_Y / GuardAnimations.SOURCE_FRAME_HEIGHT
+        // Idle's back heel sits a few rows short of the ground line, so the idle clip is dropped
+        // by this much; walk's frames are cut at each frame's own lowest row, so it is not.
+        val guardIdleFeetOffset = world.allGuards.map { g ->
+            (GuardAnimations.SOURCE_FEET_Y - GuardAnimations.IDLE_FEET_Y) * g.height / GuardAnimations.SOURCE_SILHOUETTE_HEIGHT
+        }
+        val guardSprites = world.allGuards.mapIndexed { i, g ->
+            if (guardAnimations == null) {
+                guardContainers[i].solidRect(g.width, g.height, Colors.BLACK)
+                null
+            } else {
+                guardContainers[i].sprite(guardAnimations.idle, Anchor2D(0.5, guardFeetAnchorY)).also { sprite ->
+                    sprite.scaleX = guardBaseScale[i] * (if (g.facing >= 0.0) 1.0 else -1.0)
+                    sprite.scaleY = guardBaseScale[i]
+                    sprite.xy(g.width / 2.0, g.height + guardIdleFeetOffset[i])
+                    sprite.playAnimationLooped(guardAnimations.idle, GuardAnimations.IDLE_FRAME_TIME_MS.milliseconds)
+                }
+            }
+        }
+        // Walk is driven by distance travelled, exactly like the player's: one gait cycle per
+        // (height * stride) units, so the feet stay planted at any patrol speed. Idle <-> walk
+        // switches on Guard.isWalking, which the model sets per frame.
+        val guardAnimWalking = BooleanArray(world.allGuards.size)
+        val guardWalkProgress = DoubleArray(world.allGuards.size)
+        val guardPrevX = DoubleArray(world.allGuards.size) { world.allGuards[it].x }
+        val guardWalkCycleDistance = world.allGuards.map { g -> g.height * GuardAnimations.WALK_STRIDE_PER_HEIGHT }
         val guardVisors = world.allGuards.mapIndexed { i, g ->
-            guardContainers[i].solidRect(g.width, g.height, Colors.BLACK)
-            guardContainers[i].solidRect(6.0, 4.0, Colors["#e74c3c"]).xy(g.width - 6.0, 10.0)
+            if (guardAnimations == null) guardContainers[i].solidRect(6.0, 4.0, Colors["#e74c3c"]).xy(g.width - 6.0, 10.0) else null
         }
         val guardBadges = world.allGuards.mapIndexed { i, _ ->
             guardContainers[i].text("?", textSize = 16.0, color = COLOR_BORDER_GOLD).xy(8.0, -22.0)
@@ -1380,7 +1454,6 @@ class GameplayScene(
             playClick = playClick,
             onRequestContinueAd = {
                 getContinueAdBridge().requestContinueAd()
-                getAnalyticsBridge().track("watch_ad_continue_requested", mapOf("level_id" to levelData.id))
             },
             onRetry = {
                 stopBgMusic()
@@ -1439,16 +1512,6 @@ class GameplayScene(
                 profileStorage.incrementLevelsCompleted()
             }
 
-            getAnalyticsBridge().track(
-                "level_complete",
-                mapOf(
-                    "level_id" to result.levelId,
-                    "stars" to result.starCount,
-                    "time_taken_seconds" to result.timeTaken,
-                    "alerts" to world.spottedCount
-                )
-            )
-
             // Calculate and award coins
             val multiplier = if (profileStorage.getProfile().isPremium) 2 else 1
             val earnedCoins = levelData.getCoinReward(result.starCount) * multiplier
@@ -1474,11 +1537,6 @@ class GameplayScene(
         world.onGameOver = {
             val best = levelStorage.getBestResult(levelData.id)
             caughtOverlay.show(world.timeTaken, world.spottedCount, best, profileStorage.getProfile().coins)
-
-            getAnalyticsBridge().track(
-                "mission_failed",
-                mapOf("level_id" to levelData.id, "alerts" to world.spottedCount)
-            )
         }
 
         var totalElapsedSeconds = 0.0
@@ -1507,7 +1565,6 @@ class GameplayScene(
             // this scene stayed alive in the background, and grants the continue once the player
             // actually watched it. Restarts the same way "RETRY INFILTRATION" already does.
             if (getContinueAdBridge().consumeContinueGranted()) {
-                getAnalyticsBridge().track("watch_ad_continue_granted", mapOf("level_id" to levelData.id))
                 sounds.toastSuccess.playSfx(sfxContext, GameAudio.TOAST_SUCCESS_GAIN, sfxVolume(), GameAudio.SfxFile.TOAST_SUCCESS)
                 stopBgMusic()
                 // Hidden immediately, not left for changeTo to sort out: this scene (with its
@@ -2391,17 +2448,40 @@ class GameplayScene(
             // Update guard visors and badges
             for (i in world.allGuards.indices) {
                 val g = world.allGuards[i]
+                // The frames face right; a left-facing guard is the same frames mirrored about
+                // the hitbox centre, which the crop box is symmetric about (GuardAnimations).
+                val guardSprite = guardSprites[i]
+                if (guardSprite != null && guardAnimations != null) {
+                    guardSprite.scaleX = guardBaseScale[i] * (if (g.facing >= 0.0) 1.0 else -1.0)
+                    if (g.isWalking != guardAnimWalking[i]) {
+                        guardAnimWalking[i] = g.isWalking
+                        if (g.isWalking) {
+                            guardWalkProgress[i] = 0.0
+                            guardSprite.playAnimationLooped(guardAnimations.walk, manualFrameTime)
+                            guardSprite.setFrame(0)
+                            guardSprite.y = g.height
+                        } else {
+                            guardSprite.playAnimationLooped(guardAnimations.idle, GuardAnimations.IDLE_FRAME_TIME_MS.milliseconds)
+                            guardSprite.y = g.height + guardIdleFeetOffset[i]
+                        }
+                    }
+                    if (g.isWalking) {
+                        guardWalkProgress[i] = (guardWalkProgress[i] + abs(g.x - guardPrevX[i]) / guardWalkCycleDistance[i]) % 1.0
+                        guardSprite.setFrame((guardWalkProgress[i] * GuardAnimations.WALK_FRAMES).toInt().coerceIn(0, GuardAnimations.WALK_FRAMES - 1))
+                    }
+                    guardPrevX[i] = g.x
+                }
                 if (world.activePowerups.isPhantomCloakActive) {
                     guardBadges[i].text = "Zzz"
                     guardBadges[i].color = COLOR_BORDER_CYAN
                     guardBadges[i].visible = true
-                    guardVisors[i].x = if (g.facing >= 0) g.width - 6.0 else 0.0
-                    guardVisors[i].color = Colors["#34495e"]
+                    guardVisors[i]?.x = if (g.facing >= 0) g.width - 6.0 else 0.0
+                    guardVisors[i]?.color = Colors["#34495e"]
                 } else {
                     // The investigating "?" is now carried by the guard's own detection pip.
                     guardBadges[i].visible = false
-                    guardVisors[i].x = if (g.facing >= 0) g.width - 6.0 else 0.0
-                    guardVisors[i].color =
+                    guardVisors[i]?.x = if (g.facing >= 0) g.width - 6.0 else 0.0
+                    guardVisors[i]?.color =
                         if (g.state == GuardState.INVESTIGATING) COLOR_BORDER_GOLD else Colors["#e74c3c"]
                 }
 
@@ -2414,32 +2494,16 @@ class GameplayScene(
 
             val alertProgress = world.alertProgress
 
-            // Render guard vision cones
+            // Render guard vision cones. One flat white, in every state: the cone is a
+            // torch beam, and what it is doing to the player is already told by the detection
+            // pip over the guard's head (guardPips) - the old orange/gold/pulsing-red colour ramp
+            // said the same thing twice and the owner asked for it to go. Cameras keep theirs.
             for (i in world.allGuards.indices) {
                 val g = world.allGuards[i]
                 if (world.activePowerups.isPhantomCloakActive) {
                     guardCones[i].updateShape { }
                 } else {
-                    val coneColor = when {
-                        world.isGameOver -> {
-                            Colors["#ff3838"].withAd(0.55)
-                        }
-                        alertProgress > 0.0 -> {
-                            val pulse = 0.5 + 0.5 * sin(totalElapsedSeconds * 16.0)
-                            val r = (241 + (255 - 241) * alertProgress).toInt().coerceIn(0, 255)
-                            val gVal = (196 + (56 - 196) * alertProgress).toInt().coerceIn(0, 255)
-                            val b = (15 + (56 - 15) * alertProgress).toInt().coerceIn(0, 255)
-                            val baseAlpha = 0.32 + 0.30 * alertProgress
-                            val pulsedAlpha = (baseAlpha + 0.15 * pulse * alertProgress).coerceIn(0.1, 0.75)
-                            RGBA(r, gVal, b, (pulsedAlpha * 255).toInt())
-                        }
-                        g.state == GuardState.INVESTIGATING -> {
-                            Colors["#f39c12"].withAd(0.42)
-                        }
-                        else -> {
-                            Colors["#e67e22"].withAd(0.32)
-                        }
-                    }
+                    val coneColor = GUARD_CONE_COLOR
                     val visionPolygon = VisionSystem.computeVisionPolygon(
                         origin = g.eyePosition,
                         facingAngle = g.facingAngle,
