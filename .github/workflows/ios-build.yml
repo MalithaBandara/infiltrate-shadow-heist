@@ -210,6 +210,13 @@ jobs:
             if [ -f "$KORGE_VISIBLE_FILE" ]; then
               echo "korge_visible.txt appeared after ~${i}s of polling - capturing screenshot now."
               xcrun simctl io "$DEVICE_ID" screenshot "ios-shell/spike-screenshots/gameplay_check.png" || true
+              # Acks AppDelegate.swift's own dwell poll (runAutomatedLevelTransition) so it can
+              # switch back to Compose now that the shot is actually captured, instead of on a
+              # fixed timer - a first attempt (2026-09-12) found korge_visible.txt right on time
+              # but the screenshot STILL came back as the main menu, because `simctl io screenshot`
+              # itself can take 1-13s to complete (confirmed empirically on this runner) - well
+              # past the ~1.5s the app used to dwell on KorGE for before switching back on its own.
+              echo "ok" > "$CONTAINER/Documents/screenshot_taken.txt" || true
               KORGE_SHOT_TAKEN=1
               break
             fi

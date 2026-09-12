@@ -800,12 +800,23 @@ attempts spread across ~2-6s) both missed the ~1.5s KorGE-visible window across 
 launch-animation or the Compose main menu, never gameplay). Wall-clock timing from the CI script's
 side is unpredictable here: each `xcrun simctl io screenshot` call can itself take 1-13s on this
 runner, on top of unknown process-spawn/runtime-init latency before `AppDelegate.swift`'s own
-2-second post-launch timer even starts. **Fixed properly** by having `switchToKorGE()` write a
-`korge_visible.txt` marker file the instant it fires (same pattern as `storage_bridge_result.txt`/
-`transition_test_result.txt`), and having the CI script poll for that file (up to 15s) before
-taking one screenshot immediately on detection - deterministic instead of guessed. **Not yet run** -
-this is the mechanism that will finally show, photographically, whether real gameplay or some
-blank/debug state is what's actually on screen during that window.
+2-second post-launch timer even starts. First fix attempt: `switchToKorGE()` writes a
+`korge_visible.txt` marker the instant it fires (same pattern as `storage_bridge_result.txt`/
+`transition_test_result.txt`), CI polls for it (originally 15s) before screenshotting. **That
+15s budget was itself too short** - timed out on the first real run, because cold boot+install+
+launch on this runner can eat several minutes before the marker even has a chance to appear (the
+storage bridge check, which runs synchronously before this, wasn't confirmed until ~5 minutes into
+that same step). Bumped to 90s, re-ran: `korge_visible.txt appeared after ~5s of polling` - the
+trigger fired right on time - **but `gameplay_check.png` still came back as the main menu**, a
+second, different timing bug: the app's own automated dwell (~1.5s on KorGE before switching back)
+is shorter than `xcrun simctl io screenshot` itself can take to execute (1-13s, same empirical
+number as above) - by the time the screenshot command actually reads the framebuffer, the app had
+already switched back. **Fixed with a two-way handshake instead of a longer guess**: CI writes
+`screenshot_taken.txt` right after capturing the shot; `AppDelegate.swift`'s dwell is now a poll
+loop (20s hard cap) waiting for that file before triggering `SpikeBridge.requestLevelEnd()` and
+switching back, instead of a fixed delay. Both sides now wait on the other rather than assuming a
+duration. **Not yet re-run** - this is the version that should finally show, photographically,
+whether real gameplay or some blank/debug state is what's on screen during that window.
 
 **A third, unrelated bug found from the same report ("parts of the screen blocked by that thing at
 the top")**: nothing on iOS ever hid the system status bar - `android-shell/MainActivity.kt` calls
