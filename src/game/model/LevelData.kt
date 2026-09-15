@@ -18,7 +18,11 @@ data class GuardSpawn(
     val width: Double = 26.0,
     val height: Double = 48.0,
     /** Seconds spent standing at each end of the route before turning back; see Guard.patrolPauseDuration. */
-    val patrolPauseDuration: Double = 0.0
+    val patrolPauseDuration: Double = 0.0,
+    /** See Guard.holdUntilPlayerCrouches. */
+    val holdUntilPlayerCrouches: Boolean = false,
+    /** See Guard.visionTilt. */
+    val visionTilt: Double = 0.0
 )
 
 /** A security camera placed in a [LevelLayout] or [LevelData]. */
@@ -31,7 +35,9 @@ data class CameraSpawn(
     val sweepSpeed: Double = 0.7,
     val visionRange: Double = 240.0,
     val visionFov: Double = 45.0 * (PI / 180.0),
-    val sweepDirection: Double = 1.0
+    val sweepDirection: Double = 1.0,
+    /** See Camera.sweepPauseDuration. */
+    val sweepPauseDuration: Double = 0.0
 )
 
 /**
@@ -69,6 +75,19 @@ data class LevelLayout(
     // renderer not to draw them, since the table art already covers them. Same arrangement as
     // level 1's truck (truckParts collide, the one truck image is drawn over the union).
     val tableParts: List<Rect> = emptyList(),
+    // Table pieces drawn with the leg's own art crop (e.g. a support post), tagged here purely so
+    // GameplayScene.kt's table-drawing pass knows to render them - separately from [boxes], which
+    // is what actually decides whether one collides. A piece can be flavor only (not in [boxes]:
+    // nothing collides with it, it plays no part in reaching the table) or a genuine obstacle
+    // (also in [boxes]: solid, something to actually navigate around) - either way it blocks sight
+    // (see GameWorld's occluders), since it's real drawn geometry a guard's cone shouldn't see
+    // through, and either way the generic per-box render cascade skips it to avoid double-drawing.
+    val tableDecorations: List<Rect> = emptyList(),
+    // A box the player can mantle onto directly despite Player.findClimbTarget's usual rule
+    // against floating ledges (a box whose underside sits well above the climber's feet) - for a
+    // ledge that's meant to be mounted with nothing bracing it underneath. Must also be in
+    // [boxes]. See Player.findClimbTarget and LEVEL_3_LAYOUT.
+    val floatingClimbTargets: List<Rect> = emptyList(),
     val movingPlatforms: List<MovingPlatformDef> = emptyList(),
     // Purely decorative chain-and-hook dangling from off-screen above (hook.png, a single tall
     // image, not tiled - unlike the hanging crates' chain there's no crate at the bottom needing
@@ -81,7 +100,14 @@ data class LevelLayout(
     // climbable box - but each also becomes a grab point: the grip is the rect's bottom-centre,
     // and Player.findSwingTarget decides from there whether a swing is on. Still no collision
     // box; the player passes through the chain like the decorative ones.
-    val swingHooks: List<Rect> = emptyList()
+    val swingHooks: List<Rect> = emptyList(),
+    val conveyors: List<ConveyorDef> = emptyList(),
+    val conveyorCrates: List<ConveyorCrateDef> = emptyList(),
+    val hasStartFences: Boolean = true,
+    val restartOnConveyorFallOff: Boolean = false,
+    val conveyorsStartOnMove: Boolean = false,
+    val canClimb: Boolean = true,
+    val lasers: List<LaserDef> = emptyList()
 )
 
 enum class TutorialAction {
@@ -101,7 +127,21 @@ data class TutorialStep(
     val instructionDesktop: String,
     val targetAction: TutorialAction,
     val highlight: TutorialControlHighlight = TutorialControlHighlight.NONE,
-    val handwrittenCallout: String? = null
+    val handwrittenCallout: String? = null,
+    // Only read when highlight == NONE: a world-anchored callout (text position and arrow tip,
+    // both in world/level coordinates, scaled by GameplayScene against the camera each frame)
+    // pointing at something in the level itself rather than at a screen-fixed control button.
+    val worldTextX: Double = 0.0,
+    val worldTextY: Double = 0.0,
+    val worldAnchorX: Double = 0.0,
+    val worldAnchorY: Double = 0.0,
+    // The curved arrow's control point normally bows out to the right of the straight
+    // text-to-anchor line (see GameplayScene's TutorialControlHighlight.NONE case) - right for
+    // step_reach_objective in level 1, whose anchor sits well to the right of its text. When the
+    // anchor instead sits close to and slightly left of the text's own end (step_crouch_hide),
+    // that same rightward bow sweeps the curve out past the anchor and back through it,
+    // visually cutting across whatever it's pointing at. Mirrors the bow to the left instead.
+    val arrowBowsLeft: Boolean = false
 )
 
 data class LevelData(
@@ -126,7 +166,9 @@ data class LevelData(
     val layout: LevelLayout? = null,
     val cameras: List<CameraSpawn> = emptyList(),
     val backgroundImage: String? = null,
-    val tutorialSteps: List<TutorialStep> = emptyList()
+    val tutorialSteps: List<TutorialStep> = emptyList(),
+    val hasDarknessVignette: Boolean = false,
+    val playerCrouchForwardSpeedMultiplier: Double = 1.0
 ) {
     val resolvedBackgroundImage: String
         get() {
@@ -229,7 +271,11 @@ data class LevelData(
                     instructionDesktop = "Infiltrate the objective building to complete the mission.",
                     targetAction = TutorialAction.REACH_OBJECTIVE,
                     highlight = TutorialControlHighlight.NONE,
-                    handwrittenCallout = "Reach the objective!"
+                    handwrittenCallout = "Reach the objective!",
+                    worldTextX = 3270.0,
+                    worldTextY = 220.0,
+                    worldAnchorX = 3425.0,
+                    worldAnchorY = 320.0
                 )
             )
         )
@@ -485,103 +531,308 @@ data class LevelData(
         )
 
         /**
-         * Work in progress. First section built: a two-tier barrel staircase blocking the ground
-         * path - an 8-wide bottom layer with a 4-wide top layer sitting on its far half, so the
-         * near half of the bottom layer is left exposed as a real landing spot. That matters
-         * physically, not just visually: the engine's climb/jump check only ever looks at one
-         * box's own bottom/top face (see Player.findClimbTarget), so a second layer sitting
-         * directly above the first IN THE SAME COLUMNS would occupy the only spot the player could
-         * land on to reach it (the player's own height, 96, equals two stacked 48-tall layers),
-         * leaving no way up at all. Offsetting the top layer sideways instead of stacking it
-         * in-place turns the climb into two ordinary adjacent-box jumps (ground -> bottom layer's
-         * exposed half -> top layer -> terrain1), the same proven pattern as LEVEL_2_LAYOUT's
-         * crate1 (48 units, comfortably under Player.maxJumpHeight 51.2).
-         *
-         * Past the barrel stack, terrain1 sits one more 48-unit jump higher (296, matching this
-         * game's established "high tier" height - see SIDE_SCROLL_LEVEL_LAYOUT/LEVEL_2_LAYOUT) and
-         * is a solid block reaching all the way down to the ground (144 tall, like LEVEL_2's
-         * terrain blocks) rather than a thin floating platform with open air beneath it.
-         *
-         * The gap after terrain1 is crossed by swinging from the hook hanging over it: walk into
-         * it and press JUMP, which is the same button the climb already uses. It is the only way
-         * across - the gap is twice a running jump - and it is the one place in the game the swing
-         * exists at all, so the geometry here and Player's swing constants are a matched pair.
+         * Level 4: Conveyor Belt Run.
+         * The conveyor belt spans from the left corner (x = 0.0) across the yard to x = 1620.0.
+         * Conveyor belt is initially stationary and starts moving when the player starts moving.
+         * Obstacles include:
+         * - Non-climbable: all mantling and climbing is disabled for this level; player traverses by hopping.
+         * - Only stacks of 1 (height 48) and stacks of 2 (height 96). All 3-stacks removed.
+         * - Every 2-stack is flanked by a 1-stack on both its left and right so the player hops onto it.
+         * - Authentic small and long hanging crates from Level 2 positioned above the 2-stacked crates.
+         * - Player can move forward while crouching on the 2-stacked crate without hitting the hanging crates.
+         * - Conveyor moving backwards (-45.0) against the player.
+         * - Instant restart without loading screen if carried off the belt or falling off.
          */
         val LEVEL_4_LAYOUT = run {
             val groundY = 440.0
-            val ground = Rect(x = 0.0, y = groundY, width = 1800.0, height = 100.0)
+            val worldWidth = 5500.0
+            val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
 
-            val barrelWidth = 32.0
-            val barrelLayerHeight = 48.0
-            val barrelWallX = 400.0 // a short run-up from the start fence, matching LEVEL_2's crate1 distance
+            val conveyorHeight = 26.0
+            val conveyorWidth = 5000.0
+            val conveyorRect = Rect(x = 0.0, y = groundY - conveyorHeight, width = conveyorWidth, height = conveyorHeight)
+            val conveyor = ConveyorDef(bounds = conveyorRect, speed = -45.0)
 
-            val bottomLayerCount = 8
-            val topLayerCount = 4
-            val bottomLayerY = groundY - barrelLayerHeight
-            val topLayerX = barrelWallX + (bottomLayerCount - topLayerCount) * barrelWidth // top layer sits on the FAR half
-            val topLayerY = groundY - barrelLayerHeight * 2.0
+            val crateWidth = 68.0
+            val crateHeight = 48.0
+            val conveyorTopY = conveyorRect.top // 414.0
 
-            val bottomBarrelLayer = (0 until bottomLayerCount).map { i ->
-                Rect(x = barrelWallX + i * barrelWidth, y = bottomLayerY, width = barrelWidth, height = barrelLayerHeight)
-            }
-            val topBarrelLayer = (0 until topLayerCount).map { i ->
-                Rect(x = topLayerX + i * barrelWidth, y = topLayerY, width = barrelWidth, height = barrelLayerHeight)
-            }
-            val barrelWall = bottomBarrelLayer + topBarrelLayer
-            val barrelWallEndX = topLayerX + topLayerCount * barrelWidth
+            // =========================================================================
+            // APPROACH 1: KINETIC RHYTHM GAUNTLET (Zero-Clipping Physics)
+            // =========================================================================
+            // - Lowered hanging monorail containers at floor-crouch height (y = 302.0, height = 38.0, bottom at 340.0).
+            // - Clearance above conveyor (414.0 - 340.0 = 74.0px):
+            //   - Crouching player (height 56.0, head at 358.0) clears with 18px headroom and passes cleanly.
+            //   - Standing player (height 96.0, head at 318.0) hits container and is blocked.
+            // - All floor crates are single 1-stacks (height = 48.0, top at y = 366.0).
+            // - ZERO CLIPPING GUARANTEE:
+            //   - Physical gap between floor crate top (366.0) and hanging crate bottom (340.0) is 26.0px!
+            //   - 1-stack crates glide smoothly under hanging cargo without any visual collision.
+            //   - Standing or crouching atop a 1-stack crate under hanging cargo hits (head at 270/310 < 340),
+            //     so the player cannot bypass ducking by riding crates—they must drop to the belt and slide!
+            // =========================================================================
 
-            // Solid elevated terrain, one more 48-unit jump above the barrel stack's top layer.
-            val terrainTopY = topLayerY - barrelLayerHeight
-            val terrainHeight = groundY - terrainTopY
-            val terrain1 = Rect(x = barrelWallEndX, y = terrainTopY, width = 300.0, height = terrainHeight)
+            val hangingCrateSmall1 = ConveyorCrateDef(
+                initialX = 1100.0,
+                y = 302.0,
+                width = 76.0,
+                height = 38.0,
+                isHanging = true,
+                isVariant1 = false,
+                shouldLoop = true,
+                loopMinX = -76.0,
+                loopMaxX = conveyorWidth,
+                speedMultiplier = 1.0
+            )
+            val hangingCrateLong1 = ConveyorCrateDef(
+                initialX = 2250.0,
+                y = 302.0,
+                width = 174.0,
+                height = 38.0,
+                isHanging = true,
+                isVariant1 = true,
+                shouldLoop = true,
+                loopMinX = -174.0,
+                loopMaxX = conveyorWidth,
+                speedMultiplier = 1.0,
+                minY = 220.0,
+                maxY = 302.0,
+                verticalPeriodSeconds = 3.5,
+                verticalPhaseOffsetSeconds = 0.0
+            )
+            val hangingCrateSmall2 = ConveyorCrateDef(
+                initialX = 3400.0,
+                y = 302.0,
+                width = 76.0,
+                height = 38.0,
+                isHanging = true,
+                isVariant1 = false,
+                shouldLoop = true,
+                loopMinX = -76.0,
+                loopMaxX = conveyorWidth,
+                speedMultiplier = 1.0,
+                minY = 220.0,
+                maxY = 302.0,
+                verticalPeriodSeconds = 4.0,
+                verticalPhaseOffsetSeconds = 2.0
+            )
+            val hangingCrateLong2 = ConveyorCrateDef(
+                initialX = 4480.0,
+                y = 302.0,
+                width = 174.0,
+                height = 38.0,
+                isHanging = true,
+                isVariant1 = true,
+                shouldLoop = true,
+                loopMinX = -174.0,
+                loopMaxX = conveyorWidth,
+                speedMultiplier = 1.0
+            )
+            val hangingCrates = listOf(hangingCrateSmall1, hangingCrateLong1, hangingCrateSmall2, hangingCrateLong2)
 
-            // The gap is crossed by swinging from the hook below, and its width is derived from
-            // that move rather than chosen: the swing is a fixed shape (Player.swingLandAhead),
-            // so the level is sized to the swing, not the other way round. 150 is also well past
-            // a running jump - the arc covers about 84 units - so the hook is the only way over,
-            // which is the point of the section.
-            val gapWidth = 150.0
-            val terrain2 = Rect(x = terrain1.right + gapWidth, y = terrainTopY, width = 300.0, height = terrainHeight)
+            val crateHeight2 = 96.0 // 2-stack crate height
 
-            // The chain-and-hook (hook.png) the player swings from. Positioned by its GRIP - the
-            // point inside the bend the hand closes on, see Player.HOOK_GRIP_X/Y_FRACTION - with
-            // the art hung off that, not the other way round. Three numbers, all constrained:
-            //
-            //  - The grip sits at the centre of the gap, which is where a crane hook over a hole
-            //    in a dock belongs. That makes the leap to it the long half of the move - about 90
-            //    units from the lip, against 112 out of the release - so SWING_PACING_CURVE gives
-            //    the launch 0.45s to cover it at a believable ~200 units/sec rather than the rate
-            //    the clip itself runs at. Player.swingLandAhead is then set so the touchdown lands
-            //    34 units onto terrain2, so the two are a matched pair: moving one moves both.
-            //  - The grip hangs 112 above the ledge, which puts the hook's own business end - the
-            //    bottom ~12% of hook.png, the rest is chain - a few units clear of a standing
-            //    player's head (they are 96 tall), so it reads as something to jump for. It cannot
-            //    go much higher: this game's camera shows only about 140 units above a high tier,
-            //    and hanging the grip where the leap would gain real height puts the hook itself
-            //    off the top of the screen. See the swing notes in .junie/guidelines.md.
-            //  - Width 16 keeps the chain noticeably thinner than the player, and leaves a dozen
-            //    or so units of it visible running off-screen above the hook.
-            val hookWidth = 16.0
-            val hookHeight = hookWidth * (2136.0 / 154.0) // hook.png's own cropped aspect ratio
-            val hookGripX = terrain1.right + gapWidth / 2.0
-            val hookGripY = terrainTopY - 112.0
-            val swingHook = Rect(
-                x = hookGripX - hookWidth * Player.HOOK_GRIP_X_FRACTION,
-                y = hookGripY - hookHeight * Player.HOOK_GRIP_Y_FRACTION,
-                width = hookWidth,
-                height = hookHeight
+            // Dynamic floor crates (mix of single 1-stacks and stepped 2-stack pyramids):
+            // Zero-clipping guarantee: 2-stack crates are exclusively located in open-sky conveyor zones
+            // well clear of low hanging monorail cargo, while 1-stacks clear under hanging crates with 26px headroom.
+            val movingConveyorCrates = listOf(
+                // Section 1: Intro Jump Gauntlet (x = 300..900)
+                ConveyorCrateDef(initialX = 350.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+                ConveyorCrateDef(initialX = 550.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+                ConveyorCrateDef(initialX = 720.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+                ConveyorCrateDef(initialX = 880.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+
+                // Section 2: Duck Zone 1 (x = 900..1350, hanging crate small at 1100)
+                ConveyorCrateDef(initialX = 1300.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+
+                // Section 3: Stepped 2-Stack Crate Pyramid 1 (x = 1380..1550, open conveyor zone)
+                ConveyorCrateDef(initialX = 1380.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+                ConveyorCrateDef(initialX = 1448.0, y = conveyorTopY - crateHeight2, width = crateWidth, height = crateHeight2, loopMaxX = conveyorWidth),
+                ConveyorCrateDef(initialX = 1516.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+                ConveyorCrateDef(initialX = 1680.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+
+                // Section 4: Jump Gauntlet & Duck Zone 2 (hanging crate long at 2250)
+                ConveyorCrateDef(initialX = 2050.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+                ConveyorCrateDef(initialX = 2480.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+
+                // Section 5: Stepped 2-Stack Crate Pyramid 2 (x = 2700..2860, open conveyor zone)
+                ConveyorCrateDef(initialX = 2700.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+                ConveyorCrateDef(initialX = 2768.0, y = conveyorTopY - crateHeight2, width = crateWidth, height = crateHeight2, loopMaxX = conveyorWidth),
+                ConveyorCrateDef(initialX = 2836.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+                ConveyorCrateDef(initialX = 3020.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+
+                // Section 6: Duck Zone 3 (hanging crate small at 3400)
+                ConveyorCrateDef(initialX = 3620.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+
+                // Section 7: Stepped 2-Stack Crate Pyramid 3 (x = 3850..4010, open conveyor zone)
+                ConveyorCrateDef(initialX = 3850.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+                ConveyorCrateDef(initialX = 3918.0, y = conveyorTopY - crateHeight2, width = crateWidth, height = crateHeight2, loopMaxX = conveyorWidth),
+                ConveyorCrateDef(initialX = 3986.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+                ConveyorCrateDef(initialX = 4300.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+
+                // Section 8: Final Sprint & Gauntlet (hanging crate long at 4480..4654)
+                ConveyorCrateDef(initialX = 4720.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+                ConveyorCrateDef(initialX = 5120.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
+                ConveyorCrateDef(initialX = 5240.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth)
+            )
+
+            // Dynamic laser hazards:
+            // All lasers originate from ceiling (topY = 150.0) and aim at conveyor surface (bottomY = 414.0).
+            // Includes single vertical warning beams, 2 crossed lasers (X-Beam traps), and multi-laser arrays.
+            // Tilt angles strictly <= 45 degrees from vertical.
+            val lasers = listOf(
+                // Laser 1: Pure vertical beam (0°) in Section 1 (x = 670.0). Times between conveyor crates.
+                LaserDef(
+                    id = "lvl4_laser_vert_1",
+                    topX = 670.0,
+                    topY = 150.0,
+                    bottomX = 670.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 1.8,
+                    inactiveDuration = 2.0,
+                    phaseOffsetSeconds = 0.0
+                ),
+                // Laser 2A & 2B: Crossed Lasers Trap 1 (X-Beam) in Section 3 (x = 1820 <-> 1960).
+                // Tilt = ±27.9° <= 45°. Synchronized pulse creates a glowing 'X' energy gate.
+                LaserDef(
+                    id = "lvl4_laser_cross_1a",
+                    topX = 1820.0,
+                    topY = 150.0,
+                    bottomX = 1960.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 1.6,
+                    inactiveDuration = 3.2,
+                    phaseOffsetSeconds = 0.0
+                ),
+                LaserDef(
+                    id = "lvl4_laser_cross_1b",
+                    topX = 1960.0,
+                    topY = 150.0,
+                    bottomX = 1820.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 1.6,
+                    inactiveDuration = 3.2,
+                    phaseOffsetSeconds = 0.0
+                ),
+                // Laser 3: Backward-tilted security gate (-25°) in Section 4/5 (bottomX = 2580.0).
+                LaserDef(
+                    id = "lvl4_laser_tilt_back",
+                    topX = 2703.0,
+                    topY = 150.0,
+                    bottomX = 2580.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 1.6,
+                    inactiveDuration = 2.8,
+                    phaseOffsetSeconds = 0.0
+                ),
+                // Laser 4A & 4B: Crossed Lasers Trap 2 (Scissors X) in Section 5 (x = 3160 <-> 3300).
+                // Tilt = ±27.9° <= 45°. Synchronized pulse creates an open gauntlet window.
+                LaserDef(
+                    id = "lvl4_laser_cross_2a",
+                    topX = 3160.0,
+                    topY = 150.0,
+                    bottomX = 3300.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 1.6,
+                    inactiveDuration = 3.2,
+                    phaseOffsetSeconds = 0.0
+                ),
+                LaserDef(
+                    id = "lvl4_laser_cross_2b",
+                    topX = 3300.0,
+                    topY = 150.0,
+                    bottomX = 3160.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 1.6,
+                    inactiveDuration = 3.2,
+                    phaseOffsetSeconds = 0.0
+                ),
+                // Laser 5A & 5B: Convergent V-Trap in Section 7 (aimed at bottomX = 4180.0 and 4240.0).
+                // Tilt = +20.7° and -12.8° <= 45°.
+                LaserDef(
+                    id = "lvl4_laser_sweep_a",
+                    topX = 4080.0,
+                    topY = 150.0,
+                    bottomX = 4180.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 1.4,
+                    inactiveDuration = 4.0,
+                    phaseOffsetSeconds = 0.0
+                ),
+                LaserDef(
+                    id = "lvl4_laser_sweep_b",
+                    topX = 4300.0,
+                    topY = 150.0,
+                    bottomX = 4240.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 1.4,
+                    inactiveDuration = 4.0,
+                    phaseOffsetSeconds = 0.0
+                ),
+                // Laser 6A, 6B, 6C: Final extraction gauntlet triple-laser array (x = 4800..5060).
+                // Synchronized extraction pulse: 1.4s active, 4.8s inactive.
+                LaserDef(
+                    id = "lvl4_laser_gauntlet_1",
+                    topX = 4800.0,
+                    topY = 150.0,
+                    bottomX = 4860.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 1.4,
+                    inactiveDuration = 4.8,
+                    phaseOffsetSeconds = 0.0
+                ),
+                LaserDef(
+                    id = "lvl4_laser_gauntlet_2",
+                    topX = 4930.0,
+                    topY = 150.0,
+                    bottomX = 4930.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 1.4,
+                    inactiveDuration = 4.8,
+                    phaseOffsetSeconds = 0.0
+                ),
+                LaserDef(
+                    id = "lvl4_laser_gauntlet_3",
+                    topX = 5060.0,
+                    topY = 150.0,
+                    bottomX = 5000.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 1.4,
+                    inactiveDuration = 4.8,
+                    phaseOffsetSeconds = 0.0
+                )
             )
 
             LevelLayout(
-                worldWidth = 1800.0,
-                playerStartX = 236.0,
-                playerStartY = groundY - 96.0,
-                exitZone = Rect(x = terrain2.right + 100.0, y = groundY - 100.0, width = 44.0, height = 100.0),
-                platforms = listOf(ground),
-                boxes = barrelWall + listOf(terrain1, terrain2),
+                worldWidth = worldWidth,
+                playerStartX = 100.0,
+                playerStartY = conveyorRect.top - 96.0,
+                exitZone = Rect(x = 5380.0, y = groundY - 100.0, width = 44.0, height = 100.0),
+                platforms = listOf(ground, conveyorRect),
+                boxes = listOf(conveyorRect),
                 guards = emptyList(),
-                barrels = barrelWall,
-                swingHooks = listOf(swingHook)
+                hangingCrateVariant1 = emptyList(),
+                hangingCrateVariant2 = emptyList(),
+                hasStartFences = false,
+                fence1 = null,
+                fence2 = null,
+                conveyors = listOf(conveyor),
+                conveyorCrates = movingConveyorCrates + hangingCrates,
+                restartOnConveyorFallOff = true,
+                conveyorsStartOnMove = true,
+                canClimb = false,
+                lasers = lasers
             )
         }
 
@@ -594,88 +845,366 @@ data class LevelData(
          * Downloads/charAnimations/assets/beam.png and re-composited: the source's flat tabletop
          * midsection, which is otherwise a fixed length, is repeated 8x so the plank reads as a
          * long cantilevered shelf rather than a short desk) blocking the ground path outright, one
-         * proven climb up from a single crate - the exact shape of LEVEL_2_LAYOUT's crate1 ->
-         * terrain step (crate flush against the target box's left face, climb rise 96 - inside
-         * Player's climbMinHeight..climbMaxHeight window of 51.2..115.0). Unlike the barrel-wall
-         * climbs elsewhere, which stay reachable by plain jump, this one is a real mantle: the
-         * table's own collision is solid from its top down to the ground (see LevelLayout.tables),
-         * matching what Player.findClimbTarget requires - a real face to brace against, not a
-         * floating ledge - and coincidentally means the art (drawn at exactly this box's own
-         * width/height) needs no separate "draw past the box to the ground" logic; the leg's own
-         * foot already lands exactly on the ground because the box does. Being solid, the table
-         * also blocks the ground path entirely - the climb isn't a shortcut here, it's the only
-         * way past. Past the table, the player crosses it and drops back to the ground (a fall is
-         * never fatal) to reach the exit.
+         * climb up from the crate directly onto the table - nothing bridges the two, visibly or
+         * invisibly. Ordinarily Player.findClimbTarget refuses to climb onto a floating ledge
+         * (the table's underside sits nowhere near the crate's top), but this table is tagged in
+         * [LevelLayout.floatingClimbTargets], which is exactly that one exception: a real climb
+         * (the mantle animation, not a jump - the rise is 96, inside climbMinHeight..
+         * climbMaxHeight's 51.2..115.0) straight from the crate onto it, with no face bracing the
+         * gap. Every earlier shape tried there (the plank's own texture stretched into a tall
+         * block, a plain solid block, an invisible collision box) got rejected on sight - the
+         * owner's ask was for nothing to exist there at all, not for it to be drawn better. Since
+         * the crate itself still blocks the ground path outright (68 wide, solid to the ground),
+         * the climb is still the only way past - it's a floating ledge to the physics, not to the
+         * level design. Past the table, the player crosses it and drops back to the ground (a fall
+         * is never fatal) to reach the exit.
          *
-         * The table's collision is two boxes, not one (see [LevelLayout.tableParts]): the plank
-         * along the top, 30 deep to match the art's own slab, and a leg column at the left end
-         * from the plank top to the ground. The leg is what the climb braces against (its top is
-         * the plank top, so the mantle lands on the roof; its bottom reaches the crate top, which
-         * Player.findClimbTarget requires of a face), and it still blocks the ground path from
-         * the left. What that buys is the open underside, which is where the guard stands.
+         * The leg at the far end (table.png's own leg/brace crop, see [LevelLayout.tableDecorations])
+         * is a real, solid obstacle now, not just flavor - it collides (also in [boxes]) and blocks
+         * sight, so the ground gauntlet underneath the plank has something to actually navigate
+         * around, not just walk through a lookalike. Clear of the guard's far post so his own
+         * bounded patrol never bumps into it (see guardFarPost below - same reasoning as
+         * guardNearPost's clearance from the crate: Guard.updatePatrol treats it as a physical
+         * obstacle, checked before patrolMinX/MaxX, so touching it would cut his dwell short).
          *
-         * The guard. One, pacing the underside: he stands at the far-end post (860, facing RIGHT,
-         * out past the roof's end) for [Guard.patrolPauseDuration], walks to the near post by the
-         * leg (560), stands there facing left, walks back, and repeats - the owner's spec, "stay
-         * idle -> walk -> stay idle -> come back". The leg and plank are occluders, so wherever he
-         * is, the climb and the crossing above are blind to him. The beat is the drop off the far
-         * end: from the far post facing right his cone (220) covers the landing zone out to ~1100,
-         * so the player on the roof watches the beam poke out past the plank's end and drops
-         * while he is away at the near post - a timing read, with the cone itself as the tell.
-         * Dropping while he stands at 860 lands in the beam at point-blank. He is 30 wide by 96
-         * tall, the player's own height, so the two silhouettes read at one scale.
+         * The guard. One, pacing the underside: he starts at the near post (facing LEFT, toward
+         * the approach and the crate - the first thing visible on arrival, though not right on top
+         * of the climb itself; see guardNearPost below for why there's real distance between them)
+         * for [Guard.patrolPauseDuration], walks to the far post, stands there facing right, walks
+         * back, and repeats - the owner's spec, "stay idle -> walk -> stay idle -> come back".
+         * Nothing occludes the climb any more (see above) - the owner's explicit call:
+         * climbing right in front of him while he's dwelling at the near post, or while he's
+         * walking back toward it, gets you seen, same as standing in the open in front of any
+         * other guard in the game. The safe read is timing: climb once he's turned to walk toward
+         * the far post or is dwelling out there facing away, and the crate-to-roof climb, the
+         * crossing, and the drop off the far end are all done during that window. The drop itself
+         * has its own tell regardless: from the far post facing right his cone (220) covers the
+         * landing zone past the slab's end, so watch for whether he's out there before dropping.
+         * He is 30 wide by 96 tall, the player's own height, so the two silhouettes read at one
+         * scale.
          *
-         * table.png's crop is now the STRICT alpha bbox (threshold >10), not PIL's own getbbox() -
-         * an earlier pass used getbbox() directly and it turned out to include ~55px of nearly
-         * (but not fully) transparent fringe below the leg's real foot, invisible in the source
-         * but a visible sliver of "floating" once that fringe got stretched across the full box
-         * height in-game. Re-derive with the strict threshold if this asset is ever rebuilt.
+         * table.png's crop is the STRICT alpha bbox (threshold >10), not PIL's own getbbox() - an
+         * earlier pass used getbbox() directly and it turned out to include ~55px of nearly (but
+         * not fully) transparent fringe below the leg's real foot, invisible in the source but a
+         * visible sliver of "floating" once that fringe got stretched across the full box height
+         * in-game. Re-derive with the strict threshold (and re-mirror) if this asset is ever
+         * rebuilt from beam.png again.
          */
         val LEVEL_3_LAYOUT = run {
             val groundY = 440.0
-            val worldWidth = 1550.0
-            val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
 
             val crateWidth = 68.0
             val crateHeight = 48.0
             val crateX = 420.0 // short run-up from the start fence, matching this file's own "400" convention
             val crate = Rect(x = crateX, y = groundY - crateHeight, width = crateWidth, height = crateHeight)
 
-            val tableWidth = 450.0 // much longer cantilevered plank
-            val tableElevation = 144.0 // crate top (392) to table top (296) = 96, inside the 51.2..115.0 climb window
-            val table = Rect(x = crate.right, y = groundY - tableElevation, width = tableWidth, height = tableElevation)
-            // Measured off table.png (2048x512): the slab is rows 0..102 = 28.7 of 144 units, with
-            // hanging brackets to row ~118; the leg is columns 36..79 = 8..17 units in from the
-            // left edge, its brace reaching ~31 units in. The leg box starts at the table's own
-            // left edge so the climb's lip is where the art's lip is, and is wide enough to cover
-            // the brace so nothing pokes out of it.
+            // table.png (2048x512) bakes the leg+brace assembly into its own rightmost ~8.7% and
+            // the flat repeating slab (its own midsection, otherwise a fixed length, repeated 8x)
+            // into the rest - see GameplayScene.kt's table-drawing pass for the crop. Climb rise
+            // from the crate (392) to the table top (296) is 96, inside the 51.2..115.0 window -
+            // see [LevelLayout.floatingClimbTargets] on why this climbs at all despite the gap.
             val tablePlankDepth = 30.0
-            val tableLegWidth = 30.0
-            val tableLeg = Rect(x = table.x, y = table.y, width = tableLegWidth, height = table.height)
-            val tablePlank = Rect(x = tableLeg.right, y = table.y, width = table.width - tableLegWidth, height = tablePlankDepth)
+            val tablePlankWidth = 420.0 // much longer cantilevered slab
+            val tablePlank = Rect(x = crate.right, y = groundY - 144.0, width = tablePlankWidth, height = tablePlankDepth)
+
+            // The leg at the far end - a real, solid support now, not just flavor: it collides
+            // (see [boxes] below) as well as being drawn with the leg/brace crop (see
+            // [tableDecorations]), so it's a genuine obstacle on the ground path under the plank,
+            // not just something that looks like one. Sits flush under the plank's own right edge.
+            val legWidth = 30.0
+            val legLift = 16.0 // tucks the joint/brace up against the plank's own underside, closing the gap that read as it "hanging" below
+            val rightLeg = Rect(
+                x = tablePlank.right - legWidth,
+                y = tablePlank.bottom - legLift,
+                width = legWidth,
+                height = groundY - (tablePlank.bottom - legLift)
+            )
 
             val guardWidth = 30.0
             val guardHeight = 96.0
-            val guardFarPost = table.right - 78.0 // 860: under the roof, 48 short of its end, 30 wide
-            val guardNearPost = tableLeg.right + 42.0 // 560: a stride clear of the leg's brace
+            // 135 clear of the crate, not just a few units: checked empirically (sweeping
+            // clearance against a crouched player across the tutorial's own trigger zone - see the
+            // crouch-hide tutorial step below) against VisionSystem.getPlayerSpottedDistance
+            // directly. His sight starts at the torch lens (Guard.eyePosition), only ~54 units off
+            // the ground and 28 ahead of him, so the line from it to a crouched head behind the
+            // crate is nearly level: it clears the crate's 48-tall profile whenever the head is far
+            // enough away, and the only thing that hides the player is that "far enough" being
+            // past his 220 range. At 100 there was a ~10-unit band (x 355..366) inside the tutorial
+            // zone where the line skimmed the crate's top edge by a fraction of a unit and he saw
+            // over it; 135 pushes the geometry so that band is beyond his range everywhere. (An
+            // earlier 6-unit post, chosen only to clear Guard.updatePatrol's own obstacle check,
+            // never blocked anything; 100 was tuned for the old head-height eye.) Pulled in from
+            // 135 to 120 to read as closer/more "in your face" on arrival - re-verified at 120
+            // against VisionSystem the same way, still clean across the whole tutorial window (see
+            // testLevel3CrouchingBehindTheCrateActuallyBreaksLineOfSight); safe regardless, now
+            // that holdUntilPlayerCrouches (below) guarantees he's actually standing at this exact
+            // post, not somewhere else along his route, for the player's first attempt.
+            val guardNearPost = crate.right + 120.0
+            // Under the slab, 90 short of its end, 30 wide. The torch he holds out sits 28 ahead of
+            // his centre, and the decorative leg at the plank's end blocks everything past itself,
+            // so the ground he can light from this post is the strip between his lens and the leg:
+            // ~47 units here. At the old 78 the lens was within 5 units of the leg and the "drop
+            // is seen from the far post" beat had nowhere to happen.
+            val guardFarPost = tablePlank.right - 120.0
             val roofGuard = GuardSpawn(
-                startX = guardFarPost, surfaceY = groundY,
+                startX = guardNearPost, surfaceY = groundY,
                 patrolMinX = guardNearPost, patrolMaxX = guardFarPost,
-                speed = 55.0, facing = 1.0, visionRange = 220.0,
+                speed = 55.0, facing = -1.0, visionRange = 220.0,
                 width = guardWidth, height = guardHeight,
-                patrolPauseDuration = 3.0
+                patrolPauseDuration = 3.0,
+                // Rooted at the near post until the player's first crouch (see
+                // Guard.holdUntilPlayerCrouches) - the crouch-hide tutorial's whole premise is
+                // hiding from him right here, so he needs to actually be standing at this post,
+                // not off walking his route on whatever timing the player happens to arrive at.
+                holdUntilPlayerCrouches = true
             )
 
+            // On the roof itself, not the ground past it - a crate to duck behind while crossing
+            // the plank, flush into the corner where the plank meets the leg.
+            val hideCrate = Rect(
+                x = tablePlank.right - crateWidth,
+                y = tablePlank.top - crateHeight,
+                width = crateWidth,
+                height = crateHeight
+            )
+
+            // Two long crates (level 2's stationaryLongCrate shape and look - 174x38, the
+            // hanging-chain-crate art, see hangingCrateVariant1 below and GameplayScene.kt's box
+            // loop), each with a guard standing on it looking down at the ground path underneath.
+            // Their torches carry a real downward tilt now (see overwatchVisionTilt below), not a
+            // dead-level cone - a horizontal-only cone left a blind wedge directly below and beyond
+            // it a fixed, narrow band, which read as barely watching the floor at all despite that
+            // being the whole point of perching him up here. Tilted, the cone actually opens onto
+            // the open ground between the two crates (checked directly against VisionSystem: the
+            // far half of each gap is now his, not just a sliver past the far edge) while directly
+            // underneath stays hidden regardless - the crate's own floor blocks that line of sight
+            // no matter the angle, same as any other overhang.
+            val longCrateWidth = 174.0
+            val longCrateHeight = 38.0
+            // 30 units higher than the original 330 (head-height-eye-era math, since superseded by
+            // the torch lens model) - reads as more clearly perched/elevated. Raising him like this
+            // stretches every line to the ground thinner and further, which on its own would shrink
+            // his reach - overwatchVisionTilt buys that back deliberately, not by accident.
+            val longCrateElevation = 300.0
+            // 25 degrees off dead level, not 15 - a noticeably steeper look-down (re-verified
+            // directly against VisionSystem at this angle: most of the gap between two crates is
+            // now his, not just the far half - only a narrow band right next to his own crate stays
+            // outside the cone, plus directly underneath, which stays hidden at any angle since the
+            // crate's own floor blocks that line of sight regardless). Still short of reaching all
+            // the way back into the table section from here (see
+            // testLevel3OverwatchGuardsDoNotSeeBackIntoTheTableSection).
+            val overwatchVisionTilt = 25.0 * PI / 180.0
+            // 100 now, not 180 - pulled the whole ground-gauntlet pair further left again, closer
+            // to the table section, instead of leaving a long dead walk between the two beats.
+            val longCrate1 = Rect(x = hideCrate.right + 100.0, y = longCrateElevation, width = longCrateWidth, height = longCrateHeight)
+            val longCrate2 = Rect(x = longCrate1.right + 150.0, y = longCrateElevation, width = longCrateWidth, height = longCrateHeight)
+            val overwatchGuardWidth = 30.0
+            val overwatchGuardMargin = 10.0 // keeps him visibly on the crate, never overhanging its edge
+            // Slower (50 -> 35) and now dwelling at each end (patrolPauseDuration, like roofGuard's
+            // own beat) instead of pacing the crate's length back and forth without ever stopping -
+            // "moving fast" the whole time left nothing to actually time a crossing against.
+            val overwatchSpeed = 35.0
+            val overwatchPauseDuration = 3.0
+            // Guard1 starts dwelling at his crate's end closest to the shared gap - watching the
+            // middle from the first frame.
+            //
+            // Guard2 does NOT start at the mirror-image corner of his own crate (tried first, and
+            // for a while believed to give a genuine half-lap offset - it doesn't). Both guards
+            // starting at their own patrolMaxX with the same facing, speed and pause means their
+            // whole motion - not just which way they face, but exactly when each one walks versus
+            // dwells - is IDENTICAL in local/relative terms, just mirrored by which side of the gap
+            // each crate is on. That mirroring is exactly why they never simultaneously face the
+            // gap (checked directly, see testLevel3OverwatchGuardsNeverBothFaceTheMiddleAtOnce) -
+            // but it also means they always move and always stop at the exact same instant, which
+            // reads as a bug, not a feature, when both are on screen at once (they are - the gap
+            // between the crates is only 150 units, well inside typical view width). Reported
+            // directly by the owner, not something a test caught.
+            //
+            // Starting guard2 mid-route instead (his OWN patrolMinX + 90, not either endpoint)
+            // breaks the mirror identity on purpose: proven directly (not just plausible) that ANY
+            // nonzero phase shift between two guards sharing an identical route/speed/pause
+            // reopens SOME window where they'd both actually detect a player standing in the gap -
+            // a perfect zero-risk guarantee and a visibly staggered pair are mutually exclusive
+            // here, not a bug to be fully fixed. This offset was chosen, and the owner explicitly
+            // accepted the trade-off, after simulating many candidate offsets directly against
+            // VisionSystem: it's a middle ground, not a risk-free pick - the fraction of time both
+            // could actually spot a player in the gap drifts over a long session (this simple
+            // integer-tick simulation doesn't hold a perfectly fixed relative phase forever), most
+            // commonly landing in roughly the 5-10% range but occasionally higher, rather than the
+            // old design's guaranteed 0%. See testLevel3OverwatchGuardsNeverBothFaceTheMiddleAtOnce
+            // for the actual tolerance this settled on and why it isn't a strict zero anymore.
+            val overwatchGuard1 = GuardSpawn(
+                startX = longCrate1.right - overwatchGuardMargin - overwatchGuardWidth, surfaceY = longCrateElevation,
+                patrolMinX = longCrate1.x + overwatchGuardMargin,
+                patrolMaxX = longCrate1.right - overwatchGuardMargin - overwatchGuardWidth,
+                speed = overwatchSpeed, facing = 1.0, visionRange = 220.0,
+                width = overwatchGuardWidth, height = 96.0,
+                visionTilt = overwatchVisionTilt,
+                patrolPauseDuration = overwatchPauseDuration
+            )
+            val overwatchGuard2 = GuardSpawn(
+                startX = longCrate2.x + overwatchGuardMargin + 90.0,
+                surfaceY = longCrateElevation,
+                patrolMinX = longCrate2.x + overwatchGuardMargin,
+                patrolMaxX = longCrate2.right - overwatchGuardMargin - overwatchGuardWidth,
+                speed = overwatchSpeed, facing = 1.0, visionRange = 220.0,
+                width = overwatchGuardWidth, height = 96.0,
+                visionTilt = overwatchVisionTilt,
+                patrolPauseDuration = overwatchPauseDuration
+            )
+
+            // A second "climb past the watcher" beat, mirroring the level's own opening (crate ->
+            // climbable beam, someone watching the ground underneath) but with a fixed camera
+            // instead of a patrolling guard. Unlike the table's leg, there's no support at THIS
+            // (near/climb) end - only at the beam's far end (cameraLeg, below) - so the climb path
+            // itself stays exactly as open as before.
+            val stepCrate2 = Rect(x = longCrate2.right + 100.0, y = groundY - crateHeight, width = crateWidth, height = crateHeight)
+
+            // Same 96-unit rise as the opening crate -> tablePlank climb (crate.top 392 to plank
+            // top 296 there; stepCrate2.top 392 to here 296, identical numbers), so it climbs the
+            // same way and needs the same floating-ledge exemption (LevelLayout.floatingClimbTargets)
+            // - nothing braces it from below at the climb point.
+            val cameraBeamWidth = 300.0
+            val cameraBeamDepth = 30.0
+            val cameraBeam = Rect(x = stepCrate2.right, y = groundY - 144.0, width = cameraBeamWidth, height = cameraBeamDepth)
+
+            // A support leg at the beam's far end, mirroring tablePlank's own rightLeg above (same
+            // crop, same tableDecorations/boxes wiring) - nothing in this level should visibly hang
+            // in mid-air with no structure under it. Placed at the far/right end, clear of both the
+            // camera mount (near the start, cameraBeam.x + 40) and the climb up from stepCrate2 at
+            // that same end, so it's pure background structure with nothing to time around - same
+            // role rightLeg plays under the table.
+            val cameraLegWidth = 30.0
+            val cameraLegLift = 16.0 // tucks the joint up against the beam's own underside, same as rightLeg
+            val cameraLeg = Rect(
+                x = cameraBeam.right - cameraLegWidth,
+                y = cameraBeam.bottom - cameraLegLift,
+                width = cameraLegWidth,
+                height = groundY - (cameraBeam.bottom - cameraLegLift)
+            )
+
+            // Mounted flush to the beam's own underside near its start - pulled in from
+            // cameraBeam.x + 40 to + 20, a little further left/closer to stepCrate2, on request.
+            // Aimed straight down (90 degrees) at rest, sweeping right (toward the open corridor)
+            // to 55 and left (toward stepCrate2) to 135 - NOT a symmetric +/-35 either side of
+            // vertical. The angle range has been pulled back twice before (from screenshot reports,
+            // not the geometry proof alone: 165, then 140, both let the cone's shallow FOV edge
+            // miss the crate's own silhouette and sail past it), landing on 135. Moving the mount
+            // left, then asked again to make the cone bigger, meant re-deriving visionFov/
+            // visionRange together rather than just scaling the old ones up: closer to the crate,
+            // the OLD 55-degree FOV can't safely go past ~90 range before its shallow edge overshoots
+            // again (checked directly - swapping in a wider cone at the old FOV shrinks the safe
+            // range, it doesn't grow it). A narrower 45-degree FOV, swept through the same 55..135
+            // range, buys back much more room before overshooting - up to 160 checked clean, landed
+            // on 150 for a small margin. Net effect against the old 55-degree/110-range cone: a
+            // meaningfully bigger cone (~70% more swept area) that still never lights a point past
+            // stepCrate2's own far edge - reverified the same way as every round before (a dense
+            // grid of points/heights past the crate, across the whole sweep, not one probe or a
+            // paper estimate). Camera.eyePosition is the lens tip at the end of a rotating arm, not
+            // a fixed point the cone merely swivels around like a guard's torch, so the mount
+            // position, sweep range, visionFov AND visionRange all have to be re-tuned together
+            // against LEVEL_3_LAYOUT directly any time one of them changes, not just the one that
+            // was actually asked for. Climbing onto the beam itself puts the player above the cone
+            // entirely regardless: a downward-tilted cone can never include a point directly above
+            // its own mount.
+            val beamCamera = CameraSpawn(
+                x = cameraBeam.x + 20.0,
+                y = cameraBeam.bottom,
+                minAngle = 55.0 * (PI / 180.0),
+                maxAngle = 135.0 * (PI / 180.0),
+                startAngle = 55.0 * (PI / 180.0),
+                sweepSpeed = 0.6,
+                // 150, up from 110 (and this game's usual 220) - a genuinely bigger reach than
+                // before, not just a bigger number: paired with the narrower 45-degree FOV below,
+                // it's the biggest cone that still respects the "never past stepCrate2's far edge"
+                // rule with the mount at its new, more-left position (see the maxAngle comment
+                // above for the full trade-off).
+                visionRange = 150.0,
+                // 45, down from 55 - narrower on purpose, not a shrink for its own sake: it's what
+                // buys the bigger range above room to work with with the mount moved left. See the
+                // maxAngle comment above.
+                visionFov = 45.0 * (PI / 180.0),
+                // Holds at each side of its sweep instead of endlessly panning - the same
+                // dwell-then-move rhythm the guards use (Guard.patrolPauseDuration), so there's an
+                // actual moment to read and time a crossing against, not just a constantly moving
+                // beam with no stable state.
+                sweepPauseDuration = 3.0
+            )
+
+            // Ground dressing right after the camera, ALL under the beam's own span now - two
+            // barrels, a single crate, then two crates stacked - pulled left of cameraLeg (the
+            // support post at the beam's far end) on request, not past it. Used to sit past the
+            // beam entirely (right of cameraLeg), which also briefly overlapped finalHangingCrate's
+            // own footprint by 48 units before that was fixed - now it's tucked entirely into the
+            // gap between the camera mount and the leg instead, with real clearance on both sides.
+            val fillerBarrelWidth = 32.0
+            val fillerBarrelHeight = 48.0
+            val fillerBarrels = listOf(
+                Rect(x = cameraBeam.x + 30.0, y = groundY - fillerBarrelHeight, width = fillerBarrelWidth, height = fillerBarrelHeight),
+                Rect(x = cameraBeam.x + 64.0, y = groundY - fillerBarrelHeight, width = fillerBarrelWidth, height = fillerBarrelHeight)
+            )
+            val fillerCrate = Rect(x = cameraBeam.x + 106.0, y = groundY - crateHeight, width = crateWidth, height = crateHeight)
+
+            // Two crates stacked right after the single one - same footprint as the single crate,
+            // twice the height (GameplayScene.kt's box-rendering tiles crateBitmap in real 48-unit
+            // increments for anything in the "tactical crate" size window, so height = 2*48 draws
+            // as two crates on top of each other, not one stretched image). Ends at cameraBeam.x +
+            // 252, 18 units clear of cameraLeg's own left edge (cameraBeam.right - 30 = + 270) -
+            // comfortable clearance, not a hairline fit.
+            val stackedCrateWidth = crateWidth
+            val stackedCrateHeight = crateHeight * 2.0
+            val stackedCrates = Rect(x = fillerCrate.right + 10.0, y = groundY - stackedCrateHeight, width = stackedCrateWidth, height = stackedCrateHeight)
+
+            // One last hanging crate past the beam - same shape and look as the ground gauntlet's
+            // own pair (hangingCrateVariant1), but no guard standing on this one, just an obstacle
+            // to cross. Top flush with the beam's own top, so it's a same-height jump across (like
+            // hideCrate -> longCrate1 back at the start of the gauntlet), not a climb.
+            val finalHangingCrate = Rect(x = cameraBeam.right + 120.0, y = cameraBeam.top, width = longCrateWidth, height = longCrateHeight)
+
+            // A crate right at the hanging crate's own far end, on request - lands the player back
+            // on solid ground the instant the jump across finalHangingCrate ends, rather than open
+            // ground.
+            val hangingEndCrate = Rect(x = finalHangingCrate.right, y = groundY - crateHeight, width = crateWidth, height = crateHeight)
+
+            // A plain elevated block after the hanging crate, same idea as GameWorld.createDefault's
+            // own block2/block3 in level 1 (95 tall, no crate/table art - falls through to
+            // GameplayScene.kt's generic rough-block render, the same "normal platform" look): the
+            // player drops back to the ground after the hanging-crate jump, climbs this like any
+            // other terrain block, then walks on to the exit.
+            val finalPlatformWidth = 260.0
+            val finalPlatformHeight = 95.0
+            val finalPlatform = Rect(x = hangingEndCrate.right + 80.0, y = groundY - finalPlatformHeight, width = finalPlatformWidth, height = finalPlatformHeight)
+
+            // A crate and a two-stacked pair sitting on TOP of finalPlatform, centred along its
+            // width - on request, "in the middle of the platform". Resting directly on the
+            // platform's own surface (bottom flush with finalPlatform.top), not floating above it.
+            val platformCrateGroupWidth = crateWidth + 20.0 + stackedCrateWidth
+            val platformCrateGroupStartX = finalPlatform.x + (finalPlatformWidth - platformCrateGroupWidth) / 2.0
+            val platformCrate = Rect(x = platformCrateGroupStartX, y = finalPlatform.top - crateHeight, width = crateWidth, height = crateHeight)
+            val platformStackedCrates = Rect(x = platformCrate.right + 20.0, y = finalPlatform.top - stackedCrateHeight, width = stackedCrateWidth, height = stackedCrateHeight)
+
+            val finalExitX = finalPlatform.right + 150.0
+            val finalWorldWidth = finalExitX + 200.0
+            val ground = Rect(x = 0.0, y = groundY, width = finalWorldWidth, height = 100.0)
+
             LevelLayout(
-                worldWidth = worldWidth,
+                worldWidth = finalWorldWidth,
                 playerStartX = 236.0,
                 playerStartY = groundY - 96.0,
-                exitZone = Rect(x = table.right + 300.0, y = groundY - 100.0, width = 44.0, height = 100.0),
+                exitZone = Rect(x = finalExitX, y = groundY - 100.0, width = 44.0, height = 100.0),
                 platforms = listOf(ground),
-                boxes = listOf(crate, tableLeg, tablePlank),
-                guards = listOf(roofGuard),
-                tables = listOf(table),
-                tableParts = listOf(tableLeg, tablePlank)
+                boxes = listOf(
+                    crate, tablePlank, hideCrate, rightLeg, longCrate1, longCrate2,
+                    stepCrate2, cameraBeam, cameraLeg, finalHangingCrate, hangingEndCrate, finalPlatform
+                ) + fillerBarrels + listOf(fillerCrate, stackedCrates, platformCrate, platformStackedCrates),
+                guards = listOf(roofGuard, overwatchGuard1, overwatchGuard2),
+                cameras = listOf(beamCamera),
+                barrels = fillerBarrels,
+                tables = listOf(tablePlank, cameraBeam),
+                tableParts = listOf(tablePlank, cameraBeam),
+                tableDecorations = listOf(rightLeg, cameraLeg),
+                floatingClimbTargets = listOf(tablePlank, cameraBeam),
+                hangingCrateVariant1 = listOf(longCrate1, longCrate2, finalHangingCrate)
             )
         }
 
@@ -683,17 +1212,45 @@ data class LevelData(
             id = "level_3",
             name = "03: New Level",
             timeTargetSeconds = 25.0f,
-            layout = LEVEL_3_LAYOUT
+            layout = LEVEL_3_LAYOUT,
+            tutorialSteps = listOf(
+                TutorialStep(
+                    id = "step_crouch_hide",
+                    // From the player's very first frame (LEVEL_3_LAYOUT.playerStartX), not partway
+                    // in - the guard is rooted at his post from the start too (see roofGuard's
+                    // holdUntilPlayerCrouches), so there's no early window where showing this would
+                    // be a lie.
+                    triggerMinX = LEVEL_3_LAYOUT.playerStartX,
+                    triggerMaxX = 415.0,
+                    title = "STAY HIDDEN",
+                    instructionTouch = "Hold CROUCH behind the crate to break the guard's line of sight.",
+                    instructionDesktop = "Hold [S], [C] or [CTRL] behind the crate to break the guard's line of sight.",
+                    targetAction = TutorialAction.CROUCH,
+                    // World-anchored at the crate itself (like step_reach_objective in level 1)
+                    // rather than at the crouch button - the crate is the thing to hide behind,
+                    // not just an input to press. Fades on the same CROUCH actionDone check as
+                    // any other highlight, so it stops pointing the moment the player crouches.
+                    highlight = TutorialControlHighlight.NONE,
+                    handwrittenCallout = "Crouch behind the crate to hide!",
+                    worldTextX = 260.0,
+                    worldTextY = 160.0,
+                    worldAnchorX = 410.0, // just left of the crate itself (crate spans 420..488) - clear of its outline, not touching it
+                    worldAnchorY = 416.0, // crate mid-height, not the top corner - reads as pointing at the side face
+                    arrowBowsLeft = true // anchor sits close to/left of the text; the default rightward bow cut across the crate
+                )
+            )
         )
 
         val DEFAULT_LEVEL_4 = LevelData(
             id = "level_4",
             name = "04: Blind Spot",
-            timeTargetSeconds = 25.0f,
-            description = "The shipyard is guarded. Slip through security and continue searching for signs of your old crew.",
-            objectiveHint = "Get Past the Guards",
+            timeTargetSeconds = 90.0f,
+            description = "The cargo express conveyor is running in reverse. Vault over oncoming crates, duck under low-hanging cargo, and reach the secure facility.",
+            objectiveHint = "Traverse the Conveyor Line",
             layout = LEVEL_4_LAYOUT,
-            backgroundImage = "bgmg6.png"
+            backgroundImage = "metalbg.png",
+            hasDarknessVignette = true,
+            playerCrouchForwardSpeedMultiplier = 1.45
         )
 
         /**

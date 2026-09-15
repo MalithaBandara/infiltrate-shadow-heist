@@ -52,8 +52,8 @@ android {
         // Must be >= paywall-build's own minSdk (24) - AGP fails the merge otherwise.
         minSdk = 24
         targetSdk = 37
-        versionCode = 9
-        versionName = "0.0.6"
+        versionCode = 10
+        versionName = "0.0.7"
 
         val revenueCatKey = localProperties.getProperty("REVENUECAT_GOOGLE_KEY")
             ?.takeIf { it.isNotBlank() } ?: "goog_DVKTWBbrxMSDhEimnQZBxQcGVxx"
@@ -144,6 +144,9 @@ dependencies {
     implementation("app.lexilabs.basic:basic-ads:1.2.1")
     // Google Play Billing Library (v8.0.0+ compliant with Google Play Console requirements)
     implementation("com.android.billingclient:billing-ktx:8.0.0")
+    // Google Play In-App Review
+    implementation("com.google.android.play:review:2.0.2")
+    implementation("com.google.android.play:review-ktx:2.0.2")
 
     implementation(compose.runtime)
     implementation(compose.foundation)

@@ -2,6 +2,7 @@ package game.scene
 
 import com.sample.demo.ads.getContinueAdBridge
 import com.sample.demo.nav.getLevelExitBridge
+import com.sample.demo.review.getInAppReviewBridge
 import game.model.*
 import game.scene.UiComponents.COLOR_PRIMARY
 import game.scene.UiComponents.COLOR_ACCENT_CYAN
@@ -35,13 +36,24 @@ import korlibs.math.geom.vector.*
 import korlibs.korge.scene.*
 import korlibs.korge.service.storage.*
 import korlibs.korge.view.*
+import korlibs.korge.view.filter.*
 import korlibs.korge.view.vector.*
 import korlibs.math.geom.*
 import korlibs.time.*
 import kotlin.math.*
 
-/** Guard vision cones are one flat white; see the cone loop in sceneMain for why. */
-private val GUARD_CONE_COLOR = Colors.WHITE.withAd(0.30)
+// Guard torch beams are one colour in every state (LightConeView.DEFAULT_COLOR); see the beam
+// loop in sceneMain for why.
+
+private class ConveyorAnimator(
+    val topImages: List<Image>,
+    val botImages: List<Image>,
+    val topTileW: Double,
+    val botTileW: Double,
+    val topY: Double,
+    val botY: Double,
+    val speed: Double
+)
 
 class GameplayScene(
     val levelData: LevelData = LevelData.DEFAULT_LEVEL_1,
@@ -86,7 +98,7 @@ class GameplayScene(
         // One full frame so the loading screen is actually painted before the loads below
         delayFrame()
 
-        val totalLoadSteps = 26
+        val totalLoadSteps = 34
         var loadStepsDone = 0
         suspend fun markLoadProgress() {
             loadStepsDone++
@@ -158,82 +170,39 @@ class GameplayScene(
         val baseGroundY = 410.0
 
         val bgFileName = levelData.resolvedBackgroundImage
-        val bgmgBitmap = SceneAssets.bitmap(bgFileName, minified = false)
-        markLoadProgress()
-        val crateBitmap = SceneAssets.bitmap("crate.png")
-        markLoadProgress()
-        val chainedCrateBitmap = SceneAssets.bitmap("chainedcrate.png", minified = false)
-        markLoadProgress()
-        val chainedCrate2Bitmap = SceneAssets.bitmap("chainedcrate2.png", minified = false)
-        markLoadProgress()
-        val fenceBitmap = SceneAssets.bitmap("fence.png")
-        markLoadProgress()
-        val fence2Bitmap = SceneAssets.bitmap("fence2.png")
-        markLoadProgress()
-        val barrelBitmap = SceneAssets.bitmap("barrel.png")
-        markLoadProgress()
-        val tableBitmap = SceneAssets.bitmap("table.png")
-        markLoadProgress()
-        val hookBitmap = SceneAssets.bitmap("hook.png")
-        markLoadProgress()
-        val truckBitmap = SceneAssets.bitmap("truck.png")
-        markLoadProgress()
-        val entranceBitmap = SceneAssets.bitmap("entrance.png", minified = false)
-        markLoadProgress()
-        val exitFenceBitmap = SceneAssets.bitmap("exitfence.png", minified = false)
-        markLoadProgress()
-        val leftBtnBitmap = SceneAssets.bitmap("left.png")
-        markLoadProgress()
-        val rightBtnBitmap = SceneAssets.bitmap("right.png")
-        markLoadProgress()
-        val crouchBtnBitmap = SceneAssets.bitmap("crouch.png")
-        markLoadProgress()
-        val jumpBtnBitmap = SceneAssets.bitmap("jump.png")
-        markLoadProgress()
-        val interactBtnBitmap = SceneAssets.bitmap("interact.png")
-        markLoadProgress()
-        // The main menu's torn-paper button strips. They already live in resources/ (the Compose
-        // menu reads its own copies out of composeResources), so the pause menu can be built from
-        // the very same art rather than a lookalike drawn in vectors.
-        val paperBtnBitmaps = listOf("button1.png", "button2.png", "button3.png", "button4.png")
-            .map { name -> SceneAssets.bitmap(name, minified = false) }
-        markLoadProgress()
-        // The main menu's briefing sheet (MainMenuScreen.MissionDossierCard). Checked in twice
-        // for the same reason the button strips are - Korge reads resources/, the Compose menu
-        // reads its own composeResources/ copy, and the two builds share no asset pipeline.
-        val dossierBitmap = SceneAssets.bitmap("dossier_paper.png", minified = false)
-        markLoadProgress()
-        // The store's own gadget art, reused at HUD size, so an item looks in the quick-slot
-        // exactly like it looked on the card that sold it. Order matches `gadgetTypes` below.
-        val gadgetBitmaps = listOf(
-            "gadget_jammer.png", "gadget_darts.png", "gadget_invis.png",
-            "gadget_boots.png", "gadget_prototype.png"
-        ).map { SceneAssets.bitmap(it) }
-        markLoadProgress()
-        // The quick-slot's own "gadgets are here" mark before it's tapped open. Replaces the
-        // earlier hand-drawn vector polygon with real bolt art - tight-cropped from
-        // Downloads/charAnimations/assets/lighting.png to its alpha bounds (102x235) then
-        // resized to 32x64 POT. White source art, tinted at draw time via colorMul exactly like
-        // the paper-strip buttons already are, so it still goes white/green with gadget state.
-        val gadgetBoltBitmap = SceneAssets.bitmap("gadget_bolt.png")
-        markLoadProgress()
-        // The MISSION SUCCESSFUL card: a desk of case photos with the header already printed on
-        // the sheet, so the results screen draws no title of its own and only fills the blank
-        // paper under it, and the three painted gold stars it awards, which ship as one strip.
-        val successBgBitmap = SceneAssets.bitmap("success3.png", minified = false)
-        markLoadProgress()
-        val starsBitmap = SceneAssets.bitmap("stars.png", minified = false)
-        // Column runs measured off the strip's alpha channel - the three stars are hand-painted
-        // and none of them is the same width as its neighbours, so they are cut individually
-        // rather than into equal thirds, which would clip one and off-centre another.
-        val starSlices = starsBitmap?.let {
-            listOf(
-                it.sliceWithSize(69, 33, 636, 611),
-                it.sliceWithSize(760, 33, 647, 611),
-                it.sliceWithSize(1464, 33, 641, 611)
-            )
-        }
-        markLoadProgress()
+        val bitmaps = loadGameplayBitmaps(bgFileName, ::markLoadProgress)
+        val bgmgBitmap = bitmaps.bgmgBitmap
+        val crateBitmap = bitmaps.crateBitmap
+        val chainedCrateBitmap = bitmaps.chainedCrateBitmap
+        val chainedCrate2Bitmap = bitmaps.chainedCrate2Bitmap
+        val fenceBitmap = bitmaps.fenceBitmap
+        val fence2Bitmap = bitmaps.fence2Bitmap
+        val barrelBitmap = bitmaps.barrelBitmap
+        val tableBitmap = bitmaps.tableBitmap
+        val cameraBitmap = bitmaps.cameraBitmap
+        val laserEmitterBitmap = bitmaps.laserEmitterBitmap
+        val conveyorTopBitmap = bitmaps.conveyorTopBitmap
+        val conveyorMidBitmap = bitmaps.conveyorMidBitmap
+        val conveyorBotBitmap = bitmaps.conveyorBotBitmap
+        val hookBitmap = bitmaps.hookBitmap
+        val truckBitmap = bitmaps.truckBitmap
+        val entranceBitmap = bitmaps.entranceBitmap
+        val exitFenceBitmap = bitmaps.exitFenceBitmap
+        val leftBtnBitmap = bitmaps.leftBtnBitmap
+        val rightBtnBitmap = bitmaps.rightBtnBitmap
+        val crouchBtnBitmap = bitmaps.crouchBtnBitmap
+        val jumpBtnBitmap = bitmaps.jumpBtnBitmap
+        val interactBtnBitmap = bitmaps.interactBtnBitmap
+        val paperBtnBitmaps = bitmaps.paperBtnBitmaps
+        val victoryBtnBitmaps = bitmaps.victoryBtnBitmaps
+        val failedBtnBitmaps = bitmaps.failedBtnBitmaps
+        val dossierBitmap = bitmaps.dossierBitmap
+        val failedBgBitmap = bitmaps.failedBgBitmap
+        val gadgetBitmaps = bitmaps.gadgetBitmaps
+        val gadgetBoltBitmap = bitmaps.gadgetBoltBitmap
+        val successBgBitmap = bitmaps.successBgBitmap
+        val starsBitmap = bitmaps.starsBitmap
+        val starSlices = bitmaps.starSlices
 
         loadingScreen.dismiss()
 
@@ -254,6 +223,30 @@ class GameplayScene(
         } else {
             bgmgContainer.solidRect(canvasW, canvasH, Colors["#16161d"])
             800.0
+        }
+
+        // Distance marker decals on Level 4 background wall (hand-painted textured stencils at 20m intervals)
+        val wallDecalsContainer = bgmgContainer.container()
+        if (bitmaps.wallMarkerBitmaps.isNotEmpty() && bgmgBitmap != null) {
+            val bgScale = canvasH / bgmgBitmap.height
+            val markerPositions = listOf(
+                "0m" to 535.0,
+                "20m" to 960.0,
+                "40m" to 1200.0,
+                "60m" to 1530.0,
+                "80m" to 1750.0,
+                "100m" to 2080.0
+            )
+            for ((label, texX) in markerPositions) {
+                val bmp = bitmaps.wallMarkerBitmaps[label] ?: continue
+                val dw = bmp.width * bgScale
+                val dh = bmp.height * bgScale
+                val dx = texX * bgScale - dw / 2.0
+                val dy = 412.5 * bgScale - dh / 2.0
+                wallDecalsContainer.image(bmp) {
+                    size(dw, dh)
+                }.xy(dx, dy)
+            }
         }
 
         // Everything inside worldView scrolls with the camera; HUD & Touch controls stay fixed.
@@ -425,9 +418,17 @@ class GameplayScene(
             }
             // 3b. Tables (table.png): drawn in their own pass below, once per art rect, since
             // the collision under one is two boxes (a plank and a leg, LevelLayout.tableParts)
-            // with an open underside for a guard to stand in. Nothing to draw per box here.
-            else if (box in world.tables || box in world.tableParts) {
+            // with an open underside for a guard to stand in. Nothing to draw per box here. A
+            // table decoration that also collides (LevelLayout.tableDecorations - now allowed to
+            // double as a real obstacle, not just flavor) is drawn by that same dedicated pass
+            // too, so it's excluded here for the same reason - one image, not two stacked on
+            // top of each other.
+            else if (box in world.tables || box in world.tableParts || box in world.tableDecorations) {
                 // covered by the table art
+            }
+            // 3c. Conveyors (conveyor.png): drawn in dedicated conveyor pass below
+            else if (world.conveyors.any { it.bounds == box }) {
+                // covered by the conveyor art pass below
             }
             // 4. Truck (parked next to the small crate, climbed onto en route to the long platform).
             else if (box in world.truckParts && truckBitmap != null) {
@@ -454,7 +455,17 @@ class GameplayScene(
                 cullable(crateCont, box.x, box.width)
                 renderHangingCrate(crateCont, box.width, box.height, 0.0, box in world.hangingCrateVariant1)
             }
-            // 6. Step Crate (matches bounding box exactly)
+            // 6. Tactical Crates (single crates, 2 stacked, 3 stacked)
+            else if (box.width in 50.0..85.0 && box.height in 40.0..160.0 && crateBitmap != null) {
+                val count = (box.height / 48.0).toInt().coerceAtLeast(1)
+                val tileH = box.height / count
+                for (i in 0 until count) {
+                    boxContainer.image(crateBitmap) {
+                        size(box.width, tileH)
+                    }.xy(0.0, i * tileH)
+                }
+            }
+            // 6b. Step Crate (matches bounding box exactly)
             else if (box.height < 70.0 && box.width < 150.0 && crateBitmap != null) {
                 boxContainer.image(crateBitmap) {
                     size(box.width, box.height)
@@ -466,16 +477,36 @@ class GameplayScene(
             }
         }
 
-        // Tables: a flat plank on a single off-centre leg with a diagonal brace, one image
-        // stretched over the whole art rect. Its collision boxes (the plank, the leg) are in
-        // world.boxes and skipped in the loop above; the art already spans them both.
+        // Tables: table.png (2048x512) bakes the leg+brace assembly into its own rightmost ~8.7%
+        // (columns 1870-2048, full height) and the flat repeating slab into the rest (columns
+        // 0-1870, rows 0-102 only - the slab's own band, not the transparent drop below it that
+        // the leg's crop needs). Every collidable part (LevelLayout.tableParts - the mantle face
+        // the player climbs and the thin slab past it) draws with the flat-slab crop regardless of
+        // its own shape, so the climb face reads as a thick support bracket rather than a distinct
+        // leg object; only purely decorative pieces (LevelLayout.tableDecorations) get the leg's
+        // own crop, mirrored on disk (this GL backend corrupts a runtime scaleX flip) so its brace
+        // leans the right way wherever that decoration happens to sit.
         if (tableBitmap != null) {
-            for (table in world.tables) {
+            val legSlice = tableBitmap.slice(RectangleInt(1870, 0, 178, 512))
+            val plankSlice = tableBitmap.slice(RectangleInt(0, 0, 1870, 102))
+            for (part in world.tableParts) {
                 cullable(
-                    worldView.image(tableBitmap) {
-                        size(table.width, table.height)
-                    }.xy(table.x, table.y),
-                    table.x, table.width
+                    worldView.image(plankSlice) {
+                        size(part.width, part.height)
+                    }.xy(part.x, part.y),
+                    part.x, part.width
+                )
+            }
+            // Purely decorative table pieces (LevelLayout.tableDecorations) - not in world.boxes,
+            // not occluders, no part in reaching the table. A support post drawn for flavor at one
+            // end while the real climb happens elsewhere; always the leg's own crop, since a plank
+            // has no reason to exist without collision.
+            for (deco in world.tableDecorations) {
+                cullable(
+                    worldView.image(legSlice) {
+                        size(deco.width, deco.height)
+                    }.xy(deco.x, deco.y),
+                    deco.x, deco.width
                 )
             }
         }
@@ -504,8 +535,43 @@ class GameplayScene(
             crateCont
         }
 
-        // Guards: vision cones first so they render beneath the bodies
-        val guardCones = world.allGuards.map { worldView.graphics() }
+        // Conveyor crates (crates carried dynamically with the conveyor belt)
+        val conveyorCrateContainers = world.conveyorCrates.map { crate ->
+            val crateCont = worldView.container().xy(crate.x, crate.y)
+            if (crate.isHanging) {
+                renderHangingCrate(crateCont, crate.width, crate.height, 0.0, crate.isVariant1)
+            } else if (crateBitmap != null) {
+                val count = (crate.height / 48.0).toInt().coerceAtLeast(1)
+                val tileH = crate.height / count
+                for (i in 0 until count) {
+                    crateCont.image(crateBitmap) {
+                        size(crate.width, tileH)
+                    }.xy(0.0, i * tileH)
+                }
+            }
+            crateCont
+        }
+
+        // Laser hazards: realistic volumetric gradient beams with blooming contact flares
+        val laserVisuals = LaserVisual.createAll(worldView, world.lasers, laserEmitterBitmap)
+
+        // Conveyors: infinite-repeating conveyor belt cut from middle of conveyor.png,
+        // animated with top layer moving forward and bottom layer moving in reverse.
+        val conveyorAnimators = setupConveyorAnimators(
+            worldView, world.conveyors,
+            conveyorTopBitmap, conveyorMidBitmap, conveyorBotBitmap,
+            ::cullable
+        )
+
+        // Guards: torch beams first so they render beneath the bodies. LightConeView, not
+        // Graphics - see its header for why the old per-frame rasterised cone was the most
+        // expensive thing in the scene. Rebuilt only when the lens, facing or range changed, and
+        // skipped entirely while the guard is off-screen; the arrays below hold the last inputs.
+        val guardCones = world.allGuards.map { LightConeView().addTo(worldView) }
+        val guardConeLensX = DoubleArray(world.allGuards.size) { Double.NaN }
+        val guardConeLensY = DoubleArray(world.allGuards.size) { Double.NaN }
+        val guardConeFacing = DoubleArray(world.allGuards.size) { Double.NaN }
+        val guardConeRange = DoubleArray(world.allGuards.size) { Double.NaN }
         val guardContainers = world.allGuards.map { g -> worldView.container().xy(g.x, g.y) }
         // The body is the idle sprite, scaled so its standing silhouette is exactly the hitbox
         // height and anchored at the feet like the player's - see GuardAnimations for the frame
@@ -528,7 +594,7 @@ class GameplayScene(
                 guardContainers[i].sprite(guardAnimations.idle, Anchor2D(0.5, guardFeetAnchorY)).also { sprite ->
                     sprite.scaleX = guardBaseScale[i] * (if (g.facing >= 0.0) 1.0 else -1.0)
                     sprite.scaleY = guardBaseScale[i]
-                    sprite.xy(g.width / 2.0, g.height + guardIdleFeetOffset[i])
+                    sprite.xy(g.width / 2.0, g.height + guardIdleFeetOffset[i] + GuardAnimations.FEET_GROUND_NUDGE)
                     sprite.playAnimationLooped(guardAnimations.idle, GuardAnimations.IDLE_FRAME_TIME_MS.milliseconds)
                 }
             }
@@ -557,11 +623,78 @@ class GameplayScene(
         // Cameras: vision cones first beneath bodies
         val cameraCones = world.cameras.map { worldView.graphics() }
         val cameraContainers = world.cameras.map { c -> worldView.container().xy(c.x, c.y) }
-        val cameraMounts = world.cameras.mapIndexed { i, c ->
-            // Mount & body: distinct grey housing
-            cameraContainers[i].solidRect(c.width, c.height, Colors["#34495e"])
-            cameraContainers[i].solidRect(c.width - 4.0, c.height - 4.0, Colors["#2c3e50"]).xy(2.0, 2.0)
-            cameraContainers[i].solidRect(6.0, 6.0, Colors["#e74c3c"]).xy((c.width - 6.0) / 2.0, (c.height - 6.0) / 2.0)
+        // cameranew2.png: same recipe as cameranew.png (ceiling-mount plate + drop neck +
+        // ball-swivel joint + camera body, one silhouette, transparent background, 1536x1024) but a
+        // cleaner redraw - rounded corners, no stray corner artifacts, and a small separate end-cap
+        // segment past the main body. Measured directly off THIS PNG (column/row alpha scans,
+        // threshold >10 - same method, numbers differ from the old asset):
+        // - The mount plate sits at the top (opaque bbox y 56..~110, x 91..675, centreline
+        //   x = 383), a vertical neck ~126px wide runs down to a collar band (widens to ~168 around
+        //   y 445..480), then a narrow waist at y~486..494 (back to ~132..138, close to the bare
+        //   neck's own width) - the seam this crop splits on.
+        // - The ball joint: its leftmost point sits at (287, ~552); the neck/collar's own
+        //   centreline (x = 383, the plate's own centre too) gives the joint centre as (383, 552.5)
+        //   by symmetry, radius ~96.
+        // - The body's long axis was fit from its TOP edge across x=750..1190 (a single straight
+        //   line there, slope 0.35 the whole way - i.e. 19.29 degrees below horizontal), not from
+        //   one corner, which the body's own thickness would skew off-axis. The small end-cap
+        //   segment past the main body's own end doesn't affect this fit (out of that x range).
+        // Split at the waist: the mount piece (plate+neck+collar) stays fixed to the beam; the lens
+        // piece (ball+arm+body+end-cap) rotates around the joint to track currentAngle, same as a
+        // real swivel camera. One shared scale keeps them reading as one assembly.
+        // Not a larger scale that would read better on its own: Camera.kt's NECK_LENGTH (13) /
+        // LENS_LENGTH (27) are the model's own gameplay geometry, and this render scale has to
+        // agree with them - raw neck ~496.5px / raw lens ~1050px (pivot to the body's own front tip,
+        // axial distance along the fitted long axis, not a raw corner-to-corner line) - so what's
+        // lit matches what's drawn. See the comment on those constants: an earlier, larger pass
+        // (23/50, tuned against the previous asset) both drew a visibly oversized camera body and
+        // needed a much wider sweep to reach stepCrate2 at all, which let the cone's shallow edge
+        // sail over the crate's top into the open corridor beyond it - reported directly against a
+        // screenshot.
+        val cameraArtScale = Camera.LENS_LENGTH / 1050.0
+        val cameraMountCrop = RectangleInt(89, 54, 588, 438) // plate+neck+collar, down to the waist
+        val cameraLensCrop = RectangleInt(285, 486, 1134, 492) // ball+arm+body+end-cap, from just above the waist
+        // The plate's own top-centre, in raw art pixels - the point that stays flush against the
+        // beam's underside (the art hangs the joint+body below the attach point on a real neck, so
+        // the attach point is the plate's top, not the hitbox centre).
+        val cameraMountAttachRaw = Vec2d(383.0, 56.0)
+        val cameraPivotRaw = Vec2d(383.0, 552.5) // the ball joint, see measurements above
+        val cameraPivotInMount = Vec2d(cameraPivotRaw.x - cameraMountCrop.x, cameraPivotRaw.y - cameraMountCrop.y)
+        val cameraPivotInLens = Vec2d(cameraPivotRaw.x - cameraLensCrop.x, cameraPivotRaw.y - cameraLensCrop.y)
+        val cameraAttachInMount = Vec2d(cameraMountAttachRaw.x - cameraMountCrop.x, cameraMountAttachRaw.y - cameraMountCrop.y)
+        // The unrotated body's own long axis points down-right at this angle off horizontal (fit
+        // above) - currentAngle's convention is 0 = right, PI/2 = straight down, so the pivot
+        // container's rotation has to correct for this baseline before it can track currentAngle.
+        val cameraArtBaselineAngle = atan2(154.0, 440.0)
+        val cameraPivots = world.cameras.mapIndexed { i, c ->
+            // Local (width/2, 0): the plate's top-centre, flush against the beam - container origin
+            // xy(c.x, c.y) already sits at the beam's own underside (see cameraContainers above).
+            val attachLocal = Vec2d(c.width / 2.0, 0.0)
+            if (cameraBitmap != null) {
+                cameraContainers[i].image(cameraBitmap.slice(cameraMountCrop)) {
+                    size(cameraMountCrop.width * cameraArtScale, cameraMountCrop.height * cameraArtScale)
+                }.xy(
+                    attachLocal.x - cameraAttachInMount.x * cameraArtScale,
+                    attachLocal.y - cameraAttachInMount.y * cameraArtScale
+                )
+            } else {
+                // No art (load failed) - old plain grey housing, no rotating lens piece.
+                cameraContainers[i].solidRect(c.width, c.height, Colors["#34495e"])
+                cameraContainers[i].solidRect(c.width - 4.0, c.height - 4.0, Colors["#2c3e50"]).xy(2.0, 2.0)
+            }
+            // The joint's position relative to the attach point, scaled - drives the rotating
+            // container's own position regardless of whether the art itself loaded.
+            val pivotLocal = Vec2d(
+                attachLocal.x + (cameraPivotRaw.x - cameraMountAttachRaw.x) * cameraArtScale,
+                attachLocal.y + (cameraPivotRaw.y - cameraMountAttachRaw.y) * cameraArtScale
+            )
+            val pivot = cameraContainers[i].container().xy(pivotLocal.x, pivotLocal.y)
+            if (cameraBitmap != null) {
+                pivot.image(cameraBitmap.slice(cameraLensCrop)) {
+                    size(cameraLensCrop.width * cameraArtScale, cameraLensCrop.height * cameraArtScale)
+                }.xy(-cameraPivotInLens.x * cameraArtScale, -cameraPivotInLens.y * cameraArtScale)
+            }
+            pivot
         }
         val cameraWasDetecting = BooleanArray(world.cameras.size)
 
@@ -576,14 +709,36 @@ class GameplayScene(
         val idleFeetOffset = (playerSourceFeetY - PlayerAnimations.IDLE_FEET_Y) * playerBaseScale
         val crouchFeetOffset = (playerSourceFeetY - PlayerAnimations.CROUCH_FEET_Y) * playerBaseScale
         val jumpLandFeetOffset = (playerSourceFeetY - PlayerAnimations.JUMP_LAND_FEET_Y) * playerBaseScale
+
+        // Smooth Luminous Silhouette Aura (Laser Shield)
+        val shieldGlowContainer = playerContainer.container().apply {
+            blendMode = BlendMode.ADD
+        }
+        val shieldCyanTransform = ColorTransform(0f, 0f, 0f, 0.75f, 0, 229, 255, 0)
+        val shieldWhiteTransform = ColorTransform(0f, 0f, 0f, 1f, 255, 255, 255, 0)
+        val shieldColorFilter = ColorTransformFilter(shieldCyanTransform)
+        val shieldBlurFilter = BlurFilter(radius = 1.8)
+        shieldGlowContainer.filter = ComposedFilter(listOf(shieldColorFilter, shieldBlurFilter))
+        shieldGlowContainer.visible = false
+
         val playerSprite = playerContainer.sprite(playerAnimations.idle, Anchor2D(0.5, playerFeetAnchorY))
         playerSprite.scaleX = playerBaseScale
         playerSprite.scaleY = playerBaseScale
         playerSprite.xy(world.player.width / 2.0, world.player.height + idleFeetOffset)
         playerSprite.playAnimationLooped(playerAnimations.idle, PlayerAnimations.IDLE_FRAME_TIME_MS.milliseconds)
         var playerAnimState = "idle"
-        var playerFacingLeft = true
+        var playerFacingLeft = false
         var isFirstCameraFrame = true
+
+        val shieldGlowImage = shieldGlowContainer.image(playerSprite.bitmap, Anchor2D(0.5, playerFeetAnchorY))
+
+        var shieldDeflectFlashTimer = 0.0
+        val shieldFlareImage = worldView.image(LaserFxAssets.flareBitmap, Anchor2D(0.5, 0.5)).apply {
+            size(52.0, 52.0)
+            blendMode = BlendMode.ADD
+            visible = false
+        }
+        var shieldFlareTimer = 0.0
 
         val jumpLaunchFrame = PlayerAnimations.JUMP_LAUNCH_START
         val jumpAirborneFrame = PlayerAnimations.JUMP_RISE_START
@@ -767,8 +922,56 @@ class GameplayScene(
         // resolution clock ticking in the player's eyeline pushes them to rush, which is exactly
         // the wrong instinct in a stealth level.
         //
-        // The stealth meter was removed as a bar and re-sited on the guards and cameras that are
-        // actually looking at you - see guardPips / cameraPips.
+        // ==========================================
+        // DYNAMIC DARKNESS VIGNETTE (Stealth Vision Pool)
+        // Layered directly above worldView and below hudLayer / controlsContainer / dialogs
+        // ==========================================
+        val darknessVignetteSize = 640
+        var darknessVignetteImg: Image? = null
+        var darknessLeftRect: SolidRect? = null
+        var darknessRightRect: SolidRect? = null
+        var darknessTopRect: SolidRect? = null
+        var darknessBotRect: SolidRect? = null
+
+        if (levelData.hasDarknessVignette) {
+            val darkBase = Colors["#05070A"]
+            val darkMaxAlpha = 0.97
+            val darkColor = darkBase.withAd(darkMaxAlpha)
+            val vignetteBmp = Bitmap32(darknessVignetteSize, darknessVignetteSize)
+            val cx = darknessVignetteSize / 2.0
+            val cy = darknessVignetteSize / 2.0
+            val r0 = 110.0
+            val r1 = 250.0
+            val rSpan = r1 - r0
+
+            for (y in 0 until darknessVignetteSize) {
+                val dy = y - cy
+                for (x in 0 until darknessVignetteSize) {
+                    val dx = x - cx
+                    val dist = kotlin.math.sqrt(dx * dx + dy * dy)
+                    val alpha = when {
+                        dist <= r0 -> 0.0
+                        dist >= r1 -> darkMaxAlpha
+                        else -> {
+                            val t = (dist - r0) / rSpan
+                            darkMaxAlpha * (t * t * (3.0 - 2.0 * t))
+                        }
+                    }
+                    vignetteBmp.setRgba(x, y, darkBase.withAd(alpha))
+                }
+            }
+
+            val darknessContainer = container()
+            darknessVignetteImg = darknessContainer.image(vignetteBmp).size(darknessVignetteSize.toDouble(), darknessVignetteSize.toDouble())
+            darknessLeftRect = darknessContainer.solidRect(1.0, 1.0, darkColor)
+            darknessRightRect = darknessContainer.solidRect(1.0, 1.0, darkColor)
+            darknessTopRect = darknessContainer.solidRect(1.0, 1.0, darkColor)
+            darknessBotRect = darknessContainer.solidRect(1.0, 1.0, darkColor)
+        }
+
+        val laserFlashRect = solidRect(sceneWidth, sceneHeight, Colors["#ff0033"])
+        laserFlashRect.alpha = 0.0
+
         val hudLayer = container()
 
         // --- Objectives panel: what the run is for, and how it is going --------------------
@@ -965,7 +1168,6 @@ class GameplayScene(
         val cameraPips = world.cameras.mapIndexed { i, c ->
             cameraContainers[i].uiGraphics().xy(c.width / 2.0, -14.0).also { it.visible = false }
         }
-
         // ==========================================
         // TACTICAL MOBILE TOUCH CONTROLS (Modern GPU Vectors)
         // ==========================================
@@ -1203,7 +1405,7 @@ class GameplayScene(
         // control that means "tap to use" would misdescribe it.
         val gadgetTypes = listOf(
             PowerupType.SMOKE_SCREEN,
-            PowerupType.PHANTOM_CLOAK,
+            PowerupType.LASER_SHIELD,
             PowerupType.INVISIBILITY,
             PowerupType.NOISE_SUPPRESSION,
             PowerupType.PROTOTYPE
@@ -1440,16 +1642,14 @@ class GameplayScene(
         val nextLevel = if (currentLevelIndex >= 0 && currentLevelIndex + 1 < allLevels.size) allLevels[currentLevelIndex + 1] else null
 
         // ==========================================
-        // 2. END-OF-RUN DOSSIER SHEET (MISSION FAILED)
+        // 2. MISSION FAILED OVERLAY
         // ==========================================
         val caughtOverlay = setupCaughtOverlay(
             canvasW = canvasW,
             canvasH = canvasH,
-            dossierBitmap = dossierBitmap,
+            failedBgBitmap = failedBgBitmap,
+            failedBtnBitmaps = failedBtnBitmaps,
             bebasFont = bebasFont,
-            handwrittenFont = handwrittenFont,
-            paperBtnBitmaps = paperBtnBitmaps,
-            levelData = levelData,
             paperInk = paperInk,
             playClick = playClick,
             onRequestContinueAd = {
@@ -1474,7 +1674,7 @@ class GameplayScene(
             canvasH = canvasH,
             successBgBitmap = successBgBitmap,
             starSlices = starSlices,
-            paperBtnBitmaps = paperBtnBitmaps,
+            victoryBtnBitmaps = victoryBtnBitmaps,
             bebasFont = bebasFont,
             levelData = levelData,
             nextLevel = nextLevel,
@@ -1522,6 +1722,11 @@ class GameplayScene(
                 profileStorage.unlockLevel(nextLevel.id)
             }
 
+            // Prompt in-app review after completing level 4
+            if (result.levelId == "level_4") {
+                getInAppReviewBridge().requestReview()
+            }
+
             // Both objectives resolve at the same instant the level does - the primary by
             // definition, the optional one against the clock it was racing.
             objMainState = 1
@@ -1540,6 +1745,46 @@ class GameplayScene(
         }
 
         var totalElapsedSeconds = 0.0
+        var conveyorElapsedSeconds = 0.0
+
+        world.onConveyorFallOff = {
+            isFirstCameraFrame = true
+            totalElapsedSeconds = 0.0
+            conveyorElapsedSeconds = 0.0
+            playerAnimState = "idle"
+            jumpPhase = "none"
+            landingAbsorb = false
+            swingImpactSoundPlayed = false
+            swingExitTimer = 0.0
+            climbExitTimer = 0.0
+            playerFacingLeft = false
+            playerSprite.scaleX = playerBaseScale
+            playerSprite.playAnimationLooped(playerAnimations.idle, PlayerAnimations.IDLE_FRAME_TIME_MS.milliseconds)
+            playerContainer.xy(world.player.x, world.player.y)
+            for (i in world.conveyorCrates.indices) {
+                conveyorCrateContainers[i].xy(world.conveyorCrates[i].x, world.conveyorCrates[i].y)
+                conveyorCrateContainers[i].visible = true
+            }
+            objOptState = 0
+            setObjMark(objOptMark, 0)
+            shieldDeflectFlashTimer = 0.0
+            shieldFlareTimer = 0.0
+            shieldFlareImage.visible = false
+        }
+
+        var laserFlashTimer = 0.0
+        world.onLaserHit = {
+            laserFlashTimer = 0.25
+        }
+        world.onLaserShieldBlocked = {
+            shieldDeflectFlashTimer = 0.15
+            shieldFlareTimer = 0.25
+            shieldFlareImage.xy(world.player.x + world.player.width / 2.0, world.player.y + world.player.height / 2.0)
+            shieldFlareImage.visible = true
+            shieldFlareImage.alpha = 1.0
+            shieldFlareImage.scale = 1.0
+            sounds.impact.playSfx(sfxContext, GameAudio.LANDING_GAIN, sfxVolume(), GameAudio.SfxFile.IMPACT)
+        }
 
         // Tutorial Controller State
         var currentTutorialStep: TutorialStep? = null
@@ -1666,7 +1911,15 @@ class GameplayScene(
                         val actionDone = when (step.targetAction) {
                             TutorialAction.MOVE -> (moveInput != 0.0 && playerX >= stepActivatedX + 30.0) || playerX > step.triggerMaxX
                             TutorialAction.JUMP_VAULT -> jumpPressed || world.player.isJumping || world.player.isClimbing || (world.player.y < baseGroundY - 96.0 - 20.0) || playerX > step.triggerMaxX
-                            TutorialAction.CROUCH -> crouchPressed || world.player.isCrouching || playerX > step.triggerMaxX
+                            TutorialAction.CROUCH -> crouchPressed || world.player.isCrouching ||
+                                // Also done if the player mantles up onto the very crate they'd
+                                // otherwise hide behind (feet at/above its top surface, over its
+                                // footprint) - a real alternative to hiding, not just an input to
+                                // press, so it should dismiss the prompt too.
+                                (world.player.isGrounded &&
+                                    world.player.bounds.bottom <= world.crate.top + 4.0 &&
+                                    world.player.bounds.right > world.crate.left) ||
+                                playerX > step.triggerMaxX
                             TutorialAction.CLIMB -> jumpPressed || world.player.isClimbing || (world.player.y < baseGroundY - 96.0 - 50.0) || playerX > step.triggerMaxX
                             TutorialAction.REACH_OBJECTIVE -> world.player.bounds.intersects(world.exitZone) || playerX >= world.exitZone.x
                         }
@@ -1746,11 +1999,10 @@ class GameplayScene(
                     val textY: Double
 
                     if (isWorldAnchored) {
-                        // World-anchored objective callout: fixed to the checkpoint building in game world
-                        val worldTextX = 3270.0
-                        val worldTextY = 220.0
-                        textX = worldTextX * worldZoom + worldView.x
-                        textY = worldTextY * worldZoom + worldView.y
+                        // World-anchored callout: fixed to something in the game world (the
+                        // checkpoint building, a crate to hide behind, ...) - see step.worldTextX/Y.
+                        textX = step.worldTextX * worldZoom + worldView.x
+                        textY = step.worldTextY * worldZoom + worldView.y
                     } else {
                         textX = (canvasW - tutorialHandwrittenText.width) / 2.0
                         textY = 185.0
@@ -1921,14 +2173,13 @@ class GameplayScene(
                                     }
                                 }
                                 TutorialControlHighlight.NONE -> {
-                                    val worldTargetX = 3425.0
-                                    val worldTargetY = 320.0
-                                    val targetScreenX = worldTargetX * worldZoom + worldView.x
-                                    val targetScreenY = worldTargetY * worldZoom + worldView.y
+                                    val targetScreenX = step.worldAnchorX * worldZoom + worldView.x
+                                    val targetScreenY = step.worldAnchorY * worldZoom + worldView.y
 
                                     val startX = textX + tutorialHandwrittenText.width * 0.75
                                     val startY = textY + 28.0
-                                    val ctrlX = (startX + targetScreenX) / 2.0 + 20.0
+                                    val bowX = if (step.arrowBowsLeft) -20.0 else 20.0
+                                    val ctrlX = (startX + targetScreenX) / 2.0 + bowX
                                     val ctrlY = (startY + targetScreenY) / 2.0 - 15.0
                                     drawCurvedArrow(
                                         startX = startX,
@@ -1977,6 +2228,29 @@ class GameplayScene(
                 val mp = world.movingPlatforms[i]
                 movingPlatformContainers[i].xy(mp.x, mp.y)
             }
+            for (i in world.conveyorCrates.indices) {
+                val crate = world.conveyorCrates[i]
+                conveyorCrateContainers[i].xy(crate.x, crate.y)
+            }
+            // Sync animated conveyor belt layers (top moving forward, bottom moving in reverse)
+            if (world.conveyorsActive) {
+                conveyorElapsedSeconds += dtSec
+            }
+            for (cAnim in conveyorAnimators) {
+                val topShift = (conveyorElapsedSeconds * cAnim.speed) % cAnim.topTileW
+                var topStart = topShift
+                if (topStart > 0) topStart -= cAnim.topTileW
+                for (i in cAnim.topImages.indices) {
+                    cAnim.topImages[i].xy(topStart + i * cAnim.topTileW, cAnim.topY)
+                }
+
+                val botShift = (-conveyorElapsedSeconds * cAnim.speed) % cAnim.botTileW
+                var botStart = botShift
+                if (botStart > 0) botStart -= cAnim.botTileW
+                for (i in cAnim.botImages.indices) {
+                    cAnim.botImages[i].xy(botStart + i * cAnim.botTileW, cAnim.botY)
+                }
+            }
 
             // Camera: Center player on zoomed gameplay worldView, clamped to level bounds
             val currentCanvasW = sceneWidth.toDouble().coerceAtLeast(800.0)
@@ -1996,6 +2270,19 @@ class GameplayScene(
             val baseWorldViewY = currentCanvasH - (baseGroundY + 70.0) * worldZoom
             worldView.y = baseWorldViewY
 
+            if (levelData.hasDarknessVignette && darknessVignetteImg != null) {
+                val pScreenX = (world.player.x + world.player.width / 2.0) * worldZoom + worldView.x
+                val pScreenY = (world.player.y + world.player.height / 2.0) * worldZoom + worldView.y
+                val halfSize = darknessVignetteSize / 2.0
+                val vx = pScreenX - halfSize
+                val vy = pScreenY - halfSize
+                darknessVignetteImg.xy(vx, vy)
+                darknessLeftRect?.xy(0.0, 0.0)?.size(max(0.0, vx), currentCanvasH)
+                darknessRightRect?.xy(vx + darknessVignetteSize, 0.0)?.size(max(0.0, currentCanvasW - (vx + darknessVignetteSize)), currentCanvasH)
+                darknessTopRect?.xy(max(0.0, vx), 0.0)?.size(min(currentCanvasW, vx + darknessVignetteSize) - max(0.0, vx), max(0.0, vy))
+                darknessBotRect?.xy(max(0.0, vx), vy + darknessVignetteSize)?.size(min(currentCanvasW, vx + darknessVignetteSize) - max(0.0, vx), max(0.0, currentCanvasH - (vy + darknessVignetteSize)))
+            }
+
             // Cull static decor outside the camera window. Runs after worldView.x settles for this
             // frame so the test uses the position actually about to be drawn. The margin is a full
             // half-screen rather than something tight - the saving is in not submitting the far end
@@ -2005,6 +2292,20 @@ class GameplayScene(
             val cullRight = cullLeft + currentCanvasW / worldZoom + currentCanvasW / worldZoom
             for (t in cullTargets) {
                 t.view.visible = t.right >= cullLeft && t.left <= cullRight
+            }
+            for (i in world.conveyorCrates.indices) {
+                val crate = world.conveyorCrates[i]
+                conveyorCrateContainers[i].visible = crate.bounds.right >= cullLeft && crate.bounds.left <= cullRight
+            }
+            for (visual in laserVisuals) {
+                visual.update(totalElapsedSeconds, cullLeft, cullRight)
+            }
+
+            if (laserFlashTimer > 0.0) {
+                laserFlashTimer = maxOf(0.0, laserFlashTimer - dtSec)
+                laserFlashRect.alpha = (laserFlashTimer / 0.25) * 0.45
+            } else {
+                laserFlashRect.alpha = 0.0
             }
 
             // Background parallax (0.2x rate, looping) - Unzoomed at native canvas height
@@ -2016,6 +2317,7 @@ class GameplayScene(
                 for (i in bgmgImages.indices) {
                     bgmgImages[i].xy(bgmgShift + i * bgmgTileW, 0.0)
                 }
+                wallDecalsContainer.xy(bgmgOffset, 0.0)
             }
 
             if (world.player.isMoving) {
@@ -2442,8 +2744,49 @@ class GameplayScene(
                 playerSprite.x = world.player.width / 2.0
             }
 
-            // Invisibility visual effect on player
-            playerSprite.alpha = if (world.activePowerups.isInvisibilityActive) 0.35 else 1.0
+            // Laser Shield: 1-Pixel Silhouette Rim Glow & Deflection FX
+            if (shieldDeflectFlashTimer > 0.0) {
+                shieldDeflectFlashTimer = (shieldDeflectFlashTimer - dtSec).coerceAtLeast(0.0)
+            }
+            if (shieldFlareTimer > 0.0) {
+                shieldFlareTimer = (shieldFlareTimer - dtSec).coerceAtLeast(0.0)
+                shieldFlareImage.alpha = (shieldFlareTimer / 0.25).coerceIn(0.0, 1.0)
+                shieldFlareImage.scale = 1.0 + (1.0 - shieldFlareTimer / 0.25) * 0.8
+                if (shieldFlareTimer <= 0.0) {
+                    shieldFlareImage.visible = false
+                }
+            }
+
+            val isShieldActive = world.activePowerups.isLaserShieldActive
+            val isDeflecting = shieldDeflectFlashTimer > 0.0
+            shieldGlowContainer.visible = isShieldActive || isDeflecting
+
+            if (shieldGlowContainer.visible) {
+                if (isDeflecting) {
+                    shieldColorFilter.colorTransform = shieldWhiteTransform
+                    shieldBlurFilter.radius = 2.8
+                    shieldGlowContainer.alpha = 1.0
+                } else {
+                    shieldColorFilter.colorTransform = shieldCyanTransform
+                    shieldBlurFilter.radius = 1.8
+                    val pulse = (0.75 + 0.20 * sin(totalElapsedSeconds * 5.0)).coerceIn(0.5, 1.0)
+                    shieldGlowContainer.alpha = pulse
+                }
+
+                shieldGlowImage.bitmap = playerSprite.bitmap
+                shieldGlowImage.xy(playerSprite.x, playerSprite.y)
+                shieldGlowImage.scaleX = playerSprite.scaleX
+                shieldGlowImage.scaleY = playerSprite.scaleY
+                shieldGlowImage.rotation = playerSprite.rotation
+            }
+
+            // Player alpha: flickering invulnerability during grace period, or invisibility
+            if (world.laserGraceTimer > 0.0) {
+                val blink = (sin(totalElapsedSeconds * 35.0) > 0.0)
+                playerSprite.alpha = if (blink) 0.35 else 0.85
+            } else {
+                playerSprite.alpha = if (world.activePowerups.isInvisibilityActive) 0.35 else 1.0
+            }
 
             // Update guard visors and badges
             for (i in world.allGuards.indices) {
@@ -2459,10 +2802,10 @@ class GameplayScene(
                             guardWalkProgress[i] = 0.0
                             guardSprite.playAnimationLooped(guardAnimations.walk, manualFrameTime)
                             guardSprite.setFrame(0)
-                            guardSprite.y = g.height
+                            guardSprite.y = g.height + GuardAnimations.FEET_GROUND_NUDGE
                         } else {
                             guardSprite.playAnimationLooped(guardAnimations.idle, GuardAnimations.IDLE_FRAME_TIME_MS.milliseconds)
-                            guardSprite.y = g.height + guardIdleFeetOffset[i]
+                            guardSprite.y = g.height + guardIdleFeetOffset[i] + GuardAnimations.FEET_GROUND_NUDGE
                         }
                     }
                     if (g.isWalking) {
@@ -2494,43 +2837,53 @@ class GameplayScene(
 
             val alertProgress = world.alertProgress
 
-            // Render guard vision cones. One flat white, in every state: the cone is a
-            // torch beam, and what it is doing to the player is already told by the detection
-            // pip over the guard's head (guardPips) - the old orange/gold/pulsing-red colour ramp
-            // said the same thing twice and the owner asked for it to go. Cameras keep theirs.
+            // Render guard torch beams. One colour, in every state: the beam is the light from
+            // the torch he holds, and what it is doing to the player is already told by the
+            // detection pip over the guard's head (guardPips) - the old orange/gold/pulsing-red
+            // colour ramp said the same thing twice and the owner asked for it to go. Cameras
+            // keep theirs. The beam starts at the torch lens (Guard.eyePosition), the same point
+            // the detection rays start from, so what is lit is what can see the player.
             for (i in world.allGuards.indices) {
                 val g = world.allGuards[i]
+                val cone = guardCones[i]
                 if (world.activePowerups.isPhantomCloakActive) {
-                    guardCones[i].updateShape { }
-                } else {
-                    val coneColor = GUARD_CONE_COLOR
+                    cone.clear()
+                    guardConeLensX[i] = Double.NaN
+                    continue
+                }
+                val lens = g.eyePosition
+                // Same window as the static culling: a beam that cannot reach the screen is
+                // neither raycast nor drawn. This is also what keeps level 1's parked, disabled
+                // guard (x = -500) from costing anything.
+                val onScreen = lens.x + g.visionRange >= cullLeft && lens.x - g.visionRange <= cullRight
+                cone.visible = onScreen
+                if (!onScreen) continue
+                val facing = g.facingAngle
+                if (lens.x != guardConeLensX[i] || lens.y != guardConeLensY[i] ||
+                    facing != guardConeFacing[i] || g.visionRange != guardConeRange[i]
+                ) {
+                    guardConeLensX[i] = lens.x
+                    guardConeLensY[i] = lens.y
+                    guardConeFacing[i] = facing
+                    guardConeRange[i] = g.visionRange
                     val visionPolygon = VisionSystem.computeVisionPolygon(
-                        origin = g.eyePosition,
-                        facingAngle = g.facingAngle,
+                        origin = lens,
+                        facingAngle = facing,
                         range = g.visionRange,
                         fov = g.visionFov,
                         occluders = world.occluders
                     )
-                    guardCones[i].updateShape {
-                        if (visionPolygon.isNotEmpty()) {
-                            fill(coneColor) {
-                                val first = visionPolygon.first()
-                                moveTo(Point(first.x, first.y))
-                                for (p in 1 until visionPolygon.size) {
-                                    val pt = visionPolygon[p]
-                                    lineTo(Point(pt.x, pt.y))
-                                }
-                                close()
-                            }
-                        }
-                    }
+                    cone.setBeam(visionPolygon, facing, g.visionFov, g.visionRange, glowRadius = g.height * 0.08)
                 }
             }
 
             // Render camera vision cones and status
             for (i in world.cameras.indices) {
                 val c = world.cameras[i]
-                cameraMounts[i].color = if (world.activePowerups.isSmokeScreenActive) Colors["#555555"] else Colors["#e74c3c"]
+                // Tracks currentAngle every frame, corrected for the unrotated art's own baseline
+                // (see cameraArtBaselineAngle above) - the lens visually sweeps with the cone
+                // instead of sitting fixed while the light beam swings independently of it.
+                cameraPivots[i].rotation = (c.currentAngle - cameraArtBaselineAngle).radians
                 if (world.activePowerups.isSmokeScreenActive) {
                     cameraCones[i].updateShape { }
                 } else {
@@ -2548,7 +2901,7 @@ class GameplayScene(
                             RGBA(r, gVal, b, (pulsedAlpha * 255).toInt())
                         }
                         else -> {
-                            Colors["#e67e22"].withAd(0.32)
+                            Colors.WHITE.withAd(0.32)
                         }
                     }
                     val visionPolygon = VisionSystem.computeVisionPolygon(
@@ -2807,20 +3160,112 @@ class GameplayScene(
     }
 
     private fun ShapeBuilder.drawRestartIcon(color: RGBA) {
-        stroke(color, StrokeInfo(thickness = 3.4)) {
-            // Open ring, gap at the top-right where the arrowhead goes.
+        val r = 7.5
+        stroke(color, StrokeInfo(thickness = 3.2)) {
             val steps = 28
             for (i in 0..steps) {
-                val a = (-PI / 3.0) + (2.0 * PI * 0.82) * (i.toDouble() / steps)
-                val px = cos(a) * 7.8
-                val py = sin(a) * 7.8
+                val a = (-PI * 0.35) + (PI * 1.55) * (i.toDouble() / steps)
+                val px = cos(a) * r - 0.5
+                val py = sin(a) * r
                 if (i == 0) moveTo(Point(px, py)) else lineTo(Point(px, py))
             }
         }
         fill(color) {
-            moveTo(Point(1.4, -11.4))
-            lineTo(Point(11.4, -7.6))
-            lineTo(Point(3.8, -0.6))
+            moveTo(0.0, -9.5)
+            lineTo(8.5, -6.5)
+            lineTo(1.5, -2.5)
+            close()
+        }
+    }
+
+    /**
+     * Solid silhouette home/house icon for MAIN MENU with an open doorway cutout.
+     */
+    private fun ShapeBuilder.drawMainMenuHomeIcon(color: RGBA) {
+        fill(color) {
+            moveTo(0.0, -9.0)
+            lineTo(9.5, -1.0)
+            lineTo(7.2, -1.0)
+            lineTo(7.2, 8.5)
+            lineTo(2.2, 8.5)
+            lineTo(2.2, 2.0)
+            lineTo(-2.2, 2.0)
+            lineTo(-2.2, 8.5)
+            lineTo(-7.2, 8.5)
+            lineTo(-7.2, -1.0)
+            lineTo(-9.5, -1.0)
+            close()
+        }
+    }
+
+    /**
+     * Double forward-pointing solid triangles for NEXT MISSION, communicating level advancement.
+     */
+    private fun ShapeBuilder.drawNextMissionIcon(color: RGBA) {
+        fill(color) {
+            // Triangle 1 (left)
+            moveTo(-8.5, -7.5)
+            lineTo(-1.0, 0.0)
+            lineTo(-8.5, 7.5)
+            close()
+            // Triangle 2 (right)
+            moveTo(0.5, -7.5)
+            lineTo(8.0, 0.0)
+            lineTo(0.5, 7.5)
+            close()
+        }
+    }
+
+    /**
+     * Filled movie clapperboard icon for the watch-ad-to-continue button, with an empty
+     * (transparent cutout) play triangle in the center and striped clapper teeth on top.
+     */
+    private fun ShapeBuilder.drawWatchAdIcon(color: RGBA) {
+        fill(color) {
+            // 1. Clapperboard main body with cutout center:
+            // Left block & top/bottom border strips
+            moveTo(-9.0, 0.0)
+            lineTo(9.0, 0.0)
+            lineTo(9.0, 2.2)
+            lineTo(-2.5, 2.2)
+            lineTo(-2.5, 7.4)
+            lineTo(9.0, 7.4)
+            lineTo(9.0, 9.0)
+            lineTo(-9.0, 9.0)
+            close()
+
+            // Top wedge above cutout play triangle
+            moveTo(-2.5, 2.2)
+            lineTo(9.0, 2.2)
+            lineTo(9.0, 4.8)
+            lineTo(3.5, 4.8)
+            close()
+
+            // Bottom wedge below cutout play triangle
+            moveTo(-2.5, 7.4)
+            lineTo(3.5, 4.8)
+            lineTo(9.0, 4.8)
+            lineTo(9.0, 7.4)
+            close()
+
+            // 2. Angled clapper stick with striped teeth
+            // Tooth 1 (left)
+            moveTo(-9.0, -1.2)
+            lineTo(-4.5, -2.4)
+            lineTo(-3.6, -6.2)
+            lineTo(-9.0, -4.8)
+            close()
+            // Tooth 2 (middle)
+            moveTo(-2.5, -3.0)
+            lineTo(2.0, -4.2)
+            lineTo(3.0, -8.0)
+            lineTo(-1.6, -6.6)
+            close()
+            // Tooth 3 (right)
+            moveTo(4.0, -4.6)
+            lineTo(8.5, -5.8)
+            lineTo(9.0, -9.5)
+            lineTo(5.0, -8.2)
             close()
         }
     }
@@ -2897,8 +3342,8 @@ class GameplayScene(
     companion object {
         private const val ICON_COLUMN = 0.35
         private const val LABEL_COLUMN = 0.42
-        private const val CENTERED_ICON_WIDTH = 22.0
-        private const val CENTERED_ICON_GAP = 12.0
+        private const val CENTERED_ICON_WIDTH = 18.0
+        private const val CENTERED_ICON_GAP = 10.0
     }
 
     private class LoadingScreenHandle(
@@ -2977,10 +3422,10 @@ class GameplayScene(
             val contentW = CENTERED_ICON_WIDTH + CENTERED_ICON_GAP + text.width
             val contentX = (width - contentW) / 2.0
             iconG.xy(contentX + CENTERED_ICON_WIDTH / 2.0, height / 2.0)
-            text.xy(contentX + CENTERED_ICON_WIDTH + CENTERED_ICON_GAP, (height - text.height) / 2.0 - 1.0)
+            text.xy(contentX + CENTERED_ICON_WIDTH + CENTERED_ICON_GAP, (height - text.height) / 2.0)
         } else {
             iconG.xy(width * ICON_COLUMN, height / 2.0)
-            text.xy(width * LABEL_COLUMN, (height - text.height) / 2.0 - 1.0)
+            text.xy(width * LABEL_COLUMN, (height - text.height) / 2.0)
         }
 
         fun paint(hover: Boolean, down: Boolean) {
@@ -3137,199 +3582,137 @@ class GameplayScene(
     private fun SContainer.setupCaughtOverlay(
         canvasW: Double,
         canvasH: Double,
-        dossierBitmap: Bitmap?,
+        failedBgBitmap: Bitmap?,
+        failedBtnBitmaps: List<Bitmap?>,
         bebasFont: Font,
-        handwrittenFont: Font,
-        paperBtnBitmaps: List<Bitmap?>,
-        levelData: LevelData,
         paperInk: RGBA,
         playClick: (Double) -> Unit,
         onRequestContinueAd: () -> Unit,
         onRetry: suspend () -> Unit,
         onReturnToMenu: suspend () -> Unit
     ): CaughtOverlayHandle {
-        val resScrim = Colors["#07080A"].withAd(0.92)
-        val inkStrong = Colors["#17140F"]
-        val inkBody = Colors["#17140F"].withAd(0.78)
-        val inkFaint = Colors["#17140F"].withAd(0.55)
-        val inkRuleColor = Colors["#17140F"].withAd(0.34)
-        val inkGold = Colors["#A8781A"]
-        val stampRed = Colors["#96222A"]
+        val caughtContainer = container()
+        val caughtScrim = caughtContainer.solidRect(canvasW, canvasH, Colors["#07080A"].withAd(0.80))
 
-        val DOSSIER_ASPECT = 1.5
-        val DOSSIER_TILT = (-5.2).degrees
+        val failBtnW = min(175.0, (canvasW - 48.0) / 3.0)
+        val failBtnGap = 16.0
+        val failBtnGroupW = failBtnW * 3.0 + failBtnGap * 2.0
+        val failBtnL = (canvasW - failBtnGroupW) / 2.0
+        val failBtnH = 62.0
+        val bottomMargin = 10.0
+        val failBtnY = canvasH - bottomMargin - failBtnH
+        val buttonGap = 10.0
+        val topMargin = 8.0
 
-        val sheetH0 = min(416.0, canvasH - 48.0)
-        val sheetW0 = sheetH0 * DOSSIER_ASPECT
-        val resBtnW0 = 300.0
-        val resBtnH0 = 52.0
-        val resBtnGap0 = 14.0
-        val resColGap0 = 44.0
-        val S = min(1.0, (canvasW - 56.0) / (resBtnW0 + resColGap0 + sheetW0))
-
-        val sheetH = sheetH0 * S
-        val sheetW = sheetW0 * S
-        val resBtnW = resBtnW0 * S
-        val resBtnH = resBtnH0 * S
-        val resBtnGap = resBtnGap0 * S
-        val resGroupW = resBtnW + resColGap0 * S + sheetW
-        val resGroupX = (canvasW - resGroupW) / 2.0
-        val sheetX = resGroupX + resBtnW + resColGap0 * S
-        val sheetY = (canvasH - sheetH) / 2.0
-
-        val docX = sheetW * 0.15
-        val docW = sheetW * 0.76
-        val docY = sheetH * 0.055
-        val docH = sheetH * 0.805
-        fun dpx(x: Double): Double = docX + x * S - sheetW / 2.0
-        fun dpy(y: Double): Double = docY + y * S - sheetH / 2.0
-
-        fun Container.createDossierSheet(): Container {
-            val sheet = container().xy(sheetX, sheetY)
-            if (dossierBitmap != null) {
-                sheet.image(dossierBitmap) { size(sheetW, sheetH) }
-            } else {
-                sheet.uiGraphics().updateShape {
-                    fill(Colors["#D8D2C4"]) { rect(0.0, 0.0, sheetW, sheetH) }
-                }
-            }
-            val ink = sheet.container().xy(sheetW / 2.0, sheetH / 2.0)
-            ink.rotation = DOSSIER_TILT
-            return ink
+        val maxCardH = failBtnY - buttonGap - topMargin
+        val cardAspect = if (failedBgBitmap != null) {
+            failedBgBitmap.width.toDouble() / failedBgBitmap.height.toDouble()
+        } else {
+            0.94
         }
-
-        fun Container.inkText(
-            value: String, size: Double, color: RGBA, x: Double, y: Double,
-            font: Font = bebasFont
-        ): Text {
-            val t = text(value, textSize = size * S, font = font, color = color)
-            t.graphicsRenderer = GraphicsRenderer.GPU
-            t.xy(dpx(x), dpy(y))
-            return t
+        var cardH = maxCardH
+        var cardW = cardH * cardAspect
+        if (cardW > canvasW * 0.74) {
+            cardW = canvasW * 0.74
+            cardH = cardW / cardAspect
         }
+        val cardY = topMargin + (maxCardH - cardH) / 2.0
 
-        fun Container.inkRule(y: Double, fromX: Double, toX: Double, dashedTail: Boolean = false) {
-            uiGraphics().updateShape {
-                val yy = dpy(y)
-                val weight = 1.6 * S
-                if (!dashedTail) {
-                    fill(inkRuleColor) { rect(dpx(fromX), yy, (toX - fromX) * S, weight) }
-                } else {
-                    val solidTo = toX - 54.0
-                    fill(inkRuleColor) {
-                        rect(dpx(fromX), yy, (solidTo - fromX) * S, weight)
-                        for (i in 0 until 3) rect(dpx(solidTo + 6.0 + i * 16.0), yy, 10.0 * S, weight)
-                    }
-                }
+        val cardPivot = caughtContainer.container().xy(canvasW / 2.0, cardY + cardH / 2.0)
+        cardPivot.alpha = 0.0
+        cardPivot.scaleX = 0.90
+        cardPivot.scaleY = 0.90
+        val card = cardPivot.container().xy(-cardW / 2.0, -cardH / 2.0)
+        if (failedBgBitmap != null) {
+            card.image(failedBgBitmap) { size(cardW, cardH) }
+        } else {
+            card.uiGraphics().updateShape {
+                fill(Colors["#D8D2C4"]) { rect(0.0, 0.0, cardW, cardH) }
             }
         }
 
-        fun Container.inkField(x: Double, y: Double, label: String): (String, RGBA) -> Unit {
-            inkText(label, 11.0, inkFaint, x, y)
-            val valueText = text("", textSize = 17.0 * S, font = bebasFont, color = inkStrong)
-            valueText.graphicsRenderer = GraphicsRenderer.GPU
-            return { value, color ->
-                valueText.text = value
-                valueText.color = color
-                valueText.xy(dpx(x), dpy(y + 13.0))
-            }
+        class CaughtReveal(val view: View, val start: Double, val baseX: Double, val slide: Double = 0.0)
+        val reveals = ArrayList<CaughtReveal>()
+        val REVEAL_DUR = 0.28
+        fun <T : View> T.revealAt(start: Double, slide: Double = 0.0): T {
+            reveals.add(CaughtReveal(this, start, x, slide))
+            visible = false
+            return this
         }
 
-        fun Container.inkStamp(
-            cx: Double, cy: Double, w: Double, h: Double, label: String, color: RGBA
-        ): Text {
-            val stamp = container().xy(dpx(cx), dpy(cy))
-            stamp.rotation = (-10.0).degrees
-            stamp.alpha = 0.82
-            val halfW = w * S / 2.0
-            val halfH = h * S / 2.0
-            stamp.uiGraphics().updateShape {
-                stroke(color, StrokeInfo(thickness = 6.0 * S)) { rect(-halfW, -halfH, w * S, h * S) }
-                stroke(color, StrokeInfo(thickness = 1.2 * S)) {
-                    rect(-halfW + 7.0 * S, -halfH + 7.0 * S, w * S - 14.0 * S, h * S - 14.0 * S)
-                }
-            }
-            val t = stamp.text(label, textSize = 20.0 * S, font = bebasFont, color = color)
-            t.graphicsRenderer = GraphicsRenderer.GPU
-            t.xy(-t.width / 2.0, -t.height / 2.0)
-            return t
-        }
+        val CARD_POP = 0.30
+        val BUTTONS_AT = 0.22
+        val ANIM_END = BUTTONS_AT + REVEAL_DUR
 
-        val missionFileNo = (Regex("^(\\d+)").find(levelData.name)?.groupValues?.get(1)
-            ?: levelData.id.filter { it.isDigit() }.ifEmpty { "1" }).padStart(2, '0')
-        val missionTitleText = levelData.name.replaceFirst(Regex("^\\d+:\\s*"), "").uppercase()
+        val failButtons = caughtContainer.container()
 
-        fun Container.inkMasthead(sectionTitle: String) {
-            inkText(missionFileNo, 26.0, inkStrong, 0.0, 0.0)
-            inkRule(34.0, 0.0, docW / S * 0.95, dashedTail = true)
-            inkText(missionTitleText, 12.0, inkFaint, 0.0, 44.0)
-            inkText(sectionTitle, 26.0, inkStrong, 0.0, 60.0)
-            inkRule(96.0, 0.0, docW / S)
-        }
-
-        val resBtnBlockH = 3.0 * resBtnH + 2.0 * resBtnGap
-        val resBtnY0 = (canvasH - resBtnBlockH) / 2.0
-
-        val caughtOverlay = container()
-        caughtOverlay.solidRect(canvasW, canvasH, resScrim)
-
-        val caughtInk = caughtOverlay.createDossierSheet()
-        caughtInk.inkMasthead("SITUATION REPORT")
-
-        val fieldCol = docW / S * 0.29
-        val setCaughtStatus = caughtInk.inkField(0.0, 108.0, "OPERATIVE STATUS")
-        val setCaughtAlerts = caughtInk.inkField(fieldCol, 108.0, "ALERTS RAISED")
-        val setCaughtTime = caughtInk.inkField(0.0, 150.0, "TIME ELAPSED")
-        val setCaughtRecord = caughtInk.inkField(fieldCol, 150.0, "MISSION RECORD")
-        val setCaughtCoins = caughtInk.inkField(0.0, 192.0, "COINS ON HAND")
-
-        caughtInk.inkStamp(docW / S - 104.0, 160.0, 176.0, 68.0, "MISSION FAILED", stampRed)
-
-        caughtInk.inkRule(236.0, 0.0, docW / S)
-        caughtInk.inkText("Recon notes", 16.0, inkFaint, 0.0, 246.0, font = handwrittenFont)
-        val caughtTips = listOf(
-            "Crouch-walk to eliminate movement noise.",
-            "Stay out of guard vision cones and use shipping crates as cover.",
-            "Tap the bolt beside pause to bring out your gadgets."
-        )
-        for ((i, line) in caughtTips.withIndex()) {
-            caughtInk.inkText(line, 14.0, inkBody, 8.0, 268.0 + i * 18.0, font = handwrittenFont)
-        }
-
-        caughtOverlay.createPaperMenuBtn(
-            "CONTINUE (WATCH AD)", paperBtnBitmaps[0], resBtnW, resBtnH, resGroupX, resBtnY0,
-            bebasFont, paperInk, playClick = playClick,
-            iconDrawer = { drawPlayIcon(false) }
+        failButtons.createPaperMenuBtn(
+            "CONTINUE", failedBtnBitmaps.getOrNull(0), failBtnW, failBtnH, failBtnL, failBtnY,
+            bebasFont, paperInk, centered = true, playClick = playClick,
+            iconDrawer = { drawWatchAdIcon(paperInk) }
         ) { onRequestContinueAd() }
 
-        caughtOverlay.createPaperMenuBtn(
-            "RETRY INFILTRATION", paperBtnBitmaps[1], resBtnW, resBtnH, resGroupX, resBtnY0 + resBtnH + resBtnGap,
-            bebasFont, paperInk, playClick = playClick,
+        failButtons.createPaperMenuBtn(
+            "RETRY", failedBtnBitmaps.getOrNull(1), failBtnW, failBtnH, failBtnL + failBtnW + failBtnGap, failBtnY,
+            bebasFont, paperInk, centered = true, playClick = playClick,
             iconDrawer = { drawRestartIcon(paperInk) }
         ) { onRetry() }
 
-        caughtOverlay.createPaperMenuBtn(
-            "RETURN TO MENU", paperBtnBitmaps[2], resBtnW, resBtnH, resGroupX, resBtnY0 + 2.0 * (resBtnH + resBtnGap),
-            bebasFont, paperInk, playClick = playClick,
-            iconDrawer = { drawQuitIcon(false) }
+        failButtons.createPaperMenuBtn(
+            "MAIN MENU", failedBtnBitmaps.getOrNull(2), failBtnW, failBtnH,
+            failBtnL + 2.0 * (failBtnW + failBtnGap), failBtnY,
+            bebasFont, paperInk, centered = true, playClick = playClick,
+            iconDrawer = { drawMainMenuHomeIcon(paperInk) }
         ) { onReturnToMenu() }
+        failButtons.revealAt(BUTTONS_AT)
 
-        caughtOverlay.visible = false
+        val skipCatcher = caughtContainer.solidRect(canvasW, canvasH, Colors.TRANSPARENT)
+        var animT = -1.0
+        skipCatcher.mouse { onClick { if (animT >= 0.0) animT = ANIM_END } }
+        caughtScrim.mouse { onClick { if (animT >= 0.0) animT = ANIM_END } }
+
+        caughtContainer.addUpdater { dt ->
+            if (!caughtContainer.visible || animT < 0.0) return@addUpdater
+            if (animT >= ANIM_END) {
+                skipCatcher.visible = false
+            } else {
+                animT += dt.seconds
+            }
+            val t = animT
+
+            val cardP = (t / CARD_POP).coerceIn(0.0, 1.0)
+            val cardE = easeOutBack(cardP)
+            cardPivot.alpha = (cardP * 2.0).coerceAtMost(1.0)
+            cardPivot.scaleX = 0.90 + 0.10 * cardE
+            cardPivot.scaleY = cardPivot.scaleX
+
+            for (r in reveals) {
+                val p = ((t - r.start) / REVEAL_DUR).coerceIn(0.0, 1.0)
+                r.view.visible = p > 0.0
+                if (p <= 0.0) continue
+                val e = easeOutCubic(p)
+                r.view.alpha = e
+                if (r.slide != 0.0) r.view.x = r.baseX - r.slide * (1.0 - e)
+            }
+        }
+
+        caughtContainer.visible = false
 
         return CaughtOverlayHandle(
-            container = caughtOverlay,
-            show = { timeTaken, alerts, best, coins ->
-                caughtOverlay.visible = true
-                setCaughtStatus("APPREHENDED", stampRed)
-                setCaughtAlerts("$alerts", inkStrong)
-                setCaughtTime(secondsText(timeTaken), inkStrong)
-                setCaughtRecord(
-                    if (best != null) "${best.starCount}/3 - ${secondsText(best.timeTaken)}" else "NO RECORD",
-                    if (best != null) inkStrong else inkFaint
-                )
-                setCaughtCoins("$coins", inkGold)
+            container = caughtContainer,
+            show = { _, _, _, _ ->
+                caughtContainer.visible = true
+                skipCatcher.visible = true
+                animT = 0.0
+                cardPivot.alpha = 0.0
+                cardPivot.scaleX = 0.90
+                cardPivot.scaleY = 0.90
+                for (r in reveals) {
+                    r.view.visible = false
+                    r.view.alpha = 0.0
+                }
             },
-            hide = { caughtOverlay.visible = false }
+            hide = { caughtContainer.visible = false }
         )
     }
 
@@ -3338,7 +3721,7 @@ class GameplayScene(
         canvasH: Double,
         successBgBitmap: Bitmap?,
         starSlices: List<BmpSlice>?,
-        paperBtnBitmaps: List<Bitmap?>,
+        victoryBtnBitmaps: List<Bitmap?>,
         bebasFont: Font,
         levelData: LevelData,
         nextLevel: LevelData?,
@@ -3358,18 +3741,29 @@ class GameplayScene(
         val winContainer = container()
         val winScrim = winContainer.solidRect(canvasW, canvasH, Colors["#07080A"].withAd(0.80))
 
+        val winBtnW = min(175.0, (canvasW - 48.0) / 3.0)
+        val winBtnGap = 16.0
+        val winBtnGroupW = winBtnW * 3.0 + winBtnGap * 2.0
+        val winBtnL = (canvasW - winBtnGroupW) / 2.0
+        val winBtnH = 58.0
+        val bottomMargin = 10.0
+        val winBtnY = canvasH - bottomMargin - winBtnH
+        val buttonGap = 14.0
+        val topMargin = 8.0
+
+        val maxWinCardH = winBtnY - buttonGap - topMargin
         val winCardAspect = if (successBgBitmap != null) {
             successBgBitmap.width.toDouble() / successBgBitmap.height.toDouble()
         } else {
-            1.44
+            1.50
         }
-        var winCardH = canvasH * 0.92
+        var winCardH = maxWinCardH
         var winCardW = winCardH * winCardAspect
-        if (winCardW > canvasW * 0.74) {
-            winCardW = canvasW * 0.74
+        if (winCardW > canvasW * 0.76) {
+            winCardW = canvasW * 0.76
             winCardH = winCardW / winCardAspect
         }
-        val winCardY = (canvasH - winCardH) / 2.0
+        val winCardY = topMargin + (maxWinCardH - winCardH) / 2.0
 
         val winCardPivot = winContainer.container().xy(canvasW / 2.0, winCardY + winCardH / 2.0)
         winCardPivot.alpha = 0.0
@@ -3498,40 +3892,25 @@ class GameplayScene(
         winPayoutRow.revealAt(WIN_PAYOUT_AT)
 
         val winButtons = winContainer.container()
-        val winCardX = (canvasW - winCardW) / 2.0
-        val winBtnL = winCardX + winCardW * 0.06
-        val winBtnR = winCardX + winCardW * 0.94
-        val winBtnGap = 12.0 * WS
-        val winBtnW = (winBtnR - winBtnL - 2.0 * winBtnGap) / 3.0
         val winNextLabel = if (nextLevel != null) "NEXT MISSION" else "ALL CLEAR!"
-        val winBtnLabels = listOf("RETRY", "MAIN MENU", winNextLabel)
-        var winBtnH = winCardH * 0.092
-        var winBtnFitGuard = 0
-        while (winBtnFitGuard++ < 6) {
-            val widest = winBtnLabels.maxOf { winButtons.paperMenuBtnWidth(it, winBtnH, bebasFont, paperInk) }
-            if (widest <= winBtnW) break
-            winBtnH *= (winBtnW / widest).coerceAtLeast(0.85)
-        }
-        winBtnH = winBtnH.coerceIn(20.0, 52.0)
-        val winBtnY = winCardY + winCardH * 0.885
 
         winButtons.createPaperMenuBtn(
-            "RETRY", paperBtnBitmaps[1], winBtnW, winBtnH, winBtnL, winBtnY,
+            "RETRY", victoryBtnBitmaps.getOrNull(0), winBtnW, winBtnH, winBtnL, winBtnY,
             bebasFont, paperInk, centered = true, playClick = playClick,
             iconDrawer = { drawRestartIcon(paperInk) }
         ) { onRetry() }
 
         winButtons.createPaperMenuBtn(
-            "MAIN MENU", paperBtnBitmaps[2], winBtnW, winBtnH, winBtnL + winBtnW + winBtnGap, winBtnY,
+            "MAIN MENU", victoryBtnBitmaps.getOrNull(1), winBtnW, winBtnH, winBtnL + winBtnW + winBtnGap, winBtnY,
             bebasFont, paperInk, centered = true, playClick = playClick,
-            iconDrawer = { drawQuitIcon(false) }
+            iconDrawer = { drawMainMenuHomeIcon(paperInk) }
         ) { onReturnToMenu() }
 
         winButtons.createPaperMenuBtn(
-            winNextLabel, paperBtnBitmaps[0], winBtnW, winBtnH,
+            winNextLabel, victoryBtnBitmaps.getOrNull(2), winBtnW, winBtnH,
             winBtnL + 2.0 * (winBtnW + winBtnGap), winBtnY,
             bebasFont, paperInk, centered = true, playClick = playClick,
-            iconDrawer = { drawPlayIcon(false) }
+            iconDrawer = { drawNextMissionIcon(paperInk) }
         ) { onNextMission() }
         winButtons.revealAt(WIN_BUTTONS_AT)
 
@@ -3613,4 +3992,232 @@ class GameplayScene(
             }
         )
     }
+
+    private fun setupConveyorAnimators(
+        worldView: Container,
+        conveyors: List<ConveyorDef>,
+        conveyorTopBitmap: Bitmap?,
+        conveyorMidBitmap: Bitmap?,
+        conveyorBotBitmap: Bitmap?,
+        cullable: (View, Double, Double) -> Unit
+    ): List<ConveyorAnimator> {
+        if (conveyorTopBitmap == null || conveyorMidBitmap == null || conveyorBotBitmap == null) {
+            return emptyList()
+        }
+        val animators = mutableListOf<ConveyorAnimator>()
+        for (conveyor in conveyors) {
+            val bounds = conveyor.bounds
+            val clip = worldView.clipContainer(Size(bounds.width, bounds.height)).xy(bounds.x, bounds.y)
+            cullable(clip, bounds.x, bounds.width)
+
+            val totalSrcH = 289.0 // 48 (top cleats) + 5 (slit) + 183 (mid frame) + 5 (slit) + 48 (bot cleats)
+            val scale = bounds.height / totalSrcH
+
+            val topH = 48.0 * scale
+            val topTileW = 132.0 * scale
+            val topY = 0.0
+
+            val midH = 183.0 * scale
+            val midTileW = 364.0 * scale
+            val midY = 53.0 * scale
+
+            val botH = 48.0 * scale
+            val botTileW = 132.0 * scale
+            val botY = 241.0 * scale
+
+            val midCount = (bounds.width / midTileW).toInt() + 2
+            for (i in 0 until midCount) {
+                clip.image(conveyorMidBitmap) {
+                    size(midTileW, midH)
+                }.xy(i * midTileW, midY)
+            }
+
+            val topCount = (bounds.width / topTileW).toInt() + 3
+            val topImages = (0 until topCount).map { i ->
+                clip.image(conveyorTopBitmap) {
+                    size(topTileW, topH)
+                }.xy(i * topTileW, topY)
+            }
+
+            val botCount = (bounds.width / botTileW).toInt() + 3
+            val botImages = (0 until botCount).map { i ->
+                clip.image(conveyorBotBitmap) {
+                    size(botTileW, botH)
+                }.xy(i * botTileW, botY)
+            }
+
+            animators.add(
+                ConveyorAnimator(
+                    topImages = topImages,
+                    botImages = botImages,
+                    topTileW = topTileW,
+                    botTileW = botTileW,
+                    topY = topY,
+                    botY = botY,
+                    speed = conveyor.speed
+                )
+            )
+        }
+        return animators
+    }
+
+    private suspend fun loadGameplayBitmaps(
+        bgFileName: String,
+        markLoadProgress: suspend () -> Unit
+    ): GameplayBitmaps {
+        val bgmgBitmap = SceneAssets.bitmap(bgFileName, minified = false)
+        markLoadProgress()
+        val wallMarkerBitmaps: Map<String, Bitmap?> = if (bgFileName == "metalbg.png") {
+            listOf("0m", "20m", "40m", "60m", "80m", "100m").associateWith {
+                SceneAssets.bitmap("wall_$it.png", minified = false)
+            }
+        } else {
+            emptyMap()
+        }
+        val crateBitmap = SceneAssets.bitmap("crate.png")
+        markLoadProgress()
+        val chainedCrateBitmap = SceneAssets.bitmap("chainedcrate.png", minified = false)
+        markLoadProgress()
+        val chainedCrate2Bitmap = SceneAssets.bitmap("chainedcrate2.png", minified = false)
+        markLoadProgress()
+        val fenceBitmap = SceneAssets.bitmap("fence.png")
+        markLoadProgress()
+        val fence2Bitmap = SceneAssets.bitmap("fence2.png")
+        markLoadProgress()
+        val barrelBitmap = SceneAssets.bitmap("barrel.png")
+        markLoadProgress()
+        val tableBitmap = SceneAssets.bitmap("table.png")
+        markLoadProgress()
+        val cameraBitmap = SceneAssets.bitmap("cameranew2.png", minified = false)
+        markLoadProgress()
+        val laserEmitterBitmap = SceneAssets.bitmap("laseremittor.png", minified = false)
+        markLoadProgress()
+        val conveyorTopBitmap = SceneAssets.bitmap("conveyor_top.png", minified = false)
+        markLoadProgress()
+        val conveyorMidBitmap = SceneAssets.bitmap("conveyor_mid.png", minified = false)
+        markLoadProgress()
+        val conveyorBotBitmap = SceneAssets.bitmap("conveyor_bot.png", minified = false)
+        markLoadProgress()
+        val hookBitmap = SceneAssets.bitmap("hook.png")
+        markLoadProgress()
+        val truckBitmap = SceneAssets.bitmap("truck.png")
+        markLoadProgress()
+        val entranceBitmap = SceneAssets.bitmap("entrance.png", minified = false)
+        markLoadProgress()
+        val exitFenceBitmap = SceneAssets.bitmap("exitfence.png", minified = false)
+        markLoadProgress()
+        val leftBtnBitmap = SceneAssets.bitmap("left.png")
+        markLoadProgress()
+        val rightBtnBitmap = SceneAssets.bitmap("right.png")
+        markLoadProgress()
+        val crouchBtnBitmap = SceneAssets.bitmap("crouch.png")
+        markLoadProgress()
+        val jumpBtnBitmap = SceneAssets.bitmap("jump.png")
+        markLoadProgress()
+        val interactBtnBitmap = SceneAssets.bitmap("interact.png")
+        markLoadProgress()
+        val paperBtnBitmaps = listOf("button1.png", "button2.png", "button3.png", "button4.png")
+            .map { name -> SceneAssets.bitmap(name, minified = false) }
+        markLoadProgress()
+        val victoryBtnBitmaps = listOf("victorybutton1.png", "victorybutton2.png", "victorybutton3.png")
+            .map { name -> SceneAssets.bitmap(name, minified = false) }
+        markLoadProgress()
+        val failedBtnBitmaps = listOf("failedbutton1.png", "failedbutton2.png", "failedbutton3.png")
+            .map { name -> SceneAssets.bitmap(name, minified = false) }
+        markLoadProgress()
+        val dossierBitmap = SceneAssets.bitmap("dossier_paper.png", minified = false)
+        markLoadProgress()
+        val failedBgBitmap = SceneAssets.bitmap("failedscreen.png", minified = false)
+        markLoadProgress()
+        val gadgetBitmaps = listOf(
+            "gadget_jammer.png", "gadget_lasershield.png", "gadget_invis.png",
+            "gadget_boots.png", "gadget_prototype.png"
+        ).map { SceneAssets.bitmap(it) }
+        markLoadProgress()
+        val gadgetBoltBitmap = SceneAssets.bitmap("gadget_bolt.png")
+        markLoadProgress()
+        val successBgBitmap = SceneAssets.bitmap("success3.png", minified = false)
+        markLoadProgress()
+        val starsBitmap = SceneAssets.bitmap("stars.png", minified = false)
+        val starSlices = starsBitmap?.let {
+            listOf(
+                it.sliceWithSize(69, 33, 636, 611),
+                it.sliceWithSize(760, 33, 647, 611),
+                it.sliceWithSize(1464, 33, 641, 611)
+            )
+        }
+        markLoadProgress()
+
+        return GameplayBitmaps(
+            bgmgBitmap = bgmgBitmap,
+            crateBitmap = crateBitmap,
+            chainedCrateBitmap = chainedCrateBitmap,
+            chainedCrate2Bitmap = chainedCrate2Bitmap,
+            fenceBitmap = fenceBitmap,
+            fence2Bitmap = fence2Bitmap,
+            barrelBitmap = barrelBitmap,
+            tableBitmap = tableBitmap,
+            cameraBitmap = cameraBitmap,
+            laserEmitterBitmap = laserEmitterBitmap,
+            conveyorTopBitmap = conveyorTopBitmap,
+            conveyorMidBitmap = conveyorMidBitmap,
+            conveyorBotBitmap = conveyorBotBitmap,
+            hookBitmap = hookBitmap,
+            truckBitmap = truckBitmap,
+            entranceBitmap = entranceBitmap,
+            exitFenceBitmap = exitFenceBitmap,
+            leftBtnBitmap = leftBtnBitmap,
+            rightBtnBitmap = rightBtnBitmap,
+            crouchBtnBitmap = crouchBtnBitmap,
+            jumpBtnBitmap = jumpBtnBitmap,
+            interactBtnBitmap = interactBtnBitmap,
+            paperBtnBitmaps = paperBtnBitmaps,
+            victoryBtnBitmaps = victoryBtnBitmaps,
+            failedBtnBitmaps = failedBtnBitmaps,
+            dossierBitmap = dossierBitmap,
+            failedBgBitmap = failedBgBitmap,
+            gadgetBitmaps = gadgetBitmaps,
+            gadgetBoltBitmap = gadgetBoltBitmap,
+            successBgBitmap = successBgBitmap,
+            starsBitmap = starsBitmap,
+            starSlices = starSlices,
+            wallMarkerBitmaps = wallMarkerBitmaps
+        )
+    }
+
+    private class GameplayBitmaps(
+        val bgmgBitmap: Bitmap?,
+        val crateBitmap: Bitmap?,
+        val chainedCrateBitmap: Bitmap?,
+        val chainedCrate2Bitmap: Bitmap?,
+        val fenceBitmap: Bitmap?,
+        val fence2Bitmap: Bitmap?,
+        val barrelBitmap: Bitmap?,
+        val tableBitmap: Bitmap?,
+        val cameraBitmap: Bitmap?,
+        val laserEmitterBitmap: Bitmap?,
+        val conveyorTopBitmap: Bitmap?,
+        val conveyorMidBitmap: Bitmap?,
+        val conveyorBotBitmap: Bitmap?,
+        val hookBitmap: Bitmap?,
+        val truckBitmap: Bitmap?,
+        val entranceBitmap: Bitmap?,
+        val exitFenceBitmap: Bitmap?,
+        val leftBtnBitmap: Bitmap?,
+        val rightBtnBitmap: Bitmap?,
+        val crouchBtnBitmap: Bitmap?,
+        val jumpBtnBitmap: Bitmap?,
+        val interactBtnBitmap: Bitmap?,
+        val paperBtnBitmaps: List<Bitmap?>,
+        val victoryBtnBitmaps: List<Bitmap?>,
+        val failedBtnBitmaps: List<Bitmap?>,
+        val dossierBitmap: Bitmap?,
+        val failedBgBitmap: Bitmap?,
+        val gadgetBitmaps: List<Bitmap?>,
+        val gadgetBoltBitmap: Bitmap?,
+        val successBgBitmap: Bitmap?,
+        val starsBitmap: Bitmap?,
+        val starSlices: List<BmpSlice>?,
+        val wallMarkerBitmaps: Map<String, Bitmap?> = emptyMap()
+    )
 }

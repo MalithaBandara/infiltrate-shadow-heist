@@ -18,6 +18,7 @@ data class GameProfile(
         "camera_jammer" to 2,
         "smoke_screen" to 2,
         "smoke_bomb" to 1,
+        "laser_shield" to 2,
         "sleep_darts" to 2,
         "phantom_cloak" to 2,
         "invisibility" to 2,
@@ -30,7 +31,7 @@ data class GameProfile(
     fun getPowerupCount(type: PowerupType): Int {
         val aliases = when (type) {
             PowerupType.SMOKE_SCREEN -> listOf("camera_jammer", "smoke_screen", "smoke_bomb", "camera_disable")
-            PowerupType.PHANTOM_CLOAK -> listOf("sleep_darts", "sleep_dart", "phantom_cloak", "guard_sleep")
+            PowerupType.LASER_SHIELD -> listOf("laser_shield", "shield", "laser_guard", "sleep_darts", "sleep_dart", "phantom_cloak", "guard_sleep")
             PowerupType.INVISIBILITY -> listOf("invisibility", "invisibility_cloak")
             PowerupType.NOISE_SUPPRESSION -> listOf("noise_suppression", "stealth_boots")
             PowerupType.REMOTE_TRIGGER -> listOf("remote_trigger", "trigger", "remote", "checkpoint", "checkpoints", "tactical_checkpoint")
@@ -47,7 +48,7 @@ data class GameProfile(
     fun consumePowerup(type: PowerupType): Boolean {
         val aliases = when (type) {
             PowerupType.SMOKE_SCREEN -> listOf("camera_jammer", "smoke_screen", "smoke_bomb", "camera_disable")
-            PowerupType.PHANTOM_CLOAK -> listOf("sleep_darts", "sleep_dart", "phantom_cloak", "guard_sleep")
+            PowerupType.LASER_SHIELD -> listOf("laser_shield", "shield", "laser_guard", "sleep_darts", "sleep_dart", "phantom_cloak", "guard_sleep")
             PowerupType.INVISIBILITY -> listOf("invisibility", "invisibility_cloak")
             PowerupType.NOISE_SUPPRESSION -> listOf("noise_suppression", "stealth_boots")
             PowerupType.REMOTE_TRIGGER -> listOf("remote_trigger", "trigger", "remote", "checkpoint", "checkpoints", "tactical_checkpoint")

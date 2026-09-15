@@ -109,6 +109,7 @@ targets:
       - framework: ../paywall-build/build/bin/iosSimulatorArm64/podDebugFramework/PaywallModule.framework
         embed: true
         codeSign: false
+      - sdk: StoreKit.framework
     postbuildScripts:
       # Real bug found via the console diagnostic added to GameplayScene.kt's asset-loading
       # catch block + a CI screenshot proving the game reaches gameplay at all: korlibs threw

@@ -32,3 +32,6 @@ site/
 keystore.properties
 
 keystore_base64.txt
+
+scratch_*
+user_*.png

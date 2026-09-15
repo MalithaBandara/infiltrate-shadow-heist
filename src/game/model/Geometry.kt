@@ -69,6 +69,14 @@ data class Rect(val x: Double, val y: Double, val width: Double, val height: Dou
         Segment2d(bottomRight, bottomLeft), // Bottom edge
         Segment2d(bottomLeft, topLeft)      // Left edge
     )
+
+    fun intersectsSegment(seg: Segment2d): Boolean {
+        if (contains(seg.p1) || contains(seg.p2)) return true
+        for (edge in edges()) {
+            if (seg.intersects(edge) != null) return true
+        }
+        return false
+    }
 }
 
 data class Ray2d(val origin: Vec2d, val direction: Vec2d, val maxDistance: Double)

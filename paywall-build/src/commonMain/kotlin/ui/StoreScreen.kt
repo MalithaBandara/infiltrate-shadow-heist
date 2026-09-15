@@ -72,7 +72,7 @@ import paywall_build.generated.resources.button2
 import paywall_build.generated.resources.button3
 import paywall_build.generated.resources.gadget_boots
 import paywall_build.generated.resources.gadget_checkpoint
-import paywall_build.generated.resources.gadget_darts
+import paywall_build.generated.resources.gadget_lasershield
 import paywall_build.generated.resources.gadget_invis
 import paywall_build.generated.resources.gadget_jammer
 import paywall_build.generated.resources.gadget_mystery
@@ -189,7 +189,7 @@ fun StoreScreen(
     val basePowerupItems = remember {
         listOf(
             PowerupItem(PowerupType.SMOKE_SCREEN, "CAMERA JAMMER", "Disables all cameras for 10 seconds.", 150, Res.drawable.gadget_jammer, 86),
-            PowerupItem(PowerupType.PHANTOM_CLOAK, "SLEEP DARTS", "Puts all guards to sleep for 10 seconds.", 250, Res.drawable.gadget_darts, 86),
+            PowerupItem(PowerupType.LASER_SHIELD, "LASER SHIELD", "Protects from 1 laser hazard contact.", 600, Res.drawable.gadget_lasershield, 86),
             PowerupItem(PowerupType.INVISIBILITY, "INVISIBILITY CLOAK", "Total sight immunity for 10 seconds.", 350, Res.drawable.gadget_invis, 86),
             PowerupItem(PowerupType.NOISE_SUPPRESSION, "NOISE SUPPRESSION BOOTS", "Silent movement for entire mission.", 500, Res.drawable.gadget_boots, 86),
             PowerupItem(PowerupType.REMOTE_TRIGGER, "REMOTE TRIGGER", "Triggers closest mechanism without finding its switch.", 750, Res.drawable.gadget_checkpoint, 86)
@@ -218,7 +218,7 @@ fun StoreScreen(
     val inventoryItems = remember {
         listOf(
             InventoryItem(PowerupType.SMOKE_SCREEN, "CAMERA JAMMER", Res.drawable.gadget_jammer),
-            InventoryItem(PowerupType.PHANTOM_CLOAK, "SLEEP DARTS", Res.drawable.gadget_darts),
+            InventoryItem(PowerupType.LASER_SHIELD, "LASER SHIELD", Res.drawable.gadget_lasershield),
             InventoryItem(PowerupType.INVISIBILITY, "INVISIBILITY CLOAK", Res.drawable.gadget_invis),
             InventoryItem(PowerupType.NOISE_SUPPRESSION, "NOISE SUPPRESSION BOOTS", Res.drawable.gadget_boots),
             InventoryItem(PowerupType.REMOTE_TRIGGER, "REMOTE TRIGGER", Res.drawable.gadget_checkpoint)

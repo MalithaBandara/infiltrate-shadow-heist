@@ -32,6 +32,7 @@ data class Player(
 
     var moveSpeed: Double = 132.0
     var crouchSpeed: Double = 65.0
+    var crouchForwardSpeed: Double = 65.0
     var dropSpeed: Double = 30.0
     var jumpSpeed: Double = -320.0
     var gravity: Double = 1000.0
@@ -239,6 +240,7 @@ data class Player(
         y = targetY
         vx = 0.0
         vy = 0.0
+        facing = 1.0
         isGrounded = false
         isCrouching = false
         isClimbing = false
@@ -270,7 +272,8 @@ data class Player(
         crouchInput: Boolean,
         platforms: List<Rect>,
         climbTargets: List<Rect> = emptyList(),
-        swingHooks: List<Rect> = emptyList()
+        swingHooks: List<Rect> = emptyList(),
+        floatingClimbTargets: List<Rect> = emptyList()
     ) {
         if (jumpInput && !isClimbing && !isSwinging && !jumpConsumedAfterClimb) {
             jumpBufferTimer = jumpBufferDuration
@@ -281,7 +284,7 @@ data class Player(
 
         while (remaining > 1e-6) {
             val step = minOf(remaining, maxStep)
-            updateStep(step, moveInput, if (firstStep) jumpInput else false, crouchInput, platforms, climbTargets, swingHooks)
+            updateStep(step, moveInput, if (firstStep) jumpInput else false, crouchInput, platforms, climbTargets, swingHooks, floatingClimbTargets)
             firstStep = false
             remaining -= step
         }
@@ -294,7 +297,12 @@ data class Player(
      * a guard or a wall - but the headroom check still uses [platforms] so a low ceiling above
      * the box correctly blocks the climb.
      */
-    private fun findClimbTarget(direction: Double, climbTargets: List<Rect>, platforms: List<Rect>): Rect? {
+    private fun findClimbTarget(
+        direction: Double,
+        climbTargets: List<Rect>,
+        platforms: List<Rect>,
+        floatingClimbTargets: List<Rect> = emptyList()
+    ): Rect? {
         if (direction == 0.0) return null
         val reach = 6.0
         val feetY = y + height
@@ -305,14 +313,21 @@ data class Player(
                 box.right <= x + 1.0 && box.right >= x - reach
             }
             if (!adjacent) continue
-            
-            // The box must provide a face to brace against (cannot be a floating ledge whose bottom is above player's feet).
-            if (box.bottom < feetY - 4.0) continue
+
+            // The box must provide a face to brace against (cannot be a floating ledge whose
+            // bottom is above player's feet) - unless it's explicitly marked climbable anyway
+            // (see LevelLayout.floatingClimbTargets), for a level whose ledge is meant to be
+            // mounted directly with nothing bracing it.
+            if (box !in floatingClimbTargets && box.bottom < feetY - 4.0) continue
 
             val climbHeight = feetY - box.top
             if (climbHeight <= climbMinHeight || climbHeight > climbMaxHeight) continue
 
-            val landing = Rect(box.left, box.top - height, maxOf(box.width, width), height)
+            // Headroom right where the player actually lands (the box's own climbing edge), not
+            // the target's full width - a wide climb target (e.g. a long plank) can have something
+            // else resting on top of it further along without that falsely blocking the climb from
+            // ever registering anywhere on it.
+            val landing = Rect(box.left, box.top - height, width, height)
             val blocked = platforms.any { it != box && it.intersects(landing) }
             if (blocked) continue
 
@@ -509,7 +524,8 @@ data class Player(
         crouchInput: Boolean,
         platforms: List<Rect>,
         climbTargets: List<Rect> = emptyList(),
-        swingHooks: List<Rect> = emptyList()
+        swingHooks: List<Rect> = emptyList(),
+        floatingClimbTargets: List<Rect> = emptyList()
     ) {
         if (isSwinging) {
             jumpBufferTimer = 0.0
@@ -577,7 +593,8 @@ data class Player(
             isDropping || dropLandingTimer > 0.0 -> dropSpeed
             else -> moveSpeed
         }
-        val effectiveSpeed = if (isCrouching) minOf(crouchSpeed, baseSpeed) else baseSpeed
+        val currentCrouchSpeed = if (moveInput > 0.0) crouchForwardSpeed else crouchSpeed
+        val effectiveSpeed = if (isCrouching) minOf(currentCrouchSpeed, baseSpeed) else baseSpeed
 
         // Horizontal velocity
         vx = moveInput.coerceIn(-1.0, 1.0) * effectiveSpeed
@@ -589,7 +606,7 @@ data class Player(
         if (wantsToJump && canJump) {
             // A hook beats open air but not a box: if the player is stood against something
             // climbable, that is what they meant.
-            val climbTarget = findClimbTarget(facing, climbTargets, platforms)
+            val climbTarget = findClimbTarget(facing, climbTargets, platforms, floatingClimbTargets)
             if (climbTarget == null && moveInput != 0.0) {
                 // Walking is the whole entry condition for the swing - the clip opens on a
                 // push-off stride, and there is no version of it that starts from standing.
@@ -653,7 +670,8 @@ data class Player(
                         // interaction, NOT a side-wall collision. Never eject horizontally!
                         val isStandingOrLandingOnTop = footCenter >= platform.left && footCenter <= platform.right &&
                             playerFeetY <= platform.top + 30.0 && effTopY < platform.top
-                        val isInsideEntireSpan = targetX >= platform.left && targetX + width <= platform.right
+                        val isInsideEntireSpan = targetX >= platform.left && targetX + width <= platform.right &&
+                            playerFeetY <= platform.top + 30.0
 
                         if (isStandingOrLandingOnTop || isInsideEntireSpan) {
                             continue

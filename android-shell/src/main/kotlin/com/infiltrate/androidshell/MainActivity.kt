@@ -21,11 +21,13 @@ import com.infiltrate.ads.InterstitialAdContent
 import com.infiltrate.ads.InterstitialAdLimiter
 import com.infiltrate.ads.InterstitialAdTrigger
 import com.infiltrate.billing.StoreBilling
+import com.infiltrate.review.InAppReview
 import com.infiltrate.storage.PlatformStorage
 import com.infiltrate.ui.NavigationRoot
 import com.sample.demo.ads.AndroidContinueAdBridgeState
 import com.sample.demo.audio.AndroidGameSfxOutputState
 import com.sample.demo.nav.AndroidLevelExitBridgeState
+import com.sample.demo.review.AndroidInAppReviewBridgeState
 import game.model.GameProfileStorage
 import game.model.LevelData
 import game.model.MapBackedGameProfileStorage
@@ -94,7 +96,12 @@ class MainActivity : ComponentActivity() {
         AndroidGameSfxOutputState.context = applicationContext
         StoreBilling.setApplication(application)
         StoreBilling.initialize(BuildConfig.REVENUECAT_GOOGLE_KEY)
+        InAppReview.init(this)
         hideSystemBars()
+
+        AndroidInAppReviewBridgeState.onReviewRequested = {
+            runOnUiThread { InAppReview.requestReview() }
+        }
 
         // GameplayScene's update loop runs on KorGE's own GL thread, not the UI thread - hop
         // back before touching Compose state (ContinueAdTrigger's MutableState, showingGameplay).
@@ -237,5 +244,10 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         AndroidGameSfxOutputState.resumeEngine()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        InAppReview.clear()
     }
 }

@@ -131,6 +131,7 @@ kotlin {
             // branch per-target the same way the two separate manual blocks used to.
             val sdkName = if (target.name == "iosArm64") "iphoneos" else "iphonesimulator"
             swiftLibPath(sdkName)?.let { linkerOpts += listOf("-L$it") }
+            linkerOpts += listOf("-framework", "StoreKit")
         }
     }
 
@@ -159,6 +160,8 @@ kotlin {
                 implementation("com.google.android.gms:play-services-ads:25.4.0")
                 implementation("com.google.android.ump:user-messaging-platform:4.0.0")
                 implementation("com.revenuecat.purchases:purchases-kmp-core:3.6.0")
+                implementation("com.google.android.play:review:2.0.2")
+                implementation("com.google.android.play:review-ktx:2.0.2")
             }
         }
         val jvmMain by getting {

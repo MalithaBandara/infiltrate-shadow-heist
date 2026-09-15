@@ -14,12 +14,12 @@ enum class PowerupType(
         duration = 10.0,
         defaultCost = 150
     ),
-    PHANTOM_CLOAK(
-        id = "phantom_cloak",
-        displayName = "SLEEP DARTS",
-        shortName = "DARTS",
-        duration = 10.0,
-        defaultCost = 250
+    LASER_SHIELD(
+        id = "laser_shield",
+        displayName = "LASER SHIELD",
+        shortName = "SHIELD",
+        duration = -1.0, // Level-duration until consumed by 1 hit
+        defaultCost = 600
     ),
     INVISIBILITY(
         id = "invisibility",
@@ -61,10 +61,13 @@ enum class PowerupType(
     val isLevelDuration: Boolean get() = duration <= 0.0
 
     companion object {
+        @Deprecated("Replaced by LASER_SHIELD", ReplaceWith("LASER_SHIELD"))
+        val PHANTOM_CLOAK: PowerupType get() = LASER_SHIELD
+
         fun fromId(id: String): PowerupType? {
             return when (id.lowercase().trim()) {
                 "camera_jammer", "jammer", "smoke_screen", "smoke_bomb", "camera_disable", "smoke" -> SMOKE_SCREEN
-                "sleep_darts", "sleep_dart", "darts", "phantom_cloak", "guard_sleep", "cloak" -> PHANTOM_CLOAK
+                "laser_shield", "laser_guard", "shield", "guard", "sleep_darts", "sleep_dart", "darts", "phantom_cloak", "guard_sleep", "cloak" -> LASER_SHIELD
                 "invisibility", "invisibility_cloak", "invis" -> INVISIBILITY
                 "noise_suppression", "stealth_boots", "silence" -> NOISE_SUPPRESSION
                 "remote_trigger", "trigger", "remote", "checkpoint", "checkpoints", "tactical_checkpoint" -> REMOTE_TRIGGER
@@ -80,27 +83,37 @@ enum class PowerupType(
 data class ActivePowerups(
     var smokeScreenTimer: Double = 0.0,
     var phantomCloakTimer: Double = 0.0,
+    var laserShieldCharges: Int = 0,
     var invisibilityTimer: Double = 0.0,
     var isNoiseSuppressed: Boolean = false,
     var prototypeTimer: Double = 0.0
 ) {
     val isSmokeScreenActive: Boolean get() = smokeScreenTimer > 0.0
     val isPhantomCloakActive: Boolean get() = phantomCloakTimer > 0.0
+    val isLaserShieldActive: Boolean get() = laserShieldCharges > 0
     val isInvisibilityActive: Boolean get() = invisibilityTimer > 0.0
     val isPrototypeActive: Boolean get() = prototypeTimer > 0.0
 
     val anyActive: Boolean
-        get() = isSmokeScreenActive || isPhantomCloakActive || isInvisibilityActive || isNoiseSuppressed
+        get() = isSmokeScreenActive || isPhantomCloakActive || isLaserShieldActive || isInvisibilityActive || isNoiseSuppressed
 
     fun activate(type: PowerupType) {
         when (type) {
             PowerupType.SMOKE_SCREEN -> smokeScreenTimer = type.duration
-            PowerupType.PHANTOM_CLOAK -> phantomCloakTimer = type.duration
+            PowerupType.LASER_SHIELD -> laserShieldCharges = 1
             PowerupType.INVISIBILITY -> invisibilityTimer = type.duration
             PowerupType.NOISE_SUPPRESSION -> isNoiseSuppressed = true
             PowerupType.REMOTE_TRIGGER -> Unit
             PowerupType.PROTOTYPE -> prototypeTimer = type.duration
         }
+    }
+
+    fun consumeLaserShield(): Boolean {
+        if (laserShieldCharges > 0) {
+            laserShieldCharges--
+            return true
+        }
+        return false
     }
 
     fun update(dt: Double) {
@@ -120,7 +133,7 @@ data class ActivePowerups(
 
     fun isActive(type: PowerupType): Boolean = when (type) {
         PowerupType.SMOKE_SCREEN -> isSmokeScreenActive
-        PowerupType.PHANTOM_CLOAK -> isPhantomCloakActive
+        PowerupType.LASER_SHIELD -> isLaserShieldActive
         PowerupType.INVISIBILITY -> isInvisibilityActive
         PowerupType.NOISE_SUPPRESSION -> isNoiseSuppressed
         PowerupType.REMOTE_TRIGGER -> false
@@ -129,7 +142,7 @@ data class ActivePowerups(
 
     fun getRemainingTime(type: PowerupType): Double = when (type) {
         PowerupType.SMOKE_SCREEN -> smokeScreenTimer
-        PowerupType.PHANTOM_CLOAK -> phantomCloakTimer
+        PowerupType.LASER_SHIELD -> if (isLaserShieldActive) -1.0 else 0.0
         PowerupType.INVISIBILITY -> invisibilityTimer
         PowerupType.NOISE_SUPPRESSION -> if (isNoiseSuppressed) -1.0 else 0.0
         PowerupType.REMOTE_TRIGGER -> 0.0
@@ -139,6 +152,7 @@ data class ActivePowerups(
     fun reset() {
         smokeScreenTimer = 0.0
         phantomCloakTimer = 0.0
+        laserShieldCharges = 0
         invisibilityTimer = 0.0
         isNoiseSuppressed = false
         prototypeTimer = 0.0

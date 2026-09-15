@@ -27,7 +27,23 @@ data class Guard(
      * arriving facing for the whole dwell, so a post at the right end of the route is watched
      * to the right - see LEVEL_3_LAYOUT for the beat that builds on this.
      */
-    val patrolPauseDuration: Double = 0.0
+    val patrolPauseDuration: Double = 0.0,
+    /**
+     * Keeps him rooted at his spawn point - not patrolling, not even the initial walk off it -
+     * until GameWorld sees the player crouch for the first time. For a guard stationed right by
+     * an early crouch-to-hide tutorial, this is what actually guarantees he's standing at his
+     * post (not mid-route somewhere unpredictable) for the player's very first attempt, instead
+     * of leaving it to patrol timing luck.
+     */
+    val holdUntilPlayerCrouches: Boolean = false,
+    /**
+     * Tilts the cone down from dead level, in radians - 0 (every guard before level 3's overwatch
+     * pair) keeps the old perfectly horizontal facingAngle. A guard perched up on something,
+     * meant to actually watch the ground below rather than the far horizon, wants this positive:
+     * see facingAngle for how it's applied per direction, and LEVEL_3_LAYOUT's overwatchGuard1/2
+     * for the beat that needs it.
+     */
+    var visionTilt: Double = 0.0
 ) {
     var state: GuardState = GuardState.PATROL
         private set
@@ -64,14 +80,32 @@ data class Guard(
     val bounds: Rect get() = Rect(x, y, width, height)
     val center: Vec2d get() = Vec2d(x + width / 2.0, y + height / 2.0)
 
+    // y grows downward, so a positive angle rotates toward the ground: tilting down from level
+    // means moving *toward* PI/2 from either horizontal, i.e. adding it facing right and
+    // subtracting it facing left.
     val facingAngle: Double
-        get() = if (facing >= 0.0) 0.0 else PI
+        get() = if (facing >= 0.0) visionTilt else PI - visionTilt
 
+    /**
+     * Where the vision cone starts: the lens of the torch he holds out at arm's length, not his
+     * eyes. The sprite is drawn with its standing silhouette scaled to [height] and its body
+     * centred on the hitbox (see GuardAnimations), so the lens is a fixed fraction of the height
+     * ahead of the centre column and above the feet - the two constants below, measured off the
+     * plates by tools/art/prep_guard.py. Detection and the drawn beam both start here, so what
+     * the player sees lit is what can see them.
+     */
     val eyePosition: Vec2d
         get() = Vec2d(
-            if (facing >= 0.0) x + width - 4.0 else x + 4.0,
-            y + 12.0
+            x + width / 2.0 + (if (facing >= 0.0) 1.0 else -1.0) * TORCH_AHEAD_PER_HEIGHT * height,
+            y + height - TORCH_ABOVE_FEET_PER_HEIGHT * height
         )
+
+    companion object {
+        /** Torch lens ahead of the body's centre column, as a fraction of the standing height. */
+        const val TORCH_AHEAD_PER_HEIGHT = 0.29
+        /** Torch lens above the feet, as a fraction of the standing height. */
+        const val TORCH_ABOVE_FEET_PER_HEIGHT = 0.56
+    }
 
     fun startInvestigating(targetX: Double, moveTowards: Boolean = false) {
         if (state == GuardState.PATROL) {

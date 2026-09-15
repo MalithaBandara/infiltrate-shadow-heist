@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import com.infiltrate.review.InAppReview
 import com.infiltrate.storage.PlatformStorage
 import game.model.GameProfile
 import game.model.GameProfileStorage
@@ -860,21 +861,32 @@ private fun AboutSettingsPanel(
 
         // Links
         var creditsExpanded by remember { mutableStateOf(false) }
-        val links = listOf("PRIVACY POLICY", "TERMS OF SERVICE", "CREDITS & LICENSES")
+        val links = listOf("RATE US", "PRIVACY POLICY", "TERMS OF SERVICE", "CREDITS & LICENSES")
         for (link in links) {
             val interactionSource = remember { MutableInteractionSource() }
             val isCredits = link == "CREDITS & LICENSES"
+            val isRateUs = link == "RATE US"
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0xFF141416), RoundedCornerShape(8.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                    .border(
+                        1.dp,
+                        if (isRateUs) Color(0xFF00E676).copy(alpha = 0.3f) else Color.White.copy(alpha = 0.08f),
+                        RoundedCornerShape(8.dp)
+                    )
                     .clickable(
                         interactionSource = interactionSource,
                         indication = null,
                         onClick = {
-                            if (isCredits) creditsExpanded = !creditsExpanded
-                            else onActionToast("$link OPENED")
+                            if (isRateUs) {
+                                InAppReview.requestReview()
+                                onActionToast("RATE US")
+                            } else if (isCredits) {
+                                creditsExpanded = !creditsExpanded
+                            } else {
+                                onActionToast("$link OPENED")
+                            }
                         }
                     )
                     .padding((16 * scale).dp)

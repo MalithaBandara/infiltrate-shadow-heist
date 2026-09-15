@@ -44,8 +44,8 @@ class MovingPlatform(
     val periodSeconds: Double,
     val phaseOffsetSeconds: Double = 0.0,
     val isVariant1: Boolean = false,
-    initialX: Double = minX,
-    initialY: Double = minY
+    val initialX: Double = minX,
+    val initialY: Double = minY
 ) {
     constructor(
         id: String,
@@ -120,5 +120,12 @@ class MovingPlatform(
         vx = if (dt > 1e-6) (x - oldX) / dt else 0.0
         vy = if (dt > 1e-6) (y - oldY) / dt else 0.0
         return PlatformDisplacement(x - oldX, y - oldY)
+    }
+
+    fun reset() {
+        x = initialX
+        y = initialY
+        vx = 0.0
+        vy = 0.0
     }
 }

@@ -1,5 +1,6 @@
 import UIKit
 import Darwin
+import StoreKit
 import GameMain
 import PaywallModule
 
@@ -119,6 +120,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             if GameContinueAdBridge.shared.consumeContinueAdRequest() {
                 print("SHELL: Continue-with-ad requested -> showing rewarded ad")
                 self?.showContinueAd()
+            }
+            if GameInAppReviewBridge.shared.consumeReviewRequest() {
+                print("SHELL: In-app review requested -> requesting review")
+                InAppReviewHelper.requestReview()
             }
             // QUIT / RETURN TO MENU / MAIN MENU / ALL CLEAR in GameplayScene.kt all reach this via
             // GameLevelExitBridge (src@ios/LevelExitBridge.ios.kt) - same shape as
@@ -327,5 +332,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
         let url = docs.appendingPathComponent(name)
         return try? String(contentsOf: url, encoding: .utf8)
+    }
+}
+
+enum InAppReviewHelper {
+    static func requestReview() {
+        DispatchQueue.main.async {
+            if #available(iOS 14.0, *) {
+                if let scene = UIApplication.shared.connectedScenes
+                    .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
+                    SKStoreReviewController.requestReview(in: scene)
+                    return
+                }
+                if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                    SKStoreReviewController.requestReview(in: scene)
+                    return
+                }
+            }
+            SKStoreReviewController.requestReview()
+        }
     }
 }

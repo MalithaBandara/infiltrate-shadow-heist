@@ -20,13 +20,21 @@ data class GameWorld(
     val tables: List<Rect> = emptyList(),
     /** Collision boxes covered by a table's art, drawn by nothing - see LevelLayout.tableParts. */
     val tableParts: List<Rect> = emptyList(),
+    /** Purely decorative table pieces, no collision - see LevelLayout.tableDecorations. */
+    val tableDecorations: List<Rect> = emptyList(),
+    /** Boxes climbable despite being a floating ledge - see LevelLayout.floatingClimbTargets. */
+    val floatingClimbTargets: List<Rect> = emptyList(),
     // Jump-crate gap crossings, tagged by which of the two hanging-crate art variants each box
     // renders with - see LevelLayout.hangingCrateVariant1/2 and GameplayScene.kt's box loop.
-    val hangingCrateVariant1: List<Rect> = emptyList(),
-    val hangingCrateVariant2: List<Rect> = emptyList(),
+    val staticHangingCrateVariant1: List<Rect> = emptyList(),
+    val staticHangingCrateVariant2: List<Rect> = emptyList(),
     val movingPlatforms: List<MovingPlatform> = emptyList(),
     /** Overhead hooks the player can swing from - see LevelLayout.swingHooks and Player's swing. */
     val swingHooks: List<Rect> = emptyList(),
+    /** Conveyor belts in the level - see LevelLayout.conveyors. */
+    val conveyors: List<ConveyorDef> = emptyList(),
+    val conveyorCrates: List<ConveyorCrate> = emptyList(),
+    val lasers: List<Laser> = emptyList(),
     /** Union of [truckParts] (front+middle+back) - the footprint the truck image is drawn into. */
     val truck: Rect? = null,
     /** Truck collision split into 3 tiers matching its silhouette: hood (front, low), cab roof
@@ -39,8 +47,87 @@ data class GameWorld(
     var onLevelComplete: (() -> Unit)? = null,
     var onLevelCompleteResult: ((LevelResult) -> Unit)? = null,
     var onGameOver: (() -> Unit)? = null,
-    val hasNoGuards: Boolean = false
+    val hasNoGuards: Boolean = false,
+    val restartOnConveyorFallOff: Boolean = false,
+    var onConveyorFallOff: (() -> Unit)? = null,
+    var onLaserHit: (() -> Unit)? = null,
+    var onLaserShieldBlocked: (() -> Unit)? = null,
+    val conveyorsStartOnMove: Boolean = false,
+    val canClimb: Boolean = true
 ) {
+    val hangingCrateVariant1: List<Rect>
+        get() = staticHangingCrateVariant1 + conveyorCrates.filter { it.isHanging && it.isVariant1 }.map { it.bounds }
+    val hangingCrateVariant2: List<Rect>
+        get() = staticHangingCrateVariant2 + conveyorCrates.filter { it.isHanging && !it.isVariant1 }.map { it.bounds }
+
+    constructor(
+        player: Player,
+        guard: Guard,
+        crate: Rect,
+        platforms: List<Rect>,
+        occluders: List<Rect>,
+        exitZone: Rect = Rect(x = 730.0, y = 320.0, width = 40.0, height = 60.0),
+        levelData: LevelData = LevelData(),
+        extraGuards: List<Guard> = emptyList(),
+        cameras: List<Camera> = emptyList(),
+        boxes: List<Rect> = listOf(crate),
+        worldWidth: Double = 800.0,
+        activePowerups: ActivePowerups = ActivePowerups(),
+        fence1: Rect? = null,
+        fence2: Rect? = null,
+        barrels: List<Rect> = emptyList(),
+        tables: List<Rect> = emptyList(),
+        tableParts: List<Rect> = emptyList(),
+        tableDecorations: List<Rect> = emptyList(),
+        floatingClimbTargets: List<Rect> = emptyList(),
+        hangingCrateVariant1: List<Rect> = emptyList(),
+        hangingCrateVariant2: List<Rect> = emptyList(),
+        movingPlatforms: List<MovingPlatform> = emptyList(),
+        swingHooks: List<Rect> = emptyList(),
+        conveyors: List<ConveyorDef> = emptyList(),
+        conveyorCrates: List<ConveyorCrate> = emptyList(),
+        lasers: List<Laser> = emptyList(),
+        truck: Rect? = null,
+        truckParts: List<Rect> = emptyList(),
+        hasNoGuards: Boolean = false,
+        restartOnConveyorFallOff: Boolean = false,
+        conveyorsStartOnMove: Boolean = false,
+        canClimb: Boolean = true
+    ) : this(
+        player = player,
+        guard = guard,
+        crate = crate,
+        platforms = platforms,
+        occluders = occluders,
+        exitZone = exitZone,
+        levelData = levelData,
+        extraGuards = extraGuards,
+        cameras = cameras,
+        boxes = boxes,
+        worldWidth = worldWidth,
+        activePowerups = activePowerups,
+        fence1 = fence1,
+        fence2 = fence2,
+        barrels = barrels,
+        tables = tables,
+        tableParts = tableParts,
+        tableDecorations = tableDecorations,
+        floatingClimbTargets = floatingClimbTargets,
+        staticHangingCrateVariant1 = hangingCrateVariant1,
+        staticHangingCrateVariant2 = hangingCrateVariant2,
+        movingPlatforms = movingPlatforms,
+        swingHooks = swingHooks,
+        conveyors = conveyors,
+        conveyorCrates = conveyorCrates,
+        lasers = lasers,
+        truck = truck,
+        truckParts = truckParts,
+        hasNoGuards = hasNoGuards,
+        restartOnConveyorFallOff = restartOnConveyorFallOff,
+        conveyorsStartOnMove = conveyorsStartOnMove,
+        canClimb = canClimb
+    )
+    var conveyorsActive: Boolean = !conveyorsStartOnMove
     /** Every guard in the level. Single-guard levels simply have no [extraGuards]. Guardless levels set [hasNoGuards] = true. */
     val allGuards: List<Guard>
         get() = if (hasNoGuards) emptyList() else if (extraGuards.isEmpty()) listOf(guard) else listOf(guard) + extraGuards
@@ -74,6 +161,9 @@ data class GameWorld(
         private set
     var wasDetected: Boolean = false
         private set
+    /** True from the player's first crouch onward this attempt - see Guard.holdUntilPlayerCrouches. */
+    var hasPlayerCrouchedOnce: Boolean = false
+        private set
     var timeTaken: Float = 0.0f
         private set
     var isLevelComplete: Boolean = false
@@ -82,6 +172,7 @@ data class GameWorld(
         internal set
     var totalElapsedSeconds: Double = 0.0
         private set
+    var laserGraceTimer: Double = 0.0
 
     var lastCheckpointX: Double = player.startX
         private set
@@ -102,6 +193,33 @@ data class GameWorld(
         for (g in allGuards) g.returnToPatrol()
         activePowerups.invisibilityTimer = 2.0
         return true
+    }
+
+    /**
+     * Instantly resets the level to its initial state without loading screen or scene rebuild.
+     */
+    fun restartLevel() {
+        isGameOver = false
+        isLevelComplete = false
+        isSpotted = false
+        alertProgress = 0.0
+        spottedCount = 0
+        wasDetected = false
+        hasPlayerCrouchedOnce = false
+        timeTaken = 0.0f
+        totalElapsedSeconds = 0.0
+        detectingGuards = emptyList()
+        detectingCameras = emptyList()
+        recentlySeeingGuards.clear()
+        player.resetToStart()
+        for (g in allGuards) g.returnToPatrol()
+        for (c in cameras) c.reset()
+        for (mp in movingPlatforms) mp.reset()
+        for (crate in conveyorCrates) crate.reset()
+        for (laser in lasers) laser.reset()
+        activePowerups.invisibilityTimer = 0.0
+        laserGraceTimer = 0.0
+        conveyorsActive = !conveyorsStartOnMove
     }
 
     private val recentlySeeingGuards = LinkedHashSet<Guard>()
@@ -139,6 +257,12 @@ data class GameWorld(
 
     fun update(dt: Double, moveInput: Double, jumpInput: Boolean, crouchInput: Boolean) {
         if (isLevelComplete || isGameOver) return
+
+        if (!conveyorsActive && (moveInput != 0.0 || jumpInput)) {
+            conveyorsActive = true
+        }
+
+        if (crouchInput) hasPlayerCrouchedOnce = true
 
         timeTaken += dt.toFloat()
 
@@ -246,6 +370,10 @@ data class GameWorld(
         }
 
         totalElapsedSeconds += dt
+        if (laserGraceTimer > 0.0) {
+            laserGraceTimer = (laserGraceTimer - dt).coerceAtLeast(0.0)
+        }
+        for (laser in lasers) laser.update(totalElapsedSeconds)
 
         // Update moving platforms and translate grounded player if riding one
         for (mp in movingPlatforms) {
@@ -262,27 +390,61 @@ data class GameWorld(
             }
         }
 
-        // A level with no moving platforms - which is most of them, level 1 included - reuses its
-        // own immutable lists rather than copying all three every frame. `platforms + movingBounds`
-        // builds a fresh ArrayList even when movingBounds is empty, so this was three full list
-        // copies per frame handing back identical contents.
+        // Conveyor belts carry grounded player standing on them, and move conveyor crates
+        if (conveyorsActive) {
+            for (conveyor in conveyors) {
+                val bounds = conveyor.bounds
+                val playerFeetY = player.y + player.height
+                val footCenter = player.x + player.width / 2.0
+                val onConveyor = player.isGrounded &&
+                    kotlin.math.abs(playerFeetY - bounds.top) < 4.5 &&
+                    (footCenter >= bounds.left && footCenter <= bounds.right)
+                if (onConveyor) {
+                    player.x += conveyor.speed * dt
+                }
+            }
+            val conveyorSpeed = conveyors.firstOrNull()?.speed ?: -45.0
+            for (crate in conveyorCrates) {
+                val crateDx = conveyorSpeed * dt * crate.speedMultiplier
+                val oldBounds = crate.bounds
+                crate.update(crateDx, totalElapsedSeconds)
+                val playerFeetY = player.y + player.height
+                val footCenter = player.x + player.width / 2.0
+                val onThisCrate = player.isGrounded &&
+                    kotlin.math.abs(playerFeetY - oldBounds.top) < 4.5 &&
+                    (footCenter >= oldBounds.left && footCenter <= oldBounds.right)
+                if (!crate.isHanging && onThisCrate) {
+                    player.x += crateDx
+                }
+            }
+        }
+
+        // A level with no moving platforms or conveyor crates reuses its own immutable lists
         val hasMovingPlatforms = movingPlatforms.isNotEmpty()
         val movingBounds = if (hasMovingPlatforms) movingPlatforms.map { it.bounds } else emptyList()
-        val currentPlatforms = if (hasMovingPlatforms) platforms + movingBounds else platforms
-        val currentBoxes = if (hasMovingPlatforms) boxes + movingBounds else boxes
-        val currentOccluders = if (hasMovingPlatforms) occluders + movingBounds else occluders
+        val hasConveyorCrates = conveyorCrates.isNotEmpty()
+        val crateBounds = if (hasConveyorCrates) conveyorCrates.map { it.bounds } else emptyList()
+        val dynamicBounds = if (hasMovingPlatforms && hasConveyorCrates) movingBounds + crateBounds
+            else if (hasMovingPlatforms) movingBounds
+            else crateBounds
+        val currentPlatforms = if (dynamicBounds.isNotEmpty()) platforms + dynamicBounds else platforms
+        val currentBoxes = if (dynamicBounds.isNotEmpty()) boxes + dynamicBounds else boxes
+        val currentOccluders = if (dynamicBounds.isNotEmpty()) occluders + dynamicBounds else occluders
 
         // Guards without eyes on the player keep walking their route (unless asleep from Phantom Cloak)
         if (!isGameOver && !activePowerups.isPhantomCloakActive) {
             for (g in allGuards) {
-                if (g !in seeingGuards) g.update(dt, currentOccluders)
+                val heldAtPost = g.holdUntilPlayerCrouches && !hasPlayerCrouchedOnce
+                if (g !in seeingGuards && !heldAtPost) g.update(dt, currentOccluders)
             }
         }
 
         playerPlatformsScratch.clear()
         playerPlatformsScratch.addAll(currentPlatforms)
         for (g in allGuards) playerPlatformsScratch.add(g.bounds)
-        player.update(dt, moveInput, jumpInput, crouchInput, playerPlatformsScratch, currentBoxes, swingHooks)
+        val climbTargets = if (canClimb) currentBoxes else emptyList()
+        val climbFloatingTargets = if (canClimb) floatingClimbTargets else emptyList()
+        player.update(dt, moveInput, jumpInput, crouchInput, playerPlatformsScratch, climbTargets, swingHooks, climbFloatingTargets)
 
         // Check Exit / Win condition
         if (player.bounds.intersects(exitZone)) {
@@ -294,6 +456,40 @@ data class GameWorld(
             onLevelComplete?.invoke()
             onLevelCompleteResult?.invoke(getLevelResult())
             return
+        }
+
+        // Check conveyor fall-off / out-of-bounds instant restart (e.g. Level 4)
+        if (restartOnConveyorFallOff && !isLevelComplete && !isGameOver && checkConveyorFallOff()) {
+            restartLevel()
+            onConveyorFallOff?.invoke()
+            return
+        }
+
+        // Check Laser Collisions
+        if (!isGameOver && !isLevelComplete) {
+            if (laserGraceTimer <= 0.0) {
+                for (laser in lasers) {
+                    if (!activePowerups.isInvisibilityActive && laser.intersectsPlayer(player.bounds)) {
+                        if (activePowerups.isLaserShieldActive) {
+                            activePowerups.consumeLaserShield()
+                            laserGraceTimer = 1.2
+                            onLaserShieldBlocked?.invoke()
+                            break
+                        }
+                        spottedCount++
+                        if (restartOnConveyorFallOff) {
+                            restartLevel()
+                            onConveyorFallOff?.invoke()
+                            onLaserHit?.invoke()
+                        } else {
+                            isSpotted = true
+                            isGameOver = true
+                            onGameOver?.invoke()
+                        }
+                        return
+                    }
+                }
+            }
         }
 
         // Check Movement Noise Detection (blocked by solid occluders, same as vision line-of-sight)
@@ -309,6 +505,26 @@ data class GameWorld(
                 }
             }
         }
+    }
+
+    private fun checkConveyorFallOff(): Boolean {
+        if (!conveyorsActive || conveyors.isEmpty()) return false
+        for (conveyor in conveyors) {
+            val bounds = conveyor.bounds
+            // If player has successfully traversed past the end of the conveyor toward the exit
+            if (player.x >= bounds.right - 20.0) continue
+
+            // Pushed off the left edge or reached the left corner of the conveyor belt
+            if (player.x <= bounds.left || player.bounds.right <= bounds.left + 10.0) {
+                return true
+            }
+
+            // Stepped or fallen below conveyor surface while within the conveyor span
+            if (player.y + player.height > bounds.top + 8.0) {
+                return true
+            }
+        }
+        return false
     }
 
     companion object {
@@ -458,7 +674,8 @@ data class GameWorld(
                     sweepSpeed = spawn.sweepSpeed,
                     visionRange = spawn.visionRange,
                     visionFov = spawn.visionFov,
-                    sweepDirection = spawn.sweepDirection
+                    sweepDirection = spawn.sweepDirection,
+                    sweepPauseDuration = spawn.sweepPauseDuration
                 )
             }
 
@@ -483,25 +700,35 @@ data class GameWorld(
 
         /** Builds a world from an explicit multi-tier LevelLayout (see LevelData.layout). */
         fun createFromLayout(levelData: LevelData, layout: LevelLayout): GameWorld {
-            val leftWall = Rect(x = -30.0, y = -400.0, width = 30.0, height = 1200.0)
+            val leftWallX = if (layout.hasStartFences) -30.0 else -200.0
+            val leftWall = Rect(x = leftWallX, y = -400.0, width = 30.0, height = 1200.0)
             val rightWall = Rect(x = layout.worldWidth, y = -400.0, width = 30.0, height = 1200.0)
 
             val groundY = layout.platforms.firstOrNull { it.y > 300.0 }?.y ?: 440.0
             val fenceHeight = 140.0
             val fence2Width = 172.0
             val fence1Width = 151.0
-            val fence2 = layout.fence2 ?: Rect(x = -80.0, y = groundY - fenceHeight, width = fence2Width, height = fenceHeight)
-            val fence1 = layout.fence1 ?: Rect(x = 70.0, y = groundY - fenceHeight, width = fence1Width, height = fenceHeight)
+            val fence2 = if (layout.hasStartFences) {
+                layout.fence2 ?: Rect(x = -80.0, y = groundY - fenceHeight, width = fence2Width, height = fenceHeight)
+            } else null
+            val fence1 = if (layout.hasStartFences) {
+                layout.fence1 ?: Rect(x = 70.0, y = groundY - fenceHeight, width = fence1Width, height = fenceHeight)
+            } else null
 
-            val allBoxes = if (layout.boxes.contains(fence1) || layout.boxes.contains(fence2)) {
+            val allBoxes = if (!layout.hasStartFences) {
+                layout.boxes
+            } else if ((fence1 != null && layout.boxes.contains(fence1)) || (fence2 != null && layout.boxes.contains(fence2))) {
                 layout.boxes
             } else {
-                listOf(fence2, fence1) + layout.boxes
+                listOfNotNull(fence2, fence1) + layout.boxes
             }
 
             val platforms = layout.platforms + allBoxes + listOf(leftWall, rightWall)
-            // Floors and boxes both block sight, so no guard can see through a storey.
-            val occluders = layout.platforms + allBoxes
+            // Floors and boxes both block sight, so no guard can see through a storey. Table
+            // decorations (LevelLayout.tableDecorations) have no collision - nothing stands on
+            // them or bumps into them - but they're real drawn geometry (a support leg, say), so
+            // they block sight the same as anything else the player could visually read as solid.
+            val occluders = layout.platforms + allBoxes + layout.tableDecorations
 
             val player = Player(
                 x = layout.playerStartX,
@@ -521,7 +748,9 @@ data class GameWorld(
                     speed = spawn.speed,
                     facing = spawn.facing,
                     visionRange = spawn.visionRange,
-                    patrolPauseDuration = spawn.patrolPauseDuration
+                    patrolPauseDuration = spawn.patrolPauseDuration,
+                    holdUntilPlayerCrouches = spawn.holdUntilPlayerCrouches,
+                    visionTilt = spawn.visionTilt
                 )
             }
             val primaryGuard = guards.firstOrNull() ?: Guard(
@@ -545,7 +774,8 @@ data class GameWorld(
                     sweepSpeed = spawn.sweepSpeed,
                     visionRange = spawn.visionRange,
                     visionFov = spawn.visionFov,
-                    sweepDirection = spawn.sweepDirection
+                    sweepDirection = spawn.sweepDirection,
+                    sweepPauseDuration = spawn.sweepPauseDuration
                 )
             }
 
@@ -566,7 +796,44 @@ data class GameWorld(
                 )
             }
 
-            return GameWorld(
+            val conveyorCrates = layout.conveyorCrates.map { def ->
+                ConveyorCrate(
+                    initialX = def.initialX,
+                    initialY = def.y,
+                    width = def.width,
+                    height = def.height,
+                    loopMinX = def.loopMinX,
+                    loopMaxX = def.loopMaxX,
+                    shouldLoop = def.shouldLoop,
+                    isHanging = def.isHanging,
+                    isVariant1 = def.isVariant1,
+                    speedMultiplier = def.speedMultiplier,
+                    isPatrol = def.isPatrol,
+                    patrolMinX = def.patrolMinX,
+                    patrolMaxX = def.patrolMaxX,
+                    minY = def.minY,
+                    maxY = def.maxY,
+                    verticalPeriodSeconds = def.verticalPeriodSeconds,
+                    verticalPhaseOffsetSeconds = def.verticalPhaseOffsetSeconds
+                )
+            }
+
+            val lasers = layout.lasers.map { def ->
+                Laser(
+                    id = def.id,
+                    topX = def.topX,
+                    topY = def.topY,
+                    bottomX = def.bottomX,
+                    bottomY = def.bottomY,
+                    beamThickness = def.beamThickness,
+                    activeDuration = def.activeDuration,
+                    inactiveDuration = def.inactiveDuration,
+                    phaseOffsetSeconds = def.phaseOffsetSeconds,
+                    isAlwaysActive = def.isAlwaysActive
+                )
+            }
+
+            val world = GameWorld(
                 player = player,
                 guard = primaryGuard,
                 crate = layout.boxes.firstOrNull() ?: Rect(0.0, 0.0, 0.0, 0.0),
@@ -585,10 +852,22 @@ data class GameWorld(
                 barrels = layout.barrels,
                 tables = layout.tables,
                 tableParts = layout.tableParts,
+                tableDecorations = layout.tableDecorations,
+                floatingClimbTargets = layout.floatingClimbTargets,
                 movingPlatforms = movingPlatforms,
                 swingHooks = layout.swingHooks,
-                hasNoGuards = guards.isEmpty()
+                conveyors = layout.conveyors,
+                conveyorCrates = conveyorCrates,
+                lasers = lasers,
+                hasNoGuards = guards.isEmpty(),
+                restartOnConveyorFallOff = layout.restartOnConveyorFallOff,
+                conveyorsStartOnMove = layout.conveyorsStartOnMove,
+                canClimb = layout.canClimb
             )
+            if (levelData.playerCrouchForwardSpeedMultiplier != 1.0) {
+                world.player.crouchForwardSpeed = world.player.crouchSpeed * levelData.playerCrouchForwardSpeedMultiplier
+            }
+            return world
         }
     }
 }
