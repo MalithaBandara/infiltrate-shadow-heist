@@ -43,6 +43,38 @@ class GameplaySceneTest : ViewsForTesting() {
     }
 
     @Test
+    fun testPlayerFootPlantingWhileWalkingOnTruckAndCrates() = viewsTest {
+        val sceneContainer = sceneContainer()
+        sceneContainer.changeTo { GameplayScene(game.model.LevelData.DEFAULT_LEVEL_1) }
+        assertNotNull(sceneContainer.currentScene)
+        views.update(16.milliseconds)
+
+        val baseScale = 96.0 / PlayerAnimations.SOURCE_SILHOUETTE_HEIGHT
+        val idleOffset = (PlayerAnimations.SOURCE_FEET_Y - PlayerAnimations.IDLE_FEET_Y) * baseScale
+        val walkOffset = (PlayerAnimations.SOURCE_FEET_Y - PlayerAnimations.WALK_FEET_Y) * baseScale
+        assertEquals(idleOffset, walkOffset, 1e-4, "Walk and idle must share vertical foot grounding offset")
+        assertTrue(walkOffset > 3.0, "Foot grounding offset must firmly plant soles into surface (was $walkOffset)")
+    }
+
+    @Test
+    fun testPlayerFootGroundingOnFloorDoesNotSinkUnderground() = viewsTest {
+        val sceneContainer = sceneContainer()
+        sceneContainer.changeTo { GameplayScene(game.model.LevelData.DEFAULT_LEVEL_1) }
+        assertNotNull(sceneContainer.currentScene)
+        views.update(16.milliseconds)
+        views.update(16.milliseconds)
+
+        val baseScale = 96.0 / PlayerAnimations.SOURCE_SILHOUETTE_HEIGHT
+        val idleOffset = (PlayerAnimations.SOURCE_FEET_Y - PlayerAnimations.IDLE_FEET_Y) * baseScale
+        val walkFloorOffset = 0.0
+        val walkTruckOffset = (PlayerAnimations.SOURCE_FEET_Y - PlayerAnimations.WALK_FEET_Y) * baseScale
+
+        assertTrue(idleOffset > 3.0, "Idle offset must bring top shoe down to the floor")
+        assertEquals(0.0, walkFloorOffset, 1e-4, "Walking on floor must have flush 0.0 offset so shoes do not sink")
+        assertTrue(walkTruckOffset > 3.0, "Walking on truck must maintain offset so shoes do not float")
+    }
+
+    @Test
     fun testGameplaySceneLevel4WithLasersAndConveyor() = viewsTest {
         val sceneContainer = sceneContainer()
         sceneContainer.changeTo { GameplayScene(game.model.LevelData.DEFAULT_LEVEL_4) }
@@ -674,5 +706,254 @@ class GameplaySceneTest : ViewsForTesting() {
         val outDir = java.io.File("C:\\Users\\USER\\.gemini\\antigravity\\brain\\c2e16e03-8c52-4bfa-a592-66373946835e")
         if (!outDir.exists()) outDir.mkdirs()
         javax.imageio.ImageIO.write(img, "PNG", java.io.File(outDir, "shield_glow_comparison.png"))
+    }
+
+    @Test
+    fun testGenerateLevel4FinaleAndL4EndPreviewArtifact() {
+        val width = 1000
+        val height = 660
+        val img = java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+        val g = img.createGraphics()
+        g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON)
+        g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+
+        // Base dark background
+        g.color = java.awt.Color(16, 18, 24)
+        g.fillRect(0, 0, width, height)
+
+        // Load asset images safely
+        fun loadImg(name: String): java.awt.image.BufferedImage? {
+            val f = java.io.File("resources/$name")
+            return if (f.exists()) javax.imageio.ImageIO.read(f) else null
+        }
+        val metalBg = loadImg("metalbg.png")
+        val l4endImg = loadImg("l4end.png")
+        val conveyorImg = loadImg("conveyorbelt.png")
+        val crateImg = loadImg("crate.png")
+        val chainedCrateImg = loadImg("chainedcrate.png")
+        val emitterImg = loadImg("laseremittor.png")
+        val failedScreenImg = loadImg("failedscreen.png")
+
+        // =========================================================================
+        // TOP PANEL: 0M MARKER & L4END SPAWN FACILITY (World X: 7350 to 8350, 1000px wide)
+        // =========================================================================
+        val topPanelH = 350
+        val p1WorldXStart = 7380.0
+        val p1WorldXEnd = 8380.0
+        val p1Scale = width.toDouble() / (p1WorldXEnd - p1WorldXStart) // 1.0 px per world unit
+
+        fun toP1ScreenX(worldX: Double): Int = ((worldX - p1WorldXStart) * p1Scale).toInt()
+
+        // 1. Draw metal background tiles
+        if (metalBg != null) {
+            val tileW = metalBg.width
+            val tileH = metalBg.height
+            var tileX = toP1ScreenX(p1WorldXStart)
+            while (tileX < width) {
+                g.drawImage(metalBg, tileX, 0, tileW, topPanelH, null)
+                tileX += tileW
+            }
+        } else {
+            g.color = java.awt.Color(28, 32, 42)
+            g.fillRect(0, 0, width, topPanelH)
+        }
+
+        // 2. Draw wall distance markers: "0m" at worldX = 7742.0
+        val marker0mX = toP1ScreenX(7742.0)
+        g.color = java.awt.Color(220, 160, 20, 220)
+        g.font = java.awt.Font("SansSerif", java.awt.Font.BOLD, 22)
+        g.drawString("0m", marker0mX - 16, 240)
+        g.color = java.awt.Color(255, 200, 40, 140)
+        g.drawLine(marker0mX, 210, marker0mX, 290)
+
+        // 3. Draw Conveyor belt (runs until x = 7760.0, y = 414.0, groundY = 440.0)
+        val convScreenEndX = toP1ScreenX(7760.0)
+        val convScreenTopY = 280
+        val convScreenH = 20
+        if (conveyorImg != null) {
+            var cx = 0
+            while (cx < convScreenEndX) {
+                val drawW = minOf(conveyorImg.width, convScreenEndX - cx)
+                g.drawImage(conveyorImg, cx, convScreenTopY, drawW, convScreenH, 0, 0, drawW, conveyorImg.height, null)
+                cx += conveyorImg.width
+            }
+        } else {
+            g.color = java.awt.Color(45, 48, 58)
+            g.fillRect(0, convScreenTopY, convScreenEndX, convScreenH)
+        }
+
+        // Ground baseline under conveyor and past it
+        g.color = java.awt.Color(22, 24, 30)
+        g.fillRect(0, convScreenTopY + convScreenH, width, topPanelH - (convScreenTopY + convScreenH))
+
+        // 4. Crates inside facility at x = 8200 (hidden behind l4end building)
+        val hiddenCrateX = toP1ScreenX(8180.0)
+        if (crateImg != null) {
+            g.drawImage(crateImg, hiddenCrateX, convScreenTopY - 42, 60, 42, null)
+        }
+        // Outline showing internal spawn point
+        g.color = java.awt.Color(0, 229, 255, 120)
+        val dash = floatArrayOf(4f, 4f)
+        val oldStroke = g.stroke
+        g.stroke = java.awt.BasicStroke(1.5f, java.awt.BasicStroke.CAP_BUTT, java.awt.BasicStroke.JOIN_MITER, 10f, dash, 0f)
+        g.drawRect(hiddenCrateX - 6, convScreenTopY - 48, 72, 48)
+        g.stroke = oldStroke
+
+        // 5. Draw l4end building at x = 7760 in front of conveyor end and spawning crates
+        val l4endScreenX = toP1ScreenX(7760.0)
+        val l4endScreenW = (760.0 * p1Scale).toInt()
+        val l4endScreenH = 290
+        val l4endScreenY = convScreenTopY + convScreenH - (l4endScreenH * (828.0 / 887.0)).toInt()
+        if (l4endImg != null) {
+            g.drawImage(l4endImg, l4endScreenX, l4endScreenY, l4endScreenW, l4endScreenH, null)
+        } else {
+            g.color = java.awt.Color(60, 70, 90)
+            g.fillRect(l4endScreenX, l4endScreenY, l4endScreenW, l4endScreenH)
+        }
+
+        // 6. Draw obstacles before l4end:
+        // - Overhead hanging crate (x = 7420..7594)
+        val hCrateX = toP1ScreenX(7420.0)
+        val hCrateW = (174.0 * p1Scale).toInt()
+        if (chainedCrateImg != null) {
+            g.drawImage(chainedCrateImg, hCrateX, 175, hCrateW, 36, null)
+        } else {
+            g.color = java.awt.Color(160, 110, 60)
+            g.fillRect(hCrateX, 175, hCrateW, 36)
+        }
+        // Monorail track above hanging crate
+        g.color = java.awt.Color(90, 95, 110)
+        g.fillRect(hCrateX - 20, 168, hCrateW + 40, 6)
+
+        // - Floor crate at x = 7650
+        val fCrateX = toP1ScreenX(7650.0)
+        if (crateImg != null) {
+            g.drawImage(crateImg, fCrateX, convScreenTopY - 42, 60, 42, null)
+        }
+
+        // 7. Player sliding under hanging crate then jumping
+        g.color = java.awt.Color(240, 245, 255)
+        // Ducking player under hanging crate
+        g.setColor(java.awt.Color(34, 167, 240))
+        g.fillRoundRect(hCrateX + 45, convScreenTopY - 38, 48, 38, 6, 6)
+        g.color = java.awt.Color(255, 255, 255)
+        g.font = java.awt.Font("SansSerif", java.awt.Font.BOLD, 10)
+        g.drawString("CROUCH", hCrateX + 48, convScreenTopY - 18)
+
+        // Top Panel Header & HUD Callouts
+        g.color = java.awt.Color(12, 16, 24, 220)
+        g.fillRoundRect(16, 14, 480, 58, 8, 8)
+        g.color = java.awt.Color(60, 140, 220, 180)
+        g.drawRoundRect(16, 14, 480, 58, 8, 8)
+
+        g.color = java.awt.Color(255, 255, 255)
+        g.font = java.awt.Font("SansSerif", java.awt.Font.BOLD, 13)
+        g.drawString("SECTION 5 TERMINUS: 0M MARKER & L4END SPAWN ENCLOSURE", 28, 34)
+        g.font = java.awt.Font("SansSerif", java.awt.Font.PLAIN, 11)
+        g.color = java.awt.Color(170, 200, 240)
+        g.drawString("• Conveyor belt continues past 0m marker (x = 7742) to end terminus at x = 7760", 28, 50)
+        g.drawString("• l4end.png seamlessly conceals continuous crate spawning happening inside at x = 8200", 28, 64)
+
+        // Callout at 0m marker
+        g.color = java.awt.Color(255, 204, 0)
+        g.font = java.awt.Font("SansSerif", java.awt.Font.BOLD, 11)
+        g.drawString("0m Mark (x=7742)", marker0mX - 45, 195)
+
+        // Callout at l4end building
+        g.color = java.awt.Color(100, 220, 255)
+        g.drawString("l4end.png (Terminus Structure)", l4endScreenX + 15, 110)
+        g.font = java.awt.Font("SansSerif", java.awt.Font.PLAIN, 10)
+        g.drawString("Crate Spawn Hidden Inside (x=8200)", l4endScreenX + 15, 126)
+        g.drawString("Extraction Zone: x=7820..7880", l4endScreenX + 15, 140)
+
+        // =========================================================================
+        // BOTTOM PANEL: DUAL VERIFICATION (LEFT: HAZARDS, RIGHT: MISSION FAILED SCREEN)
+        // =========================================================================
+        val p2Y = topPanelH + 10
+        val p2H = height - p2Y
+
+        // Divider
+        g.color = java.awt.Color(40, 48, 64)
+        g.fillRect(0, topPanelH, width, 4)
+
+        // Left Sub-Panel: Sector 5 Enhanced Hazards (x = 0..490)
+        g.color = java.awt.Color(20, 24, 32)
+        g.fillRect(10, p2Y, 480, p2H - 10)
+        g.color = java.awt.Color(45, 55, 75)
+        g.drawRect(10, p2Y, 480, p2H - 10)
+
+        g.color = java.awt.Color(255, 255, 255)
+        g.font = java.awt.Font("SansSerif", java.awt.Font.BOLD, 12)
+        g.drawString("SECTOR 5 INTENSIFIED HAZARDS", 24, p2Y + 24)
+
+        // Mini diagram of laser array and hanging crates
+        val subGroundY = p2Y + p2H - 35
+        g.color = java.awt.Color(35, 38, 48)
+        g.fillRect(20, subGroundY, 460, 16)
+
+        // Laser 1: 20° tilt forward
+        val lX1 = 110.0
+        val lBotX1 = 145.0
+        g.color = java.awt.Color(255, 40, 60, 200)
+        g.drawLine(lX1.toInt(), p2Y + 50, lBotX1.toInt(), subGroundY)
+        if (emitterImg != null) {
+            g.drawImage(emitterImg, lX1.toInt() - 6, p2Y + 44, 20, 10, null)
+            g.drawImage(emitterImg, lBotX1.toInt() - 6, subGroundY - 4, 20, 10, null)
+        }
+
+        // Hanging Crate
+        val hX = 200
+        if (chainedCrateImg != null) {
+            g.drawImage(chainedCrateImg, hX, p2Y + 95, 70, 28, null)
+        }
+        g.color = java.awt.Color(255, 100, 100)
+        g.font = java.awt.Font("SansSerif", java.awt.Font.BOLD, 10)
+        g.drawString("LETHAL CONTACT", hX - 10, p2Y + 88)
+
+        // Triple Gauntlet Lasers (x = 340, 385, 430)
+        for (gx in intArrayOf(340, 385, 430)) {
+            g.color = java.awt.Color(255, 30, 50, 220)
+            g.drawLine(gx, p2Y + 50, gx + 8, subGroundY)
+            if (emitterImg != null) {
+                g.drawImage(emitterImg, gx - 5, p2Y + 44, 18, 8, null)
+                g.drawImage(emitterImg, gx + 3, subGroundY - 4, 18, 8, null)
+            }
+        }
+        g.color = java.awt.Color(255, 200, 80)
+        g.drawString("TRIPLE CHECKPOINT LASERS", 310, p2Y + 40)
+        g.font = java.awt.Font("SansSerif", java.awt.Font.PLAIN, 10)
+        g.color = java.awt.Color(180, 210, 240)
+        g.drawString("• Tilt angle strictly <= 45° across all beams", 24, p2Y + p2H - 50)
+        g.drawString("• Total 9 lasers + 7 hanging crates + 29 floor crates", 24, p2Y + p2H - 38)
+
+        // Right Sub-Panel: Mission Failed Screen (x = 510..990)
+        val rX = 510
+        val rW = 480
+        g.color = java.awt.Color(20, 24, 32)
+        g.fillRect(rX, p2Y, rW, p2H - 10)
+        g.color = java.awt.Color(45, 55, 75)
+        g.drawRect(rX, p2Y, rW, p2H - 10)
+
+        g.color = java.awt.Color(255, 255, 255)
+        g.font = java.awt.Font("SansSerif", java.awt.Font.BOLD, 12)
+        g.drawString("LETHAL CONTACT: MISSION FAILED OVERLAY", rX + 14, p2Y + 24)
+
+        if (failedScreenImg != null) {
+            val fW = 320
+            val fH = (fW * (failedScreenImg.height.toDouble() / failedScreenImg.width)).toInt()
+            val fX = rX + (rW - fW) / 2
+            val fY = p2Y + 38
+            g.drawImage(failedScreenImg, fX, fY, fW, fH, null)
+        }
+
+        g.font = java.awt.Font("SansSerif", java.awt.Font.PLAIN, 11)
+        g.color = java.awt.Color(255, 140, 140)
+        g.drawString("Touching a laser beam OR hanging crate displays the Mission Failed screen", rX + 14, p2Y + p2H - 40)
+        g.drawString("giving players instant Retry / Menu options (no silent restarts).", rX + 14, p2Y + p2H - 24)
+
+        g.dispose()
+        val outDir = java.io.File("C:\\Users\\USER\\.gemini\\antigravity\\brain\\c2e16e03-8c52-4bfa-a592-66373946835e")
+        if (!outDir.exists()) outDir.mkdirs()
+        javax.imageio.ImageIO.write(img, "PNG", java.io.File(outDir, "level4_finale_l4end_preview.png"))
     }
 }

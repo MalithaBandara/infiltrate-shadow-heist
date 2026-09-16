@@ -9,6 +9,7 @@ actual object PlatformStorage {
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences("KorgeNativeStorage", Context.MODE_PRIVATE)
+        com.infiltrate.platform.PlatformInfo.init(context.applicationContext)
     }
 
     actual fun getRaw(key: String): String? {

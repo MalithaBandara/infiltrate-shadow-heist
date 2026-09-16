@@ -293,9 +293,14 @@ separately-compiled Kotlin/Native frameworks with no interop, so the request cro
 polling bridge objects: `GameplayScene` -> `GameContinueAdBridge` (`:game`) -> polled by
 `AppDelegate.swift` -> `switchToCompose()` + `ContinueAdTrigger.requestShow()` (`paywall-build`) ->
 ad -> `ContinueAdTrigger.markRewardEarned()` -> polled -> `GameContinueAdBridge.grantContinue()` +
-`switchToKorGE()` -> `GameplayScene` sees `consumeContinueGranted()` and restarts the level (same as
-RETRY - owner's explicit scope). On Android everything runs in one process, so
-`ContinueAdBridge.android.kt` is a plain shared object. The MISSION FAILED card has three buttons at the bottom: **CONTINUE** (leftmost, watch-ad clapper icon), **RETRY** (bold circular reload arrow), and **MAIN MENU** (silhouette home icon), sized at 165x54px (upgraded from 44px); the victory overlay similarly features 54px buttons (**RETRY**, **MAIN MENU**, **NEXT MISSION** with double forward arrows); a failed ad never strands the player. Verified: JVM + Android compile. Never run on a device.
+`switchToKorGE()` -> `GameplayScene` sees `consumeContinueGranted()` and revives the player in-place at
+their last safe checkpoint (`world.respawnAtCheckpoint()`), capping at 1 continue per run. When continue is
+used, subsequent deaths in the same run hide the CONTINUE button and dynamically re-center RETRY and MAIN MENU
+across the bottom bar. Revival grants 3.0s grace cloak (`activePowerups.invisibilityTimer = 3.0`) and laser
+grace (`laserGraceTimer = 3.0`), returns guards to patrol, and snaps the camera to the player. On Android
+everything runs in one process, so `ContinueAdBridge.android.kt` is a plain shared object; desktop JVM
+simulates immediate grant in `JvmContinueAdBridge` for local testing. The MISSION FAILED card has three buttons
+at the bottom when continue is available: **CONTINUE** (leftmost, watch-ad clapper icon), **RETRY** (bold circular reload arrow), and **MAIN MENU** (silhouette home icon), sized at 175x62px (upgraded from 44px, then 54px); button icons are vertically centered to the optical middle of the text glyphs (`textY + text.height * 0.44`, with `drawWatchAdIcon` offset by -1.5 so its body and play triangle align) rather than `height / 2.0` (which sat too low because Bebas Neue has no descenders and the torn-paper button frames have higher vertical centers); when continue is spent, CONTINUE is hidden and RETRY and MAIN MENU are centered; the victory overlay similarly features 56px buttons (**RETRY**, **MAIN MENU**, **NEXT MISSION** with double forward arrows); a failed ad never strands the player. Verified: JVM + Android compile. Never run on a device.
 
 ### Ad preloading (2026-09-10) and its two hazards
 
@@ -498,8 +503,9 @@ surface (bug #7), so the Compose menu draws opaquely on top of an always-visible
   physics steps - slow frames make themselves slower.
 - Levels: `01: Night Arrival` (`DEFAULT_LEVEL_1`, tutorial), `02: Cargo Yard` (`LEVEL_2_LAYOUT`,
   `bgmg5.png`), `03: New Level` (`LEVEL_3_LAYOUT`, WIP), `04: Blind Spot` (`LEVEL_4_LAYOUT`, conveyor,
-  `bgmg6.png`, darkness vignette), `05: Restricted Zone` .. `09: Old Signature` (`SIDE_SCROLL_LEVEL_LAYOUT`
-  family, 48-tall guards). Other levels' backgrounds rotate through `bgmg2/3/4` via
+  `bgmg6.png`, darkness vignette), `05: Restricted Zone` (`SIDE_SCROLL_LEVEL_LAYOUT` - the recovered
+  barrel-wall + hook-swing stub, see "The swing move"), `06: Missing Container` .. `09: Old Signature`
+  (no layout of their own, `GameWorld.createDefault` with a per-level `guardSpeed`). Other levels' backgrounds rotate through `bgmg2/3/4` via
   `LevelData.resolvedBackgroundImage`.
 
 ## End-of-run dossier sheets (MISSION FAILED / HEIST COMPLETE)
@@ -642,9 +648,17 @@ measured value in the direction of the fix.
   windshield step measured at ~11.2% of `truck.png`); `truckMiddle`/`truckBack` and `truckBedHeight =
   96.0` unchanged. A "floating on the truck" screenshot was a landing frame after a debug spawn - let
   the pose settle before trusting one screenshot.
-- `IDLE_FEET_Y` = **245.0** (measured sole at 248 front / 255 back, stable across all 45 frames;
-  over-corrected on an on-device report). `CROUCH_FEET_Y = 250.0`, `JUMP_LAND_FEET_Y = 247.0` follow
-  the same method. `interactAngle` settled at 60 degrees down-right.
+- `IDLE_FEET_Y` = **245.0** (measured sole at 248 back / 255 front, stable across all 45 frames).
+  In idle stance, `idleFeetOffset` shifts the sprite downward so the higher (back) shoe touches
+  the floor/surface, while the lower (front) shoe extends slightly below the surface by design.
+  `CROUCH_FEET_Y = 250.0`, `JUMP_LAND_FEET_Y = 247.0` follow the same method.
+- `WALK_FEET_Y = 245.0`: on elevated/contoured surfaces like the truck where the art sits below the
+  collision top, `GameplayScene` applies `walkFeetOffset` so the planted foot firmly contacts the
+  truck bed without floating above it. On the flat floor and platforms, `GameplayScene` uses a flush
+  grounding offset (0.0) so the planted shoe does not sink underground into the floor.
+  Transitions between idle and walk smoothly interpolate the offset to prevent vertical popping.
+  `crouchwalk` uses `crouchFeetOffset` and `landAbsorb` uses `jumpLandFeetOffset`. `interactAngle`
+  settled at 60 degrees down-right.
 
 ## Level 1 geometry - current state
 
@@ -669,12 +683,16 @@ need generic open ground - derive from `world.levelData.guardPatrolMinX/MaxX` (e
 gaps with explicit `lineHeight` on the file-number/chapter labels. Reasoned from screenshots, not
 final - those are the knobs for a sixth round.
 
-## The swing move (`Player.kt` / `resources/player/swing`) - built 2026-09-10, currently unused
+## The swing move (`Player.kt` / `resources/player/swing`) - built 2026-09-10, live on level 5
 
-**No level currently places a swing hook** (`LevelLayout.swingHooks` is empty everywhere; the "Blind
-Spot" barrel-wall + hook layout it was built for was replaced by the conveyor layout in `LEVEL_4_LAYOUT`
-- see Level 4). The mechanic, clip, `hook.png`, tests and all constants remain, so a level can use it
-again by populating `swingHooks`. What a future session needs:
+**In use by `05: Restricted Zone` (`SIDE_SCROLL_LEVEL_LAYOUT`)** - the original "Blind Spot" barrel-wall
++ hook layout (built for level 4, replaced there by the conveyor layout - see Level 4) was recovered
+from git history (`24991bd`, before `c45c231`) and restored verbatim as level 5's content on
+2026-09-16, guards and all (there are none - deliberately brought back as-is, not fleshed out).
+`GameplayModelTest`'s swing tests (`testSwingNeedsTheWalkAndTheHook` etc.) now run directly against
+`LevelData.SIDE_SCROLL_LEVEL_LAYOUT`/`SIDE_SCROLL_LEVEL` rather than a parallel test-only copy, so they
+double as level 5's own walkthrough verification. Any other level can still use the mechanic by
+populating its own `swingHooks`. What a future session needs:
 
 - Entry: walk into the hook and press JUMP (same button as the climb). From a standstill it is an
   ordinary jump, deliberately - the clip opens on a push-off stride (owner-confirmed).
@@ -698,7 +716,9 @@ again by populating `swingHooks`. What a future session needs:
   `swingMinReach`/`swingMaxReach` (75..97) confine the push-off to within a few units of the lip.
   **The camera caps hook height**: ~140 units visible above a high tier; grip 112 above the ledge
   keeps the hook on screen. For real vertical gain, lower the ledges, not raise the hook.
-- Tuned on JVM desktop over ~8 screenshot rounds; four swing tests in `jvmTest`.
+- Tuned on JVM desktop over ~8 screenshot rounds; five swing tests in `jvmTest`, one of which
+  (`testSwingCarriesThePlayerOverLevel5sGapAndLandsThemOnIt`) drives a full player-input walkthrough
+  of level 5 end to end and asserts `world.isLevelComplete` - not a point-sampled check.
 
 ## Level 3 ("03: New Level", WIP) - `LEVEL_3_LAYOUT`
 
@@ -750,69 +770,292 @@ constant carries its reasoning there. Summary of the current shape:
   `testGuardWithoutPauseStillTurnsOnTheSpot` (`GameplayModelTest.kt`).
 - Past the overwatch pair: `stepCrate2` -> a second floating-climb beam (`cameraBeam`, same 96-unit
   rise, `floatingClimbTargets`) with a fixed, sweeping **camera** (`Camera.kt`, `beamCamera`) mounted
-  on its underside instead of a guard, near the beam's start (`cameraBeam.x + 20` - pulled in from
-  `+ 40` on request, to sit a little further left/closer to stepCrate2): sweeps 55..135 degrees
-  (`sweepPauseDuration = 3.0`, dwelling at each extreme like the guards do), NOT a symmetric +/-35
-  around straight down - see `Camera.eyePosition` below for why. Body art (`cameranew2.png`) splits at
-  the ball joint into a static mount (plate+neck+collar) and a lens piece (ball+arm+body+end-cap) that
-  rotates with `currentAngle`, both pieces measured directly off the PNG (`GameplayScene.kt`'s
+  at the beam's own LEFT CORNER (`cameraBeam.x` exactly, not +20 - moved there on request) instead of
+  a guard: sweeps 55..111.3 degrees (`sweepPauseDuration = 3.0`, dwelling at each extreme like the guards
+  do), `visionFov = 80 degrees`, `visionRange = 220`, NOT a symmetric sweep either side of
+  straight-down - see `Camera.eyePosition` below for why. Body art (`cameranew2.png`) splits at the
+  ball joint into a
+  static mount (plate+neck+collar) and a lens piece (ball+arm+body+end-cap) that rotates with
+  `currentAngle`, both pieces measured directly off the PNG (`GameplayScene.kt`'s
   cameraMountCrop/cameraLensCrop/cameraPivotRaw - column/row alpha scans, same method as the guard
-  sprite crops; re-measured from scratch each time the art asset itself is swapped, most recently
-  `cameranew.png` -> `cameranew2.png`, a cleaner redraw of the same rig - since the render
-  scale/crop rectangles are asset-specific pixel geometry, unlike the gameplay constants below). Cone
-  `visionRange = 150`/`visionFov = 45 degrees` - narrower FOV than the earlier 55, but a bigger cone
-  overall (~70% more swept area) - see the tuning history below for why FOV had to shrink for range to
-  grow once the mount moved left.
-  **`Camera.eyePosition` is the lens tip, not a fixed point the cone swivels around** (`NECK_LENGTH`/
-  `LENS_LENGTH`, 13/27 world units): the eye itself moves along a short arc as the body rotates around
-  the joint, so "the cone starts at the end of the camera" is literal, matching `Guard.eyePosition`
-  being the torch lens rather than the guard's centre. **Tuning history, every round owner-reported
-  against a screenshot, not just derived**: the very first pass kept a fixed eye and a symmetric
-  +/-35 sweep, which never got the eye near stepCrate2 at all (only the aim direction rotated, not
-  the eye) - fixed by widening the sweep and the arm length so the eye's own motion could reach the
-  crate. That overshot: a 55..165 sweep with a 50-unit arm made the camera body visibly oversized, and
-  right at the shallow, near-horizontal edge of that wide a sweep the cone's own edge sailed clean
-  over the crate's own top instead of stopping there, reaching deep into the open corridor beyond it.
-  A second pass (16/34 arm, 55..140 sweep, 150 range) shrank the body and tightened the sweep, but was
-  STILL reported as oversized, and the cone's shallow FOV edge (its own spread around the aimed angle,
-  not the aim direction itself) still missed the crate's silhouette on the wide side and kept going
-  past it - a single "one point 150 units past the crate" regression test didn't catch this because
-  the overshoot was smaller and off to the side of that one probe. A third pass landed at 13/27 (arm)
-  with a narrower 55..135 sweep and a shorter 110 range, verified by sweeping every angle AND a dense
-  grid of points (several heights, several distances) past the crate's own far edge, not one probe.
-  Then asked to move the mount left AND make the cone bigger in the same round - re-checked directly
-  rather than assumed compatible: at the OLD 55-degree FOV, moving the mount closer to the crate
-  actually SHRINKS the safe range (checked: only ~90 safe at the old FOV from the new position, less
-  than the 110 it had before) - moving left and enlarging the cone pull in opposite directions unless
-  FOV also changes. Narrowing FOV to 45 degrees bought enough room back to push range to 150 (160
-  checked clean, kept one step back for margin) - a real net increase in swept area despite the
-  narrower angle. All of mount position, sweep range, visionFov AND visionRange have to be retuned
-  together against LEVEL_3_LAYOUT directly any time ONE of them changes, not just derived in
-  isolation for whichever one was actually asked for - reverify the same way (see
-  `testLevel3CameraBeamSection` in `GameplayModelTest.kt`, which checks both ends of the crate get lit
-  somewhere in the sweep AND that several points/heights past the crate's far edge never do), not by
-  re-deriving on paper alone or trusting a single probe point - both of those missed a real overshoot
-  in earlier rounds. The beam has its own far-end support leg (`cameraLeg`, same `rightLeg`/
-  `table.png` pattern, `tableDecorations` + `boxes`) so it doesn't float - see the "nothing should
-  visibly float" rule above.
+  sprite crops; re-measured from scratch each time the art asset itself is swapped - the render
+  scale/crop rectangles are asset-specific pixel geometry, unlike the gameplay constants below).
+  **`Camera.eyePosition` is the lens tip, not a fixed point the cone swivels around**
+  (`NECK_LENGTH`/`LENS_LENGTH`, 9.5/20 world units - see Lesson 4 below for the resize history): the
+  eye itself moves along a short arc as the body rotates around the joint, so "the cone starts at the
+  end of the camera" is literal.
+  **Tuning history and the two hard-won lessons in it** (every round owner-reported against a
+  screenshot, not derived on paper): early passes (fixed eye, then a too-wide 165, then 140-degree
+  sweep with a 50-unit arm) each either never reached stepCrate2 at all or made the cone's shallow FOV
+  edge sail clean over the crate's top into the corridor beyond - fixed by shrinking the arm
+  (`NECK_LENGTH`/`LENS_LENGTH`) and narrowing the sweep together, landing on a 135-degree sweep /
+  45-degree FOV pairing that a **point-sampled** check (probing specific x,y positions past the crate)
+  found clean.
+  **Lesson 1 - a point-sampled check has a real blind spot.** A probe point reads as "not detected"
+  for two very different reasons that look identical to the check: "correctly blocked by an occluder"
+  and "simply outside visionRange". The owner reported the cone STILL crossing the crate at those
+  exact values. Re-verified against `VisionSystem.computeVisionPolygon` directly - the exact call
+  `GameplayScene.kt` makes to draw the cone - and this confirmed the 135/45 pairing itself was fine at
+  that instant, but revealed range is close to a free variable for "never past the crate": every ray
+  this cone can cast is blocked by either the crate or the GROUND (which runs the full level width)
+  well within ~220 units of this mount, so a bigger nominal range past that point changes nothing
+  visually - which is how visionRange grew from 110 to 220 across two rounds with no added risk.
+  **Lesson 2 - a stepped floating-point sweep can miss the one angle that matters.** Repeated requests
+  for a WIDER cone kept running into "135/45 is the only nearby combo that still reaches stepCrate2's
+  FAR corner" - which turned out to be true for a bad reason: reaching that corner requires aiming
+  almost exactly at the edge of the FOV, at the crate's own corner - and THAT is precisely the
+  condition where `VisionSystem`'s corner-anchored ray sampling casts one ray that just barely clips
+  the corner (stops there, fine) and its immediate angular neighbour that just barely clears it
+  (keeps going to the GROUND far beyond, sometimes 100+ units past the crate). Filled in as part of
+  the polygon, that reads as a thin wedge of light stabbing out past the crate - reported directly as
+  "light rays going out of the camera", and it was a REAL, currently-shipped bug, not a stale
+  screenshot: at `currentAngle == maxAngle` (135 degrees) exactly - precisely where the camera sits
+  for its whole 3-second dwell - the polygon really did contain that far-away vertex. The regression
+  test in place at the time missed it because its own sweep (`angle += 2 degrees`, accumulated in
+  floating point many times over) drifted just far enough off the exact 135.0-degree mark to dodge the
+  one bad angle - a stepped/accumulated loop is not the same as checking the angle the camera actually
+  dwells at.
+  **The fix for both**: re-searched the whole (maxAngle, visionFov) space directly against the
+  rendered polygon (not nudges off the old values), checking exactly at min/maxAngle rather than a
+  drifting stepped sweep, and scanning every angle in the sweep for any adjacent-vertex RADIAL jump
+  (the actual signature of a ray grazing past a corner - NOT just a big Euclidean gap between
+  vertices, which also happens completely normally when the polygon traces straight down a tall
+  occluder's own side face). stepCrate2's far corner turned out to be reachable ONLY inside a
+  razor-thin band of (maxAngle, visionFov) pairs, every one of them sitting right on the cliff edge
+  that produces the spike - "see the far corner" and "never spike" are not simultaneously achievable
+  from this mount position. Dropped the far-corner requirement (the near corner, still covered, keeps
+  the crate a real risk) and landed on 115/80: nearly double the old 45-degree FOV - genuinely wider,
+  the thing actually being asked for round after round - with a comfortable ~25-unit margin before the
+  crate's edge and zero stray-ray spikes anywhere in the sweep, both checked, not assumed.
+  **Lesson 3 - moving the eye itself reopens a trade that looked closed.** The next round asked for the
+  far corner back specifically ("the cone should just touch it") once the mount also moved to the
+  beam's own left corner. Moving `x` changes exactly which (maxAngle, visionFov) pairs graze the
+  corner, so "reachable only in a razor-thin band right on the spike's cliff edge" from the old mount
+  position was NOT a fact about the corner - it was a fact about that specific eye position. Re-ran the
+  same polygon-based (maxAngle, visionFov) search from the new `x = cameraBeam.x` and found the safe
+  margin before the cliff had grown from razor-thin to a comfortable 0.5 degrees - landed on
+  `maxAngle = 116` (visionFov stays 80, unchanged) with the cone's leftmost reach landing ~1.6 units
+  short of the crate's exact far corner (visually flush) and zero spikes anywhere across 55..116,
+  checked the same way as lesson 2 (exact min/maxAngle, plus a fine stepped sweep, scanning for the
+  radial-jump signature - not a point-sampled grid or paper estimate). See
+  `testLevel3CameraConePolygonNeverPastCrate` (checks exactly at min/maxAngle, not just a stepped
+  sweep), `testLevel3CameraConeHasNoStrayRaySpikes` (the radial-jump scan), and
+  `testLevel3CameraLeftmostSweepReachesStepCrateFarCorner` (asserts the leftmost reach lands close to,
+  never past, the crate's own edge) - reverify the SAME way, not a point-sampled grid or a paper
+  estimate, any time the mount position, arm length, sweep range, visionFov or visionRange change.
+  **Lesson 4 - the arm length is part of the same geometry, not a separate concern.** The camera still
+  read as oversized next to the player on a later screenshot even at 13/27 - the third resize pass in
+  a row to get this complaint. `NECK_LENGTH`/`LENS_LENGTH` drive `Camera.eyePosition` directly (see
+  `Camera.kt`'s own doc comment), so shrinking them to 6/13 moved the eye again and reopened the exact
+  same search as Lesson 3: re-ran it at the new arm length and found the safe margin before the spike
+  cliff had shrunk back down to roughly its original razor-thin width (~0.1 degree) at this shorter
+  reach - shorter arm, shorter reach, less room to sit comfortably clear of the corner. Landed on
+  `maxAngle = 107` at the time. That overshot the other way - the very next screenshot called the
+  camera too SMALL - so the arm settled at 9.5/20 (splitting the difference between 13/27 and 6/13,
+  same ~0.475 ratio), which moved the eye a third time and needed a third re-run of the same search:
+  safe margin back to ~0.5 degrees, `maxAngle = 111.3` (`visionFov` still 80, unchanged), leftmost
+  reach at stepCrate2.x + ~1.6 units, zero spikes across 55..111.3 - checked the identical way each
+  time (exact min/maxAngle, fine stepped sweep, radial-jump scan). **Any future resize of
+  `NECK_LENGTH`/`LENS_LENGTH` needs this same re-tune of `beamCamera.maxAngle` right alongside it** -
+  the two are not independent knobs; changing one without re-running the search is exactly how the
+  "far corner vs. spike" cliff gets crossed by accident, and this has now happened three times in a
+  row. The beam has its own far-end support leg (`cameraLeg`, same `rightLeg`/`table.png` pattern,
+  `tableDecorations` + `boxes`) so it doesn't float - see the "nothing should visibly float" rule
+  above.
 - Ground dressing right after the camera, ALL under the beam's own span (between the mount and
-  `cameraLeg`, not past the leg) - on request, pulled left of the leg after briefly sitting past the
-  whole beam and overlapping `finalHangingCrate`'s own footprint by 48 units: `fillerBarrels`, then
-  `fillerCrate`, then `stackedCrates` (two crates stacked, same crate-tiling GameplayScene.kt already
-  does for any box in the crate size window with `height = 2 * 48`), ending 18 units clear of
-  `cameraLeg`'s own left edge. Then, past the beam and its leg: `finalHangingCrate` (an unguarded
-  crate, jumped across at beam height), `hangingEndCrate` (a crate right at its far end, landing the
-  player straight back on solid ground), `finalPlatform` (a plain 260x95 ground block with no
-  crate/table art - falls through to GameplayScene.kt's generic rough-block render, the same "normal
-  platform" look as level 1's `block2`/`block3` in `GameWorld.createDefault`) with a crate and a
-  two-stacked pair sitting on ITS OWN top surface, centred along its width (`platformCrate`,
-  `platformStackedCrates` - resting on the platform, not floating above it), then the exit.
+  `cameraLeg`, not past the leg): `fillerBarrels`, then three wood crates in a brick-like stagger -
+  `woodCrateBaseLeft`/`woodCrateBaseRight` (two full crates side by side, touching - zero gap between
+  them, `woodCrateBaseRight.x == woodCrateBaseLeft.right`) with `woodCrateTop` resting on both
+  (bottom flush with the base pair's own top), offset 20 units into `woodCrateBaseLeft`'s own 68-unit
+  width so most of it (~71%) sits over the left crate and the rest (~29%) over the right one. **Only
+  these three crates and `stepCrate2` draw with `woodencratenew.png` (`LevelLayout.woodCrates`) - the
+  two barrels stay `barrel.png` (`LevelLayout.barrels`), unchanged.** A first pass swapped all four
+  ground-dressing boxes to wood-crate art, misreading a screenshot where all four happened to look
+  roughly crate-shaped; corrected on request back to two-and-two. Whichever art a box uses, its
+  footprint/height and place in `boxes` (so collision/climbing/occlusion) never changed. `woodCrates`
+  is a tag on `LevelLayout`/`GameWorld`, wired through `GameWorld.createFromLayout` and
+  `GameplayScene.kt`'s box loop exactly the way `barrels` already was (tiled in real 48-unit
+  increments, same as barrels/tactical crates) - the general pattern for giving a box distinct art
+  without touching its collision behaviour at all. `stepCrate2` (the climb-up-to-the-beam crate,
+  defined earlier in `LEVEL_3_LAYOUT`) was added to `woodCrates` too on a later request ("replace the
+  solid crate left to the two barrels with these new crates as well") - it's the only crate-shaped
+  box positioned before/left of `fillerBarrels` in this section, so that request is read as referring
+  to it.
+  **The wood-crate art needs a crop, unlike crate.png/barrel.png**: its own alpha content (strict
+  bbox, threshold >10, same measuring method as table.png's own crop) sits well inside the raw
+  canvas - stretching the RAW image into a box's exact bounds left visible empty space below the
+  art, reading as the crate floating above the ground. The asset itself was swapped once already
+  (`woodcrate.png` 1376x1143 -> `woodencratenew.png` 1536x1024, on request, "replace the wooden
+  crates with woodencratenew.png") and the crop re-measured from scratch for the new file each
+  time - do not reuse an old crop rect across an asset swap, the margins are different. Current
+  crop is `RectangleInt(68, 86, 1401, 839)` for `woodencratenew.png`. `GameplayScene.kt` slices to
+  that rect once before the box loop and reuses that slice, the same approach as `tableBitmap`'s own
+  `legSlice`/`plankSlice`. Re-measure this crop (a bitmap bounding-box scan, e.g. via
+  `System.Drawing.Bitmap.GetPixel` in PowerShell - no ImageMagick/Python in this environment) if
+  the wood-crate asset is ever replaced again. See
+  `testLevel3GroundDressingUnderBeamHasBarrelsAndWoodCratesSeparately`.
+  **This staggered arrangement replaced an earlier straight-up "single crate + a 2-tall stacked
+  pair" layout, on request** ("arrange the three wooden crates in a new way: two crates touching
+  each other, other one on top of them but more part of it is on the crate on the left"). That
+  earlier layout also had a `LevelLayout.messyWoodCrates` tag giving the crate/stacked-pair group a
+  small per-tile rotation jitter for a "not neatly kept" look - on a later request ("make the
+  properly horizontal without that weird alignment"), the jitter was dropped rather than combined
+  with the new stagger: `messyWoodCrates` (the field, the wiring through `GameWorld`, and
+  `GameplayScene.kt`'s rotating-pivot rendering code) was **removed entirely**, not just left unused
+  with an empty list - it's genuinely gone from the codebase now. Every crate in the ground-dressing
+  cluster sits perfectly square; the stagger itself is what reads as "not neatly kept" now.
+   **The top crate is lowered 2 units (`woodCrateStackSink = 2.0`)** into the base pair to eliminate
+   a visible floating gap: `woodencratenew.png`'s corner tabs/ears extend 32px above (1.83 units) and
+   34px below (1.94 units) the horizontal slats, so staggering the crate by 20 units horizontally left
+   its bottom ears hanging over the base crates' recessed slats with ~2 units of visible sky; sinking
+   by 2 units seats the ears firmly on the base crate's top beam and meets the base crate's middle ear
+   with the top crate's bottom beam. Then, past the beam
+  and its leg: `finalHangingCrate` (an unguarded crate, jumped across at beam height - same-height
+  jump, matching the crate -> beam move at the level's own opening), `hangingEndCrate` (a crate
+  perched on TOP of it, flush with its right corner, resting on finalHangingCrate's own top surface,
+  not floating, tall enough - 48, under `Player.maxJumpHeight` 51.2 - that crossing it is a hop, not a
+  climb), then `finalPlatform` - a plain 340-wide ground block with no crate/table art (falls through
+  to GameplayScene.kt's generic rough-block render, the same "normal platform" look as level 1's
+  `block2`/`block3` in `GameWorld.createDefault`). Width was bumped 260 -> 340 on request ("increase
+  the length of the platforms right of the unmanned crate") - a pure landing-zone size change; it
+  doesn't touch the jump gap (only platform height/player size affect that) and `platformCrate`'s own
+  centering re-derives automatically from `finalPlatformWidth`.
+  **Height dropped 144 -> 96 on a LATER request** ("make the platform on the right smaller to be
+  able to climb up") - it used to be raised to the SAME rise as `cameraBeam` itself
+  (`finalPlatform.top == finalHangingCrate.top`, a same-height jump across both gaps, not a drop then
+  a climb back up); now it's inside `Player`'s own climb window (`climbMinHeight = maxJumpHeight =
+  51.2`, `climbMaxHeight = 115.0` - see `Player.findClimbTarget`), matching this level's own other two
+  climbs (crate -> tablePlank, stepCrate2 -> cameraBeam, both exactly 96). It still rests flush on the
+  ground below (`bottom == groundY`), so it's not a floating ledge and needs no
+  `floatingClimbTargets` exemption to be climbable. This also means `finalHangingCrate -> finalPlatform`
+  is no longer close to a same-height jump - it's now a real ~50-unit DOWNWARD jump across the same
+  56-unit gap, which only ever makes an already-cleared same-height jump easier, never harder (see
+  the gap's own binary-search history below), so it wasn't re-verified at the same razor precision -
+  just confirmed directly via the walkthrough test after the height change.
+  **The `cameraBeam -> finalHangingCrate` and `finalHangingCrate -> finalPlatform` gaps were never
+  actually jumpable at their original 120/70(/80) values, for two whole rounds, and nothing caught
+  it** until a walkthrough test finally drove a real player through them. Simple projectile
+  arithmetic (`moveSpeed * flightTime`, 132 * 0.64s = ~84 units) overstates what this engine's
+  collision code actually allows: once the falling body's OWN HEIGHT starts vertically overlapping
+  the target platform's slab while the player is still short of it horizontally,
+  `Player.updateStep`'s horizontal collision pass treats the incoming platform as a WALL (not "still
+  airborne, still falling toward it"), pinning the player against its near face until they've sunk
+  well past it and simply drop into the gap. Binary-searching the real `Player.update`/`GameWorld`
+  loop (not arc math, and not a reused old number) against THIS exact geometry (296 top, 144 tall,
+  real player size) puts the true ceiling at ~56.5-56.66 units. Both gaps were first fixed to a very
+  safe 40 (leaving a lot of that budget unused - a trivial walk-across, not a felt jump), then on
+  request ("increase the gap ... just enough to be jumpable") widened to 55: re-ran the same binary
+  search fresh rather than assuming the old 62-67 estimate still applied, and separately scanned how
+  early a jump press can land before the edge and still clear it (a wide 0-22-unit-early window
+  succeeds at 55, so it's forgiving on timing, not a hairline). On a further request for "a little
+  bit" more, re-scanned that same timing window at several points between 55 and the ~56.5 ceiling
+  and found NO drop-off anywhere in that range (still the same 0-22-unit-early window at every point
+  tested up to 56.5) - so there was no reason to stay at 55. Landed on **56**: genuinely wider, while
+  still holding back ~0.5-0.66 units from the hard ceiling (56.5 itself was judged too close - it
+  sits in the same 0.25-unit search bracket as the first confirmed failure at ~56.66). **If either gap (or any other
+  same-height jump in this game) is ever widened again, re-run both the binary search AND the
+  timing-slack scan against the CURRENT geometry (not reused numbers from a prior round) with a real
+  walkthrough test (drive `world.update` through it end to end, assert the player actually lands on
+  the far side)** - not point-sampled probes, not projectile arithmetic, and not a test that only
+  checks some downstream X was reached, since the level's own full-width ground floor can satisfy
+  that on its own even when every elevated jump in between is missed (this is exactly how
+  `testLevel2HangingCratesGapIsBeatable` gave false confidence for two rounds - it asserts a target
+  X, which the ground path alone already reaches). See
+  `testLevel3CanJumpFromCameraBeamAcrossToFinalHangingCrateAndOnToFinalPlatform`.
+  `finalPlatform` holds a crate and a two-stacked pair on ITS OWN top surface, centred along its width
+  and touching each other (`platformCrate`, `platformStackedCrates` - resting on the platform, not
+  floating above it, and their y-position derives from `finalPlatform.top` so they followed the height
+  change automatically), then the exit.
+- **A second camera (`poleCamera`), added on request, watches this same crossing.** Mounted not on
+  a beam but on a freestanding post - `pole` (`LevelLayout.poles`, pole.png), standing at
+  `finalPlatform`'s own left corner ("the left corner of the platform right of the unmanned hanging
+  crate"). The pole itself is deliberately **not** in `boxes` ("make it not interactable" - no
+  collision, the player walks straight past/under it) - see
+  `testLevel3PoleStandsAtFinalPlatformLeftCornerAndIsNotInteractable`.
+  **Poles are explicitly EXCLUDED from `GameWorld.createFromLayout`'s `occluders` list, unlike
+  `tableDecorations`** - a first pass included them (real drawn geometry, same reasoning as any
+  other solid prop), but reported directly against a screenshot: `poleCamera` mounted right on top
+  of its own pole had that pole block its own downward view, and the shadow-casting turned that
+  self-occlusion into a polygon that reads as a flat-edged rectangle instead of a cone ("light cone
+  becomes weird ... it become rectangular"). A camera occluding its own mount is a real geometric
+  consequence of a thin vertical occluder sitting directly below the eye, not a bug in the strict
+  sense, but it looks broken on screen - so a pole now blocks nothing, the same as a swing hook or
+  any other prop that's real geometry but not solid enough to matter for sightlines.
+  **The pole no longer has a chain above it - removed on request** ("remove the chain from the
+  camera pole"). `GameplayScene.kt`'s `renderChainAbove(parent, sourceBmp, cropX, cropY, cropW,
+  width, topY)` helper (pulled out of `renderHangingCrate` when the pole first got a chain) is still
+  there and still used by `renderHangingCrate` itself - only the pole's own call to it was removed,
+  the helper wasn't deleted.
+  **Instead, the pole (and now `poleCamera` itself, see below) gets the OTHER half of what made that
+  chain read as different from every other (fully opaque, near-black) element in this game: its
+  opacity** ("add the same effect that is added to the chains (opacity etc.) to the camera pole
+  which makes it look different from other elements"). Sampled directly from `chainedcrate.png`'s
+  own chain pixels rather than guessing a number: R=18 G=22 B=28 **A=137** (~54% opaque), against
+  that same asset's solid crate at R=0 G=0 B=0 A=255 - the chain isn't drawn with any runtime
+  filter, that translucency is baked into the art. Applied as a runtime `translucentEffectAlpha =
+  137.0 / 255.0` in `GameplayScene.kt` (shared between the pole and `poleCamera` - see below) instead
+  of baking a second translucent asset - same visual effect (lighter, washed-out, reads as different
+  from the fully-opaque crates/barrels/etc. around it) without needing new art.
+  **On a further request ("also make the camera in that position same effect as the pole"),
+  `poleCamera` itself (the mount plate + rotating lens, not just the pole under it) also renders at
+  that same `translucentEffectAlpha`** - `beamCamera` is unaffected, still fully opaque.
+  `LevelLayout.translucentCameras` (a subset of `cameras`, matched by `CameraSpawn` identity, not by
+  index) carries this tag through `GameWorld.createFromLayout` into `GameWorld.translucentCameras`
+  (the same `Camera` instances as in `cameras`, not reconstructed) - `GameplayScene.kt`'s
+  `cameraContainers` creation checks `c in world.translucentCameras` per camera and sets `.alpha`
+  accordingly. This is the general pattern to reuse if another camera ever needs its own distinct
+  look: tag it via `LevelLayout.translucentCameras` (or a new list, if the visual differs), don't
+  special-case by array index.
+  **`poleCamera`'s own sweep (minAngle 20 / maxAngle 160 / visionFov 50 / visionRange 230) is a
+  genuinely wide, mostly-horizontal left-right pan, not beamCamera's mostly-downward nod** - on
+  request, "rotates left and right ... the light cone of it should go from the boxes in the right
+  [`platformCrate`/`platformStackedCrates`, sitting on `finalPlatform` itself] to the box in the
+  left [`finalHangingCrate`, across the jump gap]". Checked the same way beamCamera's own reach was
+  checked (`VisionSystem.computeVisionPolygon` directly, not the angle numbers alone) - see
+  `testLevel3PoleCameraSweepsLeftAndRightAndReachesBothFlankingBoxGroups`. FOV/range were both
+  reduced from an earlier 70/260 on request ("reduce the cone size of that camera") - re-derived the
+  sweep's reach at the smaller size rather than just shrinking the numbers and hoping: at 220 range
+  the leftward reach fell just short of `finalHangingCrate.x` (a ~0.2-unit miss - the earlier
+  `testLevel3PoleCameraSweepsLeftAndRightAndReachesBothFlankingBoxGroups` genuinely failed at that
+  value), so range was bumped to **230**, which clears it with a real ~10-unit margin - not a
+  hairline fit. **Whenever this camera's cone size, mount position, or target box positions change,
+  re-run the same reach check (not just eyeball a smaller-looking cone)** - a "smaller cone" can
+  silently stop reaching one of its two targets, which is exactly what happened here on the first
+  attempt at the reduction.
+  `Camera.NECK_LENGTH`/`LENS_LENGTH` are shared, global constants (no per-instance override) -
+  `poleCamera` uses the exact same 9.5/20 arm as `beamCamera`, not a value tuned for its own mount.
+   **Mount lowered to `pole.y`** (flush with the pole's top cap, was `pole.y - 5.0` which hovered the
+   ceiling-bracket plate 5 units in the air with empty sky beneath; at `pole.y` the plate rests solidly
+   on top of the column cap) - a pure render-position change. Sweep speed increased 0.6 -> **0.85** on request.
+   **Exit path and ground length**: the corridor from `finalPlatform.right` to the extraction booth
+   (`finalExitX`) was lengthened 150 -> **300 units** on request; `finalWorldWidth` extends `finalExitX + 460.0`
+   so the ground spans the entire extraction checkpoint booth (~117) and exit fence (~312) with margin.
+- **`finalHangingCrate` sits 2 units above `cameraBeam`, not exactly flush anymore** ("lift the
+  unmanned hanging crate a little bit"). This one DOES have a physics budget, and it is almost
+  entirely spent already: the 56-unit gap (see its own history above) sits only ~0.5-0.66 units under
+  the hard ceiling for a TRUE same-height jump, so any required vertical rise eats directly into that
+  sliver. Binary-searched the real `Player`/`GameWorld` loop again (same method as the gap search,
+  this time with an asymmetric launch/landing height) and found the beam -> crate leg (now a small
+  upward jump) stops clearing 56 units at a lift of ~2.03 - picked **2.0**, which keeps the exact
+  same jump-timing slack as an unlifted same-height jump (0-22 units early, unchanged) with a thin
+  sliver of distance margin left (~56.48 max reach at this lift, vs the 56 actually needed). **2.0 is
+  not a stylistic pick - it is close to the max this specific 56-unit gap can absorb. A bigger lift
+  needs a narrower gap to go with it; re-run the same binary search (not a bumped-up number) if that
+  trade is ever wanted.** (The crate -> platform leg was ALSO a small downward jump at the time this
+  lift was picked, and falling toward a lower target only ever makes a same-height jump easier, so it
+  wasn't re-checked at the same precision then - a LATER, separate request dropped finalPlatform's
+  own height a lot further, turning that leg into a real ~50-unit drop; see finalPlatform's own
+  paragraph above.) See `testLevel3CameraBeamSection` and
+  `testLevel3CanJumpFromCameraBeamAcrossToFinalHangingCrateAndOnToFinalPlatform` for both jumps'
+  current exact numbers (`beam.top - finalCrate.top == 2.0`, `finalPlatform.top - finalCrate.top ==
+  50.0`) - neither is a same-height jump by exact equality any more, on either leg.
 - Verified on JVM desktop screenshots in stages; **not on Android or iOS**. The uncommitted working
   tree is ahead of the last commit here - check `git status` before assuming which state is pushed.
 
 ## Level 4 ("04: Blind Spot") - conveyor belt run, `LEVEL_4_LAYOUT`
 
-Replaced the barrel-wall + hook-swing layout of the same name (see "The swing move"). Current:
+Replaced the barrel-wall + hook-swing layout of the same name, later recovered from history as level 5
+(see "The swing move"). Current:
 - Ground `y = 440`, `worldWidth = 5500`, no start fences, exit at `x = 5380`, `timeTargetSeconds =
   90`, `backgroundImage = "bgmg6.png"`, `hasDarknessVignette = true`, `canClimb = false` (all
   progression by jump/crouch), `restartOnConveyorFallOff = true` (instant in-place reset, no reload),
@@ -858,11 +1101,19 @@ the left (idle 149x246, walk 153x245; 3.18 Mpx, one page).
   starts walking, move that. Driven by distance (`WALK_STRIDE_PER_HEIGHT = 0.523`).
 - Torch lens measured relative to body centre/feet: `Guard.TORCH_AHEAD_PER_HEIGHT = 0.29`,
   `TORCH_ABOVE_FEET_PER_HEIGHT = 0.56`.
-- Levels 5+ guards still have 48-tall hitboxes and draw as half-height men; they need a 96-tall pass
-  (`SIDE_SCROLL_LEVEL_LAYOUT`'s walkthrough test and patrol geometry are tuned to 48).
+- Levels 6+ guards (`GameWorld.createDefault`'s per-level `guardSpeed`) still have 48-tall hitboxes and
+  draw as half-height men; they need a 96-tall pass (that default's patrol geometry is tuned to 48).
+  Level 5 (`SIDE_SCROLL_LEVEL_LAYOUT`) has no guards at all, so it isn't part of this.
 - Owner decisions: the red "visor" rect is gone (only in the no-art fallback); guard beams are one
   colour in every state (the pip over his head shows detection) - **don't reintroduce a colour ramp on
-  the cone**. Camera cones still use the old orange/red ramp and the old `worldView.graphics()` path.
+  the cone**. Camera cones similarly stay one steady white color (`Colors.WHITE.withAd(0.32)`) in every state
+  on owner request (the pip above the camera indicates detection) - no yellow/red alert ramp.
+- **Camera rotation stops on player detection (`Camera.detectionPauseDuration = 2.5s`)**: When a camera's
+  vision cone detects the player, the camera stops rotating immediately (`Camera.isDetectingPlayer = true`).
+  While the player remains in vision, the camera stays stopped at that angle. When visual is lost (player
+  ducks into cover or exits the cone), the camera remains stopped for the same duration guards stop moving to
+  investigate (`Guard.investigateDuration = 2.5s`, via `Camera.detectionPauseTimer = 2.5`), resuming its sweep
+  only once that pause completes. Checkpoint respawn and `SMOKE_SCREEN` activation reset this pause.
 - If `GuardAnimations.load()` throws, the scene logs `[GuardAnimations] load failed` and falls back to
   the rect + visor.
 
@@ -1045,6 +1296,10 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
   version was replaced before commit; no trace).
 - **Tight-crop a silhouette to its alpha bounds** before stretching it into a box (dead margin
   stretches too); re-derive box width from the cropped aspect at the fixed height.
+- **Wood crates (`woodcrate2.png`)**: 1536x1024 silhouette crate with rustic horizontal planks (replaced
+  striped `woodencratenew.png`). Cropped to strict alpha bounds (`RectangleInt(165, 144, 1206, 721)`,
+  threshold A > 10) so it sits flush on the ground without floating empty space. Used in Level 3 for
+  `stepCrate2` and the 3-crate ground stack under the camera beam (`woodCrates`).
 - **Chroma-key an opaque JPEG-style asset**: R/G/B all >= 200 -> transparent, else opaque, then crop.
 - **Find a seam inside a composite illustration**: scan column-wise opaque density for a sharp drop.
 
@@ -1073,6 +1328,7 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
   `SKStoreReviewController.requestReview(in: scene)`. Prompted automatically upon completing level 4
   (`GameplayScene.kt` -> `getInAppReviewBridge().requestReview()`) and manually via the "RATE US" button
   in the About section of Settings (`SettingsScreen.kt`).
+- **Settings → About panel (`SettingsScreen.kt`)**: Links order is "PRIVACY POLICY" (opens `https://infiltrate.saysplit.app/privacy/` via `LocalUriHandler`), "CONTACT US" (opens `https://infiltrate.saysplit.app/support/`), "CREDITS & LICENSES" (expandable third-party sound attributions), and "RATE US" (at the bottom of the links list with highlighted white outline: `Color.White.copy(alpha = 0.5f)` vs unhighlighted `0.08f`). Terms of service row removed. Version string is pinned to the bottom of the screen and resolves dynamically across platforms via `com.infiltrate.platform.PlatformInfo` (`expect`/`actual`: `versionName` and `buildNumber` read from `PackageManager` on Android, `NSBundle` on iOS, system/package properties on JVM).
 - **Web presence (`site/`, Netlify, e.g. `infiltrate.saysplit.app`)**: `index.html`, `support/`
   (App Store Guideline 1.5 page, Netlify Form with Name/Email/Category/Message, no visible email, no
   FAQ), `privacy/` (on-device storage, AdMob/UMP consent, RevenueCat, COPPA/GDPR/CCPA), `styles.css`,

@@ -181,6 +181,11 @@ data class Player(
     val swingMinReach: Double = 75.0
     val swingMaxReach: Double = 97.0
 
+    /** Minimum continuous running distance required to initiate a swing from a hook. */
+    val minSwingRunUp: Double = 20.0
+    var runUpDistance: Double = 0.0
+    var runUpDirection: Double = 0.0
+
     /** Grip height above the player's feet that the launch can plausibly cover. */
     val swingMinGripHeight: Double = 60.0
     val swingMaxGripHeight: Double = 150.0
@@ -254,6 +259,8 @@ data class Player(
         isJumping = false
         isDropping = false
         dropLandingTimer = 0.0
+        runUpDistance = 0.0
+        runUpDirection = 0.0
     }
 
     fun update(
@@ -349,6 +356,8 @@ data class Player(
      */
     private fun findSwingTarget(direction: Double, swingHooks: List<Rect>, platforms: List<Rect>): Rect? {
         if (direction == 0.0 || swingHooks.isEmpty()) return null
+        if (runUpDistance < minSwingRunUp) return null
+        if (runUpDirection != 0.0 && (direction > 0.0) != (runUpDirection > 0.0)) return null
         val feetY = y + height
         for (hook in swingHooks) {
             val gripX = hookGripX(hook)
@@ -384,6 +393,8 @@ data class Player(
         isCrouching = false
         vx = 0.0
         vy = 0.0
+        runUpDistance = 0.0
+        runUpDirection = 0.0
         jumpBufferTimer = 0.0
         coyoteTimer = 0.0
         isJumping = false
@@ -598,6 +609,26 @@ data class Player(
 
         // Horizontal velocity
         vx = moveInput.coerceIn(-1.0, 1.0) * effectiveSpeed
+
+        if (isGrounded) {
+            if (abs(vx) > 1.0) {
+                val dir = if (vx > 0.0) 1.0 else -1.0
+                if (runUpDirection != 0.0 && runUpDirection != dir) {
+                    runUpDistance = 0.0
+                }
+                runUpDirection = dir
+                runUpDistance = (runUpDistance + abs(vx) * dt).coerceAtMost(100.0)
+            } else {
+                runUpDistance = 0.0
+                runUpDirection = 0.0
+            }
+        } else {
+            // Forward momentum is maintained while moving forward through chained jumps; releasing input or reversing drops it
+            if (moveInput == 0.0 || (runUpDirection != 0.0 && (moveInput > 0.0) != (runUpDirection > 0.0))) {
+                runUpDistance = 0.0
+                runUpDirection = 0.0
+            }
+        }
 
         // Jump & Vertical acceleration
         val effectiveJumpInput = jumpInput && !jumpConsumedAfterClimb

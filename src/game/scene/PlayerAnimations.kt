@@ -296,6 +296,14 @@ object PlayerAnimations {
     const val IDLE_FEET_Y = 245.0
 
     /**
+     * Where the planted foot rests during walk strides on elevated/contoured surfaces like the
+     * truck so the soles connect firmly with the surface without floating above it. Matches
+     * IDLE_FEET_Y. On flat floors and platforms, GameplayScene grounds the sprite flush with the
+     * surface (offset 0.0) so shoes do not sink underground.
+     */
+    const val WALK_FEET_Y = 245.0
+
+    /**
      * Where the higher (back) leg rests in the held crouch pose - a per-column scan of
      * `resources/player/crouch/0034.png` (the held frame, `CROUCH_LAST`) puts the front foot's
      * lowest row at 255 (on `SOURCE_FEET_Y`, same as every other clip) and the back foot's at

@@ -48,11 +48,12 @@ import game.model.LevelResult
 import game.model.LevelStorage
 import game.model.MapBackedGameProfileStorage
 import game.model.MapBackedLevelStorage
+import androidx.compose.ui.draw.clip
 import org.jetbrains.compose.resources.Font
 import org.jetbrains.compose.resources.painterResource
 import paywall_build.generated.resources.Res
 import paywall_build.generated.resources.bebas_neue_regular
-import paywall_build.generated.resources.bg_menu
+import paywall_build.generated.resources.missions
 
 @Composable
 fun LevelSelectScreen(
@@ -238,6 +239,7 @@ private fun ChapterCard(
     Box(
         modifier = modifier
             .fillMaxHeight()
+            .clip(RoundedCornerShape(8.dp))
             .background(Color(0xFF141416), RoundedCornerShape(8.dp))
             .border(
                 1.dp,
@@ -247,7 +249,7 @@ private fun ChapterCard(
     ) {
         if (isUnlocked) {
             Image(
-                painter = painterResource(Res.drawable.bg_menu),
+                painter = painterResource(Res.drawable.missions),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

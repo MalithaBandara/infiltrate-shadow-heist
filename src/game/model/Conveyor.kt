@@ -85,6 +85,11 @@ class ConveyorCrate(
     val left: Double get() = x
     val right: Double get() = x + width
 
+    var isMovingDown: Boolean = false
+        private set
+    var vy: Double = 0.0
+        private set
+
     fun update(dx: Double, totalElapsedSeconds: Double = 0.0) {
         x += dx
         if (isPatrol) {
@@ -103,17 +108,23 @@ class ConveyorCrate(
             x -= loopSpan
         }
 
+        val oldY = y
         if (minY != maxY && verticalPeriodSeconds > 0.0) {
             val phase = ((totalElapsedSeconds + verticalPhaseOffsetSeconds) % verticalPeriodSeconds) / verticalPeriodSeconds
             val normalized = if (phase < 0.0) phase + 1.0 else phase
             val t = 0.5 + 0.5 * cos(2.0 * PI * normalized)
             y = minY + (maxY - minY) * t
         }
+        val deltaY = y - oldY
+        isMovingDown = deltaY > 1e-4
+        vy = deltaY
     }
 
     fun reset() {
         x = initialX
         y = initialY
         speedMultiplier = initialSpeedMultiplier
+        isMovingDown = false
+        vy = 0.0
     }
 }

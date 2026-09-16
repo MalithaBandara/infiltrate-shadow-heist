@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import com.infiltrate.platform.PlatformInfo
 import com.infiltrate.review.InAppReview
 import com.infiltrate.storage.PlatformStorage
 import game.model.GameProfile
@@ -832,111 +834,132 @@ private fun AboutSettingsPanel(
     scale: Float,
     onActionToast: (String) -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy((14 * scale).dp)
-    ) {
-        // Section Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "ABOUT INFILTRATE",
-                color = Color.White,
-                fontSize = (18 * scale).sp,
-                fontFamily = font,
-                letterSpacing = 1.sp
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(1.dp)
-                    .background(Color.White.copy(alpha = 0.12f))
-            )
-        }
+    val click = LocalUiClick.current
+    val uriHandler = LocalUriHandler.current
 
-        // Links
-        var creditsExpanded by remember { mutableStateOf(false) }
-        val links = listOf("RATE US", "PRIVACY POLICY", "TERMS OF SERVICE", "CREDITS & LICENSES")
-        for (link in links) {
-            val interactionSource = remember { MutableInteractionSource() }
-            val isCredits = link == "CREDITS & LICENSES"
-            val isRateUs = link == "RATE US"
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF141416), RoundedCornerShape(8.dp))
-                    .border(
-                        1.dp,
-                        if (isRateUs) Color(0xFF00E676).copy(alpha = 0.3f) else Color.White.copy(alpha = 0.08f),
-                        RoundedCornerShape(8.dp)
-                    )
-                    .clickable(
-                        interactionSource = interactionSource,
-                        indication = null,
-                        onClick = {
-                            if (isRateUs) {
-                                InAppReview.requestReview()
-                                onActionToast("RATE US")
-                            } else if (isCredits) {
-                                creditsExpanded = !creditsExpanded
-                            } else {
-                                onActionToast("$link OPENED")
-                            }
-                        }
-                    )
-                    .padding((16 * scale).dp)
+    Column(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy((14 * scale).dp)
+        ) {
+            // Section Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = link,
-                        color = Color.White,
-                        fontSize = (14 * scale).sp,
-                        fontFamily = font,
-                        letterSpacing = 1.sp
-                    )
-                    Text(
-                        text = if (isCredits && creditsExpanded) "▼" else "▶",
-                        color = Color(0xFF6E6E72),
-                        fontSize = (12 * scale).sp
-                    )
-                }
+                Text(
+                    text = "ABOUT INFILTRATE",
+                    color = Color.White,
+                    fontSize = (18 * scale).sp,
+                    fontFamily = font,
+                    letterSpacing = 1.sp
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(1.dp)
+                        .background(Color.White.copy(alpha = 0.12f))
+                )
             }
 
-            if (isCredits) {
-                AnimatedVisibility(visible = creditsExpanded, enter = fadeIn(), exit = fadeOut()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = (8 * scale).dp),
-                        verticalArrangement = Arrangement.spacedBy((10 * scale).dp)
+            // Links
+            var creditsExpanded by remember { mutableStateOf(false) }
+            val links = listOf("PRIVACY POLICY", "CONTACT US", "CREDITS & LICENSES", "RATE US")
+            for (link in links) {
+                val interactionSource = remember { MutableInteractionSource() }
+                val isCredits = link == "CREDITS & LICENSES"
+                val isRateUs = link == "RATE US"
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF141416), RoundedCornerShape(8.dp))
+                        .border(
+                            1.dp,
+                            if (isRateUs) Color.White.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.08f),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            onClick = {
+                                click()
+                                when (link) {
+                                    "RATE US" -> {
+                                        InAppReview.requestReview()
+                                        onActionToast("RATE US")
+                                    }
+                                    "CREDITS & LICENSES" -> {
+                                        creditsExpanded = !creditsExpanded
+                                    }
+                                    "PRIVACY POLICY" -> {
+                                        try {
+                                            uriHandler.openUri("https://infiltrate.saysplit.app/privacy/")
+                                        } catch (_: Exception) {
+                                            onActionToast("UNABLE TO OPEN LINK")
+                                        }
+                                    }
+                                    "CONTACT US" -> {
+                                        try {
+                                            uriHandler.openUri("https://infiltrate.saysplit.app/support/")
+                                        } catch (_: Exception) {
+                                            onActionToast("UNABLE TO OPEN LINK")
+                                        }
+                                    }
+                                }
+                            }
+                        )
+                        .padding((16 * scale).dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        for (credit in SOUND_CREDITS) {
-                            SoundCreditRow(credit = credit, font = font, scale = scale)
+                        Text(
+                            text = link,
+                            color = Color.White,
+                            fontSize = (14 * scale).sp,
+                            fontFamily = font,
+                            letterSpacing = 1.sp
+                        )
+                        Text(
+                            text = if (isCredits && creditsExpanded) "▼" else "▶",
+                            color = Color(0xFF6E6E72),
+                            fontSize = (12 * scale).sp
+                        )
+                    }
+                }
+
+                if (isCredits) {
+                    AnimatedVisibility(visible = creditsExpanded, enter = fadeIn(), exit = fadeOut()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = (8 * scale).dp),
+                            verticalArrangement = Arrangement.spacedBy((10 * scale).dp)
+                        ) {
+                            for (credit in SOUND_CREDITS) {
+                                SoundCreditRow(credit = credit, font = font, scale = scale)
+                            }
                         }
                     }
                 }
             }
         }
 
-        // weight(1f) doesn't work here now that the panel scrolls (no bounded height to
-        // distribute) - a fixed gap keeps the version line separated from the links above it.
-        Spacer(modifier = Modifier.height((28 * scale).dp))
-
         Text(
-            text = "INFILTRATE: SHADOW HEIST • VERSION 1.0.0 (BUILD 2026.1)",
+            text = "INFILTRATE: SHADOW HEIST • VERSION ${PlatformInfo.versionName} (BUILD ${PlatformInfo.buildNumber})".uppercase(),
             color = Color(0xFF6E6E72),
             fontSize = (11 * scale).sp,
             fontWeight = FontWeight.Medium,
-            letterSpacing = 1.sp
+            letterSpacing = 1.sp,
+            modifier = Modifier.padding(top = (12 * scale).dp, bottom = (4 * scale).dp)
         )
     }
 }

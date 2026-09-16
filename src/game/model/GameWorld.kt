@@ -10,12 +10,19 @@ data class GameWorld(
     val levelData: LevelData = LevelData(),
     val extraGuards: List<Guard> = emptyList(),
     val cameras: List<Camera> = emptyList(),
+    /** Subset of [cameras] (same instances) rendered with a reduced alpha, e.g. a pole-mounted
+     *  camera meant to read as visually distinct from a beam-mounted one - see LevelLayout.translucentCameras. */
+    val translucentCameras: List<Camera> = emptyList(),
     val boxes: List<Rect> = listOf(crate),
     val worldWidth: Double = 800.0,
     val activePowerups: ActivePowerups = ActivePowerups(),
     val fence1: Rect? = null,
     val fence2: Rect? = null,
     val barrels: List<Rect> = emptyList(),
+    /** Boxes drawn with woodcrate2.png - see LevelLayout.woodCrates and GameplayScene.kt's box loop. */
+    val woodCrates: List<Rect> = emptyList(),
+    /** Freestanding mounting poles (pole.png), not in [boxes] (no collision) - see LevelLayout.poles. */
+    val poles: List<Rect> = emptyList(),
     /** Tables (table.png) - the art rects. See LevelLayout.tables and GameplayScene.kt's box loop. */
     val tables: List<Rect> = emptyList(),
     /** Collision boxes covered by a table's art, drawn by nothing - see LevelLayout.tableParts. */
@@ -51,6 +58,7 @@ data class GameWorld(
     val restartOnConveyorFallOff: Boolean = false,
     var onConveyorFallOff: (() -> Unit)? = null,
     var onLaserHit: (() -> Unit)? = null,
+    var onHangingCrateHit: (() -> Unit)? = null,
     var onLaserShieldBlocked: (() -> Unit)? = null,
     val conveyorsStartOnMove: Boolean = false,
     val canClimb: Boolean = true
@@ -70,12 +78,15 @@ data class GameWorld(
         levelData: LevelData = LevelData(),
         extraGuards: List<Guard> = emptyList(),
         cameras: List<Camera> = emptyList(),
+        translucentCameras: List<Camera> = emptyList(),
         boxes: List<Rect> = listOf(crate),
         worldWidth: Double = 800.0,
         activePowerups: ActivePowerups = ActivePowerups(),
         fence1: Rect? = null,
         fence2: Rect? = null,
         barrels: List<Rect> = emptyList(),
+        woodCrates: List<Rect> = emptyList(),
+        poles: List<Rect> = emptyList(),
         tables: List<Rect> = emptyList(),
         tableParts: List<Rect> = emptyList(),
         tableDecorations: List<Rect> = emptyList(),
@@ -103,12 +114,15 @@ data class GameWorld(
         levelData = levelData,
         extraGuards = extraGuards,
         cameras = cameras,
+        translucentCameras = translucentCameras,
         boxes = boxes,
         worldWidth = worldWidth,
         activePowerups = activePowerups,
         fence1 = fence1,
         fence2 = fence2,
         barrels = barrels,
+        woodCrates = woodCrates,
+        poles = poles,
         tables = tables,
         tableParts = tableParts,
         tableDecorations = tableDecorations,
@@ -174,6 +188,11 @@ data class GameWorld(
         private set
     var laserGraceTimer: Double = 0.0
 
+    var continueCount: Int = 0
+        private set
+    val canContinue: Boolean
+        get() = continueCount < 1
+
     var lastCheckpointX: Double = player.startX
         private set
     var lastCheckpointY: Double = player.startY
@@ -183,6 +202,8 @@ data class GameWorld(
     var onCheckpointSecured: ((Double, Double) -> Unit)? = null
 
     fun respawnAtCheckpoint(): Boolean {
+        if (!canContinue) return false
+        continueCount++
         isGameOver = false
         isSpotted = false
         alertProgress = 0.0
@@ -191,7 +212,9 @@ data class GameWorld(
         recentlySeeingGuards.clear()
         player.resetTo(lastCheckpointX, lastCheckpointY)
         for (g in allGuards) g.returnToPatrol()
-        activePowerups.invisibilityTimer = 2.0
+        for (c in cameras) c.reset()
+        activePowerups.invisibilityTimer = 3.0
+        laserGraceTimer = 3.0
         return true
     }
 
@@ -199,6 +222,7 @@ data class GameWorld(
      * Instantly resets the level to its initial state without loading screen or scene rebuild.
      */
     fun restartLevel() {
+        continueCount = 0
         isGameOver = false
         isLevelComplete = false
         isSpotted = false
@@ -227,6 +251,9 @@ data class GameWorld(
     fun activatePowerup(type: PowerupType): Boolean {
         if (isLevelComplete || isGameOver) return false
         activePowerups.activate(type)
+        if (type == PowerupType.SMOKE_SCREEN) {
+            for (c in cameras) c.resetDetectionPause()
+        }
         return true
     }
 
@@ -269,13 +296,6 @@ data class GameWorld(
         // Update active powerup timers
         activePowerups.update(dt)
 
-        // Update cameras (continuous sweep) - paused while Smoke Screen is active
-        if (!activePowerups.isSmokeScreenActive) {
-            for (c in cameras) {
-                c.update(dt)
-            }
-        }
-
         // Check every guard and camera's vision cone; the closest one with eyes on the player fills the alert.
         val previousAlert = alertProgress
         val seeingGuards = ArrayList<Guard>(allGuards.size)
@@ -304,6 +324,7 @@ data class GameWorld(
                 for (c in cameras) {
                     val d = VisionSystem.getPlayerSpottedDistance(c, player, occluders)
                     if (d != null) {
+                        c.onPlayerSpotted()
                         seeingCameras.add(c)
                         if (spottedDist == null || d < spottedDist) {
                             spottedDist = d
@@ -318,6 +339,11 @@ data class GameWorld(
         isPlayerInVision = inVision
         detectingGuards = if (inVision) seeingGuards.toList() else emptyList()
         detectingCameras = if (inVision) seeingCameras.toList() else emptyList()
+        for (c in cameras) {
+            if (c !in seeingCameras) {
+                c.onVisualLost()
+            }
+        }
 
         if (inVision && spottedDist != null) {
             recentlySeeingGuards.addAll(seeingGuards)
@@ -339,6 +365,7 @@ data class GameWorld(
                 isGameOver = true
                 onGameOver?.invoke()
                 for (g in allGuards) g.returnToPatrol()
+                for (c in cameras) c.resetDetectionPause()
                 recentlySeeingGuards.clear()
                 player.resetToStart()
             } else {
@@ -419,16 +446,41 @@ data class GameWorld(
             }
         }
 
+        // Check Hanging Crate Downward Crushing Collisions before player movement resolution
+        // Player only dies if the crate was moving down and touched the player
+        if (!isGameOver && !isLevelComplete) {
+            for (crate in conveyorCrates) {
+                if (crate.isHanging && crate.isMovingDown) {
+                    val cBounds = crate.bounds
+                    val pBounds = player.bounds
+                    val horizontalOverlap = pBounds.right > cBounds.left + 4.0 && pBounds.left < cBounds.right - 4.0
+                    val verticalOverlap = pBounds.top <= cBounds.bottom && pBounds.bottom >= cBounds.bottom
+                    if (horizontalOverlap && verticalOverlap) {
+                        isGameOver = true
+                        onGameOver?.invoke()
+                        onHangingCrateHit?.invoke()
+                        return
+                    }
+                }
+            }
+        }
+
         // A level with no moving platforms or conveyor crates reuses its own immutable lists
         val hasMovingPlatforms = movingPlatforms.isNotEmpty()
         val movingBounds = if (hasMovingPlatforms) movingPlatforms.map { it.bounds } else emptyList()
         val hasConveyorCrates = conveyorCrates.isNotEmpty()
         val crateBounds = if (hasConveyorCrates) conveyorCrates.map { it.bounds } else emptyList()
+        val floorCrateBounds = if (hasConveyorCrates) conveyorCrates.filter { !it.isHanging }.map { it.bounds } else emptyList()
         val dynamicBounds = if (hasMovingPlatforms && hasConveyorCrates) movingBounds + crateBounds
             else if (hasMovingPlatforms) movingBounds
             else crateBounds
         val currentPlatforms = if (dynamicBounds.isNotEmpty()) platforms + dynamicBounds else platforms
-        val currentBoxes = if (dynamicBounds.isNotEmpty()) boxes + dynamicBounds else boxes
+        val currentBoxes = if (dynamicBounds.isNotEmpty()) {
+            val dynamicBoxes = if (hasMovingPlatforms && floorCrateBounds.isNotEmpty()) movingBounds + floorCrateBounds
+                else if (hasMovingPlatforms) movingBounds
+                else floorCrateBounds
+            if (dynamicBoxes.isNotEmpty()) boxes + dynamicBoxes else boxes
+        } else boxes
         val currentOccluders = if (dynamicBounds.isNotEmpty()) occluders + dynamicBounds else occluders
 
         // Guards without eyes on the player keep walking their route (unless asleep from Phantom Cloak)
@@ -436,6 +488,13 @@ data class GameWorld(
             for (g in allGuards) {
                 val heldAtPost = g.holdUntilPlayerCrouches && !hasPlayerCrouchedOnce
                 if (g !in seeingGuards && !heldAtPost) g.update(dt, currentOccluders)
+            }
+        }
+
+        // Update cameras - paused while Smoke Screen is active
+        if (!activePowerups.isSmokeScreenActive) {
+            for (c in cameras) {
+                c.update(dt)
             }
         }
 
@@ -465,7 +524,28 @@ data class GameWorld(
             return
         }
 
-        // Check Laser Collisions
+        // Check Hanging Crate Collisions:
+        // Player only dies if the crate was moving down and touched the player
+        if (!isGameOver && !isLevelComplete) {
+            for (crate in conveyorCrates) {
+                if (crate.isHanging && crate.isMovingDown) {
+                    val cBounds = crate.bounds
+                    val pBounds = player.bounds
+                    // The front of a hanging crate can touch the player safely without triggering game over.
+                    // Only when the crate was moving down and touched the player does it trigger game over.
+                    val horizontalOverlap = pBounds.right > cBounds.left + 4.0 && pBounds.left < cBounds.right - 4.0
+                    val verticalOverlap = pBounds.top <= cBounds.bottom && pBounds.bottom >= cBounds.bottom
+                    if (horizontalOverlap && verticalOverlap) {
+                        isGameOver = true
+                        onGameOver?.invoke()
+                        onHangingCrateHit?.invoke()
+                        return
+                    }
+                }
+            }
+        }
+
+        // Check Laser Collisions (touching an active laser triggers Mission Failed)
         if (!isGameOver && !isLevelComplete) {
             if (laserGraceTimer <= 0.0) {
                 for (laser in lasers) {
@@ -477,15 +557,10 @@ data class GameWorld(
                             break
                         }
                         spottedCount++
-                        if (restartOnConveyorFallOff) {
-                            restartLevel()
-                            onConveyorFallOff?.invoke()
-                            onLaserHit?.invoke()
-                        } else {
-                            isSpotted = true
-                            isGameOver = true
-                            onGameOver?.invoke()
-                        }
+                        isSpotted = true
+                        isGameOver = true
+                        onGameOver?.invoke()
+                        onLaserHit?.invoke()
                         return
                     }
                 }
@@ -675,7 +750,8 @@ data class GameWorld(
                     visionRange = spawn.visionRange,
                     visionFov = spawn.visionFov,
                     sweepDirection = spawn.sweepDirection,
-                    sweepPauseDuration = spawn.sweepPauseDuration
+                    sweepPauseDuration = spawn.sweepPauseDuration,
+                    detectionPauseDuration = spawn.detectionPauseDuration
                 )
             }
 
@@ -725,9 +801,19 @@ data class GameWorld(
 
             val platforms = layout.platforms + allBoxes + listOf(leftWall, rightWall)
             // Floors and boxes both block sight, so no guard can see through a storey. Table
-            // decorations (LevelLayout.tableDecorations) have no collision - nothing stands on
-            // them or bumps into them - but they're real drawn geometry (a support leg, say), so
-            // they block sight the same as anything else the player could visually read as solid.
+            // decorations (LevelLayout.tableDecorations) have no collision - nothing stands on or
+            // bumps into them - but they're real drawn geometry (a support leg), so they block
+            // sight the same as anything else the player could visually read as solid.
+            //
+            // Poles (LevelLayout.poles) are deliberately EXCLUDED here, unlike tableDecorations -
+            // reported directly against a screenshot: a camera mounted right on top of its own pole
+            // (LEVEL_3_LAYOUT's poleCamera) had that same pole block its own downward view, and
+            // VisionSystem's shadow-casting turned that self-occlusion into a polygon that reads as
+            // a flat-edged rectangle instead of a cone (the near-vertical rays all stop at the
+            // pole's own straight side, right next to the eye). A camera occluding its own mount is
+            // a real geometric consequence, not a bug in the strict sense, but it looks broken on
+            // screen - so a pole blocks nothing, the same as a swing hook or any other prop that's
+            // real geometry but not solid enough to matter for sightlines.
             val occluders = layout.platforms + allBoxes + layout.tableDecorations
 
             val player = Player(
@@ -764,7 +850,8 @@ data class GameWorld(
             )
             val extraGuards = if (guards.isNotEmpty()) guards.drop(1) else emptyList()
 
-            val cameras = (layout.cameras.ifEmpty { levelData.cameras }).map { spawn ->
+            val cameraSpawns = layout.cameras.ifEmpty { levelData.cameras }
+            val cameras = cameraSpawns.map { spawn ->
                 Camera(
                     x = spawn.x,
                     y = spawn.y,
@@ -775,9 +862,15 @@ data class GameWorld(
                     visionRange = spawn.visionRange,
                     visionFov = spawn.visionFov,
                     sweepDirection = spawn.sweepDirection,
-                    sweepPauseDuration = spawn.sweepPauseDuration
+                    sweepPauseDuration = spawn.sweepPauseDuration,
+                    detectionPauseDuration = spawn.detectionPauseDuration
                 )
             }
+            // Same Camera instances as in `cameras` above (matched by spawn identity, not
+            // reconstructed) - see LevelLayout.translucentCameras.
+            val translucentCameras = cameraSpawns.zip(cameras)
+                .filter { (spawn, _) -> spawn in layout.translucentCameras }
+                .map { (_, camera) -> camera }
 
             val movingPlatforms = layout.movingPlatforms.map { def ->
                 MovingPlatform(
@@ -843,6 +936,7 @@ data class GameWorld(
                 levelData = levelData,
                 extraGuards = extraGuards,
                 cameras = cameras,
+                translucentCameras = translucentCameras,
                 boxes = allBoxes,
                 worldWidth = layout.worldWidth,
                 fence1 = fence1,
@@ -850,6 +944,8 @@ data class GameWorld(
                 hangingCrateVariant1 = layout.hangingCrateVariant1,
                 hangingCrateVariant2 = layout.hangingCrateVariant2,
                 barrels = layout.barrels,
+                woodCrates = layout.woodCrates,
+                poles = layout.poles,
                 tables = layout.tables,
                 tableParts = layout.tableParts,
                 tableDecorations = layout.tableDecorations,

@@ -30,8 +30,8 @@ enum class PowerupType(
     ),
     NOISE_SUPPRESSION(
         id = "noise_suppression",
-        displayName = "NOISE SUPPRESSION BOOTS",
-        shortName = "SILENCE",
+        displayName = "STEALTH BOOTS",
+        shortName = "STEALTH",
         duration = -1.0, // Level-duration
         defaultCost = 500
     ),
@@ -64,12 +64,14 @@ enum class PowerupType(
         @Deprecated("Replaced by LASER_SHIELD", ReplaceWith("LASER_SHIELD"))
         val PHANTOM_CLOAK: PowerupType get() = LASER_SHIELD
 
+        val STEALTH_BOOTS: PowerupType get() = NOISE_SUPPRESSION
+
         fun fromId(id: String): PowerupType? {
             return when (id.lowercase().trim()) {
                 "camera_jammer", "jammer", "smoke_screen", "smoke_bomb", "camera_disable", "smoke" -> SMOKE_SCREEN
                 "laser_shield", "laser_guard", "shield", "guard", "sleep_darts", "sleep_dart", "darts", "phantom_cloak", "guard_sleep", "cloak" -> LASER_SHIELD
                 "invisibility", "invisibility_cloak", "invis" -> INVISIBILITY
-                "noise_suppression", "stealth_boots", "silence" -> NOISE_SUPPRESSION
+                "noise_suppression", "stealth_boots", "silence", "boots", "stealth" -> NOISE_SUPPRESSION
                 "remote_trigger", "trigger", "remote", "checkpoint", "checkpoints", "tactical_checkpoint" -> REMOTE_TRIGGER
                 "prototype", "proto", "prototype_gadget" -> PROTOTYPE
                 else -> entries.firstOrNull {

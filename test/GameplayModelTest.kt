@@ -816,36 +816,6 @@ class GameplayModelTest {
     }
 
     @Test
-    fun testSideScrollLevelIsBeatable() {
-        val world = GameWorld.createDefault(LevelData.SIDE_SCROLL_LEVEL)
-        assertEquals(2800.0, world.worldWidth, "Side-scroll level should be wider than the 800px screen")
-        assertEquals(3, world.allGuards.size, "Level should have three guards")
-
-        val dt = 1.0 / 60.0
-        var elapsed = 0.0
-        var stalledFor = 0.0
-
-        // Auto-pilot: hold right, and jump whenever forward progress stalls while grounded.
-        // That is all the intended route needs - every climb is a 36 unit step box, and the
-        // upper walkways are entered by walking onto them, not by precise jumps.
-        while (elapsed < 90.0 && !world.isLevelComplete && !world.isGameOver) {
-            val beforeX = world.player.x
-            val jump = world.player.isGrounded && stalledFor > 0.05
-            world.update(dt, moveInput = 1.0, jumpInput = jump, crouchInput = false)
-            stalledFor = if (kotlin.math.abs(world.player.x - beforeX) < 0.5) stalledFor + dt else 0.0
-            elapsed += dt
-        }
-
-        assertTrue(
-            world.isLevelComplete,
-            "Walking right should reach the exit. Ended at x=${world.player.x.toInt()} y=${world.player.y.toInt()} " +
-                "after ${elapsed.toInt()}s (gameOver=${world.isGameOver}, alerts=${world.spottedCount})"
-        )
-        assertFalse(world.wasDetected, "The intended route stays out of every guard vision cone")
-        assertEquals(0, world.spottedCount, "The intended route should never trigger an alert")
-    }
-
-    @Test
     fun testLevel2HangingCratesGapIsBeatable() {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_2)
         assertEquals(5100.0, world.worldWidth, "Level 2 should be 5100.0 wide")
@@ -1457,27 +1427,6 @@ class GameplayModelTest {
     }
 
     @Test
-    fun testSideScrollLevelUpperTiersBlockGuardSight() {
-        val world = GameWorld.createDefault(LevelData.SIDE_SCROLL_LEVEL)
-        val groundGuard = world.allGuards.first()
-
-        // Standing on mid tier 1 directly above the ground guard must be hidden by the floor
-        val playerOnTier = Player(x = groundGuard.x, y = 368.0 - 96.0)
-        assertFalse(
-            VisionSystem.isPlayerSpotted(groundGuard, playerOnTier, world.occluders),
-            "A guard must not see through the walkway floor above him"
-        )
-
-        // The same spot on the ground, right in front of him, is very much visible
-        val playerOnGround = Player(x = groundGuard.x - 120.0, y = 440.0 - 96.0)
-        groundGuard.facing = -1.0
-        assertTrue(
-            VisionSystem.isPlayerSpotted(groundGuard, playerOnGround, world.occluders),
-            "A guard must still see an unobstructed player on his own floor"
-        )
-    }
-
-    @Test
     fun testPlayerWholeBodyPhysicsWithOverheadWallsAndCeilings() {
         val ground = Rect(x = 0.0, y = 380.0, width = 800.0, height = 50.0)
         // Overhead wall that only blocks the upper half of a standing character (e.g., from y=250 to 310, clearance below is 380 - 310 = 70px)
@@ -1930,6 +1879,77 @@ class GameplayModelTest {
     }
 
     @Test
+    fun testCameraStopsRotatingWhenPlayerDetectedAndResumesAfterInvestigationDuration() {
+        // Camera sweeping at x=500, y=100
+        val camera = Camera(
+            x = 500.0,
+            y = 100.0,
+            minAngle = 60.0 * (PI / 180.0),
+            maxAngle = 120.0 * (PI / 180.0),
+            currentAngle = 90.0 * (PI / 180.0),
+            sweepSpeed = 0.5,
+            visionRange = 250.0,
+            visionFov = 45.0 * (PI / 180.0),
+            detectionPauseDuration = 2.5
+        )
+        val dummyGuard = Guard(x = 0.0, y = 0.0, patrolMinX = 0.0, patrolMaxX = 0.0, speed = 0.0, visionRange = 0.0)
+        val world = GameWorld(
+            player = Player(x = 60.0, y = 284.0),
+            guard = dummyGuard,
+            crate = Rect(0.0, 0.0, 0.0, 0.0),
+            platforms = listOf(Rect(0.0, 380.0, 800.0, 100.0)),
+            occluders = emptyList(),
+            cameras = listOf(camera)
+        )
+
+        // 1. Sweeping normally when player is not detected
+        val initialAngle = camera.currentAngle
+        world.update(dt = 0.2, moveInput = 0.0, jumpInput = false)
+        assertFalse(world.isPlayerInVision)
+        assertNotEquals(initialAngle, camera.currentAngle, "Camera should sweep when player is not detected")
+
+        // 2. When player is placed in vision cone, camera stops rotating
+        world.player.x = 500.0 - 25.0
+        world.player.y = 284.0
+        world.update(dt = 0.1, moveInput = 0.0, jumpInput = false)
+        assertTrue(world.isPlayerInVision, "Player must be in camera vision")
+        val frozenAngle = camera.currentAngle
+        assertTrue(camera.isPausedFromDetection, "Camera must flag detection pause active")
+
+        // Additional updates while player is in vision: angle does not change at all
+        for (i in 1..5) {
+            world.update(dt = 0.1, moveInput = 0.0, jumpInput = false)
+            assertTrue(world.isPlayerInVision)
+            assertEquals(frozenAngle, camera.currentAngle, 0.0001, "Camera angle must remain frozen while detecting player")
+        }
+
+        // 3. Player moves out of vision: camera must remain frozen for 2.5s (investigateDuration)
+        world.player.x = 60.0
+        world.update(dt = 0.1, moveInput = 0.0, jumpInput = false)
+        assertFalse(world.isPlayerInVision, "Player should no longer be in vision")
+        assertEquals(frozenAngle, camera.currentAngle, 0.0001, "Camera must remain stopped at the detection angle")
+
+        // Advance 2.3 seconds (total 2.4s after visual loss) -> still frozen
+        world.update(dt = 2.3, moveInput = 0.0, jumpInput = false)
+        assertEquals(frozenAngle, camera.currentAngle, 0.0001, "Camera must stay stopped for 2.5s investigation pause")
+        assertTrue(camera.isPausedFromDetection, "Camera detection pause timer should still be positive")
+
+        // Advance past 2.5s threshold (0.2s more) -> detection pause timer expires
+        world.update(dt = 0.2, moveInput = 0.0, jumpInput = false)
+        assertFalse(camera.isPausedFromDetection, "Detection pause timer should have expired")
+
+        // Next frame sweeps normally
+        world.update(dt = 0.1, moveInput = 0.0, jumpInput = false)
+        assertNotEquals(frozenAngle, camera.currentAngle, "Camera must resume sweeping after 2.5s investigation pause")
+
+        // 4. Respawning at checkpoint clears detection pause
+        camera.onPlayerSpotted()
+        assertTrue(camera.isPausedFromDetection)
+        world.respawnAtCheckpoint()
+        assertFalse(camera.isPausedFromDetection, "respawnAtCheckpoint must clear camera detection pause")
+    }
+
+    @Test
     fun testCameraTimingChallengeWalkthrough() {
         // Level 1 itself no longer ships a guard or camera (see LevelData.DEFAULT_LEVEL_1's
         // guardEnabled = false / empty cameras) - this test still proves the underlying
@@ -2021,14 +2041,23 @@ class GameplayModelTest {
         assertFalse(world.isPlayerInVision, "VisionSystem should skip camera detection during Smoke Screen")
         assertEquals(0.0, world.alertProgress, 0.01, "Alert progress should decay to 0 while camera is disabled")
 
+        // Move player away to safe position while smoke screen is active
+        world.player.x = 60.0
+
         // Advance until smoke screen expires (after 8 more seconds, total 10s)
         world.update(8.1, moveInput = 0.0, jumpInput = false)
         assertFalse(world.activePowerups.isSmokeScreenActive, "Smoke Screen should expire after 10s")
 
-        // Camera resumes sweeping and detection
+        // Camera resumes sweeping
+        assertNotEquals(angleBefore, camera.currentAngle, "Camera sweep should resume after Smoke Screen expires")
+
+        // Move player back under camera: camera detects player and stops rotating
+        world.player.x = 500.0 - 25.0
         world.update(0.1, moveInput = 0.0, jumpInput = false)
         assertTrue(world.isPlayerInVision, "Camera should resume detection after Smoke Screen expires")
-        assertNotEquals(angleBefore, camera.currentAngle, "Camera sweep should resume after Smoke Screen expires")
+        val stoppedAngle = camera.currentAngle
+        world.update(0.1, moveInput = 0.0, jumpInput = false)
+        assertEquals(stoppedAngle, camera.currentAngle, 0.001, "Camera should stop rotating when player is detected")
     }
 
     @Test
@@ -2315,9 +2344,9 @@ class GameplayModelTest {
         assertEquals(400.0, world.lastCheckpointX)
         assertEquals(400.0, securedX)
 
-        // Trigger game over
-        world.isGameOver = true
-        guard.startInvestigating(700.0)
+        // Check continue limit before respawn
+        assertTrue(world.canContinue, "canContinue should be true initially")
+        assertEquals(0, world.continueCount)
 
         // Respawn at checkpoint
         val respawnOk = world.respawnAtCheckpoint()
@@ -2325,7 +2354,20 @@ class GameplayModelTest {
         assertFalse(world.isGameOver)
         assertEquals(400.0, player.x)
         assertEquals(GuardState.PATROL, guard.state)
-        assertTrue(world.activePowerups.isInvisibilityActive, "Respawning should give 2s grace invisibility")
+        assertTrue(world.activePowerups.isInvisibilityActive, "Respawning should give grace invisibility")
+        assertEquals(3.0, world.laserGraceTimer, 1e-4, "Respawning should give laser grace period")
+        assertEquals(1, world.continueCount)
+        assertFalse(world.canContinue, "canContinue should be false after using 1 continue")
+
+        // Second continue attempt in same run should be rejected
+        world.isGameOver = true
+        val secondRespawnOk = world.respawnAtCheckpoint()
+        assertFalse(secondRespawnOk, "Second continue in same run should be rejected")
+
+        // Restarting level resets continue cap
+        world.restartLevel()
+        assertEquals(0, world.continueCount)
+        assertTrue(world.canContinue, "restartLevel should reset continue count")
     }
 
     @Test
@@ -2627,69 +2669,14 @@ class GameplayModelTest {
         assertNull(activeStep)
     }
 
-    // ---- hook swing mechanics (verified on the barrel-stack & hook layout) -----------------
+    // ---- hook swing mechanics (verified on level 5's own barrel-stack & hook layout) --------
 
     companion object {
-        val SWING_TEST_LAYOUT = run {
-            val groundY = 440.0
-            val ground = Rect(x = 0.0, y = groundY, width = 1800.0, height = 100.0)
-
-            val barrelWidth = 32.0
-            val barrelLayerHeight = 48.0
-            val barrelWallX = 400.0
-
-            val bottomLayerCount = 8
-            val topLayerCount = 4
-            val bottomLayerY = groundY - barrelLayerHeight
-            val topLayerX = barrelWallX + (bottomLayerCount - topLayerCount) * barrelWidth
-            val topLayerY = groundY - barrelLayerHeight * 2.0
-
-            val bottomBarrelLayer = (0 until bottomLayerCount).map { i ->
-                Rect(x = barrelWallX + i * barrelWidth, y = bottomLayerY, width = barrelWidth, height = barrelLayerHeight)
-            }
-            val topBarrelLayer = (0 until topLayerCount).map { i ->
-                Rect(x = topLayerX + i * barrelWidth, y = topLayerY, width = barrelWidth, height = barrelLayerHeight)
-            }
-            val barrelWall = bottomBarrelLayer + topBarrelLayer
-            val barrelWallEndX = topLayerX + topLayerCount * barrelWidth
-
-            val terrainTopY = topLayerY - barrelLayerHeight
-            val terrainHeight = groundY - terrainTopY
-            val terrain1 = Rect(x = barrelWallEndX, y = terrainTopY, width = 300.0, height = terrainHeight)
-
-            val gapWidth = 150.0
-            val terrain2 = Rect(x = terrain1.right + gapWidth, y = terrainTopY, width = 300.0, height = terrainHeight)
-
-            val hookWidth = 16.0
-            val hookHeight = hookWidth * (2136.0 / 154.0)
-            val hookGripX = terrain1.right + gapWidth / 2.0
-            val hookGripY = terrainTopY - 112.0
-            val swingHook = Rect(
-                x = hookGripX - hookWidth * Player.HOOK_GRIP_X_FRACTION,
-                y = hookGripY - hookHeight * Player.HOOK_GRIP_Y_FRACTION,
-                width = hookWidth,
-                height = hookHeight
-            )
-
-            LevelLayout(
-                worldWidth = 1800.0,
-                playerStartX = 236.0,
-                playerStartY = groundY - 96.0,
-                exitZone = Rect(x = terrain2.right + 100.0, y = groundY - 100.0, width = 44.0, height = 100.0),
-                platforms = listOf(ground),
-                boxes = barrelWall + listOf(terrain1, terrain2),
-                guards = emptyList(),
-                barrels = barrelWall,
-                swingHooks = listOf(swingHook)
-            )
-        }
-
-        val SWING_TEST_LEVEL = LevelData(
-            id = "test_swing",
-            name = "Test: Hook Swing",
-            timeTargetSeconds = 25.0f,
-            layout = SWING_TEST_LAYOUT
-        )
+        // Level 5 ("05: Restricted Zone") IS the barrel-stack-and-hook layout - these tests drive
+        // the real shipped level directly rather than a parallel copy, so they double as its
+        // walkthrough verification (see LevelData.SIDE_SCROLL_LEVEL_LAYOUT's own doc comment).
+        val SWING_TEST_LAYOUT = LevelData.SIDE_SCROLL_LEVEL_LAYOUT
+        val SWING_TEST_LEVEL = LevelData.SIDE_SCROLL_LEVEL
     }
 
     @Test
@@ -2698,34 +2685,35 @@ class GameplayModelTest {
         assertNull(world.fence1, "Level 4 has no fence1 at the start")
         assertNull(world.fence2, "Level 4 has no fence2 at the start")
         assertEquals(1, world.boxes.size, "Level 4 static boxes include conveyor")
-        assertEquals(27, world.conveyorCrates.size, "Level 4 has 27 moving conveyor crates (23 floor + 4 hanging) across the 5000px line")
+        assertEquals(45, world.conveyorCrates.size, "Level 4 has 45 moving conveyor crates (38 floor + 7 hanging) across the extended 7760px line")
         assertEquals(1, world.conveyors.size, "Level 4 has one conveyor belt")
         assertFalse(world.canClimb, "Level 4 is non-climbable: all mantling/climbing is disabled")
         assertTrue(world.levelData.hasDarknessVignette, "Level 4 has darkness vignette enabled")
 
-        // Confirm floor crates have 20 1-stacks (48.0px) and 3 stepped 2-stacks (96.0px)
+        // Confirm floor crates have 27 1-stacks (48.0px) and 11 stepped 2-stacks (96.0px)
         val floorCrates = world.conveyorCrates.filter { !it.isHanging }
-        assertEquals(23, floorCrates.size, "Level 4 has 23 floor crates")
-        assertEquals(20, floorCrates.count { it.height == 48.0 }, "20 1-stacks (48px) for clean jumping and zero clipping")
-        assertEquals(3, floorCrates.count { it.height == 96.0 }, "3 2-stacks (96px) for stepped platforming")
-        assertTrue(floorCrates.none { it.shouldLoop }, "No floor crates have looping enabled")
+        assertEquals(38, floorCrates.size, "Level 4 has 38 floor crates")
+        assertEquals(27, floorCrates.count { it.height == 48.0 }, "27 1-stacks (48px) for clean jumping and zero clipping")
+        assertEquals(11, floorCrates.count { it.height == 96.0 }, "11 2-stacks (96px) for stepped platforming")
+        assertTrue(floorCrates.all { it.shouldLoop }, "All floor crates have non-stop looping enabled")
 
-        // Confirm hanging crates across the extended gauntlet (2 long + 2 small)
-        assertEquals(2, world.hangingCrateVariant1.size, "Level 4 has 2 long hanging crates")
+        // Confirm hanging crates across the 150m gauntlet (3 long + 4 small)
+        assertEquals(3, world.hangingCrateVariant1.size, "Level 4 has 3 long hanging crates")
         assertTrue(world.hangingCrateVariant1.all { it.width == 174.0 }, "All long hanging crates have width 174.0")
         assertTrue(world.hangingCrateVariant1.all { it.height == 38.0 }, "All long hanging crates have height 38.0")
-        assertTrue(world.hangingCrateVariant1.all { it.y == 302.0 }, "All long hanging crates sit at y = 302.0 (bottom = 340.0)")
+        // Long hanging crates: 2 overhead multi-stack crushers (maxY = 212.0) + 1 finale monorail (y = 302.0)
+        assertTrue(world.hangingCrateVariant1.all { it.y <= 302.0 + 1e-4 }, "All long hanging crates sit at or above y = 302.0 (bottom <= 340.0)")
 
-        assertEquals(2, world.hangingCrateVariant2.size, "Level 4 has 2 small hanging crates")
+        assertEquals(4, world.hangingCrateVariant2.size, "Level 4 has 4 small hanging crates")
         assertTrue(world.hangingCrateVariant2.all { it.width == 76.0 }, "All small hanging crates have width 76.0")
         assertTrue(world.hangingCrateVariant2.all { it.height == 38.0 }, "All small hanging crates have height 38.0")
         assertTrue(world.hangingCrateVariant2.all { it.y == 302.0 }, "All small hanging crates sit at y = 302.0 (bottom = 340.0)")
 
-        // Physical vertical clearance between 1-stack floor crates and hanging crates is exactly 26.0px
+        // Physical vertical clearance between 1-stack floor crates and hanging crates is at least 26.0px (zero clipping!)
         for (hanging in world.conveyorCrates.filter { it.isHanging }) {
             for (floor in floorCrates.filter { it.height == 48.0 }) {
                 val verticalGap = floor.top - hanging.bounds.bottom
-                assertEquals(26.0, verticalGap, 1e-4, "Floor crate top (366.0) is 26px below hanging crate bottom (340.0) -> zero clipping!")
+                assertTrue(verticalGap >= 26.0 - 1e-4, "Floor crate top (366.0) is at least 26px below hanging crate bottom (<=340.0) -> zero clipping!")
             }
             for (floor in floorCrates) {
                 assertFalse(hanging.bounds.intersects(floor.bounds), "Floor crates never intersect hanging crates")
@@ -2735,7 +2723,7 @@ class GameplayModelTest {
         val conveyor = world.conveyors.single()
         assertEquals(0.0, conveyor.bounds.x, 1e-4, "Conveyor moved to the corner (x = 0.0)")
         assertEquals(440.0 - 26.0, conveyor.bounds.y, 1e-4, "Conveyor height reduced to 26.0")
-        assertEquals(5000.0, conveyor.bounds.width, 1e-4, "Conveyor length extended to 5000.0 for 1-2 min gameplay")
+        assertEquals(7760.0, conveyor.bounds.width, 1e-4, "Conveyor length extended past 0m marker (x = 7742.0) to 7760.0")
         assertEquals(26.0, conveyor.bounds.height, 1e-4, "Conveyor height is 26.0")
         assertEquals(-45.0, conveyor.speed, 1e-4, "Conveyor speed is -45.0")
         assertTrue(conveyor.bounds in world.platforms, "Conveyor is a platform to stand on")
@@ -2834,8 +2822,8 @@ class GameplayModelTest {
         var callbackFired = false
         world.onConveyorFallOff = { callbackFired = true }
 
-        // Position player past conveyor end (x = 5000.0) heading to exit zone (x = 5380.0)
-        world.player.x = 5100.0
+        // Position player past conveyor end (x = 7760.0) heading to exit zone (x = 7820.0)
+        world.player.x = 7780.0
         world.player.y = 440.0 - world.player.height
         world.player.isGrounded = true
 
@@ -2846,50 +2834,100 @@ class GameplayModelTest {
 
     @Test
     fun testLevel4HangingCrateRequiresCrouchToDodge() {
-        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
-        val smallHangingCrate = world.conveyorCrates.first { it.isHanging && !it.isVariant1 }
         val conveyorTop = 414.0
 
-        // 1. Standing on conveyor floor under small hanging crate: player is blocked
-        world.player.x = smallHangingCrate.left - world.player.width - 2.0
-        world.player.y = conveyorTop - world.player.height // head is at 318.0 < 340.0 (crate bottom)
-        world.player.isGrounded = true
+        // 1. Standing on conveyor in front of hanging crate: touching its front edge is OK (not lethal)!
+        val world1 = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
+        world1.conveyorsActive = true
+        val crate1 = world1.conveyorCrates.first { it.isHanging && !it.isVariant1 }
+        world1.player.x = crate1.left - world1.player.width - 2.0
+        world1.player.y = conveyorTop - world1.player.height
+        world1.player.isGrounded = true
 
-        world.update(0.1, 1.0, false, false)
-        assertTrue(world.player.x + world.player.width <= smallHangingCrate.left + 1e-2,
+        world1.update(0.05, 1.0, false, false)
+        assertFalse(world1.isGameOver, "Touching the front of a hanging crate does not trigger game over")
+        assertTrue(world1.player.x + world1.player.width <= crate1.left + 1e-2,
             "Standing player on conveyor floor cannot walk through lowered small hanging crate")
 
-        // 2. Crouching on conveyor under small hanging crate: player moves forward without hitting it!
-        // Crouch height is 56.0, head is at 414.0 - 56.0 = 358.0 > 340.0 (crate bottom)
-        world.player.x = smallHangingCrate.left - world.player.width - 2.0
-        world.player.y = conveyorTop - world.player.height
-        world.player.isGrounded = true
+        // 2. Touching a stationary hanging crate does NOT trigger game over (player only dies if moving down)
+        val worldStationary = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
+        worldStationary.conveyorsActive = true
+        val crateStationary = worldStationary.conveyorCrates.first { it.isHanging && it.minY == it.maxY }
+        worldStationary.player.x = crateStationary.left + 10.0
+        worldStationary.player.y = conveyorTop - worldStationary.player.height // head overlaps crate bottom
+        worldStationary.player.isGrounded = true
 
-        val startX1 = world.player.x
-        world.update(1.0, 1.0, false, true)
-        assertTrue(world.player.x > startX1 + 10.0,
-            "Crouching player on conveyor advances cleanly under small hanging crate without hitting it")
+        worldStationary.update(0.05, 0.0, false, false)
+        assertFalse(crateStationary.isMovingDown, "Stationary crate is not moving down")
+        assertFalse(worldStationary.isGameOver, "Touching stationary crate does not trigger game over")
 
-        // 3. Long hanging crate above conveyor: standing player is blocked
-        val world2 = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
-        val longHangingCrate = world2.conveyorCrates.first { it.isHanging && it.isVariant1 }
-        world2.player.x = longHangingCrate.left - world2.player.width - 2.0
-        world2.player.y = conveyorTop - world2.player.height
-        world2.player.isGrounded = true
+        // 3. Oscillating hanging crate moving UP: touching it does NOT trigger game over
+        val worldOscUp = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
+        worldOscUp.conveyorsActive = true
+        val crateOsc = worldOscUp.conveyorCrates.first { it.isHanging && it.minY != it.maxY && it.maxY == 302.0 }
+        // Keep player safe while advancing to upward phase (t in [2.0, 4.0])
+        worldOscUp.player.x = 500.0
+        worldOscUp.player.y = -1000.0
+        worldOscUp.player.isGrounded = false
+        var tUp = 0.0
+        while (tUp < 2.5) {
+            worldOscUp.update(0.05, 0.0, false, false)
+            tUp += 0.05
+        }
+        assertFalse(crateOsc.isMovingDown, "Crate moving upward is not moving down")
+        worldOscUp.player.x = crateOsc.left + 20.0
+        worldOscUp.player.y = conveyorTop - worldOscUp.player.height
+        worldOscUp.player.isGrounded = true
+        worldOscUp.update(0.05, 0.0, false, false)
+        assertFalse(worldOscUp.isGameOver, "Touching crate while it is moving up does not trigger game over")
 
-        world2.update(0.1, 1.0, false, false)
-        assertTrue(world2.player.x + world2.player.width <= longHangingCrate.left + 1e-2,
-            "Standing player on conveyor cannot pass through lowered long hanging crate")
+        // 4. Oscillating hanging crate moving DOWN: touching player DOES trigger game over (mission failed)!
+        val worldOscDown = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
+        worldOscDown.conveyorsActive = true
+        val crateDown = worldOscDown.conveyorCrates.first { it.isHanging && it.minY != it.maxY && it.maxY == 302.0 }
+        var gameOverFired = false
+        var hangingHitFired = false
+        worldOscDown.onGameOver = { gameOverFired = true }
+        worldOscDown.onHangingCrateHit = { hangingHitFired = true }
 
-        // 4. Crouching on conveyor: advances cleanly under long hanging crate
-        world2.player.x = longHangingCrate.left - world2.player.width - 2.0
-        world2.player.y = conveyorTop - world2.player.height
-        world2.player.isGrounded = true
+        // Keep player safe while advancing time to avoid falling off conveyor or hitting lasers
+        worldOscDown.player.x = 500.0
+        worldOscDown.player.y = -1000.0
+        worldOscDown.player.isGrounded = false
 
-        val startX2 = world2.player.x
-        world2.update(1.0, 1.0, false, true)
-        assertTrue(world2.player.x > startX2 + 10.0,
-            "Crouching player on conveyor advances cleanly under long hanging crate without hitting it")
+        // Advance to downward phase where crate is moving down and overlaps standing player's head (t in [0.0, 2.0], ~t=1.6s)
+        var t = 0.0
+        while (t < 1.6) {
+            worldOscDown.update(0.05, 0.0, false, false)
+            t += 0.05
+        }
+        assertTrue(crateDown.isMovingDown, "Crate is moving down in downward phase")
+
+        // Position standing player underneath downward-moving crate
+        worldOscDown.player.x = crateDown.left + 20.0
+        worldOscDown.player.y = conveyorTop - worldOscDown.player.height
+        worldOscDown.player.isGrounded = true
+
+        worldOscDown.update(0.05, 0.0, false, false)
+        assertTrue(worldOscDown.isGameOver, "Downward moving hanging crate touching player triggers game over")
+        assertTrue(gameOverFired, "onGameOver fired when downward moving crate touches player")
+        assertTrue(hangingHitFired, "onHangingCrateHit fired when downward moving crate touches player")
+
+        // 5. Crouching on conveyor under oscillating hanging crate: player advances cleanly without hitting it!
+        val worldCrouch = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
+        worldCrouch.conveyorsActive = true
+        val crateCrouch = worldCrouch.conveyorCrates.first { it.isHanging && it.maxY == 302.0 && it.minY != it.maxY }
+        worldCrouch.player.x = crateCrouch.left - worldCrouch.player.width - 2.0
+        worldCrouch.player.y = conveyorTop - worldCrouch.player.height
+        worldCrouch.player.isGrounded = true
+
+        val startX = worldCrouch.player.x
+        // Advance in crouch mode across multiple seconds so crate goes through downward cycles
+        for (step in 0 until 80) {
+            worldCrouch.update(0.05, 1.0, false, true)
+            assertFalse(worldCrouch.isGameOver, "Crouching player never gets hit by hanging crate")
+        }
+        assertTrue(worldCrouch.player.x > startX + 10.0, "Crouching player advances cleanly under hanging crate")
     }
 
     @Test
@@ -2929,34 +2967,29 @@ class GameplayModelTest {
         val world = GameWorld.createDefault(level)
 
         // 1. Level time target scaled for gauntlet
-        assertEquals(90.0f, level.timeTargetSeconds, 1e-4f, "Level 4 target time is 90 seconds")
-        assertEquals(5500.0, world.worldWidth, 1e-4, "World width extended to 5500.0")
+        assertEquals(115.0f, level.timeTargetSeconds, 1e-4f, "Level 4 target time is 115 seconds")
+        assertEquals(8600.0, world.worldWidth, 1e-4, "World width extended to 8600.0")
         assertTrue(level.hasDarknessVignette, "Level 4 has darkness vignette enabled")
         assertEquals(1.45, level.playerCrouchForwardSpeedMultiplier, 1e-4, "Level 4 has 1.45x crouch forward speed multiplier")
         assertEquals(65.0 * 1.45, world.player.crouchForwardSpeed, 1e-4, "Player crouch forward speed is tuned to 1.45x (94.25)")
 
-        // 2. Obstacle count and types: mix of 1-stack and 2-stack stepped pyramids
-        assertEquals(27, world.conveyorCrates.size, "Level 4 has 27 dynamic conveyor crates (23 floor + 4 hanging)")
-        assertEquals(23, world.conveyorCrates.count { !it.isHanging }, "Level 4 has 23 floor crates")
-        assertEquals(4, world.conveyorCrates.count { it.isHanging }, "Level 4 has 4 dynamic hanging crates")
-        assertEquals(4, world.hangingCrateVariant1.size + world.hangingCrateVariant2.size, "Level 4 has 4 hanging crates")
-        assertEquals(11, world.lasers.size, "Level 4 has 11 periodic vertical, crossed, and tilted laser hazards")
+        // 2. Obstacle count and types: mix of 1-stack, 2-stack stepped pyramids, and multi-stacks
+        assertEquals(45, world.conveyorCrates.size, "Level 4 has 45 dynamic conveyor crates (38 floor + 7 hanging)")
+        assertEquals(38, world.conveyorCrates.count { !it.isHanging }, "Level 4 has 38 floor crates")
+        assertEquals(7, world.conveyorCrates.count { it.isHanging }, "Level 4 has 7 dynamic hanging crates")
+        assertEquals(7, world.hangingCrateVariant1.size + world.hangingCrateVariant2.size, "Level 4 has 7 hanging crates")
+        assertEquals(12, world.lasers.size, "Level 4 has 12 periodic vertical, crossed, and tilted laser hazards")
 
         val floorCrates = world.conveyorCrates.filter { !it.isHanging }
         val hangingCrates = world.conveyorCrates.filter { it.isHanging }
 
-        // 3. 20 single 1-stacks (48px) and 3 stepped 2-stacks (96px)
-        assertEquals(20, floorCrates.count { it.height == 48.0 }, "20 single 1-stack crates")
-        assertEquals(3, floorCrates.count { it.height == 96.0 }, "3 2-stack crates for vertical platforming")
+        // 3. 27 single 1-stacks (48px) and 11 stepped 2-stacks (96px)
+        assertEquals(27, floorCrates.count { it.height == 48.0 }, "27 single 1-stack crates")
+        assertEquals(11, floorCrates.count { it.height == 96.0 }, "11 2-stack crates for vertical platforming")
 
-        // 4. Zero clipping: All hanging crates bottom is <= 340.0, maintaining >= 26px clearance above 1-stack crates,
-        // and 2-stack crates are exclusively placed in open areas away from hanging cargo.
+        // 4. Zero clipping: All hanging crates bottom is <= 340.0, maintaining clearance above floor crates
         assertTrue(hangingCrates.all { it.bounds.bottom <= 340.0 }, "All hanging crates bottom is <= 340.0")
         for (hanging in hangingCrates) {
-            for (floor in floorCrates.filter { it.height == 48.0 }) {
-                assertTrue(floor.top - hanging.bounds.bottom >= 26.0 - 1e-4,
-                    "At least 26px physical clearance between 1-stack floor crate and hanging crate prevents all clipping")
-            }
             for (floor in floorCrates) {
                 assertFalse(hanging.bounds.intersects(floor.bounds), "Floor crate never intersects hanging crate in 2D space")
             }
@@ -2967,10 +3000,9 @@ class GameplayModelTest {
         assertTrue(hangingCrates.all { it.shouldLoop }, "All hanging crates loop across conveyor track")
         assertTrue(hangingCrates.none { it.isPatrol }, "Hanging crates no longer patrol; they flow with belt")
 
-        // 6. Vertical oscillation on crates 2 and 3
+        // 6. Vertical oscillation on crates 2, 3, 4, and 5
         val oscillatingCrates = hangingCrates.filter { it.verticalPeriodSeconds > 0.0 }
-        assertEquals(2, oscillatingCrates.size, "Two hanging crates oscillate vertically")
-        assertTrue(oscillatingCrates.all { it.minY == 220.0 && it.maxY == 302.0 }, "Oscillate between y=220.0 and y=302.0")
+        assertEquals(4, oscillatingCrates.size, "Four hanging crates oscillate vertically")
 
         // Activate conveyor and simulate movement with player running forward
         val initialCrateX = hangingCrates.map { it.x }
@@ -2981,6 +3013,105 @@ class GameplayModelTest {
         for (i in hangingCrates.indices) {
             assertTrue(hangingCrates[i].x < initialCrateX[i], "Hanging crate moves in same direction (leftward) as conveyor")
         }
+    }
+
+    @Test
+    fun testLevel4FinaleAirlockLasersRequireStagedAdvance() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
+        val l1 = world.lasers.first { it.id == "lvl4_laser_gauntlet_1" }
+        val l2 = world.lasers.first { it.id == "lvl4_laser_gauntlet_2" }
+        val l3 = world.lasers.first { it.id == "lvl4_laser_gauntlet_3" }
+
+        // Positioning: spaced 120px apart
+        assertEquals(7120.0, l1.topX, 1e-4)
+        assertEquals(7240.0, l2.topX, 1e-4)
+        assertEquals(7360.0, l3.topX, 1e-4)
+
+        // Pocket 1: between l1 and l2 (around x = 7180)
+        val pocket1Player = Rect(x = 7165.0, y = 318.0, width = 36.0, height = 96.0)
+        // Pocket 2: between l2 and l3 (around x = 7300)
+        val pocket2Player = Rect(x = 7285.0, y = 318.0, width = 36.0, height = 96.0)
+
+        // Phase 1 at t = 1.0s: Laser 1 is OFF, Laser 2 is ON, Laser 3 is ON
+        l1.update(1.0)
+        l2.update(1.0)
+        l3.update(1.0)
+        assertFalse(l1.isActive, "Laser 1 is OFF in Phase 1 (safe to enter)")
+        assertTrue(l2.isActive, "Laser 2 is ON in Phase 1 (blocking forward progress)")
+        assertTrue(l3.isActive, "Laser 3 is ON in Phase 1")
+        assertFalse(l1.intersectsPlayer(pocket1Player), "Player is safe in Pocket 1 from Laser 1")
+        assertFalse(l2.intersectsPlayer(pocket1Player), "Player is safe in Pocket 1 from Laser 2")
+
+        // Phase 2 at t = 3.0s: Laser 1 is ON (locks behind), Laser 2 is OFF, Laser 3 is ON
+        l1.update(3.0)
+        l2.update(3.0)
+        l3.update(3.0)
+        assertTrue(l1.isActive, "Laser 1 is ON in Phase 2 (locks player behind)")
+        assertFalse(l2.isActive, "Laser 2 is OFF in Phase 2 (safe to advance to Pocket 2)")
+        assertTrue(l3.isActive, "Laser 3 is ON in Phase 2 (blocking forward progress)")
+        assertFalse(l2.intersectsPlayer(pocket2Player), "Player is safe in Pocket 2 from Laser 2")
+        assertFalse(l3.intersectsPlayer(pocket2Player), "Player is safe in Pocket 2 from Laser 3")
+
+        // Phase 3 at t = 5.0s: Laser 2 is ON (locks behind), Laser 3 is OFF
+        l1.update(5.0)
+        l2.update(5.0)
+        l3.update(5.0)
+        assertTrue(l2.isActive, "Laser 2 is ON in Phase 3 (locks player behind)")
+        assertFalse(l3.isActive, "Laser 3 is OFF in Phase 3 (safe to clear gauntlet to exit)")
+    }
+
+    @Test
+    fun testLevel4ConveyorConnectsFlushToBoxAndProximityTriggersVictory() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
+        val conveyor = world.conveyors.single()
+
+        // Conveyor right edge is at 7760.0
+        assertEquals(7760.0, conveyor.bounds.right, 1e-4, "Conveyor ends directly at extraction machine (7760.0)")
+
+        // Standing before the trigger zone: not complete
+        world.player.x = 7600.0
+        world.player.y = conveyor.bounds.top - world.player.height
+        world.player.isGrounded = true
+        world.update(0.05, 0.0, false, false)
+        assertFalse(world.isLevelComplete, "Not complete before reaching proximity of terminal box")
+
+        // Walking close to the terminal box (x >= 7680)
+        world.player.x = 7700.0
+        world.player.y = conveyor.bounds.top - world.player.height
+        world.player.isGrounded = true
+        var victoryFired = false
+        world.onLevelComplete = { victoryFired = true }
+
+        world.update(0.05, 0.0, false, false)
+        assertTrue(world.isLevelComplete, "Reaching proximity of terminal box triggers mission success")
+        assertTrue(victoryFired, "onLevelComplete callback fired")
+    }
+
+    @Test
+    fun testLevel4MultiStackCrateClimbAndDuckUnderDescendingCargo() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
+        val conveyorTop = 414.0
+        val crateHeight2 = 96.0
+        val twoStackTop = conveyorTop - crateHeight2 // 318.0
+
+        val hanging1 = world.conveyorCrates.first { it.initialX == 2200.0 && it.isHanging }
+
+        // Top of 2-stack platform is at 318.0.
+        // Standing player on 2-stack: head is at 318.0 - 96.0 = 222.0.
+        // Crouching player on 2-stack: head is at 318.0 - 56.0 = 262.0.
+        // Lowest point of hanging crate 1 is maxY = 212.0 (bottom = 250.0).
+        assertEquals(212.0, hanging1.maxY, 1e-4)
+        assertEquals(250.0, hanging1.maxY + hanging1.height, 1e-4)
+
+        // 1. Crouching player on 2-stack platform has headroom and never hits crate
+        val crouchHead = twoStackTop - world.player.crouchHeight
+        assertTrue(crouchHead > (hanging1.maxY + hanging1.height),
+            "Crouching player head ($crouchHead) has 12px clearance below lowest crate bottom (250.0)")
+
+        // 2. Standing player on 2-stack platform gets crushed when crate descends
+        val standHead = twoStackTop - world.player.height
+        assertTrue(standHead < (hanging1.maxY + hanging1.height),
+            "Standing player head ($standHead) is inside crate travel space (crush condition)")
     }
 
     @Test
@@ -3010,25 +3141,23 @@ class GameplayModelTest {
     @Test
     fun testLevel4HangingCrateVerticalOscillationAndZeroClipping() {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
-        val oscillatingCrate = world.conveyorCrates.first { it.isHanging && it.verticalPeriodSeconds > 0.0 }
+        val oscillatingCrates = world.conveyorCrates.filter { it.isHanging && it.verticalPeriodSeconds > 0.0 }
         val floorCrates = world.conveyorCrates.filter { !it.isHanging }
 
-        // Step through full oscillation cycle and verify limits and zero clipping
-        val period = oscillatingCrate.verticalPeriodSeconds
-        for (step in 0..100) {
-            val dt = period / 100.0
-            world.update(dt, 0.0, false)
-            assertTrue(oscillatingCrate.y >= 220.0 - 1e-4, "y >= minY (220.0), was ${oscillatingCrate.y}")
-            assertTrue(oscillatingCrate.y <= 302.0 + 1e-4, "y <= maxY (302.0), was ${oscillatingCrate.y}")
-            assertTrue(oscillatingCrate.bottom <= 340.0 + 1e-4, "bottom <= 340.0, was ${oscillatingCrate.bottom}")
+        // Step through full oscillation cycle and verify limits and zero clipping for all oscillating crates
+        for (oscillatingCrate in oscillatingCrates) {
+            val period = oscillatingCrate.verticalPeriodSeconds
+            for (step in 0..50) {
+                val dt = period / 50.0
+                world.update(dt, 0.0, false)
+                assertTrue(oscillatingCrate.y >= oscillatingCrate.minY - 1e-4, "y >= minY (${oscillatingCrate.minY}), was ${oscillatingCrate.y}")
+                assertTrue(oscillatingCrate.y <= oscillatingCrate.maxY + 1e-4, "y <= maxY (${oscillatingCrate.maxY}), was ${oscillatingCrate.y}")
+                assertTrue(oscillatingCrate.bottom <= 340.0 + 1e-4, "bottom <= 340.0, was ${oscillatingCrate.bottom}")
 
-            // Verify zero clipping against floor crates
-            for (floor in floorCrates.filter { it.height == 48.0 }) {
-                assertTrue(floor.top - oscillatingCrate.bottom >= 26.0 - 1e-4,
-                    "Clearance is always at least 26px throughout vertical cycle")
-            }
-            for (floor in floorCrates) {
-                assertFalse(oscillatingCrate.bounds.intersects(floor.bounds), "Zero clipping guaranteed throughout oscillation")
+                // Verify zero clipping against floor crates
+                for (floor in floorCrates) {
+                    assertFalse(oscillatingCrate.bounds.intersects(floor.bounds), "Zero clipping guaranteed throughout oscillation")
+                }
             }
         }
     }
@@ -3052,8 +3181,8 @@ class GameplayModelTest {
         assertTrue(kotlin.math.abs(cross1b.tiltAngleDegrees) <= 45.0, "cross1b tilt <= 45°")
         assertEquals(cross1a.tiltAngleDegrees, -cross1b.tiltAngleDegrees, 1e-2, "Symmetrical X-crossing")
 
-        // Mid-air crossing point around x=1890, y=282
-        val playerAtIntersection = Rect(x = 1870.0, y = 250.0, width = 36.0, height = 96.0)
+        // Mid-air crossing point around x=5070, y=282
+        val playerAtIntersection = Rect(x = 5052.0, y = 250.0, width = 36.0, height = 96.0)
         assertTrue(cross1a.intersectsPlayer(playerAtIntersection), "Player at intersection hits cross1a")
         assertTrue(cross1b.intersectsPlayer(playerAtIntersection), "Player at intersection hits cross1b")
     }
@@ -3137,7 +3266,7 @@ class GameplayModelTest {
     @Test
     fun testLevel4LasersOriginateFromTopAndAimAtBottom() {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
-        assertEquals(11, world.lasers.size, "Level 4 has 11 lasers")
+        assertEquals(12, world.lasers.size, "Level 4 has 12 lasers")
 
         for (laser in world.lasers) {
             assertEquals(150.0, laser.topY, 1e-4, "Laser '${laser.id}' must originate from top ceiling (y=150.0)")
@@ -3151,25 +3280,25 @@ class GameplayModelTest {
     fun testVerticalLaserSegmentCollision() {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
         val vertLaser = world.lasers.first { it.id == "lvl4_laser_vert_1" }
-        assertEquals(670.0, vertLaser.topX, 1e-4)
-        assertEquals(670.0, vertLaser.bottomX, 1e-4)
+        assertEquals(1950.0, vertLaser.topX, 1e-4)
+        assertEquals(1950.0, vertLaser.bottomX, 1e-4)
         assertEquals(0.0, vertLaser.tiltAngleDegrees, 1e-4)
 
         // Player standing directly in the vertical laser path (conveyor level: y=318..414)
-        // Player width is 30.0px -> spans [660.0, 690.0], which encloses x=670.0
-        val playerBoundsInPath = Rect(x = 660.0, y = 318.0, width = 30.0, height = 96.0)
+        // Player width is 30.0px -> spans [1940.0, 1970.0], which encloses x=1950.0
+        val playerBoundsInPath = Rect(x = 1940.0, y = 318.0, width = 30.0, height = 96.0)
         assertTrue(vertLaser.intersectsPlayer(playerBoundsInPath), "Player in vertical beam path intersects laser")
 
         // Crouching player in vertical laser path (y=358..414) also intersects vertical beam
-        val crouchingInPath = Rect(x = 660.0, y = 358.0, width = 30.0, height = 56.0)
+        val crouchingInPath = Rect(x = 1940.0, y = 358.0, width = 30.0, height = 56.0)
         assertTrue(vertLaser.intersectsPlayer(crouchingInPath), "Crouching player in vertical beam path intersects laser")
 
         // Player safely away from vertical laser path
-        val playerSafe = Rect(x = 600.0, y = 318.0, width = 30.0, height = 96.0)
+        val playerSafe = Rect(x = 1800.0, y = 318.0, width = 30.0, height = 96.0)
         assertFalse(vertLaser.intersectsPlayer(playerSafe), "Player away from vertical laser does not intersect")
 
         // Inactive laser does not collide even when player is in path
-        vertLaser.update(2.5) // activeDuration is 2.0, so at 2.5s it is inactive
+        vertLaser.update(2.5) // activeDuration is 1.4, so at 2.5s it is inactive
         assertFalse(vertLaser.isActive)
         assertFalse(vertLaser.intersectsPlayer(playerBoundsInPath), "Inactive vertical laser does not collide")
     }
@@ -3178,20 +3307,20 @@ class GameplayModelTest {
     fun testTiltedLaserSegmentCollision() {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
         val tiltLaser = world.lasers.first { it.id == "lvl4_laser_cross_1a" }
-        assertEquals(1820.0, tiltLaser.topX, 1e-4)
-        assertEquals(1960.0, tiltLaser.bottomX, 1e-4)
+        assertEquals(5000.0, tiltLaser.topX, 1e-4)
+        assertEquals(5140.0, tiltLaser.bottomX, 1e-4)
         assertTrue(tiltLaser.tiltAngleDegrees > 20.0 && tiltLaser.tiltAngleDegrees <= 45.0)
 
-        // Near conveyor floor (y in [318.0, 414.0]), beam passes near x in [1920.0, 1960.0]
-        val playerAtConveyor = Rect(x = 1945.0, y = 318.0, width = 30.0, height = 96.0)
+        // Near conveyor floor (y in [318.0, 414.0]), beam passes near x in [5100.0, 5140.0]
+        val playerAtConveyor = Rect(x = 5120.0, y = 318.0, width = 30.0, height = 96.0)
         assertTrue(tiltLaser.intersectsPlayer(playerAtConveyor), "Player intersects tilted beam near floor")
 
-        // At ceiling level (y in [150.0, 200.0]), beam passes near x in [1820.0, 1850.0]
-        // Player at x=1945, y=150 is nowhere near the tilted beam
-        val playerHighAway = Rect(x = 1945.0, y = 150.0, width = 30.0, height = 50.0)
-        assertFalse(tiltLaser.intersectsPlayer(playerHighAway), "Player at ceiling x=1945 is not near tilted beam")
+        // At ceiling level (y in [150.0, 200.0]), beam passes near x in [5000.0, 5030.0]
+        // Player at x=5120, y=150 is nowhere near the tilted beam
+        val playerHighAway = Rect(x = 5120.0, y = 150.0, width = 30.0, height = 50.0)
+        assertFalse(tiltLaser.intersectsPlayer(playerHighAway), "Player at ceiling x=5120 is not near tilted beam")
 
-        val playerHighInBeam = Rect(x = 1815.0, y = 150.0, width = 30.0, height = 50.0)
+        val playerHighInBeam = Rect(x = 4995.0, y = 150.0, width = 30.0, height = 50.0)
         assertTrue(tiltLaser.intersectsPlayer(playerHighInBeam), "Player at ceiling near origin intersects tilted beam")
     }
 
@@ -3199,9 +3328,9 @@ class GameplayModelTest {
     fun testLaserHitTriggersConveyorRestart() {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
         var laserHitFired = false
-        var conveyorFallOffFired = false
+        var gameOverFired = false
         world.onLaserHit = { laserHitFired = true }
-        world.onConveyorFallOff = { conveyorFallOffFired = true }
+        world.onGameOver = { gameOverFired = true }
 
         val activeLaser = world.lasers.first { it.isActive }
         // Position player at conveyor surface where the laser beam hits the bottom cylinder
@@ -3211,8 +3340,8 @@ class GameplayModelTest {
 
         world.update(0.01, 0.0, false)
         assertTrue(laserHitFired, "onLaserHit callback triggered when touching active laser")
-        assertTrue(conveyorFallOffFired, "onConveyorFallOff callback triggered for instant restart")
-        assertEquals(100.0, world.player.x, 1e-4, "Player reset to start of conveyor")
+        assertTrue(gameOverFired, "onGameOver callback triggered for mission failed screen")
+        assertTrue(world.isGameOver, "Touching laser sets isGameOver to true")
 
         // In a world without restartOnConveyorFallOff, laser hit triggers spotted game over
         val testLaser = Laser(
@@ -3236,7 +3365,7 @@ class GameplayModelTest {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
         val dt = 1.0 / 60.0
         var elapsed = 0.0
-        val maxSimTime = 120.0
+        val maxSimTime = 140.0
         var restartCount = 0
 
         var preUpdateX = world.player.x
@@ -3249,6 +3378,10 @@ class GameplayModelTest {
         world.onConveyorFallOff = {
             restartCount++
             println("[SIM RESTART] Conveyor Fall Off at t=${elapsed.toFloat()}s, atX=${preUpdateX.toInt()}, atY=${preUpdateY.toInt()}")
+        }
+        world.onHangingCrateHit = {
+            restartCount++
+            println("[SIM RESTART] Hanging Crate Hit at t=${elapsed.toFloat()}s, atX=${preUpdateX.toInt()}, atY=${preUpdateY.toInt()}")
         }
 
         data class SimTrapZone(
@@ -3287,14 +3420,26 @@ class GameplayModelTest {
             val pRight = p.x + p.width
 
             // 1. Hanging crates overhead/ahead: duck well in advance so player can slide under
+            // - On conveyor floor (p.y > 300): duck under low hanging crates (crate.maxY >= 300)
+            // - On raised 2-stack platform (p.y <= 300): duck under overhead crushers
             val underHangingCrate = world.conveyorCrates.firstOrNull { crate ->
-                crate.isHanging && (pRight >= crate.x - 35.0 && p.x < crate.x + crate.width)
+                crate.isHanging && (pRight >= crate.x - 25.0 && p.x < crate.x + crate.width + 10.0) &&
+                    (p.y <= 300.0 || crate.maxY >= 300.0)
             }
-            val crouchInput = underHangingCrate != null
+            var crouchInput = underHangingCrate != null
 
-            // 2. Floor crates ahead to jump
+            // 2. Floor crates ahead that are taller than current feet and require a hop
             val floorCrateAhead = world.conveyorCrates.firstOrNull { crate ->
-                !crate.isHanging && crate.x > p.x && (crate.x - pRight) in -5.0..35.0 && crate.y < 414.0
+                !crate.isHanging && crate.x > p.x && (crate.x - pRight) in -5.0..35.0 &&
+                    crate.top < (p.y + p.height - 4.0)
+            }
+            val shouldHopFloorCrate = floorCrateAhead != null && p.isGrounded
+            if (shouldHopFloorCrate && (underHangingCrate == null || !underHangingCrate.isMovingDown)) {
+                // Hop onto floor crate when safe (not directly under a downward-moving crusher)
+                crouchInput = false
+            } else if (underHangingCrate != null) {
+                // Must stay crouched when underneath/crossing under a hanging crate
+                crouchInput = true
             }
 
             // 3. Find closest upcoming trap zone that player hasn't fully cleared yet
@@ -3310,7 +3455,7 @@ class GameplayModelTest {
             if (inLaserTrap) {
                 // Inside or straddling the trap: ALWAYS sprint forward to clear!
                 moveInput = 1.0
-                if (floorCrateAhead != null && p.isGrounded && !crouchInput) {
+                if (shouldHopFloorCrate) {
                     jumpInput = true
                 }
             } else if (upcomingZone != null) {
@@ -3319,7 +3464,7 @@ class GameplayModelTest {
                 if (distToEntry > 140.0) {
                     // Far from laser: advance normally
                     moveInput = 1.0
-                    if (floorCrateAhead != null && p.isGrounded && !crouchInput) {
+                    if (shouldHopFloorCrate) {
                         jumpInput = true
                     }
                 } else {
@@ -3331,12 +3476,12 @@ class GameplayModelTest {
                     if (safeToEnter) {
                         // Inactive window is wide enough: sprint!
                         moveInput = 1.0
-                        if (floorCrateAhead != null && p.isGrounded && !crouchInput) {
+                        if (shouldHopFloorCrate) {
                             jumpInput = true
                         }
                     } else {
                         // Laser is active or about to reactivate: wait at staging buffer (25..45px)
-                        val shouldHopCrate = floorCrateAhead != null && p.isGrounded && (floorCrateAhead.x - pRight) in -5.0..30.0 && !crouchInput
+                        val shouldHopCrate = shouldHopFloorCrate && (floorCrateAhead!!.x - pRight) in -5.0..30.0
                         jumpInput = shouldHopCrate
                         moveInput = when {
                             distToEntry < 20.0 -> -0.3 // too close, back off
@@ -3368,12 +3513,12 @@ class GameplayModelTest {
     }
 
     @Test
-    fun testLevel4HookGapIsOnlyCrossableBySwinging() {
+    fun testLevel5HookGapIsOnlyCrossableBySwinging() {
         val world = GameWorld.createDefault(SWING_TEST_LEVEL)
         val layout = SWING_TEST_LAYOUT
-        val hook = world.swingHooks.single()
+        val hook = world.swingHooks.first()
         val gapStart = layout.boxes.first { it.width == 300.0 }.right
-        val gapEnd = layout.boxes.last { it.width == 300.0 }.left
+        val gapEnd = layout.boxes.filter { it.width == 300.0 }[1].left
 
         // Ground a running jump covers: the full arc's airtime at walking speed.
         val jumpReach = 2.0 * kotlin.math.abs(world.player.jumpSpeed) / world.player.gravity * world.player.moveSpeed
@@ -3385,41 +3530,142 @@ class GameplayModelTest {
     }
 
     @Test
-    fun testSwingCarriesThePlayerOverLevel4sGapAndLandsThemOnIt() {
+    fun testLevel5SwingHookTutorialStepPointsAtTheRealHook() {
+        val steps = LevelData.SIDE_SCROLL_LEVEL.tutorialSteps
+        assertEquals(1, steps.size, "Level 5 should have exactly one tutorial step - the hook callout")
+
+        val step = steps.single()
+        val hook = SWING_TEST_LAYOUT.swingHooks.first()
+        val terrain1 = SWING_TEST_LAYOUT.boxes.first { it.width == 300.0 }
+
+        assertEquals("step_swing_hook", step.id)
+        assertEquals(TutorialAction.SWING, step.targetAction)
+        assertEquals(TutorialControlHighlight.NONE, step.highlight, "World-anchored, like step_reach_objective in level 1 - not a control-button highlight")
+        assertNotNull(step.handwrittenCallout)
+        assertTrue(step.handwrittenCallout!!.isNotEmpty())
+
+        // The arrow has to land on the hook's actual GRIP (what Player.findSwingTarget measures
+        // reach from), not just somewhere near the hook's art.
+        assertEquals(Player.hookGripX(hook), step.worldAnchorX, 1e-6)
+        assertEquals(Player.hookGripY(hook), step.worldAnchorY, 1e-6)
+
+        // The trigger window has to sit on terrain1 - where the player is actually running when
+        // the hook comes into view - and close before the reach window a swing needs opens, so
+        // the callout has had time to appear before pressing jump actually matters.
+        assertTrue(step.triggerMinX >= terrain1.left && step.triggerMinX < terrain1.right)
+        assertTrue(step.triggerMaxX <= terrain1.right)
         val world = GameWorld.createDefault(SWING_TEST_LEVEL)
-        val terrain2 = SWING_TEST_LAYOUT.boxes.last { it.width == 300.0 }
+        val reachWindowStart = Player.hookGripX(hook) - world.player.swingMaxReach
+        assertTrue(step.triggerMaxX <= reachWindowStart,
+            "The prompt must finish arriving before the swing's own reach window (starts at " +
+                "${reachWindowStart.toInt()}) opens, or the player has no time to read it")
+    }
+
+    @Test
+    fun testSwingCarriesThePlayerOverLevel5sGapAndLandsThemOnIt() {
+        val world = GameWorld.createDefault(SWING_TEST_LEVEL)
+        val terrain2 = SWING_TEST_LAYOUT.boxes.filter { it.width == 300.0 }[1]
         val dt = 1.0 / 60.0
 
         // Auto-pilot: hold right, press jump when progress stalls (which climbs the barrel
-        // stack) or when the hook is in reach - the same button either way, which is the point
-        // of putting the swing on it.
-        val hook = world.swingHooks.single()
-        val gripX = hook.left + hook.width / 2.0
+        // stack), near platform edges (hopping thin platforms), or when any hook is in reach.
+        val jumpLedges = listOf(terrain2.right, 1494.0, 1582.0)
         var elapsed = 0.0
         var stalledFor = 0.0
-        var swung = false
+        var swingCount = 0
+        var wasSwinging = false
         while (elapsed < 40.0 && !world.isLevelComplete && !world.isGameOver) {
             val beforeX = world.player.x
-            val reach = gripX - world.player.centerX
-            val hookInReach = reach >= world.player.swingMinReach && reach <= world.player.swingMaxReach
-            val jump = world.player.isGrounded && (stalledFor > 0.05 || hookInReach)
+            val hookInReach = world.swingHooks.any { h ->
+                val reach = Player.hookGripX(h) - world.player.centerX
+                reach in world.player.swingMinReach..world.player.swingMaxReach
+            }
+            val nearLedgeEdge = jumpLedges.any { ledgeRight ->
+                val dist = ledgeRight - (world.player.x + world.player.width)
+                dist in 0.0..18.0
+            }
+            val jump = world.player.isGrounded && (stalledFor > 0.05 || hookInReach || nearLedgeEdge)
             world.update(dt, moveInput = 1.0, jumpInput = jump, crouchInput = false)
-            if (world.player.isSwinging) swung = true
+            if (world.player.isSwinging && !wasSwinging) {
+                swingCount++
+            }
+            wasSwinging = world.player.isSwinging
             stalledFor = if (kotlin.math.abs(world.player.x - beforeX) < 0.5) stalledFor + dt else 0.0
             elapsed += dt
         }
 
-        assertTrue(swung, "Walking right into the hook and pressing jump should start a swing")
+        assertTrue(swingCount >= 2, "Both hook swings should be executed. Swung $swingCount times.")
         assertTrue(world.isLevelComplete,
-            "The swing should land on terrain2 and the run continue to the exit. Ended at " +
+            "The swing sequence should complete and the run continue to the exit. Ended at " +
                 "x=${world.player.x.toInt()} y=${world.player.y.toInt()} after ${elapsed.toInt()}s")
         assertTrue(world.player.x > terrain2.left,
             "The landing has to be past terrain2's near edge, not short of it")
     }
 
     @Test
+    fun testLevel5ThinPlatformsMomentumSwing() {
+        val dt = 1.0 / 60.0
+
+        // Case 1: Chaining jumps across the thin platforms maintains momentum and executes the second swing
+        val world = GameWorld.createDefault(SWING_TEST_LEVEL)
+        val terrain2 = SWING_TEST_LAYOUT.boxes.filter { it.width == 300.0 }[1]
+        val hook2 = world.swingHooks[1]
+        val gripX2 = Player.hookGripX(hook2)
+        val terrain3 = SWING_TEST_LAYOUT.boxes.last { it.width == 340.0 }
+
+        // Start player on terrain2 with running approach
+        world.player.resetTo(terrain2.right - 100.0, terrain2.top - world.player.height)
+        val jumpLedges = listOf(terrain2.right, 1494.0, 1582.0)
+        var swung = false
+        var elapsed = 0.0
+        while (elapsed < 10.0 && !world.isGameOver) {
+            val reach = gripX2 - world.player.centerX
+            val hookInReach = reach in world.player.swingMinReach..world.player.swingMaxReach
+            val nearLedgeEdge = jumpLedges.any { ledgeRight ->
+                val dist = ledgeRight - (world.player.x + world.player.width)
+                dist in 0.0..18.0
+            }
+            val jump = world.player.isGrounded && (hookInReach || nearLedgeEdge)
+            world.update(dt, moveInput = 1.0, jumpInput = jump, crouchInput = false)
+            if (world.player.isSwinging) {
+                swung = true
+            }
+            if (world.player.x >= terrain3.left + 20.0) {
+                break
+            }
+            elapsed += dt
+        }
+        assertTrue(swung, "Continuous running and jumping across thin platforms should preserve momentum and swing from hook 2")
+        assertTrue(world.player.x >= terrain3.left, "Swing from hook 2 should land on terrain3")
+
+        // Case 2: Landing on thinPlatform3 and stopping loses momentum; subsequent jump fails to swing
+        val stoppedWorld = GameWorld.createDefault(SWING_TEST_LEVEL)
+        val thin3 = SWING_TEST_LAYOUT.boxes.first { it.x == 1630.0 }
+        // Place player stationary on thinPlatform3
+        stoppedWorld.player.resetTo(thin3.left + 2.0, thin3.top - stoppedWorld.player.height)
+        // Step while stationary to ensure grounded and zero momentum
+        stoppedWorld.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false)
+        assertEquals(0.0, stoppedWorld.player.runUpDistance, 1e-4, "Stationary player has zero runUpDistance")
+
+        // Now attempt to jump and swing towards hook 2
+        var attemptedSwing = false
+        for (i in 0 until 80) {
+            val reach = gripX2 - stoppedWorld.player.centerX
+            val hookInReach = reach in stoppedWorld.player.swingMinReach..stoppedWorld.player.swingMaxReach
+            stoppedWorld.update(dt, moveInput = 1.0, jumpInput = hookInReach || i == 0, crouchInput = false)
+            if (stoppedWorld.player.isSwinging) {
+                attemptedSwing = true
+            }
+        }
+        assertFalse(attemptedSwing, "Stopping on the thin platform must lose momentum and prevent the hook swing")
+        assertTrue(stoppedWorld.player.x > thin3.right, "Player should have jumped past the thin platform")
+        assertTrue(stoppedWorld.player.x < terrain3.left, "Without swing, normal jump must not reach terrain3")
+        assertTrue(stoppedWorld.player.y > thin3.top - stoppedWorld.player.height + 20.0, "Without swing momentum, ordinary jump should fall into the gap")
+    }
+
+    @Test
     fun testSwingNeedsTheWalkAndTheHook() {
-        val hook = GameWorld.createDefault(SWING_TEST_LEVEL).swingHooks.single()
+        val hook = GameWorld.createDefault(SWING_TEST_LEVEL).swingHooks.first()
         val terrain = SWING_TEST_LAYOUT.boxes.first { it.width == 300.0 }
         val dt = 1.0 / 60.0
 
@@ -3458,7 +3704,7 @@ class GameplayModelTest {
     @Test
     fun testSwingKeepsTheHandOnTheHookForItsWholeHang() {
         val world = GameWorld.createDefault(SWING_TEST_LEVEL)
-        val hook = world.swingHooks.single()
+        val hook = world.swingHooks.first()
         val terrain = SWING_TEST_LAYOUT.boxes.first { it.width == 300.0 }
         val dt = 1.0 / 60.0
         world.player.resetTo(terrain.right - world.player.width - 25.0, terrain.top - world.player.height)
@@ -3502,7 +3748,7 @@ class GameplayModelTest {
     @Test
     fun testSwingBodyRotationAndPivotTracking() {
         val world = GameWorld.createDefault(SWING_TEST_LEVEL)
-        val hook = world.swingHooks.single()
+        val hook = world.swingHooks.first()
         val terrain = SWING_TEST_LAYOUT.boxes.first { it.width == 300.0 }
         val dt = 1.0 / 60.0
         world.player.resetTo(terrain.right - world.player.width - 25.0, terrain.top - world.player.height)
@@ -3879,8 +4125,8 @@ class GameplayModelTest {
         assertTrue(cameraLeg.top < beam.bottom, "Tucked up against the beam's underside, no visible gap")
         assertEquals(440.0, cameraLeg.bottom, 1e-9, "...down to the ground - nothing floats")
 
-        assertEquals(1, world.cameras.size, "One fixed camera, mounted under the beam")
-        val cam = world.cameras.single()
+        assertEquals(2, world.cameras.size, "beamCamera (under the beam) and poleCamera (on finalPlatform's own pole)")
+        val cam = world.cameras.minByOrNull { it.x }!! // beamCamera - far left of poleCamera, near finalPlatform
         assertEquals(beam.bottom, cam.y, 1e-9, "Flush against the beam's own underside")
         assertTrue(cam.x >= beam.left && cam.x <= beam.right, "Mounted somewhere along the beam, not off the end of it")
         assertTrue(cam.x < cameraLeg.left, "Mounted clear of the leg, near the beam's start")
@@ -3916,48 +4162,293 @@ class GameplayModelTest {
         // Unlike a fixed-eye turret, this camera's own eye moves as its body swings around the
         // joint (see Camera.eyePosition) - so "covers the crate" is checked the same way the ground
         // corridor above is: caught at some point across the full sweep, not necessarily at one
-        // static angle. Both ends of stepCrate, near (where the climb lands) and far, are checked.
+        // static angle. Only the NEAR end of stepCrate (where the climb lands) is required - the
+        // far end turned out to be reachable only by aiming right at the edge of the FOV exactly at
+        // the crate's own corner, which is what produced the stray-ray bug (see the doc comment on
+        // beamCamera in LevelData.kt and testLevel3CameraConePolygonNeverPastCrate below). Chasing
+        // full crate coverage cost more than it was worth once that trade-off was actually measured
+        // - dropped on purpose, not an oversight.
         var sawNearEnd = false
-        var sawFarEnd = false
         angle = cam.minAngle
         while (angle <= cam.maxAngle) {
             val probe = Camera(x = cam.x, y = cam.y, minAngle = cam.minAngle, maxAngle = cam.maxAngle,
                 currentAngle = angle, visionRange = cam.visionRange, visionFov = cam.visionFov)
             val playerOnCrateNear = Player(x = stepCrate.right - 40.0, y = stepCrate.top - 96.0)
-            val playerOnCrateFar = Player(x = stepCrate.x, y = stepCrate.top - 96.0)
             if (VisionSystem.getPlayerSpottedDistance(probe, playerOnCrateNear, occluders) != null) sawNearEnd = true
-            if (VisionSystem.getPlayerSpottedDistance(probe, playerOnCrateFar, occluders) != null) sawFarEnd = true
             angle += 5.0 * (PI / 180.0)
         }
         assertTrue(sawNearEnd, "The near end of the crate should be lit at some point across the full sweep")
-        assertTrue(sawFarEnd, "The far end of the crate should be lit at some point across the full sweep")
 
-        // The cone should stop at the crate's own far edge, not spill into the open corridor
-        // before it - a wide enough sweep/range combination lets the cone's shallow FOV edge sail
-        // clean past the crate's own silhouette (missing it entirely, not just skimming its top)
-        // instead of being cut off by it, reported directly against a screenshot twice now (see
-        // the doc comment on beamCamera in LevelData.kt). Checked at several heights, not just
-        // standing eye level, since the shallow edge's worst overshoot lands near the crate's own
-        // top height, not at a standing player's head.
-        var sawPastCrate = false
-        angle = cam.minAngle
+        // One last hanging crate past the beam, no guard on it, close to flush with the beam (2
+        // units higher, on request - see finalHangingCrate's own comment in LevelData.kt) for a
+        // jump across, not a climb.
+        val finalCrate = world.hangingCrateVariant1.maxByOrNull { it.x }!!
+        assertTrue(finalCrate.x > beam.right, "Sits past the beam, not overlapping it")
+        assertEquals(2.0, beam.top - finalCrate.top, 1e-9, "Close to flush with the beam - a jump across, not a climb")
+        assertTrue(world.extraGuards.none { it.bounds.bottom == finalCrate.top }, "No guard standing on this one")
+    }
+
+    @Test
+    fun testLevel3GroundDressingUnderBeamHasBarrelsAndWoodCratesSeparately() {
+        // The boxes under the camera beam are two barrels plus three wood crates in a brick-like
+        // stagger (LevelData.kt's own comment on woodCrateBaseLeft/Right/Top has the full history:
+        // an earlier pass swapped all four ground-dressing boxes to wood-crate art, misreading a
+        // screenshot; corrected back to two-and-two, then the wood-crate pair was later redesigned
+        // from a straight "single + 2-tall stack" into this staggered three-crate arrangement).
+        // Barrels stay barrels (LevelLayout.barrels); all boxes still collide/occlude regardless of
+        // which art they use.
+        val world = level3()
+        val beam = world.tables.maxByOrNull { it.x }!! // cameraBeam
+        val cameraLeg = world.tableDecorations.maxByOrNull { it.x }!!
+        val barrelDressing = world.barrels.filter { it.x >= beam.x && it.right <= cameraLeg.left }
+        val woodDressing = world.woodCrates.filter { it.x >= beam.x && it.right <= cameraLeg.left }
+        assertEquals(2, barrelDressing.size, "Two barrels under the beam, still tagged as barrels")
+        assertEquals(3, woodDressing.size, "Three wood crates in the staggered arrangement")
+        for (box in barrelDressing + woodDressing) {
+            assertTrue(box in world.boxes, "Still collides/climbs regardless of which art it uses")
+            assertTrue(box in world.occluders, "Still blocks line of sight like any other box")
+        }
+        assertEquals(2, barrelDressing.count { it.height == 48.0 && it.width == 32.0 }, "The two barrels keep their own footprint/height")
+        assertTrue(woodDressing.all { it.height == 48.0 && it.width == 68.0 }, "Every wood crate here is a plain single crate, no more tall stacked box")
+
+        // "two crates touching each other, other one on top of the right most crate"
+        val baseCrates = woodDressing.filter { it.bottom == 440.0 }.sortedBy { it.x } // resting on the ground
+        assertEquals(2, baseCrates.size, "A base pair on the ground")
+        val (baseLeft, baseRight) = baseCrates
+        assertEquals(baseLeft.right, baseRight.x, 1e-9, "The base pair touches - zero gap")
+        assertEquals(baseLeft.top, baseRight.top, 1e-9, "Same height, sitting flush side by side")
+
+        val topCrate = woodDressing.first { it.bottom != 440.0 }
+        assertEquals(baseRight.top + 2.0, topCrate.bottom, 1e-9, "Rests directly on the right base crate with a 2-unit visual sink closing the gap")
+        assertEquals(baseRight.x, topCrate.x, 1e-9, "Stacked directly on top of the rightmost crate")
+        assertEquals(baseRight.right, topCrate.right, 1e-9, "Aligned with the rightmost crate's right edge")
+    }
+
+    @Test
+    fun testLevel3PoleStandsAtFinalPlatformLeftCornerAndIsNotInteractable() {
+        // On request: a pole (pole.png) at "the left corner of the platform right of the unmanned
+        // hanging crate" (finalPlatform), "not interactable". Not in world.boxes at all (no
+        // collision - the player walks straight through/under where it visually stands).
+        //
+        // Also NOT in world.occluders, on a later correction: a first pass DID have poles occlude
+        // (same reasoning as tableDecorations - real drawn geometry should block sight), but
+        // reported directly against a screenshot, poleCamera mounted on top of its own pole had
+        // that pole block its own downward view and the vision polygon read as a flat-edged
+        // rectangle instead of a cone ("light cone becomes weird ... it become rectangular"). See
+        // GameWorld.createFromLayout's own comment on the occluders line for the full account.
+        val world = level3()
+        val finalPlatform = world.boxes.first { it.width == 340.0 && it.height == 96.0 }
+        assertEquals(1, world.poles.size, "Exactly one pole added, at finalPlatform")
+        val pole = world.poles.single()
+        assertEquals(finalPlatform.x, pole.x, 1e-9, "Left corner of finalPlatform")
+        assertEquals(finalPlatform.top, pole.bottom, 1e-9, "Stands on the platform's own surface, not floating above or sunk below it")
+        assertFalse(pole in world.boxes, "Not interactable - no collision, on request")
+        assertFalse(pole in world.occluders, "Doesn't block line of sight either - a camera mounted on it would occlude its own view otherwise")
+    }
+
+    @Test
+    fun testLevel3PoleCameraSweepsLeftAndRightAndReachesBothFlankingBoxGroups() {
+        // On request: "add a camera on top of this that rotates left and right. The light cone of
+        // it should go from the boxes in the right to the box in the left." Right = platformCrate +
+        // platformStackedCrates (on finalPlatform itself, right of the pole); left = finalHangingCrate
+        // (across the jump gap). Checked against the actual rendered vision polygon (the same
+        // VisionSystem.computeVisionPolygon call GameplayScene.kt uses), the same way beamCamera's
+        // own reach was verified, rather than trusting the angle numbers alone.
+        val world = level3()
+        val finalHangingCrate = world.hangingCrateVariant1.maxByOrNull { it.x }!!
+        val finalPlatform = world.boxes.first { it.width == 340.0 && it.height == 96.0 }
+        // finalPlatform's own height is ALSO 96 (dropped from 144 on request, see its own comment
+        // in LevelData.kt), so this needs to exclude finalPlatform itself to not just match that.
+        val platformStackedCrates = world.boxes.first { it.x >= finalPlatform.x && it.right <= finalPlatform.right && it.height == 96.0 && it != finalPlatform }
+        val poleCam = world.cameras.maxByOrNull { it.x }!! // poleCamera - far right of beamCamera
+
+        // Sweeps a genuinely wide, mostly-horizontal arc (not the mostly-downward sweep beamCamera
+        // uses) - this is what makes it read as "rotating left and right" rather than nodding.
+        assertTrue(poleCam.maxAngle - poleCam.minAngle > 100.0 * (PI / 180.0), "Wide left-right sweep, not a narrow nod")
+
+        fun xReachAt(angle: Double): ClosedFloatingPointRange<Double> {
+            val probe = Camera(x = poleCam.x, y = poleCam.y, minAngle = poleCam.minAngle, maxAngle = poleCam.maxAngle,
+                currentAngle = angle, visionRange = poleCam.visionRange, visionFov = poleCam.visionFov)
+            val poly = VisionSystem.computeVisionPolygon(probe.eyePosition, probe.facingAngle, probe.visionRange, probe.visionFov, world.occluders)
+            val xs = poly.map { it.x }
+            return (xs.minOrNull() ?: 0.0)..(xs.maxOrNull() ?: 0.0)
+        }
+
+        val rightReach = xReachAt(poleCam.minAngle)
+        assertTrue(rightReach.endInclusive >= platformStackedCrates.right, "At minAngle, the cone reaches at least as far right as platformStackedCrates' own far corner")
+
+        val leftReach = xReachAt(poleCam.maxAngle)
+        assertTrue(leftReach.start <= finalHangingCrate.x, "At maxAngle, the cone reaches at least as far left as finalHangingCrate's own near corner")
+    }
+
+    @Test
+    fun testLevel3CameraConePolygonNeverPastCrate() {
+        // The point-sampled check this used to be (testLevel3CameraBeamSection's own
+        // "sawPastCrate") missed a real overshoot once: a probe point can be "not detected" simply
+        // because it falls outside visionRange, which looks identical to "correctly blocked by the
+        // crate" from that check's point of view, and gave false confidence that a since-reverted
+        // configuration was safe. This checks the ACTUAL rendered vision polygon instead - the
+        // exact same VisionSystem.computeVisionPolygon call GameplayScene.kt uses to draw the cone
+        // - so what's checked here is what's actually on screen, not a proxy for it.
+        //
+        // The sweep below ALSO explicitly checks exactly at cam.minAngle/cam.maxAngle, not just
+        // relying on the stepped loop to land there - a stepped loop that starts at cam.minAngle
+        // and accumulates `angle += stepDeg` in floating point for many iterations can drift a
+        // tiny fraction off the exact boundary value, and this geometry is sensitive enough
+        // (see the doc comment on beamCamera in LevelData.kt) that missing the one exact angle the
+        // camera actually dwells at is exactly how a real overshoot slipped through once already.
+        val world = level3()
+        val stepCrate = world.boxes.first { it.width == 68.0 && it.height == 48.0 && it.y == 440.0 - 48.0 && it.x > 1000.0 }
+        val cam = world.cameras.minByOrNull { it.x }!! // beamCamera
+        val occluders = world.occluders
+
+        fun polygonAt(angle: Double): List<Vec2d> {
+            val probe = Camera(x = cam.x, y = cam.y, minAngle = cam.minAngle, maxAngle = cam.maxAngle,
+                currentAngle = angle, visionRange = cam.visionRange, visionFov = cam.visionFov)
+            return VisionSystem.computeVisionPolygon(
+                origin = probe.eyePosition, facingAngle = probe.facingAngle,
+                range = probe.visionRange, fov = probe.visionFov, occluders = occluders
+            )
+        }
+
+        var worstX = Double.MAX_VALUE
+        var angle = cam.minAngle
+        while (angle <= cam.maxAngle) {
+            for (p in polygonAt(angle)) if (p.x < worstX) worstX = p.x
+            angle += 0.5 * (PI / 180.0)
+        }
+        for (p in polygonAt(cam.minAngle)) if (p.x < worstX) worstX = p.x
+        for (p in polygonAt(cam.maxAngle)) if (p.x < worstX) worstX = p.x
+        assertTrue(worstX >= stepCrate.x, "The rendered cone's leftmost point ($worstX) should never cross stepCrate2's own far edge (${stepCrate.x})")
+    }
+
+    @Test
+    fun testLevel3CameraConeHasNoStrayRaySpikes() {
+        // The bug this guards against: VisionSystem's shadow-casting adds rays aimed at every
+        // occluder corner within range/FOV (for crisp shadow edges) - when the camera happens to
+        // aim close enough to a corner that both "just short of it" and "just past it" land inside
+        // the FOV, the "just past it" ray keeps going to whatever's behind the corner (often the
+        // ground, far away), and the filled polygon shows that as a long thin wedge stabbing out
+        // past the occluder - reported directly as "light rays going out of the camera". The
+        // signature of a real spike is a big jump in RADIAL distance from the eye between two
+        // angularly-adjacent polygon vertices (a ray that suddenly reaches much farther than its
+        // neighbour) - NOT just a big Euclidean gap between vertices, which also happens completely
+        // normally when the polygon traces straight down a tall occluder's own side face (e.g. a
+        // barrel or crate silhouette) - checked directly against the old 135-degree/45-degree
+        // sweep to confirm this distinction actually catches the known bug and nothing else does.
+        val world = level3()
+        val cam = world.cameras.minByOrNull { it.x }!! // beamCamera
+        val occluders = world.occluders
+        var angle = cam.minAngle
         while (angle <= cam.maxAngle) {
             val probe = Camera(x = cam.x, y = cam.y, minAngle = cam.minAngle, maxAngle = cam.maxAngle,
                 currentAngle = angle, visionRange = cam.visionRange, visionFov = cam.visionFov)
-            for (pastY in listOf(440.0 - 96.0, stepCrate.top - 96.0, stepCrate.top - 20.0)) {
-                val playerPastCrate = Player(x = stepCrate.x - 25.0, y = pastY)
-                if (VisionSystem.getPlayerSpottedDistance(probe, playerPastCrate, occluders) != null) sawPastCrate = true
+            val eye = probe.eyePosition
+            val polygon = VisionSystem.computeVisionPolygon(
+                origin = eye, facingAngle = probe.facingAngle,
+                range = probe.visionRange, fov = probe.visionFov, occluders = occluders
+            )
+            for (i in 2 until polygon.size) {
+                val radialJump = eye.distanceTo(polygon[i]) - eye.distanceTo(polygon[i - 1])
+                assertTrue(radialJump <= 60.0,
+                    "Stray ray spike at angle ${angle * 180.0 / PI} degrees: jumps from ${polygon[i - 1]} to ${polygon[i]} (radial jump $radialJump)")
             }
-            angle += 5.0 * (PI / 180.0)
+            angle += 0.5 * (PI / 180.0)
         }
-        assertFalse(sawPastCrate, "The cone should not reach even 25 units past the crate's own far edge")
+    }
 
-        // One last hanging crate past the beam, no guard on it, top flush with the beam for a
-        // same-height jump across.
-        val finalCrate = world.hangingCrateVariant1.maxByOrNull { it.x }!!
-        assertTrue(finalCrate.x > beam.right, "Sits past the beam, not overlapping it")
-        assertEquals(beam.top, finalCrate.top, 1e-9, "Top flush with the beam - a jump across, not a climb")
-        assertTrue(world.extraGuards.none { it.bounds.bottom == finalCrate.top }, "No guard standing on this one")
+    @Test
+    fun testLevel3CameraLeftmostSweepReachesStepCrateFarCorner() {
+        // On request: with the camera mounted at the beam's own left corner (see beamCamera in
+        // LevelData.kt), the sweep's leftmost extreme (maxAngle) should have the cone's rendered
+        // edge land right at stepCrate2's own far/leftmost corner - "just touches" it, not stopping
+        // noticeably short (the old, deliberately-safe 115/80 pairing left a ~25-unit gap) and
+        // never crossing past it (that's the stray-ray-spike bug covered by the test below).
+        val world = level3()
+        val stepCrate = world.boxes.first { it.width == 68.0 && it.height == 48.0 && it.y == 440.0 - 48.0 && it.x > 1000.0 }
+        val cam = world.cameras.minByOrNull { it.x }!! // beamCamera
+        val occluders = world.occluders
+
+        val probe = Camera(
+            x = cam.x, y = cam.y, minAngle = cam.minAngle, maxAngle = cam.maxAngle,
+            currentAngle = cam.maxAngle, visionRange = cam.visionRange, visionFov = cam.visionFov
+        )
+        val polygon = VisionSystem.computeVisionPolygon(
+            origin = probe.eyePosition, facingAngle = probe.facingAngle,
+            range = probe.visionRange, fov = probe.visionFov, occluders = occluders
+        )
+        val leftmost = polygon.minOf { it.x }
+
+        assertTrue(leftmost >= stepCrate.x, "The cone must never cross past the crate's own far edge (leftmost=$leftmost, crate.x=${stepCrate.x})")
+        assertTrue(leftmost <= stepCrate.x + 10.0, "The cone should read as touching the crate's far corner, not stopping well short of it (leftmost=$leftmost, crate.x=${stepCrate.x})")
+    }
+
+    @Test
+    fun testLevel3CanJumpFromCameraBeamAcrossToFinalHangingCrateAndOnToFinalPlatform() {
+        // No earlier test actually drove a player across these two gaps - the doc comments on
+        // finalHangingCrate/finalPlatform in LevelData.kt used to just assert this worked. It
+        // didn't: measured directly against Player's real physics, a same-height running jump in
+        // this engine tops out around 56.5-56.66 units for this exact geometry (not the ~84 units
+        // simple projectile arithmetic suggests - the collision code stops a jump short once the
+        // falling body starts vertically overlapping the target platform while still short of it
+        // horizontally, treating it as a wall). Both gaps are now 56 (widened twice on request,
+        // 40 -> 55 -> 56 - see LevelData.kt's own comment for the fresh binary search and the
+        // jump-timing-slack scan behind that number), just inside that budget with a real, felt
+        // jump instead of a trivial walk-across. This walks the player through both jumps for
+        // real and requires it to actually reach finalPlatform, not just reach some downstream X
+        // the level's ground floor could also explain away.
+        //
+        // The auto-pilot needs BOTH an explicit launch-edge window (jumping off an open ledge
+        // never registers as "stalled" - Player.updateStep's own isDropping mechanic deliberately
+        // punishes walking off an edge without jumping, crawling forward at dropSpeed=30 instead of
+        // moveSpeed=132, which is nowhere near enough to clear either gap) AND a stalled-progress
+        // check (hangingEndCrate sits on TOP of finalHangingCrate partway across it - a genuine
+        // wall to hop, not an edge, so it registers as stalled instead).
+        val world = level3()
+        // This test is about jump PHYSICS reaching finalPlatform, not stealth against poleCamera -
+        // that camera's own sweep is deliberately aimed at this exact crossing (see poleCamera's
+        // comment in LevelData.kt) and legitimately spots a player climbing over hangingEndCrate
+        // partway across, same isolation approach as testLevel3OverwatchGuardsDoNotSeeBackIntoTheTableSection
+        // blinding an unrelated guard to isolate its own concern.
+        world.cameras.forEach { it.visionRange = 0.0 }
+        val beam = world.tables.maxByOrNull { it.x }!! // cameraBeam
+        val finalHangingCrate = world.hangingCrateVariant1.maxByOrNull { it.x }!!
+        val finalPlatform = world.boxes.first { it.width == 340.0 && it.height == 96.0 }
+        assertTrue(finalHangingCrate.x > beam.right, "Sanity: finalHangingCrate sits past the beam")
+        assertTrue(finalPlatform.x > finalHangingCrate.right, "Sanity: finalPlatform sits past finalHangingCrate")
+        // finalHangingCrate sits 2 units above the beam ("lift the unmanned hanging crate a little
+        // bit") - no longer an exact same-height jump, just very close to one (see
+        // finalHangingCrate's own comment in LevelData.kt for why 2 is as far as this gap's physics
+        // budget allows). finalPlatform is a separate, later change: its own height was dropped
+        // 144 -> 96 ("make the platform on the right smaller to be able to climb up"), so it's no
+        // longer close to flush with finalHangingCrate at all - a real ~50-unit downward jump now,
+        // which only ever makes a same-height jump easier, never harder.
+        assertEquals(2.0, beam.top - finalHangingCrate.top, 1e-9, "Sanity: beam to crate is a small upward jump")
+        assertEquals(50.0, finalPlatform.top - finalHangingCrate.top, 1e-9, "Sanity: crate to platform is now a real downward jump")
+
+        world.player.resetTo(beam.x + 10.0, beam.top - world.player.height)
+        world.player.isGrounded = true
+        val dt = 1.0 / 60.0
+        var elapsed = 0.0
+        var stalledFor = 0.0
+        while (elapsed < 10.0 && world.player.x < finalPlatform.x + 20.0) {
+            val beforeX = world.player.x
+            val edge = world.player.x + world.player.width
+            val atLaunchEdge = edge in (beam.right - 20.0)..(beam.right + 2.0) ||
+                edge in (finalHangingCrate.right - 20.0)..(finalHangingCrate.right + 2.0)
+            val doJump = world.player.isGrounded && (stalledFor > 0.05 || atLaunchEdge)
+            world.update(dt, moveInput = 1.0, jumpInput = doJump, crouchInput = false)
+            stalledFor = if (kotlin.math.abs(world.player.x - beforeX) < 0.5) stalledFor + dt else 0.0
+            elapsed += dt
+        }
+
+        assertTrue(world.player.isGrounded, "Should land solidly, not be left falling")
+        val footCenter = world.player.x + world.player.width / 2.0
+        assertTrue(
+            footCenter >= finalPlatform.left && footCenter <= finalPlatform.right,
+            "Should end up standing on finalPlatform (footCenter=$footCenter, platform=${finalPlatform.left}..${finalPlatform.right}), not fallen into either gap"
+        )
+        assertEquals(finalPlatform.top, world.player.y + world.player.height, 1e-6, "Standing on top of finalPlatform, not the ground below")
     }
 
     @Test

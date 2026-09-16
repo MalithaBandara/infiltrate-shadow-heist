@@ -191,7 +191,7 @@ fun StoreScreen(
             PowerupItem(PowerupType.SMOKE_SCREEN, "CAMERA JAMMER", "Disables all cameras for 10 seconds.", 150, Res.drawable.gadget_jammer, 86),
             PowerupItem(PowerupType.LASER_SHIELD, "LASER SHIELD", "Protects from 1 laser hazard contact.", 600, Res.drawable.gadget_lasershield, 86),
             PowerupItem(PowerupType.INVISIBILITY, "INVISIBILITY CLOAK", "Total sight immunity for 10 seconds.", 350, Res.drawable.gadget_invis, 86),
-            PowerupItem(PowerupType.NOISE_SUPPRESSION, "NOISE SUPPRESSION BOOTS", "Silent movement for entire mission.", 500, Res.drawable.gadget_boots, 86),
+            PowerupItem(PowerupType.NOISE_SUPPRESSION, "STEALTH BOOTS", "Silent movement for entire mission.", 500, Res.drawable.gadget_boots, 86),
             PowerupItem(PowerupType.REMOTE_TRIGGER, "REMOTE TRIGGER", "Triggers closest mechanism without finding its switch.", 750, Res.drawable.gadget_checkpoint, 86)
         )
     }
@@ -220,7 +220,7 @@ fun StoreScreen(
             InventoryItem(PowerupType.SMOKE_SCREEN, "CAMERA JAMMER", Res.drawable.gadget_jammer),
             InventoryItem(PowerupType.LASER_SHIELD, "LASER SHIELD", Res.drawable.gadget_lasershield),
             InventoryItem(PowerupType.INVISIBILITY, "INVISIBILITY CLOAK", Res.drawable.gadget_invis),
-            InventoryItem(PowerupType.NOISE_SUPPRESSION, "NOISE SUPPRESSION BOOTS", Res.drawable.gadget_boots),
+            InventoryItem(PowerupType.NOISE_SUPPRESSION, "STEALTH BOOTS", Res.drawable.gadget_boots),
             InventoryItem(PowerupType.REMOTE_TRIGGER, "REMOTE TRIGGER", Res.drawable.gadget_checkpoint)
         )
     }

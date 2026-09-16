@@ -33,7 +33,7 @@ data class GameProfile(
             PowerupType.SMOKE_SCREEN -> listOf("camera_jammer", "smoke_screen", "smoke_bomb", "camera_disable")
             PowerupType.LASER_SHIELD -> listOf("laser_shield", "shield", "laser_guard", "sleep_darts", "sleep_dart", "phantom_cloak", "guard_sleep")
             PowerupType.INVISIBILITY -> listOf("invisibility", "invisibility_cloak")
-            PowerupType.NOISE_SUPPRESSION -> listOf("noise_suppression", "stealth_boots")
+            PowerupType.NOISE_SUPPRESSION -> listOf("noise_suppression", "stealth_boots", "stealth", "boots")
             PowerupType.REMOTE_TRIGGER -> listOf("remote_trigger", "trigger", "remote", "checkpoint", "checkpoints", "tactical_checkpoint")
             PowerupType.PROTOTYPE -> listOf("prototype")
         }
@@ -50,7 +50,7 @@ data class GameProfile(
             PowerupType.SMOKE_SCREEN -> listOf("camera_jammer", "smoke_screen", "smoke_bomb", "camera_disable")
             PowerupType.LASER_SHIELD -> listOf("laser_shield", "shield", "laser_guard", "sleep_darts", "sleep_dart", "phantom_cloak", "guard_sleep")
             PowerupType.INVISIBILITY -> listOf("invisibility", "invisibility_cloak")
-            PowerupType.NOISE_SUPPRESSION -> listOf("noise_suppression", "stealth_boots")
+            PowerupType.NOISE_SUPPRESSION -> listOf("noise_suppression", "stealth_boots", "stealth", "boots")
             PowerupType.REMOTE_TRIGGER -> listOf("remote_trigger", "trigger", "remote", "checkpoint", "checkpoints", "tactical_checkpoint")
             PowerupType.PROTOTYPE -> listOf("prototype")
         }

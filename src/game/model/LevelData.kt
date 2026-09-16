@@ -37,7 +37,9 @@ data class CameraSpawn(
     val visionFov: Double = 45.0 * (PI / 180.0),
     val sweepDirection: Double = 1.0,
     /** See Camera.sweepPauseDuration. */
-    val sweepPauseDuration: Double = 0.0
+    val sweepPauseDuration: Double = 0.0,
+    /** See Camera.detectionPauseDuration. Matches Guard.investigateDuration (2.5s). */
+    val detectionPauseDuration: Double = 2.5
 )
 
 /**
@@ -56,6 +58,11 @@ data class LevelLayout(
     val boxes: List<Rect>,
     val guards: List<GuardSpawn>,
     val cameras: List<CameraSpawn> = emptyList(),
+    // Subset of [cameras] (same CameraSpawn instances) rendered with a reduced alpha, so it reads
+    // as visually distinct from a normal (fully opaque) camera - e.g. LEVEL_3_LAYOUT's poleCamera.
+    // See GameWorld.createFromLayout (matches by spawn identity, not by index) and
+    // GameplayScene.kt's camera-rendering loop.
+    val translucentCameras: List<CameraSpawn> = emptyList(),
     val fence1: Rect? = null,
     val fence2: Rect? = null,
     // Jump-crate gap crossings: each rect here must also be included in [boxes] (so it collides
@@ -65,6 +72,16 @@ data class LevelLayout(
     val hangingCrateVariant1: List<Rect> = emptyList(),
     val hangingCrateVariant2: List<Rect> = emptyList(),
     val barrels: List<Rect> = emptyList(),
+    // Boxes drawn with woodcrate2.png instead of the plain crate/rough-block look - tagged the
+    // same way barrels are, so a box can be given this distinct art without changing its collision
+    // behaviour at all (each must also be in [boxes]). See GameplayScene.kt's box-rendering loop
+    // and LEVEL_3_LAYOUT's ground dressing under the camera beam.
+    val woodCrates: List<Rect> = emptyList(),
+    // Freestanding poles (pole.png) - decorative mounting structure, e.g. for a camera that isn't
+    // bolted to a beam/wall. NOT in [boxes] (no collision, "not interactable" on request), but
+    // still real drawn geometry so it blocks sight like anything else solid - see
+    // GameWorld.createFromLayout's occluders and GameplayScene.kt's dedicated pole-rendering pass.
+    val poles: List<Rect> = emptyList(),
     // Tables (table.png): a flat plank on a single off-center leg with a diagonal brace, tagged
     // here the same way barrels are - a solid block like any other climbable box (matches its own
     // bounding box exactly), just with this art instead of the plain crate/rough-block look. See
@@ -111,7 +128,7 @@ data class LevelLayout(
 )
 
 enum class TutorialAction {
-    MOVE, JUMP_VAULT, CROUCH, CLIMB, REACH_OBJECTIVE
+    MOVE, JUMP_VAULT, CROUCH, CLIMB, REACH_OBJECTIVE, SWING
 }
 
 enum class TutorialControlHighlight {
@@ -545,16 +562,17 @@ data class LevelData(
          */
         val LEVEL_4_LAYOUT = run {
             val groundY = 440.0
-            val worldWidth = 5500.0
+            val worldWidth = 8600.0
             val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
 
             val conveyorHeight = 26.0
-            val conveyorWidth = 5000.0
+            val conveyorWidth = 7760.0
             val conveyorRect = Rect(x = 0.0, y = groundY - conveyorHeight, width = conveyorWidth, height = conveyorHeight)
             val conveyor = ConveyorDef(bounds = conveyorRect, speed = -45.0)
 
             val crateWidth = 68.0
             val crateHeight = 48.0
+            val crateHeight2 = 96.0 // 2-stack crate height
             val conveyorTopY = conveyorRect.top // 414.0
 
             // =========================================================================
@@ -563,14 +581,17 @@ data class LevelData(
             // - Lowered hanging monorail containers at floor-crouch height (y = 302.0, height = 38.0, bottom at 340.0).
             // - Clearance above conveyor (414.0 - 340.0 = 74.0px):
             //   - Crouching player (height 56.0, head at 358.0) clears with 18px headroom and passes cleanly.
-            //   - Standing player (height 96.0, head at 318.0) hits container and is blocked.
-            // - All floor crates are single 1-stacks (height = 48.0, top at y = 366.0).
+            //   - Standing player (height 96.0, head at 318.0) hits container and triggers Mission Failed.
+            // - All floor crates are single 1-stacks (height = 48.0, top at y = 366.0) and stepped 2-stacks in open zones.
             // - ZERO CLIPPING GUARANTEE:
             //   - Physical gap between floor crate top (366.0) and hanging crate bottom (340.0) is 26.0px!
             //   - 1-stack crates glide smoothly under hanging cargo without any visual collision.
             //   - Standing or crouching atop a 1-stack crate under hanging cargo hits (head at 270/310 < 340),
             //     so the player cannot bypass ducking by riding crates—they must drop to the belt and slide!
             // =========================================================================
+
+            val crateLoopMin = 0.0
+            val crateLoopMax = 8200.0
 
             val hangingCrateSmall1 = ConveyorCrateDef(
                 initialX = 1100.0,
@@ -580,236 +601,335 @@ data class LevelData(
                 isHanging = true,
                 isVariant1 = false,
                 shouldLoop = true,
-                loopMinX = -76.0,
-                loopMaxX = conveyorWidth,
+                loopMinX = crateLoopMin,
+                loopMaxX = crateLoopMax,
                 speedMultiplier = 1.0
             )
+            // Hanging crate 1 (over 3-stack 2-stack platform at x = 2100..2440):
+            // Descends from minY = 145.0 down to maxY = 212.0 (bottom = 250.0).
+            // Above 2-stack crates (top at 318.0), standing player (head 222.0) gets crushed,
+            // while crouching player (head 262.0) has 12px headroom and clears safely!
             val hangingCrateLong1 = ConveyorCrateDef(
-                initialX = 2250.0,
-                y = 302.0,
+                initialX = 2200.0,
+                y = 212.0,
                 width = 174.0,
                 height = 38.0,
                 isHanging = true,
                 isVariant1 = true,
                 shouldLoop = true,
-                loopMinX = -174.0,
-                loopMaxX = conveyorWidth,
+                loopMinX = crateLoopMin,
+                loopMaxX = crateLoopMax,
                 speedMultiplier = 1.0,
-                minY = 220.0,
-                maxY = 302.0,
+                minY = 145.0,
+                maxY = 212.0,
                 verticalPeriodSeconds = 3.5,
                 verticalPhaseOffsetSeconds = 0.0
             )
             val hangingCrateSmall2 = ConveyorCrateDef(
-                initialX = 3400.0,
+                initialX = 3800.0,
                 y = 302.0,
                 width = 76.0,
                 height = 38.0,
                 isHanging = true,
                 isVariant1 = false,
                 shouldLoop = true,
-                loopMinX = -76.0,
-                loopMaxX = conveyorWidth,
+                loopMinX = crateLoopMin,
+                loopMaxX = crateLoopMax,
                 speedMultiplier = 1.0,
                 minY = 220.0,
                 maxY = 302.0,
                 verticalPeriodSeconds = 4.0,
                 verticalPhaseOffsetSeconds = 2.0
             )
+            // Hanging crate 2 (over 4-stack 2-stack platform at x = 5450..5858):
+            // Descends from minY = 145.0 down to maxY = 212.0 (bottom = 250.0).
             val hangingCrateLong2 = ConveyorCrateDef(
-                initialX = 4480.0,
+                initialX = 5540.0,
+                y = 212.0,
+                width = 174.0,
+                height = 38.0,
+                isHanging = true,
+                isVariant1 = true,
+                shouldLoop = true,
+                loopMinX = crateLoopMin,
+                loopMaxX = crateLoopMax,
+                speedMultiplier = 1.0,
+                minY = 145.0,
+                maxY = 212.0,
+                verticalPeriodSeconds = 3.8,
+                verticalPhaseOffsetSeconds = 1.0
+            )
+            val hangingCrateSmall3 = ConveyorCrateDef(
+                initialX = 6350.0,
+                y = 302.0,
+                width = 76.0,
+                height = 38.0,
+                isHanging = true,
+                isVariant1 = false,
+                shouldLoop = true,
+                loopMinX = crateLoopMin,
+                loopMaxX = crateLoopMax,
+                speedMultiplier = 1.0,
+                minY = 220.0,
+                maxY = 302.0,
+                verticalPeriodSeconds = 3.6,
+                verticalPhaseOffsetSeconds = 1.0
+            )
+            val hangingCrateSmall4 = ConveyorCrateDef(
+                initialX = 6850.0,
+                y = 302.0,
+                width = 76.0,
+                height = 38.0,
+                isHanging = true,
+                isVariant1 = false,
+                shouldLoop = true,
+                loopMinX = crateLoopMin,
+                loopMaxX = crateLoopMax,
+                speedMultiplier = 1.0
+            )
+            val hangingCrateLong3 = ConveyorCrateDef(
+                initialX = 7460.0,
                 y = 302.0,
                 width = 174.0,
                 height = 38.0,
                 isHanging = true,
                 isVariant1 = true,
                 shouldLoop = true,
-                loopMinX = -174.0,
-                loopMaxX = conveyorWidth,
+                loopMinX = crateLoopMin,
+                loopMaxX = crateLoopMax,
                 speedMultiplier = 1.0
             )
-            val hangingCrates = listOf(hangingCrateSmall1, hangingCrateLong1, hangingCrateSmall2, hangingCrateLong2)
-
-            val crateHeight2 = 96.0 // 2-stack crate height
-
-            // Dynamic floor crates (mix of single 1-stacks and stepped 2-stack pyramids):
-            // Zero-clipping guarantee: 2-stack crates are exclusively located in open-sky conveyor zones
-            // well clear of low hanging monorail cargo, while 1-stacks clear under hanging crates with 26px headroom.
-            val movingConveyorCrates = listOf(
-                // Section 1: Intro Jump Gauntlet (x = 300..900)
-                ConveyorCrateDef(initialX = 350.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-                ConveyorCrateDef(initialX = 550.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-                ConveyorCrateDef(initialX = 720.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-                ConveyorCrateDef(initialX = 880.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-
-                // Section 2: Duck Zone 1 (x = 900..1350, hanging crate small at 1100)
-                ConveyorCrateDef(initialX = 1300.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-
-                // Section 3: Stepped 2-Stack Crate Pyramid 1 (x = 1380..1550, open conveyor zone)
-                ConveyorCrateDef(initialX = 1380.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-                ConveyorCrateDef(initialX = 1448.0, y = conveyorTopY - crateHeight2, width = crateWidth, height = crateHeight2, loopMaxX = conveyorWidth),
-                ConveyorCrateDef(initialX = 1516.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-                ConveyorCrateDef(initialX = 1680.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-
-                // Section 4: Jump Gauntlet & Duck Zone 2 (hanging crate long at 2250)
-                ConveyorCrateDef(initialX = 2050.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-                ConveyorCrateDef(initialX = 2480.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-
-                // Section 5: Stepped 2-Stack Crate Pyramid 2 (x = 2700..2860, open conveyor zone)
-                ConveyorCrateDef(initialX = 2700.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-                ConveyorCrateDef(initialX = 2768.0, y = conveyorTopY - crateHeight2, width = crateWidth, height = crateHeight2, loopMaxX = conveyorWidth),
-                ConveyorCrateDef(initialX = 2836.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-                ConveyorCrateDef(initialX = 3020.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-
-                // Section 6: Duck Zone 3 (hanging crate small at 3400)
-                ConveyorCrateDef(initialX = 3620.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-
-                // Section 7: Stepped 2-Stack Crate Pyramid 3 (x = 3850..4010, open conveyor zone)
-                ConveyorCrateDef(initialX = 3850.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-                ConveyorCrateDef(initialX = 3918.0, y = conveyorTopY - crateHeight2, width = crateWidth, height = crateHeight2, loopMaxX = conveyorWidth),
-                ConveyorCrateDef(initialX = 3986.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-                ConveyorCrateDef(initialX = 4300.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-
-                // Section 8: Final Sprint & Gauntlet (hanging crate long at 4480..4654)
-                ConveyorCrateDef(initialX = 4720.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-                ConveyorCrateDef(initialX = 5120.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth),
-                ConveyorCrateDef(initialX = 5240.0, y = conveyorTopY - crateHeight, width = crateWidth, height = crateHeight, loopMaxX = conveyorWidth)
+            val hangingCrates = listOf(
+                hangingCrateSmall1, hangingCrateLong1, hangingCrateSmall2,
+                hangingCrateLong2, hangingCrateSmall3, hangingCrateSmall4, hangingCrateLong3
             )
 
-            // Dynamic laser hazards:
-            // All lasers originate from ceiling (topY = 150.0) and aim at conveyor surface (bottomY = 414.0).
-            // Includes single vertical warning beams, 2 crossed lasers (X-Beam traps), and multi-laser arrays.
-            // Tilt angles strictly <= 45 degrees from vertical.
+            // Dynamic floor crates (mix of single 1-stacks, stepped 2-stack pyramids, and multi-crate climbing platforms):
+            // All floor crates have shouldLoop = true with unified loop bounds so they cycle non-stop with zero drift.
+            fun singleCrate(x: Double) = ConveyorCrateDef(
+                initialX = x,
+                y = conveyorTopY - crateHeight,
+                width = crateWidth,
+                height = crateHeight,
+                shouldLoop = true,
+                loopMinX = crateLoopMin,
+                loopMaxX = crateLoopMax
+            )
+            fun doubleCrate(x: Double) = ConveyorCrateDef(
+                initialX = x,
+                y = conveyorTopY - crateHeight2,
+                width = crateWidth,
+                height = crateHeight2,
+                shouldLoop = true,
+                loopMinX = crateLoopMin,
+                loopMaxX = crateLoopMax
+            )
+            fun pyramid(x: Double) = listOf(
+                singleCrate(x),
+                doubleCrate(x + crateWidth),
+                singleCrate(x + crateWidth * 2.0)
+            )
+            fun multiStack3(x: Double) = listOf(
+                singleCrate(x),
+                doubleCrate(x + crateWidth),
+                doubleCrate(x + crateWidth * 2.0),
+                doubleCrate(x + crateWidth * 3.0),
+                singleCrate(x + crateWidth * 4.0)
+            )
+            fun multiStack4(x: Double) = listOf(
+                singleCrate(x),
+                doubleCrate(x + crateWidth),
+                doubleCrate(x + crateWidth * 2.0),
+                doubleCrate(x + crateWidth * 3.0),
+                doubleCrate(x + crateWidth * 4.0),
+                singleCrate(x + crateWidth * 5.0)
+            )
+
+            val movingConveyorCrates = listOf(
+                // Sector 1 (x = 0..1500, remaining 150m..120m): Introductory vaulting rhythm
+                listOf(
+                    singleCrate(350.0),
+                    singleCrate(550.0),
+                    singleCrate(750.0),
+                    singleCrate(950.0),
+                    singleCrate(1350.0)
+                ),
+
+                // Sector 2 (x = 1500..3000, remaining 120m..90m): First stepped pyramid + 3-crate multi-stack with overhead crush
+                pyramid(1600.0),
+                multiStack3(2100.0),
+                listOf(
+                    singleCrate(2550.0),
+                    singleCrate(2800.0)
+                ),
+
+                // Sector 3 (x = 3000..4500, remaining 90m..60m): Stepped pyramid + alternating obstacles
+                pyramid(3100.0),
+                listOf(
+                    singleCrate(3650.0),
+                    singleCrate(4050.0),
+                    singleCrate(4300.0)
+                ),
+
+                // Sector 4 (x = 4500..6000, remaining 60m..30m): Double scissor lasers + 4-crate multi-stack with overhead crush
+                pyramid(4600.0),
+                listOf(
+                    singleCrate(4850.0),
+                    singleCrate(5250.0)
+                ),
+                multiStack4(5450.0),
+
+                // Sector 5 (x = 6000..7760, remaining 30m..0m): Grand finale gauntlet
+                pyramid(6100.0),
+                listOf(
+                    singleCrate(6580.0),
+                    singleCrate(6700.0),
+                    singleCrate(7000.0)
+                )
+            ).flatten()
+
+            // Dynamic laser hazards across 150m (originating from ceiling topY = 150.0, tilt <= 45°):
             val lasers = listOf(
-                // Laser 1: Pure vertical beam (0°) in Section 1 (x = 670.0). Times between conveyor crates.
+                // Laser 1: Sector 1 introductory scanner (x = 670.0)
                 LaserDef(
-                    id = "lvl4_laser_vert_1",
+                    id = "lvl4_laser_sec1",
                     topX = 670.0,
                     topY = 150.0,
                     bottomX = 670.0,
                     bottomY = conveyorTopY,
                     beamThickness = 6.0,
-                    activeDuration = 1.8,
-                    inactiveDuration = 2.0,
+                    activeDuration = 1.3,
+                    inactiveDuration = 4.7,
                     phaseOffsetSeconds = 0.0
                 ),
-                // Laser 2A & 2B: Crossed Lasers Trap 1 (X-Beam) in Section 3 (x = 1820 <-> 1960).
-                // Tilt = ±27.9° <= 45°. Synchronized pulse creates a glowing 'X' energy gate.
+                // Laser 2: Vertical security scanner in Sector 2 (x = 1950.0).
                 LaserDef(
-                    id = "lvl4_laser_cross_1a",
-                    topX = 1820.0,
+                    id = "lvl4_laser_vert_1",
+                    topX = 1950.0,
                     topY = 150.0,
-                    bottomX = 1960.0,
+                    bottomX = 1950.0,
                     bottomY = conveyorTopY,
                     beamThickness = 6.0,
-                    activeDuration = 1.6,
-                    inactiveDuration = 3.2,
+                    activeDuration = 1.4,
+                    inactiveDuration = 5.0,
+                    phaseOffsetSeconds = 0.0
+                ),
+                // Laser 3: Sector 2/3 tilted scanner (x = 2700..2760, tilt = +12.8° <= 45°)
+                LaserDef(
+                    id = "lvl4_laser_sec2",
+                    topX = 2700.0,
+                    topY = 150.0,
+                    bottomX = 2760.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 1.4,
+                    inactiveDuration = 4.6,
+                    phaseOffsetSeconds = 1.0
+                ),
+                // Laser 4: Forward-tilted scanner in Sector 3 (tilt = +20.7° <= 45°).
+                LaserDef(
+                    id = "lvl4_laser_tilt_1",
+                    topX = 3350.0,
+                    topY = 150.0,
+                    bottomX = 3450.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 1.4,
+                    inactiveDuration = 4.8,
+                    phaseOffsetSeconds = 0.0
+                ),
+                // Laser 5: Sector 4 tilted interceptor (x = 4450..4390, tilt = -12.8° <= 45°)
+                LaserDef(
+                    id = "lvl4_laser_sec4",
+                    topX = 4450.0,
+                    topY = 150.0,
+                    bottomX = 4390.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 1.4,
+                    inactiveDuration = 4.6,
+                    phaseOffsetSeconds = 2.0
+                ),
+                // Laser 6A & 6B: Crossed scissor trap in Sector 4 (x = 5000 <-> 5140, tilt = ±27.9° <= 45°).
+                LaserDef(
+                    id = "lvl4_laser_cross_1a",
+                    topX = 5000.0,
+                    topY = 150.0,
+                    bottomX = 5140.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 1.5,
+                    inactiveDuration = 4.5,
                     phaseOffsetSeconds = 0.0
                 ),
                 LaserDef(
                     id = "lvl4_laser_cross_1b",
-                    topX = 1960.0,
-                    topY = 150.0,
-                    bottomX = 1820.0,
-                    bottomY = conveyorTopY,
-                    beamThickness = 6.0,
-                    activeDuration = 1.6,
-                    inactiveDuration = 3.2,
-                    phaseOffsetSeconds = 0.0
-                ),
-                // Laser 3: Backward-tilted security gate (-25°) in Section 4/5 (bottomX = 2580.0).
-                LaserDef(
-                    id = "lvl4_laser_tilt_back",
-                    topX = 2703.0,
-                    topY = 150.0,
-                    bottomX = 2580.0,
-                    bottomY = conveyorTopY,
-                    beamThickness = 6.0,
-                    activeDuration = 1.6,
-                    inactiveDuration = 2.8,
-                    phaseOffsetSeconds = 0.0
-                ),
-                // Laser 4A & 4B: Crossed Lasers Trap 2 (Scissors X) in Section 5 (x = 3160 <-> 3300).
-                // Tilt = ±27.9° <= 45°. Synchronized pulse creates an open gauntlet window.
-                LaserDef(
-                    id = "lvl4_laser_cross_2a",
-                    topX = 3160.0,
-                    topY = 150.0,
-                    bottomX = 3300.0,
-                    bottomY = conveyorTopY,
-                    beamThickness = 6.0,
-                    activeDuration = 1.6,
-                    inactiveDuration = 3.2,
-                    phaseOffsetSeconds = 0.0
-                ),
-                LaserDef(
-                    id = "lvl4_laser_cross_2b",
-                    topX = 3300.0,
-                    topY = 150.0,
-                    bottomX = 3160.0,
-                    bottomY = conveyorTopY,
-                    beamThickness = 6.0,
-                    activeDuration = 1.6,
-                    inactiveDuration = 3.2,
-                    phaseOffsetSeconds = 0.0
-                ),
-                // Laser 5A & 5B: Convergent V-Trap in Section 7 (aimed at bottomX = 4180.0 and 4240.0).
-                // Tilt = +20.7° and -12.8° <= 45°.
-                LaserDef(
-                    id = "lvl4_laser_sweep_a",
-                    topX = 4080.0,
-                    topY = 150.0,
-                    bottomX = 4180.0,
-                    bottomY = conveyorTopY,
-                    beamThickness = 6.0,
-                    activeDuration = 1.4,
-                    inactiveDuration = 4.0,
-                    phaseOffsetSeconds = 0.0
-                ),
-                LaserDef(
-                    id = "lvl4_laser_sweep_b",
-                    topX = 4300.0,
-                    topY = 150.0,
-                    bottomX = 4240.0,
-                    bottomY = conveyorTopY,
-                    beamThickness = 6.0,
-                    activeDuration = 1.4,
-                    inactiveDuration = 4.0,
-                    phaseOffsetSeconds = 0.0
-                ),
-                // Laser 6A, 6B, 6C: Final extraction gauntlet triple-laser array (x = 4800..5060).
-                // Synchronized extraction pulse: 1.4s active, 4.8s inactive.
-                LaserDef(
-                    id = "lvl4_laser_gauntlet_1",
-                    topX = 4800.0,
-                    topY = 150.0,
-                    bottomX = 4860.0,
-                    bottomY = conveyorTopY,
-                    beamThickness = 6.0,
-                    activeDuration = 1.4,
-                    inactiveDuration = 4.8,
-                    phaseOffsetSeconds = 0.0
-                ),
-                LaserDef(
-                    id = "lvl4_laser_gauntlet_2",
-                    topX = 4930.0,
-                    topY = 150.0,
-                    bottomX = 4930.0,
-                    bottomY = conveyorTopY,
-                    beamThickness = 6.0,
-                    activeDuration = 1.4,
-                    inactiveDuration = 4.8,
-                    phaseOffsetSeconds = 0.0
-                ),
-                LaserDef(
-                    id = "lvl4_laser_gauntlet_3",
-                    topX = 5060.0,
+                    topX = 5140.0,
                     topY = 150.0,
                     bottomX = 5000.0,
                     bottomY = conveyorTopY,
                     beamThickness = 6.0,
+                    activeDuration = 1.5,
+                    inactiveDuration = 4.5,
+                    phaseOffsetSeconds = 0.0
+                ),
+                // Laser 7: Backward-tilted security gate in Sector 5 (topX = 6550.0, bottomX = 6450.0, tilt = -20.7° <= 45°).
+                LaserDef(
+                    id = "lvl4_laser_tilt_2",
+                    topX = 6550.0,
+                    topY = 150.0,
+                    bottomX = 6450.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
                     activeDuration = 1.4,
-                    inactiveDuration = 4.8,
+                    inactiveDuration = 4.4,
+                    phaseOffsetSeconds = 0.0
+                ),
+                // Laser 8: Forward-tilted interceptor laser in Sector 5 (tilt = +20.7° <= 45°).
+                LaserDef(
+                    id = "lvl4_laser_tilt_3",
+                    topX = 6650.0,
+                    topY = 150.0,
+                    bottomX = 6750.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 1.4,
+                    inactiveDuration = 4.4,
+                    phaseOffsetSeconds = 2.2
+                ),
+                // Laser 9, 10, 11: Final 3 extraction gauntlet airlock lasers (x = 7120, 7240, 7360)
+                // Coordinated 6s cycle (active 4s, inactive 2s) with sequential staging pockets
+                LaserDef(
+                    id = "lvl4_laser_gauntlet_1",
+                    topX = 7120.0,
+                    topY = 150.0,
+                    bottomX = 7120.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 4.0,
+                    inactiveDuration = 2.0,
+                    phaseOffsetSeconds = 4.0
+                ),
+                LaserDef(
+                    id = "lvl4_laser_gauntlet_2",
+                    topX = 7240.0,
+                    topY = 150.0,
+                    bottomX = 7240.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 4.0,
+                    inactiveDuration = 2.0,
+                    phaseOffsetSeconds = 2.0
+                ),
+                LaserDef(
+                    id = "lvl4_laser_gauntlet_3",
+                    topX = 7360.0,
+                    topY = 150.0,
+                    bottomX = 7360.0,
+                    bottomY = conveyorTopY,
+                    beamThickness = 6.0,
+                    activeDuration = 4.0,
+                    inactiveDuration = 2.0,
                     phaseOffsetSeconds = 0.0
                 )
             )
@@ -818,7 +938,7 @@ data class LevelData(
                 worldWidth = worldWidth,
                 playerStartX = 100.0,
                 playerStartY = conveyorRect.top - 96.0,
-                exitZone = Rect(x = 5380.0, y = groundY - 100.0, width = 44.0, height = 100.0),
+                exitZone = Rect(x = 7680.0, y = groundY - 120.0, width = 80.0, height = 120.0),
                 platforms = listOf(ground, conveyorRect),
                 boxes = listOf(conveyorRect),
                 guards = emptyList(),
@@ -1071,7 +1191,7 @@ data class LevelData(
             // A support leg at the beam's far end, mirroring tablePlank's own rightLeg above (same
             // crop, same tableDecorations/boxes wiring) - nothing in this level should visibly hang
             // in mid-air with no structure under it. Placed at the far/right end, clear of both the
-            // camera mount (near the start, cameraBeam.x + 40) and the climb up from stepCrate2 at
+            // camera mount (at the beam's own left corner, cameraBeam.x) and the climb up from stepCrate2 at
             // that same end, so it's pure background structure with nothing to time around - same
             // role rightLeg plays under the table.
             val cameraLegWidth = 30.0
@@ -1083,47 +1203,61 @@ data class LevelData(
                 height = groundY - (cameraBeam.bottom - cameraLegLift)
             )
 
-            // Mounted flush to the beam's own underside near its start - pulled in from
-            // cameraBeam.x + 40 to + 20, a little further left/closer to stepCrate2, on request.
-            // Aimed straight down (90 degrees) at rest, sweeping right (toward the open corridor)
-            // to 55 and left (toward stepCrate2) to 135 - NOT a symmetric +/-35 either side of
-            // vertical. The angle range has been pulled back twice before (from screenshot reports,
-            // not the geometry proof alone: 165, then 140, both let the cone's shallow FOV edge
-            // miss the crate's own silhouette and sail past it), landing on 135. Moving the mount
-            // left, then asked again to make the cone bigger, meant re-deriving visionFov/
-            // visionRange together rather than just scaling the old ones up: closer to the crate,
-            // the OLD 55-degree FOV can't safely go past ~90 range before its shallow edge overshoots
-            // again (checked directly - swapping in a wider cone at the old FOV shrinks the safe
-            // range, it doesn't grow it). A narrower 45-degree FOV, swept through the same 55..135
-            // range, buys back much more room before overshooting - up to 160 checked clean, landed
-            // on 150 for a small margin. Net effect against the old 55-degree/110-range cone: a
-            // meaningfully bigger cone (~70% more swept area) that still never lights a point past
-            // stepCrate2's own far edge - reverified the same way as every round before (a dense
-            // grid of points/heights past the crate, across the whole sweep, not one probe or a
-            // paper estimate). Camera.eyePosition is the lens tip at the end of a rotating arm, not
-            // a fixed point the cone merely swivels around like a guard's torch, so the mount
-            // position, sweep range, visionFov AND visionRange all have to be re-tuned together
-            // against LEVEL_3_LAYOUT directly any time one of them changes, not just the one that
-            // was actually asked for. Climbing onto the beam itself puts the player above the cone
-            // entirely regardless: a downward-tilted cone can never include a point directly above
-            // its own mount.
+            // Mounted at the beam's own LEFT CORNER (cameraBeam.x exactly) - sits right at the edge
+            // closest to stepCrate2, fully supported (the mount's own art is width 20, so it sits
+            // flush against the corner rather than hanging off it - see Camera.width/pivotPosition).
+            // Aimed straight down (90 degrees) at rest, sweeping right (toward the open corridor) to
+            // 55 and left (toward stepCrate2) to 111.3 - NOT a symmetric sweep either side of
+            // vertical.
+            //
+            // maxAngle/visionFov went through a real reckoning across several rounds (see git
+            // history for the full account) - the short version: reaching stepCrate2's own FAR top
+            // corner requires aiming right at the edge of the FOV, at the crate's own corner - the
+            // exact condition that makes VisionSystem's shadow-casting cast one ray that clears the
+            // corner by a hair and keeps going, straight past the crate to the GROUND far beyond it
+            // ("light rays going out of the camera"). One round dropped the far-corner requirement
+            // for safety; the next brought it back once the mount moved to the beam's own left
+            // corner. Since then, maxAngle has been re-derived twice more, each time the arm length
+            // (Camera.NECK_LENGTH/LENS_LENGTH) changed for an unrelated "camera looks too big/small"
+            // complaint: shrinking or growing the arm moves the eye itself, which moves exactly
+            // which (maxAngle, visionFov) pairs graze the corner, so this maxAngle is only valid for
+            // the CURRENT arm length (9.5/20) - it is NOT a fixed, portable number.
+            //
+            // At the current arm length, re-running the same polygon-based search found the safe
+            // margin before the "grazes the corner and spikes" cliff at ~0.5 degrees, so maxAngle =
+            // 111.3 (visionFov stays 80, unchanged) - confirmed by scanning the whole sweep in
+            // 0.25-degree steps (plus minAngle/maxAngle explicitly - see the floating-point-drift
+            // lesson in testLevel3CameraConePolygonNeverPastCrate) for the radial-jump spike
+            // signature. The cone's leftmost reach lands at stepCrate2.x + ~1.6 units - visually
+            // flush against the crate's own far corner without ever crossing it, and zero stray-ray
+            // spikes anywhere across the full 55..111.3 sweep (checked, not assumed - see
+            // testLevel3CameraConeHasNoStrayRaySpikes and
+            // testLevel3CameraLeftmostSweepReachesStepCrateFarCorner below). **Re-run this same
+            // search (not a point-sampled grid, not reusing an old maxAngle) any time
+            // NECK_LENGTH/LENS_LENGTH, the mount position, sweep range, visionFov or visionRange
+            // change again** - this pairing has now been re-derived after every arm-length change,
+            // and there's no reason to expect that to stop.
+            //
+            // visionRange stays close to a free variable for the "never past the crate, never a
+            // stray ray" concern specifically: every ray this cone can cast is blocked by either
+            // the crate or the GROUND (which runs the full level width) well within 220 units of
+            // this mount, so range increases past that are a bigger number with no visual effect -
+            // confirmed identical results from 120 up to 300.
             val beamCamera = CameraSpawn(
-                x = cameraBeam.x + 20.0,
+                x = cameraBeam.x,
                 y = cameraBeam.bottom,
                 minAngle = 55.0 * (PI / 180.0),
-                maxAngle = 135.0 * (PI / 180.0),
+                maxAngle = 111.3 * (PI / 180.0),
                 startAngle = 55.0 * (PI / 180.0),
                 sweepSpeed = 0.6,
-                // 150, up from 110 (and this game's usual 220) - a genuinely bigger reach than
-                // before, not just a bigger number: paired with the narrower 45-degree FOV below,
-                // it's the biggest cone that still respects the "never past stepCrate2's far edge"
-                // rule with the mount at its new, more-left position (see the maxAngle comment
-                // above for the full trade-off).
-                visionRange = 150.0,
-                // 45, down from 55 - narrower on purpose, not a shrink for its own sake: it's what
-                // buys the bigger range above room to work with with the mount moved left. See the
-                // maxAngle comment above.
-                visionFov = 45.0 * (PI / 180.0),
+                // 220 - see the maxAngle comment above: the natural ceiling past which more range
+                // has zero visual effect, not an arbitrary bigger number.
+                visionRange = 220.0,
+                // 80 - genuinely wide (nearly double the original 45), chosen a couple of rounds ago
+                // from a full re-search of the (maxAngle, visionFov) space against the actual
+                // rendered polygon, and kept unchanged by every re-tuning of maxAngle/x/arm-length
+                // since.
+                visionFov = 80.0 * (PI / 180.0),
                 // Holds at each side of its sweep instead of endlessly panning - the same
                 // dwell-then-move rhythm the guards use (Guard.patrolPauseDuration), so there's an
                 // actual moment to read and time a crossing against, not just a constantly moving
@@ -1137,54 +1271,192 @@ data class LevelData(
             // beam entirely (right of cameraLeg), which also briefly overlapped finalHangingCrate's
             // own footprint by 48 units before that was fixed - now it's tucked entirely into the
             // gap between the camera mount and the leg instead, with real clearance on both sides.
+            //
+            // Only the crate/stacked-crate pair and stepCrate2 draw with woodcrate2.png
+            // (LevelLayout.woodCrates) - the two barrels stay barrel.png. An earlier pass swapped
+            // all four ground-dressing boxes to wood-crate art, misreading a screenshot that showed
+            // all four as roughly crate-shaped; corrected on request back to barrels staying
+            // barrels - LevelLayout.barrels is exactly the two fillerBarrels again. stepCrate2 (the
+            // step up to the beam, defined near LEVEL_3_LAYOUT's top) was added to woodCrates on a
+            // later request ("replace the solid crate left to the two barrels with these new crates
+            // as well") - it's the only crate-shaped box positioned before/left of fillerBarrels in
+            // this whole section, so that's read as referring to it.
             val fillerBarrelWidth = 32.0
             val fillerBarrelHeight = 48.0
             val fillerBarrels = listOf(
                 Rect(x = cameraBeam.x + 30.0, y = groundY - fillerBarrelHeight, width = fillerBarrelWidth, height = fillerBarrelHeight),
                 Rect(x = cameraBeam.x + 64.0, y = groundY - fillerBarrelHeight, width = fillerBarrelWidth, height = fillerBarrelHeight)
             )
-            val fillerCrate = Rect(x = cameraBeam.x + 106.0, y = groundY - crateHeight, width = crateWidth, height = crateHeight)
+            // Three separate crates under the camera beam: two full crates side by side on the ground,
+            // touching (woodCrateBaseRight.x == woodCrateBaseLeft.right, zero gap), with the top crate
+            // stacked directly on top of the rightmost crate on request ("stack this crate on top of
+            // the right most crate"). Sunk 2 units (woodCrateStackSink) into the base crate so the
+            // corner tabs/ears overlap seamlessly and sit flush without floating gaps.
+            val woodCrateStackSink = 2.0
+            val woodCrateBaseLeft = Rect(x = cameraBeam.x + 106.0, y = groundY - crateHeight, width = crateWidth, height = crateHeight)
+            val woodCrateBaseRight = Rect(x = woodCrateBaseLeft.right, y = groundY - crateHeight, width = crateWidth, height = crateHeight)
+            val woodCrateTop = Rect(x = woodCrateBaseRight.x, y = groundY - crateHeight * 2.0 + woodCrateStackSink, width = crateWidth, height = crateHeight)
+            val woodCrates = listOf(stepCrate2, woodCrateBaseLeft, woodCrateBaseRight, woodCrateTop)
 
-            // Two crates stacked right after the single one - same footprint as the single crate,
-            // twice the height (GameplayScene.kt's box-rendering tiles crateBitmap in real 48-unit
-            // increments for anything in the "tactical crate" size window, so height = 2*48 draws
-            // as two crates on top of each other, not one stretched image). Ends at cameraBeam.x +
-            // 252, 18 units clear of cameraLeg's own left edge (cameraBeam.right - 30 = + 270) -
-            // comfortable clearance, not a hairline fit.
+            // Unrelated to the ground-dressing crates above - this is the footprint for the SEPARATE
+            // crate/stacked-pair sitting on TOP of finalPlatform (platformCrate/platformStackedCrates
+            // below), which weren't touched by the ground-dressing rearrangement.
             val stackedCrateWidth = crateWidth
             val stackedCrateHeight = crateHeight * 2.0
-            val stackedCrates = Rect(x = fillerCrate.right + 10.0, y = groundY - stackedCrateHeight, width = stackedCrateWidth, height = stackedCrateHeight)
 
             // One last hanging crate past the beam - same shape and look as the ground gauntlet's
             // own pair (hangingCrateVariant1), but no guard standing on this one, just an obstacle
-            // to cross. Top flush with the beam's own top, so it's a same-height jump across (like
-            // hideCrate -> longCrate1 back at the start of the gauntlet), not a climb.
-            val finalHangingCrate = Rect(x = cameraBeam.right + 120.0, y = cameraBeam.top, width = longCrateWidth, height = longCrateHeight)
+            // to cross. Top flush with the beam's own top, so it's a same-height jump across, not a
+            // climb.
+            //
+            // The gap (56, was 55, was 40, was 120 before that) went through a real reckoning: a
+            // same-height running jump in this engine's actual physics (Player's moveSpeed 132,
+            // jumpSpeed -320, gravity 1000) tops out at roughly 56.5-56.66 units for this exact
+            // geometry (296 top, 144 tall, real player size) before the falling body starts
+            // vertically overlapping the target platform's own slab while still short of it
+            // horizontally - which the collision code (see Player.updateStep's horizontal pass)
+            // then treats as hitting a WALL, not "still falling", pinning the player against the
+            // target's near face until they've sunk well past it and simply drop into the gap. 120
+            // was never actually reachable; measured directly by binary-searching the real
+            // Player.update/GameWorld loop (not projectile-arc arithmetic, which overstates it at
+            // ~84 units - that number ignores this same wall-collision quirk) for the exact
+            // cutoff. 40 was the first fix and left a lot of that budget unused (comfortable, but a
+            // trivial walk-across, not a felt jump); 55 widened it with room to spare; on request
+            // for a little more, checked the jump-timing slack at several points between 55 and the
+            // ~56.5 ceiling and found NO drop-off anywhere in that range - every gap from 55 up to
+            // 56.5 still accepts a jump pressed anywhere from right-at-the-edge to ~22 units early,
+            // so there was no reason to stay at 55. Picked 56: a genuine further widening with
+            // ~0.5-0.66 units still held back from the hard ceiling (56.5 was judged too close to
+            // risk, being in the same 0.25-unit search bracket as the first confirmed failure at
+            // ~56.66). See testLevel3CanJumpFromCameraBeamAcrossToFinalHangingCrateAndOnToFinalPlatform,
+            // the walkthrough test that drives a player through this jump for real -
+            // testLevel2HangingCratesGapIsBeatable, the one test in the codebase that looks like it
+            // proves a similar gap works, only asserts a target X is reached, which the level's own
+            // full-width ground floor satisfies on its own even if every elevated jump in between is
+            // missed - it was never actually exercising the crate-to-crate route it looks like it
+            // validates. **Re-run the same binary search (not a reused number) if this jump's
+            // geometry changes again** - it depends only on platform heights/player size, not on
+            // platform width, so the finalPlatformWidth change below doesn't affect it.
+            //
+            // Raised 2 units above cameraBeam.top on request ("lift the unmanned hanging crate a
+            // little bit") - no longer an EXACT same-height jump on either side, just very close to
+            // one. 2 is not a stylistic choice: at the 56-unit gap fixed above, this jump's own
+            // physics budget is nearly exhausted (the ceiling is ~56.5-56.66 for a true same-height
+            // jump), and adding ANY required vertical rise eats into what's left - binary-searching
+            // the real Player/GameWorld loop again (same method as the gap search above, just with
+            // an asymmetric launch/landing height this time) found the beam -> crate jump (now
+            // upward) stops clearing 56 units at a lift of ~2.03; 2.0 keeps a sliver of margin
+            // (~56.48 max reach at this lift) with the exact same jump-timing slack as before
+            // (0-22 units early, unchanged - the lift didn't cost anything there, only in raw
+            // distance). The reverse leg (crate -> finalPlatform, now a downward jump) has no such
+            // problem - falling toward a LOWER target only ever makes a same-height jump easier, so
+            // it wasn't re-checked at the same precision. **A bigger lift is possible but would
+            // require narrowing the 56-unit gap too - re-run the same search, don't just move this
+            // number up, if that trade is ever wanted.**
+            val finalHangingCrate = Rect(x = cameraBeam.right + 56.0, y = cameraBeam.top - 2.0, width = longCrateWidth, height = longCrateHeight)
 
-            // A crate right at the hanging crate's own far end, on request - lands the player back
-            // on solid ground the instant the jump across finalHangingCrate ends, rather than open
-            // ground.
-            val hangingEndCrate = Rect(x = finalHangingCrate.right, y = groundY - crateHeight, width = crateWidth, height = crateHeight)
+            // A crate perched on TOP of the hanging crate, flush with its right corner - resting
+            // directly on finalHangingCrate's own top surface, not floating above it.
+            val hangingEndCrate = Rect(x = finalHangingCrate.right - crateWidth, y = finalHangingCrate.top - crateHeight, width = crateWidth, height = crateHeight)
 
             // A plain elevated block after the hanging crate, same idea as GameWorld.createDefault's
-            // own block2/block3 in level 1 (95 tall, no crate/table art - falls through to
-            // GameplayScene.kt's generic rough-block render, the same "normal platform" look): the
-            // player drops back to the ground after the hanging-crate jump, climbs this like any
-            // other terrain block, then walks on to the exit.
-            val finalPlatformWidth = 260.0
-            val finalPlatformHeight = 95.0
-            val finalPlatform = Rect(x = hangingEndCrate.right + 80.0, y = groundY - finalPlatformHeight, width = finalPlatformWidth, height = finalPlatformHeight)
+            // own block2/block3 in level 1 (no crate/table art - falls through to GameplayScene.kt's
+            // generic rough-block render, the same "normal platform" look).
+            //
+            // Width bumped 260 -> 340 on request ("increase the length of the platforms right of
+            // the unmanned crate") - purely a landing-zone size change; doesn't touch the jump gap
+            // (only platform height/player size affect that, not width) or platformCrate's own
+            // centering below (platformCrateGroupStartX re-centers automatically for whatever
+            // finalPlatformWidth is).
+            //
+            // Height dropped 144 -> 96 on request ("make the platform on the right smaller to be
+            // able to climb up") - matches this level's own established climbable rise (the same 96
+            // used for crate -> tablePlank at the level's opening, and stepCrate2 -> cameraBeam),
+            // which sits inside Player's own climb window (climbMinHeight = maxJumpHeight = 51.2,
+            // climbMaxHeight = 115.0 - see Player.findClimbTarget) - a plain jump can't cover a rise
+            // that tall, but a climb can, and finalPlatform still rests flush on the ground below
+            // (bottom == groundY, not a floating ledge), so no floatingClimbTargets exemption is
+            // needed for the climb to register. finalPlatform.top is no longer flush with
+            // finalHangingCrate.top (was an intentional near-same-height jump before this) - crossing
+            // the 56-unit gap from finalHangingCrate is now a ~50-unit DOWNWARD jump instead, which
+            // only ever makes a same-height jump easier, never harder (see finalHangingCrate's own
+            // comment above) - re-verified directly with the walkthrough test after this change,
+            // same as every other jump-affecting edit in this level.
+            val finalPlatformWidth = 340.0
+            val finalPlatformHeight = 96.0
+            val finalPlatform = Rect(x = finalHangingCrate.right + 56.0, y = groundY - finalPlatformHeight, width = finalPlatformWidth, height = finalPlatformHeight)
 
             // A crate and a two-stacked pair sitting on TOP of finalPlatform, centred along its
-            // width - on request, "in the middle of the platform". Resting directly on the
+            // width - on request, "in the middle of the platform", touching each other (no gap
+            // between them, also on request - used to have a 20-unit gap). Resting directly on the
             // platform's own surface (bottom flush with finalPlatform.top), not floating above it.
-            val platformCrateGroupWidth = crateWidth + 20.0 + stackedCrateWidth
+            val platformCrateGroupWidth = crateWidth + stackedCrateWidth
             val platformCrateGroupStartX = finalPlatform.x + (finalPlatformWidth - platformCrateGroupWidth) / 2.0
             val platformCrate = Rect(x = platformCrateGroupStartX, y = finalPlatform.top - crateHeight, width = crateWidth, height = crateHeight)
-            val platformStackedCrates = Rect(x = platformCrate.right + 20.0, y = finalPlatform.top - stackedCrateHeight, width = stackedCrateWidth, height = stackedCrateHeight)
+            val platformStackedCrates = Rect(x = platformCrate.right, y = finalPlatform.top - stackedCrateHeight, width = stackedCrateWidth, height = stackedCrateHeight)
 
-            val finalExitX = finalPlatform.right + 150.0
-            val finalWorldWidth = finalExitX + 200.0
+            // A second, pole-mounted camera at finalPlatform's own LEFT corner (on request) - not
+            // bolted to a beam like beamCamera, just a freestanding post (pole.png) standing on the
+            // platform surface. NOT interactable (on request): not in [boxes], so the player walks
+            // straight past/under it with no collision. Still real drawn geometry, so it's in
+            // LevelLayout.poles and gets folded into occluders (GameWorld.createFromLayout) the
+            // same as any other solid prop - it can cast its own shadow like anything else, which
+            // is expected, not a bug (see poleCamera's own comment below on self-shadowing).
+            val poleWidth = 18.0
+            val poleHeight = 130.0
+            val pole = Rect(x = finalPlatform.x, y = finalPlatform.top - poleHeight, width = poleWidth, height = poleHeight)
+
+            // Camera mounted at the pole's own top (pole.y - its highest point), centred on the
+            // pole's width - same "hangs below its mount via a fixed neck" convention as beamCamera
+            // (Camera.pivotPosition/eyePosition), just pointed the other way round: instead of a
+            // beam's underside looking down at the ground, this is a post's top looking out toward
+            // the two things flanking it: on request, "rotates left and right ... the light cone of
+            // it should go from the boxes in the right [platformCrate/platformStackedCrates, on
+            // finalPlatform itself] to the box in the left [finalHangingCrate, across the jump gap]".
+            //
+            // minAngle 20 / maxAngle 160 (measured against VisionSystem.computeVisionPolygon, the
+            // same tool used to tune beamCamera): at 20 the cone's rightmost reach lands past
+            // platformStackedCrates' own far corner (~2547 vs the crate group ending at 2498); at
+            // 160 its leftmost reach lands past finalHangingCrate's own near corner (~1990 vs
+            // finalHangingCrate starting at 2030) - both extremes comfortably past their target,
+            // not a hairline graze.
+            //
+            // Unlike beamCamera vs stepCrate2, this sweep does NOT try to keep the cone from ever
+            // crossing a corner: this pole stands right at the edge of the same jump gap the player
+            // crosses, and finalPlatform's own near corner + hangingEndCrate's own corner both sit
+            // close enough to the eye that swinging the cone across them makes it dip down past
+            // each one into open space beyond (the gap floor, or finalHangingCrate's own lower
+            // surface) - a real, expected depth change as the cone pans across uneven terrain, the
+            // same way any flashlight reveals more or less ground when swept across a ledge. That's
+            // different in kind from the stray-ray-spike bug documented on beamCamera (an epsilon
+            // rendering artifact where the fix was to keep a specific corner from ever being grazed
+            // at all) - there is no single "must never cross this corner" requirement here, so it
+            // is not tested the same way; see testLevel3PoleCameraReachesBothFlankingBoxGroups
+            // instead, which checks what this camera is actually FOR (reaching both box groups).
+            //
+            // Mount lowered to pole.y (flush with the pole's top cap) on request ("also this camera
+            // looks like its floating. make it look like its fixed to the top of the column it is
+            // connected to"). Previous -5.0 offset hovered the mounting plate 5 units in the air
+            // above the column; at pole.y the ceiling-plate bracket rests directly on top of the
+            // pole collar as a solid cap.
+            // Sweep speed increased 0.6 -> 0.85 on request ("make the rightmost corner camera a little
+            // faster").
+            val poleCamera = CameraSpawn(
+                x = pole.x + poleWidth / 2.0 - 10.0,
+                y = pole.y,
+                minAngle = 20.0 * (PI / 180.0),
+                maxAngle = 160.0 * (PI / 180.0),
+                startAngle = 20.0 * (PI / 180.0),
+                sweepSpeed = 0.85,
+                visionRange = 230.0,
+                visionFov = 50.0 * (PI / 180.0),
+                sweepPauseDuration = 3.0
+            )
+
+            val finalExitX = finalPlatform.right + 300.0
+            // Extended past the finish structure (entrance booth ~117 + exit fence ~312 = ~430 units)
+            // on request ("increase the length of the ground a little at the very end to reach the finish").
+            val finalWorldWidth = finalExitX + 460.0
             val ground = Rect(x = 0.0, y = groundY, width = finalWorldWidth, height = 100.0)
 
             LevelLayout(
@@ -1196,10 +1468,13 @@ data class LevelData(
                 boxes = listOf(
                     crate, tablePlank, hideCrate, rightLeg, longCrate1, longCrate2,
                     stepCrate2, cameraBeam, cameraLeg, finalHangingCrate, hangingEndCrate, finalPlatform
-                ) + fillerBarrels + listOf(fillerCrate, stackedCrates, platformCrate, platformStackedCrates),
+                ) + fillerBarrels + listOf(woodCrateBaseLeft, woodCrateBaseRight, woodCrateTop, platformCrate, platformStackedCrates),
                 guards = listOf(roofGuard, overwatchGuard1, overwatchGuard2),
-                cameras = listOf(beamCamera),
+                cameras = listOf(beamCamera, poleCamera),
+                translucentCameras = listOf(poleCamera),
                 barrels = fillerBarrels,
+                woodCrates = woodCrates,
+                poles = listOf(pole),
                 tables = listOf(tablePlank, cameraBeam),
                 tableParts = listOf(tablePlank, cameraBeam),
                 tableDecorations = listOf(rightLeg, cameraLeg),
@@ -1244,7 +1519,7 @@ data class LevelData(
         val DEFAULT_LEVEL_4 = LevelData(
             id = "level_4",
             name = "04: Blind Spot",
-            timeTargetSeconds = 90.0f,
+            timeTargetSeconds = 115.0f,
             description = "The cargo express conveyor is running in reverse. Vault over oncoming crates, duck under low-hanging cargo, and reach the secure facility.",
             objectiveHint = "Traverse the Conveyor Line",
             layout = LEVEL_4_LAYOUT,
@@ -1254,64 +1529,115 @@ data class LevelData(
         )
 
         /**
-         * A long side-scrolling level built from three storeys.
+         * Recovered from history for level 5. Originally built as level 4's "Blind Spot", then
+         * replaced there by the conveyor-belt run (see LEVEL_4_LAYOUT above) - restored here
+         * verbatim rather than redesigned, guards and all (there are none - see below).
          *
-         * Surfaces (top edge): ground 440, mid tiers 368, high tier 296. Every step up is 36 -
-         * comfortably inside the 45 unit jump the player physics allow (jumpSpeed 300, gravity
-         * 1000), and no gap exceeds the ~72 units covered during a full 0.6s jump arc.
+         * A two-tier barrel staircase blocks the ground path outright: an 8-wide bottom layer with
+         * a 4-wide top layer sitting on its far half, so the near half of the bottom layer is left
+         * exposed as a real landing spot. That matters physically, not just visually: the engine's
+         * climb/jump check only ever looks at one box's own bottom/top face (see
+         * Player.findClimbTarget), so a second layer sitting directly above the first IN THE SAME
+         * COLUMNS would occupy the only spot the player could land on to reach it (the player's own
+         * height, 96, equals two stacked 48-tall layers), leaving no way up at all. Offsetting the
+         * top layer sideways instead of stacking it in-place turns the climb into two ordinary
+         * adjacent-box jumps (ground -> bottom layer's exposed half -> top layer -> terrain1), the
+         * same proven pattern as LEVEL_2_LAYOUT's crate1 (48 units, comfortably under
+         * Player.maxJumpHeight 51.2).
          *
-         * Intended route, which never enters a guard cone (see the walkthrough test in
-         * GameplayModelTest.testSideScrollLevelIsBeatable):
-         *   1. Ground start, climb the step boxes at x=200/270 up onto mid tier 1.
-         *   2. Walk mid tier 1 (330..1130) straight over guard 1, who patrols the ground
-         *      below - the tier floor blocks his line of sight.
-         *   3. Step onto the box at x=1070 and walk off its end, dropping to the ground at
-         *      x~1200, which is past guard 1 reach (he turns at 880, and sees 200 ahead).
-         *   4. Cross the open ground (1130..1700), which no guard patrols.
-         *   5. Climb the step boxes at x=1700/1770 onto mid tier 2 (1830..2660), passing
-         *      over guard 3 the same way.
-         *   6. Drop off the far end at x~2660, beyond guard 3 reach, and walk into the exit.
+         * Past the barrel stack, terrain1 sits one more 48-unit jump higher (296, this game's
+         * established "high tier" height) and is a solid block reaching all the way down to the
+         * ground (144 tall) rather than a thin floating platform with open air beneath it.
          *
-         * That same box at x=1070 doubles as the springboard to the optional high tier
-         * (1170..1600): jumping from it clears the 40 unit gap, while simply walking off it
-         * falls short and passes underneath. Guard 2 patrols up there and can be skipped.
+         * The gap after terrain1 is crossed by swinging from the hook hanging over it: walk into it
+         * and press JUMP, the same button the climb already uses. It is the only way across - the
+         * gap is twice a running jump - and it is the one place in the game the swing exists at all,
+         * so the geometry here and Player's swing constants are a matched pair (see "The swing move"
+         * in .junie/guidelines.md). Walkthrough-verified in GameplayModelTest (the swing tests drive
+         * this exact layout end to end via SIDE_SCROLL_LEVEL_LAYOUT/SIDE_SCROLL_LEVEL).
+         *
+         * No guards - left exactly as it was when it was cut for time, deliberately not fleshed out
+         * on recovery.
          */
-        val SIDE_SCROLL_LEVEL_LAYOUT = LevelLayout(
-            worldWidth = 2800.0,
-            playerStartX = 236.0,
-            playerStartY = 440.0 - 96.0,
-            exitZone = Rect(x = 2700.0, y = 340.0, width = 44.0, height = 100.0),
-            platforms = listOf(
-                Rect(x = 0.0, y = 440.0, width = 2800.0, height = 60.0),   // ground
-                Rect(x = 330.0, y = 368.0, width = 800.0, height = 14.0),  // mid tier 1
-                Rect(x = 1210.0, y = 296.0, width = 390.0, height = 14.0), // high tier (optional)
-                Rect(x = 1830.0, y = 368.0, width = 830.0, height = 14.0)  // mid tier 2
-            ),
-            boxes = listOf(
-                Rect(x = 270.0, y = 368.0, width = 60.0, height = 72.0),  // step onto mid tier 1
-                Rect(x = 1070.0, y = 332.0, width = 60.0, height = 36.0), // end of mid tier 1
-                Rect(x = 1280.0, y = 260.0, width = 60.0, height = 36.0), // cover on high tier
-                Rect(x = 1700.0, y = 404.0, width = 70.0, height = 36.0), // step up from ground
-                Rect(x = 1770.0, y = 368.0, width = 60.0, height = 72.0)  // step onto mid tier 2
-            ),
-            guards = listOf(
-                GuardSpawn(
-                    startX = 860.0, surfaceY = 440.0,
-                    patrolMinX = 480.0, patrolMaxX = 880.0,
-                    speed = 55.0, facing = -1.0, visionRange = 200.0
-                ),
-                GuardSpawn(
-                    startX = 1400.0, surfaceY = 296.0,
-                    patrolMinX = 1350.0, patrolMaxX = 1550.0,
-                    speed = 55.0, facing = 1.0, visionRange = 200.0
-                ),
-                GuardSpawn(
-                    startX = 2350.0, surfaceY = 440.0,
-                    patrolMinX = 2100.0, patrolMaxX = 2380.0,
-                    speed = 65.0, facing = -1.0, visionRange = 240.0
-                )
+        val SIDE_SCROLL_LEVEL_LAYOUT = run {
+            val groundY = 440.0
+            val worldWidth = 3000.0
+            val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
+
+            val barrelWidth = 32.0
+            val barrelLayerHeight = 48.0
+            val barrelWallX = 400.0 // a short run-up from the start fence, matching LEVEL_2's crate1 distance
+
+            val bottomLayerCount = 8
+            val topLayerCount = 4
+            val bottomLayerY = groundY - barrelLayerHeight
+            val topLayerX = barrelWallX + (bottomLayerCount - topLayerCount) * barrelWidth // top layer sits on the FAR half
+            val topLayerY = groundY - barrelLayerHeight * 2.0
+
+            val bottomBarrelLayer = (0 until bottomLayerCount).map { i ->
+                Rect(x = barrelWallX + i * barrelWidth, y = bottomLayerY, width = barrelWidth, height = barrelLayerHeight)
+            }
+            val topBarrelLayer = (0 until topLayerCount).map { i ->
+                Rect(x = topLayerX + i * barrelWidth, y = topLayerY, width = barrelWidth, height = barrelLayerHeight)
+            }
+            val barrelWall = bottomBarrelLayer + topBarrelLayer
+            val barrelWallEndX = topLayerX + topLayerCount * barrelWidth
+
+            // Solid elevated terrain, one more 48-unit jump above the barrel stack's top layer.
+            val terrainTopY = topLayerY - barrelLayerHeight
+            val terrainHeight = groundY - terrainTopY
+            val terrain1 = Rect(x = barrelWallEndX, y = terrainTopY, width = 300.0, height = terrainHeight)
+
+            // The first gap is crossed by swinging from the hook below (width 150, hook at middle 75).
+            val gapWidth = 150.0
+            val terrain2 = Rect(x = terrain1.right + gapWidth, y = terrainTopY, width = 300.0, height = terrainHeight)
+
+            // The chain-and-hook (hook.png) the player swings from, positioned by its GRIP - see
+            // Player.HOOK_GRIP_X/Y_FRACTION - with the art hung off that, not the other way round.
+            val hookWidth = 16.0
+            val hookHeight = hookWidth * (2136.0 / 154.0) // hook.png's own cropped aspect ratio
+            val hook1GripX = terrain1.right + gapWidth / 2.0
+            val hook1GripY = terrainTopY - 112.0
+            val swingHook1 = Rect(
+                x = hook1GripX - hookWidth * Player.HOOK_GRIP_X_FRACTION,
+                y = hook1GripY - hookHeight * Player.HOOK_GRIP_Y_FRACTION,
+                width = hookWidth,
+                height = hookHeight
             )
-        )
+
+            // Three thin platforms following terrain2, requiring continuous jumping to build/keep momentum.
+            // Spanned by 48-unit gaps (well within the safe ~56 unit same-height jump window), anchored to the ground.
+            val thinPlatformWidth = 40.0
+            val thinPlatformGap = 48.0
+            val thinPlatform1 = Rect(x = terrain2.right + thinPlatformGap, y = terrainTopY, width = thinPlatformWidth, height = terrainHeight)
+            val thinPlatform2 = Rect(x = thinPlatform1.right + thinPlatformGap, y = terrainTopY, width = thinPlatformWidth, height = terrainHeight)
+            val thinPlatform3 = Rect(x = thinPlatform2.right + thinPlatformGap, y = terrainTopY, width = thinPlatformWidth, height = terrainHeight)
+
+            // Second hook swing over a 150-unit gap after the 3 thin platforms, carrying onto a long platform.
+            val hook2GripX = thinPlatform3.right + gapWidth / 2.0
+            val hook2GripY = terrainTopY - 112.0
+            val swingHook2 = Rect(
+                x = hook2GripX - hookWidth * Player.HOOK_GRIP_X_FRACTION,
+                y = hook2GripY - hookHeight * Player.HOOK_GRIP_Y_FRACTION,
+                width = hookWidth,
+                height = hookHeight
+            )
+
+            // Long landing platform and exit
+            val terrain3 = Rect(x = thinPlatform3.right + gapWidth, y = terrainTopY, width = 340.0, height = terrainHeight)
+
+            LevelLayout(
+                worldWidth = worldWidth,
+                playerStartX = 236.0,
+                playerStartY = groundY - 96.0,
+                exitZone = Rect(x = terrain3.right + 100.0, y = groundY - 100.0, width = 44.0, height = 100.0),
+                platforms = listOf(ground),
+                boxes = barrelWall + listOf(terrain1, terrain2, thinPlatform1, thinPlatform2, thinPlatform3, terrain3),
+                guards = emptyList(),
+                barrels = barrelWall,
+                swingHooks = listOf(swingHook1, swingHook2)
+            )
+        }
 
         val SIDE_SCROLL_LEVEL = LevelData(
             id = "level_5",
@@ -1321,7 +1647,37 @@ data class LevelData(
             objectiveHint = "Get Into the Restricted Area",
             coinRewardBase = 90,
             coinRewardPerStar = 40,
-            layout = SIDE_SCROLL_LEVEL_LAYOUT
+            layout = SIDE_SCROLL_LEVEL_LAYOUT,
+            tutorialSteps = listOf(
+                TutorialStep(
+                    id = "step_swing_hook",
+                    // Terrain1 - the ledge reached by climbing the barrel stack - is where the
+                    // player is actually running when the hook comes into view, same shape as
+                    // level 1's step_climb triggering right at its own obstacle. Ends comfortably
+                    // before Player.swingMaxReach's own trigger window opens (see Player
+                    // .findSwingTarget), with a 10 unit margin, so the callout has already been on
+                    // screen for a moment before the window where pressing jump actually matters.
+                    triggerMinX = SIDE_SCROLL_LEVEL_LAYOUT.boxes.first { it.width == 300.0 }.left + 20.0,
+                    triggerMaxX = Player.hookGripX(SIDE_SCROLL_LEVEL_LAYOUT.swingHooks.first()) -
+                        Player(x = 0.0, y = 0.0).swingMaxReach - 10.0,
+                    title = "HOOK SWING",
+                    instructionTouch = "Press JUMP while running into the hanging hook to swing across the gap.",
+                    instructionDesktop = "Press [W] or [SPACE] while running into the hanging hook to swing across the gap.",
+                    targetAction = TutorialAction.SWING,
+                    // World-anchored at the hook itself (like step_reach_objective in level 1) -
+                    // it's a real grab point out in the level, not a screen-fixed control button.
+                    highlight = TutorialControlHighlight.NONE,
+                    handwrittenCallout = "Press jump while running to swing across!",
+                    worldTextX = 740.0,
+                    worldTextY = 155.0,
+                    // The hook's own GRIP - the point Player.findSwingTarget actually measures
+                    // reach/height from (see Player.HOOK_GRIP_X/Y_FRACTION) - not a corner of its
+                    // art, so the arrow always lands on the real grab point even if the hook is
+                    // ever repositioned.
+                    worldAnchorX = Player.hookGripX(SIDE_SCROLL_LEVEL_LAYOUT.swingHooks.first()),
+                    worldAnchorY = Player.hookGripY(SIDE_SCROLL_LEVEL_LAYOUT.swingHooks.first())
+                )
+            )
         )
 
         // Levels 6-13 continue the shipyard story on the same single-screen arena
