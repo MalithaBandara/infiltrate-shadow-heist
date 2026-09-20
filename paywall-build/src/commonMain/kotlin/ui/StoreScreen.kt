@@ -74,7 +74,7 @@ import paywall_build.generated.resources.gadget_boots
 import paywall_build.generated.resources.gadget_checkpoint
 import paywall_build.generated.resources.gadget_lasershield
 import paywall_build.generated.resources.gadget_invis
-import paywall_build.generated.resources.gadget_jammer
+import paywall_build.generated.resources.gadget_checkpoints
 import paywall_build.generated.resources.gadget_mystery
 import paywall_build.generated.resources.noads
 import paywall_build.generated.resources.store_ad
@@ -188,11 +188,11 @@ fun StoreScreen(
 
     val basePowerupItems = remember {
         listOf(
-            PowerupItem(PowerupType.SMOKE_SCREEN, "CAMERA JAMMER", "Disables all cameras for 10 seconds.", 150, Res.drawable.gadget_jammer, 86),
-            PowerupItem(PowerupType.LASER_SHIELD, "LASER SHIELD", "Protects from 1 laser hazard contact.", 600, Res.drawable.gadget_lasershield, 86),
-            PowerupItem(PowerupType.INVISIBILITY, "INVISIBILITY CLOAK", "Total sight immunity for 10 seconds.", 350, Res.drawable.gadget_invis, 86),
-            PowerupItem(PowerupType.NOISE_SUPPRESSION, "STEALTH BOOTS", "Silent movement for entire mission.", 500, Res.drawable.gadget_boots, 86),
-            PowerupItem(PowerupType.REMOTE_TRIGGER, "REMOTE TRIGGER", "Triggers closest mechanism without finding its switch.", 750, Res.drawable.gadget_checkpoint, 86)
+            PowerupItem(PowerupType.INVISIBILITY, "INVISIBILITY CLOAK", "Become invisible to guards and cameras for 10 seconds.", 350, Res.drawable.gadget_invis, 86),
+            PowerupItem(PowerupType.NOISE_SUPPRESSION, "STEALTH BOOTS", "Silent movement for entire mission.", 400, Res.drawable.gadget_boots, 86),
+            PowerupItem(PowerupType.LASER_SHIELD, "LASER SHIELD", "Protects from 1 laser hazard contact.", 500, Res.drawable.gadget_lasershield, 86),
+            PowerupItem(PowerupType.REMOTE_TRIGGER, "REMOTE TRIGGER", "Triggers closest mechanism without needing to find its switch.", 600, Res.drawable.gadget_checkpoint, 86),
+            PowerupItem(PowerupType.CHECKPOINTS, "CHECKPOINTS", "Respawn at activated checkpoints after being caught or restarting", 750, Res.drawable.gadget_checkpoints, 86)
         )
     }
 
@@ -205,9 +205,9 @@ fun StoreScreen(
             // Unused placeholder - the actually-granted type is chosen from mysteryGadgetPool
             // when the ad is requested, not from this field.
             PowerupItem(
-                type = PowerupType.SMOKE_SCREEN,
+                type = PowerupType.INVISIBILITY,
                 title = "MYSTERY GADGET",
-                description = "Watch an ad for a random gadget from the field kit below.",
+                description = "Get 1 random gadget. Every gadget has an equal chance of appearing.",
                 cost = 0,
                 imageRes = Res.drawable.gadget_mystery,
                 isAd = true
@@ -217,11 +217,11 @@ fun StoreScreen(
 
     val inventoryItems = remember {
         listOf(
-            InventoryItem(PowerupType.SMOKE_SCREEN, "CAMERA JAMMER", Res.drawable.gadget_jammer),
-            InventoryItem(PowerupType.LASER_SHIELD, "LASER SHIELD", Res.drawable.gadget_lasershield),
             InventoryItem(PowerupType.INVISIBILITY, "INVISIBILITY CLOAK", Res.drawable.gadget_invis),
             InventoryItem(PowerupType.NOISE_SUPPRESSION, "STEALTH BOOTS", Res.drawable.gadget_boots),
-            InventoryItem(PowerupType.REMOTE_TRIGGER, "REMOTE TRIGGER", Res.drawable.gadget_checkpoint)
+            InventoryItem(PowerupType.LASER_SHIELD, "LASER SHIELD", Res.drawable.gadget_lasershield),
+            InventoryItem(PowerupType.REMOTE_TRIGGER, "REMOTE TRIGGER", Res.drawable.gadget_checkpoint),
+            InventoryItem(PowerupType.CHECKPOINTS, "CHECKPOINTS", Res.drawable.gadget_checkpoints)
         )
     }
 

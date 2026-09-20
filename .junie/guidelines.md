@@ -297,7 +297,7 @@ ad -> `ContinueAdTrigger.markRewardEarned()` -> polled -> `GameContinueAdBridge.
 their last safe checkpoint (`world.respawnAtCheckpoint()`), capping at 1 continue per run. When continue is
 used, subsequent deaths in the same run hide the CONTINUE button and dynamically re-center RETRY and MAIN MENU
 across the bottom bar. Revival grants 3.0s grace cloak (`activePowerups.invisibilityTimer = 3.0`) and laser
-grace (`laserGraceTimer = 3.0`), returns guards to patrol, and snaps the camera to the player. On Android
+grace (`laserGraceTimer = 3.0`), returns guards to patrol, and snaps the camera to the player. When the **Checkpoints** gadget (`PowerupType.CHECKPOINTS`, 750 coins) is active in a level, the player is not capped at 1 continue—they continuously auto-respawn at their last safe checkpoint each time they die until they quit or complete the level. Tools in the Store are arranged in strictly ascending order of price: INVISIBILITY CLOAK (350), STEALTH BOOTS (500), LASER SHIELD (600), and CHECKPOINTS (750). To prevent instant deaths directly after spawn in any level, `spawnGraceTimer` (2.0s) activates upon level start and restart (`restartLevel()`), suppressing alert accumulation, laser hits, downward crate crushes, and conveyor fall-off while the player remains at spawn or checkpoint (`isAtSpawnOrCheckpoint()`). On Android
 everything runs in one process, so `ContinueAdBridge.android.kt` is a plain shared object; desktop JVM
 simulates immediate grant in `JvmContinueAdBridge` for local testing. The MISSION FAILED card has three buttons
 at the bottom when continue is available: **CONTINUE** (leftmost, watch-ad clapper icon), **RETRY** (bold circular reload arrow), and **MAIN MENU** (silhouette home icon), sized at 175x62px (upgraded from 44px, then 54px); button icons are vertically centered to the optical middle of the text glyphs (`textY + text.height * 0.44`, with `drawWatchAdIcon` offset by -1.5 so its body and play triangle align) rather than `height / 2.0` (which sat too low because Bebas Neue has no descenders and the torn-paper button frames have higher vertical centers); when continue is spent, CONTINUE is hidden and RETRY and MAIN MENU are centered; the victory overlay similarly features 56px buttons (**RETRY**, **MAIN MENU**, **NEXT MISSION** with double forward arrows); a failed ad never strands the player. Verified: JVM + Android compile. Never run on a device.
@@ -339,6 +339,13 @@ Sixth Store card ("MYSTERY GADGET") in the 2x3 POWER-UPS grid. Grants one of the
 `profileStorage.buyPowerup(type.id, cost = 0)` (`spendCoins(0)` always succeeds). Draws a vector die
 icon (`drawMysteryDiceIcon`). **Not `PowerupType.PROTOTYPE`** - that's a separate in-progress sixth
 gadget type (real id/cost/timer, no world effect, not in the Store); `gadget_prototype.png` is its.
+**`PROTOTYPE` removed from `GameplayScene.kt`'s `gadgetTypes` (the in-game HUD tray) on request,
+2026-09-20** - it was still listed there (a leftover from before it became a Store-excluded
+placeholder), so a player who somehow got one (e.g. the F2 debug-powerup grant below, which grants
+every `PowerupType` indiscriminately) saw a real, tappable-looking tray slot with a plain "?"
+mystery-box icon that did nothing when used - reported directly from a screenshot ("mystery item
+should not be inside the game play"). `grantDebugPowerups()` still grants it (harmless dead stock,
+invisible now that the tray skips it) rather than special-casing the storage method for one type.
 **`GadgetAdLimiter`**: separate class (precedent: `InterstitialAdLimiter`), `MAX_WATCHES_PER_DAY = 3`
 (a random gadget averages ~400 coins of value vs the coin card's 250), keys
 `user_gadget_ad_day_bucket`/`user_gadget_ad_watch_count`. **`GadgetRewardAdHost`** is a near-copy of
@@ -1305,6 +1312,164 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
 
 ## Smaller features and decisions
 
+- **REMOTE_TRIGGER powerup was a complete no-op, plus a real shared-mutable-state bug found while
+  fixing it (2026-09-20)**: `ActivePowerups.activate()` (`Powerup.kt`) had
+  `PowerupType.REMOTE_TRIGGER -> Unit` - activating it (buying it, pressing its tray slot) did
+  **nothing at all**, on every platform, confirmed by the owner testing it on level 6. Its own
+  Store description ("Triggers closest mechanism without needing to find its switch." -
+  `StoreScreen.kt`) was never implemented. Fixed in `GameWorld.kt`: `activatePowerup()` now special
+  -cases `REMOTE_TRIGGER` - picks the nearest `!isActivated` lever by `player.center.distanceTo(...)`
+  and throws it exactly as an in-range interact would (extracted the shared cascade into a new
+  private `triggerLever(lever)`, also now used by the normal `interactInput` path so there's one
+  code path, not two). Returns `false` (refuses) if no un-thrown lever exists in the level - checked
+  ahead of spending the item via a new `GameWorld.hasRemoteTriggerTarget()`, called from
+  `GameplayScene.kt`'s `tryActivatePowerup` before `profileStorage.consumePowerup(type)`, so a level
+  with no levers (or one already fully thrown) never burns the item for nothing. It remains a true
+  one-shot - `isActive(REMOTE_TRIGGER)` is still always `false` (no running state to block a second
+  use; the "already active" guard below doesn't apply to it, only whether a target exists).
+  **While building the test for this** (`testRemoteTriggerActivatesNearestLeverWithoutBeingInRange`,
+  right before `testLevel6LeverCrateSwingCrossesToLandingCrate`), a real pre-existing bug surfaced:
+  `GameWorld.createFromLayout` passed `layout.levers`/`layout.hookCrates` straight through
+  (`levers = layout.levers`, no copy), unlike every other level object (`MovingPlatform`/`Camera`/
+  `ConveyorCrate`/`Laser`), which are freshly built from an immutable Def/spawn each call. Since
+  `LEVEL_6_LAYOUT` etc. are top-level `val`s (computed once per process) holding the actual mutable
+  `Lever`/`HookCrate` instances, every `GameWorld` built from the same layout shared and mutated the
+  SAME objects - `createFromLayout` already reset them at the top (`for (lever in layout.levers)
+  lever.reset()`, pre-existing, meant for "quit and replay the same level without restarting the
+  app") but that only protects sequential re-creation, not two `GameWorld`s alive at once (exactly
+  what a test suite does, and what surfaced this: my remote-trigger test threw the shared lever and
+  left it thrown, which broke the swing test that ran after it in the same JVM). Fixed by giving
+  `createFromLayout` its own fresh copies - `levers = layout.levers.map { it.copy() }`,
+  `hookCrates = layout.hookCrates.map { it.copy() }` - both are plain data classes so `.copy()` is
+  sufficient (no nested mutable refs beyond `HookCrate.bounds`, itself an immutable `Rect`). The old
+  reset-on-create loop is now redundant defense-in-depth, not load-bearing, but left in place.
+  `jvmTest` green on a forced `--rerun-tasks` full run (129 tests, 0 failures) - this class of bug
+  is exactly the kind a partial/up-to-date test run can hide, so a real rerun mattered here more than
+  usual.
+- **F2: desktop-only debug key to top up every gadget by +3 (2026-09-20)**: `GameplayScene.kt`,
+  same `Platform.isJvm`-gated pattern as F1's noclip fly (see below) - calls
+  `profileStorage.grantDebugPowerups(3)` (`GameProfile.kt`; the method already existed, fully wired
+  to `GameProfileStorage`/`MapBackedGameProfileStorage`/tested in `GameplayModelTest.kt`, but had
+  never actually been called from anywhere in the app before this). Added so a session can try out
+  every gadget without grinding coins first - JVM's own `PlatformStorage` impl
+  (`paywall-build/src/jvmMain/kotlin/PlatformStorage.jvm.kt`) is a plain in-memory
+  `ConcurrentHashMap`, never persisted to disk, so this only ever affects the current desktop run
+  and never touches a real save on Android/iOS.
+- **Gadget tray polish + no re-activating a running gadget (2026-09-20)**: `GameplayScene.kt`'s
+  `TrayEntry` boxes (the powerup row that unfolds from the corner bolt, `trayEntries`/
+  `refreshTrayLabels`): (1) the 30px icon is now centred on both axes in the 42px box (was
+  horizontally centred but pinned 2px from the top to leave room under it) - `xy((slotSize -
+  slotIconSize)/2.0, (slotSize - slotIconSize)/2.0)`. (2) The stock-count text is always
+  `COLOR_TEXT_LIGHT` (white) now, not the old gold/green swap keyed on live state - it only shows at
+  all while idle. (3) A live gadget no longer prints "ON"/"`Xs`" text; it shows a semi-transparent
+  white overlay across the WHOLE box instead (`TrayEntry.drain`, a dedicated `Graphics` layered on
+  top of both the icon and the count text - added last among the box's children, so it paints over
+  them), like a curtain: bottom edge fixed, top edge sinking toward the bottom as
+  `getRemainingTime(type)/type.duration` runs out. Alpha `Colors.WHITE.withAd(0.14)` - started at
+  0.42, lowered to 0.22 then to 0.14 across two rounds of "make it more transparent"; re-lower this
+  same constant if asked again. Shape: `roundRect(x, y, w, h, corner, corner)` (with `corner =
+  drainCornerRadius.coerceAtMost(filledH / 2.0)` applied to both top and bottom corners). The overlay
+  covers the entire box when active; for level-duration gadgets (`PowerupType.isLevelDuration` -
+  `LASER_SHIELD`, `NOISE_SUPPRESSION`, `CHECKPOINTS`) it stays at 100% full for as long as it is on.
+  For timed gadgets that wear down, the overlay drains downward while remaining curved at the top to
+  match the rounded shape of the box behind it (owner request from screenshot 2026-09-20: square top
+  corners looked discordant with the curved frame). Quantised to fortieths like the corner bolt's own
+  horizontal drain bar (`slotDrain`, same file) to avoid a per-frame vector rebuild.
+  **Corner clamp**: clamping `corner = drainCornerRadius.coerceAtMost(filledH / 2.0)` guarantees
+  that once `filledH` drains below `drainCornerRadius * 2`, the corner radii never exceed available
+  height, preventing korlibs tangent-point overflow. Inset: `drainInset = 1.6` keeps the overlay
+  neatly inside the frame's stroke outline.
+  **Second corner-overflow bug, fixed same day, this one mid-animation not just at full/empty**:
+  reported against a mid-drain screenshot of INVISIBILITY (a real 10s timed gadget, so it actually
+  passes through every fraction, unlike a level-duration one pinned at 1.0). Root cause is in
+  korlibs' own per-corner `roundRect(x, y, w, h, rtl, rtr, rbr, rbl)` (`korlibs.math.geom.vector.
+  VectorBuilder`, via `Arc.arcToPath`): unlike its single-radius `roundRect(x, y, w, h, rx, ry)`
+  overload (which clamps `rx`/`ry` down to `w/2`/`h/2` when the box is smaller than the requested
+  radius), the per-corner overload does **no clamping at all** - each corner's rounding is a
+  canvas-style tangent construction that places its tangent point `radius` units from the corner
+  along both adjoining edges, with zero awareness of the other corner sharing that same edge. Once
+  `filledH` (the overlay's current height) drains below `drainCornerRadius` (9), the bottom
+  corners' tangent points land PAST the shrunken rect's own top edge, so the rounded corner arc
+  bulges outside the nominal box bounds - visible as white spilling past the frame while the
+  animation is actively draining, not only at the full/empty extremes. Fixed by clamping:
+  `val bottomRadius = drainCornerRadius.coerceAtMost((filledH - topRadius).coerceAtLeast(0.0))`,
+  same discipline korlibs' own single-radius overload already applies, just done by hand since the
+  per-corner one doesn't. **Any per-corner `roundRect` call anywhere in this codebase needs the same
+  manual clamping if the rect's own size can ever shrink smaller than a requested corner radius** -
+  korlibs will not catch this for you on that overload. Not verified with a real screenshot after
+  this specific fix (traced `Arc.arcToPath`'s actual tangent-point math from its own source jar to
+  confirm the mechanism, rather than guessing) - if it recurs, the JS/Wasm target
+  (`build.gradle.kts`, declared for local browser preview only, see "Tech stack") could be launched
+  in the Browser pane tool for a real visual check without needing the JVM desktop screenshot
+  PowerShell recipe.
+  **Third round, still reported after the corner clamp fix ("still it overflows from side and
+  bottom")**: attempted a real screenshot check this time via `./gradlew runJvm` + the documented
+  PowerShell GDI capture recipe, with a temporary rig in `GameplayScene.kt`'s `addUpdater` (grant +
+  activate INVISIBILITY, force its timer to a fixed fraction every frame so there's no race against
+  a live 10s countdown) - **inconclusive, not a dead end worth reproducing verbatim**: this machine
+  had a SECOND, pre-existing "Infiltrate: Shadow Heist" window already running (the owner's own,
+  separate from anything this session launched - confirmed by PID/start-time, never touched), which
+  cost real time to safely disambiguate window handles from (by PID + process start time, never by
+  title alone - two windows shared the exact same title and, at least once, the exact same screen
+  rect). One relaunch's window also rendered with only ONE tray icon instead of five despite the
+  model-level state being confirmed correct via temporary `println`s (`isActive=true`, a real
+  quantized 0.5 fraction) - never root-caused (plausibly transient from rapid kill/relaunch
+  process churn, not a code bug; the very first capture that session, on a window that had been
+  running undisturbed the longest, DID show a normal 5-icon tray). **Debug rig fully reverted** -
+  grep `debugScreenshotSetupDone`/`TEMP screenshot`/`TEMP:` in `GameplayScene.kt` to confirm none of
+  it is still there if this is ever picked up again. Given repeated difficulty pinning the exact
+  mechanism (and now two fixes that didn't fully resolve it), the fix this round is deliberately
+  **geometry-proof rather than another targeted patch**: `drainInset = 1.6` (matching the frame
+  stroke's own inner edge - stroke sits at inset 0.95, thickness 1.3) and `drainCornerRadius`
+  lowered `9.0 -> 7.0` to match; the overlay's rect is now built entirely from `(drainInset,
+  drainInset)` to `(slotSize - drainInset, slotSize - drainInset)`, never from `(0, 0)` to
+  `(slotSize, slotSize)` - it is drawn a fixed, generous margin inside the frame's visible stroke
+  line, so it cannot reach that line regardless of whatever the remaining overflow mechanism turns
+  out to be (sub-pixel rounding, the fill/stroke inset mismatch between the frame's own two
+  `roundRect` calls, or something not yet identified). The corner clamp from the previous round is
+  kept (still needed - `filledH` here is `boxH * fraction` off the smaller inset box, so it can
+  still shrink below `drainCornerRadius`). **If a fourth report comes in, don't add a fourth patch
+  on top of this one - get a real, clean screenshot FIRST** (the JS/Wasm Browser-pane route noted
+  above is likely more reliable on this machine than another JVM desktop window hunt) and diagnose
+  from an actual pixel-level view rather than reasoning further from korlibs' source alone. **First cut of
+  this was a thin vertical gauge bar along the box's edge - corrected on request** ("by a drain bar
+  i mean like a half
+  transparent white overlay on the whole square that drains down") - if this is ever revisited,
+  it's the full-box curtain that's wanted, not an edge gauge. (4) A gadget
+  already active can no longer be re-triggered until it ends: guarded in both
+  `GameWorld.activatePowerup()` (returns `false` if `activePowerups.isActive(type)` - the
+  authoritative gate, covered by `testActivatePowerupRefusesReactivationWhileAlreadyActive`) and
+  `GameplayScene.kt`'s `tryActivatePowerup` (checked *before* `profileStorage.consumePowerup(type)`,
+  so a refused re-press doesn't burn an inventory item for nothing). `jvmTest` green (128 tests);
+  the tray's visual geometry itself (icon centring, bar rendering) is not verified on a real
+  screenshot/device - same caveat as the detection-pip entry below, no headless KorGE canvas
+  harness exists.
+- **Detection pip: "!" for heard noise vs the clock for actually seen (2026-09-20)**:
+  `GameplayScene.kt`'s per-guard/camera pip (`guardPips`/`cameraPips`, drawn above the head). The
+  clock only ever renders for a guard/camera actually in `world.detectingGuards`/`detectingCameras`
+  (a real vision hit, progress = `world.alertProgress`). When sound is heard (`Guard.onNoiseHeard`,
+  flagged via `g.investigatedFromNoise`), `drawInvestigateMark` draws a plain "!" badge above the
+  guard without any background circle (circle backdrop/outline removed on owner request 2026-09-20).
+  **Stealth Boots suppression**: When `world.activePowerups.isNoiseSuppressed` is active (Stealth Boots),
+  `g.onNoiseHeard` is never triggered and `paintPip` completely suppresses the "!" mark so guards
+  never show a sound indicator while the player is wearing stealth boots. Furthermore, `onVisualLost`
+  (losing line-of-sight mid-alert) sets `investigatedFromNoise = false`, preventing guards from showing
+  the sound "!" mark when visual was simply lost rather than sound heard. Seeing always wins over
+  investigating in `paintPip` (checked first). Cameras have no INVESTIGATING state, so they only ever
+  get the clock, unchanged. Tested via `testGuardInvestigatedFromNoiseFlag`.
+- **Debug noclip flight (F1, JVM desktop only, 2026-09-20)**: `GameplayScene.kt` toggles
+  `world.noclipFlying` on `Key.F1`, gated on `korlibs.platform.Platform.isJvm` (a real multiplatform
+  runtime check from the transitive `korlibs-platform` dependency - no new expect/actual needed,
+  and it stays off on Android/iOS even with a physical keyboard attached). `GameWorld.update()`
+  branches on `noclipFlying` right after the `isLevelComplete||isGameOver` guard: free 2D movement
+  at 420 u/s (arrows/WASD horizontal, jump=up, crouch=down), zero collision, zero gravity, and it
+  skips detection/alerts/hazards entirely (guards, cameras, lasers, conveyors, timers all freeze) -
+  a pure level-layout inspection tool, not a "play while invincible" mode. Only clamped so feet
+  can't go below `groundY` and x stays within `0..worldWidth - player.width`; vertical is otherwise
+  unbounded. Toggling off just resumes normal physics next frame (player falls from wherever it
+  stopped). Covered by `testNoclipFlyingBypassesCollisionGravityAndDetection` in
+  `GameplayModelTest.kt`. JVM `jvmTest` green; not run on a real device (F1 has no touch-control
+  equivalent by design, so there's nothing to verify there).
 - **App icon**: real set from a 1254x1254 illustration wired into Android (`android-shell/`, legacy +
   round + adaptive, manifest updated), iOS (`ios-shell/Resources/Assets.xcassets/AppIcon.appiconset/`,
   Xcode 14+ single-size, `ASSETCATALOG_COMPILER_APPICON_NAME` in `project.yml`), and `korge { icon =

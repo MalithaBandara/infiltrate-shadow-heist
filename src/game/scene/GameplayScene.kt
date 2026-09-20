@@ -34,6 +34,7 @@ import korlibs.korge.input.*
 import korlibs.korge.time.*
 import korlibs.math.geom.vector.*
 import korlibs.korge.scene.*
+import korlibs.platform.Platform
 import korlibs.korge.service.storage.*
 import korlibs.korge.view.*
 import korlibs.korge.view.filter.*
@@ -120,6 +121,7 @@ class GameplayScene(
         // instrumentation so the next report says what actually failed.
         val (world, playerAnimations, sounds) = try {
             val loadedWorld = GameWorld.createDefault(levelData)
+            loadedWorld.spawnGraceTimer = 2.0
             markLoadProgress()
             val loadedAnimations = PlayerAnimations.load()
             markLoadProgress()
@@ -180,6 +182,7 @@ class GameplayScene(
         val barrelBitmap = bitmaps.barrelBitmap
         val woodCrateBitmap = bitmaps.woodCrateBitmap
         val poleBitmap = bitmaps.poleBitmap
+        val craneBitmap = bitmaps.craneBitmap
         val tableBitmap = bitmaps.tableBitmap
         val cameraBitmap = bitmaps.cameraBitmap
         val laserEmitterBitmap = bitmaps.laserEmitterBitmap
@@ -196,6 +199,11 @@ class GameplayScene(
         val crouchBtnBitmap = bitmaps.crouchBtnBitmap
         val jumpBtnBitmap = bitmaps.jumpBtnBitmap
         val interactBtnBitmap = bitmaps.interactBtnBitmap
+        val leverBottomBitmap = bitmaps.leverBottomBitmap
+        val leverTopBitmap = bitmaps.leverTopBitmap
+        val ropeBitmap = bitmaps.ropeBitmap
+        val ropeDissolveBitmaps = bitmaps.ropeDissolveBitmaps
+        val translucentEffectAlpha = 137.0 / 255.0
         val paperBtnBitmaps = bitmaps.paperBtnBitmaps
         val victoryBtnBitmaps = bitmaps.victoryBtnBitmaps
         val failedBtnBitmaps = bitmaps.failedBtnBitmaps
@@ -406,8 +414,17 @@ class GameplayScene(
             val boxContainer = worldView.container().xy(box.x, box.y)
             cullable(boxContainer, box.x, box.width)
 
+            // 0. Forced plain platforms (LevelLayout.plainPlatforms) - a box that would otherwise
+            // fall into one of the crate-shaped size heuristics below (6/6b) purely by coincidence
+            // of its own dimensions, but is meant to read as a plain structural block instead (e.g.
+            // LEVEL_6_LAYOUT's own cranePlatform, short enough to trip rule 6b's crate look on
+            // request: "replace the crate with a platform with SAME SIZE" - same size, different
+            // art, so this is an explicit opt-out rather than a dimension change).
+            if (box in world.plainPlatforms) {
+                renderRoughBlock(boxContainer, box.width, box.height, seed = (box.x * 101.0 + box.y).toLong())
+            }
             // 1. Fence 1 (Foreground starting perimeter fence)
-            if ((box == world.fence1 || (box.width in 140.0..165.0 && box.height in 130.0..155.0 && box.x < 300.0)) && fenceBitmap != null) {
+            else if ((box == world.fence1 || (box.width in 140.0..165.0 && box.height in 130.0..155.0 && box.x < 300.0)) && fenceBitmap != null) {
                 boxContainer.image(fenceBitmap) {
                     size(box.width, box.height + 2.0)
                 }.xy(0.0, 0.0)
@@ -476,6 +493,11 @@ class GameplayScene(
             // top of each other.
             else if (box in world.tables || box in world.tableParts || box in world.tableDecorations) {
                 // covered by the table art
+            }
+            // 3b2. A crane (LevelLayout.cranes) - covered by the dedicated crane-rendering pass
+            // below, same reasoning as tableParts just above.
+            else if (world.cranes.any { it.boomBounds == box || it.cabBounds == box }) {
+                // covered by the crane art
             }
             // 3c. Conveyors (conveyor.png): drawn in dedicated conveyor pass below
             else if (world.conveyors.any { it.bounds == box }) {
@@ -567,10 +589,8 @@ class GameplayScene(
         // chain pixels (R=18 G=22 B=28 A=137, vs. its crate's solid R=0 G=0 B=0 A=255) - the chain
         // isn't drawn with any runtime filter, that translucency is baked into the art. Reused as a
         // runtime alpha wherever something needs that same "lighter, washed-out" look without its
-        // own pre-multiplied art - currently poles (below) and, on request ("make the camera in
-        // that position same effect as the pole"), poleCamera (world.translucentCameras, applied to
-        // cameraContainers further down).
-        val translucentEffectAlpha = 137.0 / 255.0
+        // own pre-multiplied art - currently poles (below), poleCamera (world.translucentCameras),
+        // and disabled interact buttons.
 
         // Freestanding mounting poles (pole.png) - e.g. poleCamera's own mount in LEVEL_3_LAYOUT.
         // Not in world.boxes (no collision, "not interactable" on request) but still real drawn
@@ -593,6 +613,60 @@ class GameplayScene(
             }
         }
 
+        // Background cranes (see CraneDef) - e.g. LEVEL_6_LAYOUT's own one on its own small
+        // platform next to lever_3. Drawn as three pieces - a fixed boom tip cap, its truss tiled
+        // [CraneDef.tileCount] times, then the fixed cab/tracked-base piece - so the boom can be
+        // made genuinely longer than crane.png's own natural proportions ("cut from the middle and
+        // copy a part to make it longer"), not just one image scaled up (which only makes
+        // everything bigger together, never actually lengthens the boom relative to the rest of
+        // the machine - reported directly as "you didn't even make it longer").
+        //
+        // crane.png (1774x887) carries a wide transparent margin around the actual machine, plus a
+        // couple of stray near-invisible pixels well past the tracks that throw off PIL's own
+        // getbbox() (same lesson as table.png's own crop) - the real content is a strict alpha bbox
+        // (threshold >10) of (25,262)-(1732,713), i.e. 1708x452. Within that crop: the tip cap is
+        // x:0..161; the truss's own measured repeat period is 126px (autocorrelated directly
+        // against the source image), taken here starting exactly where the tip cap ends (x:161) so
+        // the very first tile is phase-aligned with it - an earlier attempt started the tile crop
+        // at an arbitrary offset instead and the seam it left is what actually read as "weird"; the
+        // cab/tracked-base is the fixed region x:685..1708 (1023 wide) - both the tip cap and tiles
+        // stay at y:7..88 (the thin boom band), while the cab spans the crop's own full height.
+        // CraneDef.tileCount only ever adds tiles BEYOND 161+126*n reaching 685 (n≈4.16) - fewer
+        // than that just reconstructs the original image's own boom length and reads as no longer
+        // at all, the exact bug being fixed here.
+        if (craneBitmap != null) {
+            val craneTipCapSlice = craneBitmap.slice(RectangleInt(25 + 0, 262 + 7, 161, 81))
+            val craneTileSlice = craneBitmap.slice(RectangleInt(25 + 161, 262 + 7, 126, 81))
+            val craneCabSlice = craneBitmap.slice(RectangleInt(25 + 685, 262, 1023, 452))
+            for (crane in world.cranes) {
+                val scale = crane.height / 452.0
+                val tipCapWidth = scale * 161.0
+                val tileWidth = scale * 126.0
+                val cabWidth = scale * 1023.0
+                val boomHeight = scale * 81.0
+                val boomY = crane.y + scale * 7.0
+                val totalWidth = tipCapWidth + crane.tileCount * tileWidth + cabWidth
+
+                val craneContainer = worldView.container().xy(crane.x, 0.0)
+                cullable(craneContainer, crane.x, totalWidth)
+
+                var cursorX = 0.0
+                craneContainer.image(craneTipCapSlice) {
+                    size(tipCapWidth, boomHeight)
+                }.xy(cursorX, boomY)
+                cursorX += tipCapWidth
+                repeat(crane.tileCount) {
+                    craneContainer.image(craneTileSlice) {
+                        size(tileWidth, boomHeight)
+                    }.xy(cursorX, boomY)
+                    cursorX += tileWidth
+                }
+                craneContainer.image(craneCabSlice) {
+                    size(cabWidth, crane.height)
+                }.xy(cursorX, crane.y)
+            }
+        }
+
         // Chain-and-hooks dangling from off-screen above. Both the decorative ones and the ones
         // the player can swing from draw identically and on purpose - a usable hook is recognised
         // by where it hangs, the same way a climbable box is recognised by its height, not by a
@@ -608,6 +682,73 @@ class GameplayScene(
                     hook.x, hook.width
                 )
             }
+        }
+
+        // Levers
+        val leverHandles = ArrayList<Pair<Lever, Container>>()
+        if (leverBottomBitmap != null && leverTopBitmap != null) {
+            for (lever in world.levers) {
+                // Ground the base 1.0px into the solid platform so it sits flush with zero floating gap
+                val leverCont = worldView.container().xy(lever.x, lever.y + 1.0)
+                cullable(leverCont, lever.x, lever.width)
+
+                // Handle layer placed first so the pivot is seated inside the socket behind the base housing
+                val handleW = 3.2
+                val handleH = 20.0
+                val pivotX = lever.width / 2.0
+                val pivotY = 2.0
+                val handleCont = leverCont.container().xy(pivotX, pivotY)
+                handleCont.image(leverTopBitmap) {
+                    size(handleW, handleH)
+                }.xy(-handleW / 2.0, -handleH)
+
+                handleCont.rotation = if (lever.isActivated) (25.0).degrees else (-25.0).degrees
+                leverHandles.add(lever to handleCont)
+
+                // Base housing rendered on top
+                leverCont.image(leverBottomBitmap) {
+                    size(lever.width, lever.height)
+                }.xy(0.0, 0.0)
+            }
+        }
+
+        // Hook Crates (crates attached to swing hooks via rope that block them until detached)
+        class HookCrateVisual(
+            val hc: HookCrate,
+            val crateCont: Container,
+            val ropeImage: Image?,
+            var dissolveTimer: Double = 0.0
+        )
+
+        val hookCrateVisuals = world.hookCrates.map { hc ->
+            var ropeImg: Image? = null
+
+            val initialRopeBitmap = ropeDissolveBitmaps.firstOrNull() ?: ropeBitmap
+            if (hc.ropeLength > 0.0 && initialRopeBitmap != null) {
+                val ropeW = 13.0
+                val knotOverlapHook = 5.0
+                val plankOverlapCrate = 10.0
+                val ropeH = hc.ropeLength + knotOverlapHook + plankOverlapCrate
+                val ropeWorldX = (hc.bounds.x + hc.bounds.width / 2.0) - ropeW / 2.0
+                val ropeWorldY = (hc.bounds.y - hc.ropeLength) - knotOverlapHook
+
+                // Rope placed in worldView behind crateCont so crate planks overlap rope seamlessly
+                ropeImg = worldView.image(initialRopeBitmap) {
+                    size(ropeW, ropeH)
+                }.xy(ropeWorldX, ropeWorldY)
+                cullable(ropeImg, ropeWorldX, ropeW)
+            }
+
+            val crateCont = worldView.container().xy(hc.bounds.x, hc.bounds.y)
+            cullable(crateCont, hc.bounds.x, hc.bounds.width)
+            if (woodCrateSlice != null) {
+                crateCont.image(woodCrateSlice) {
+                    size(hc.bounds.width, hc.bounds.height)
+                }.xy(0.0, 0.0)
+            } else {
+                crateCont.solidRect(hc.bounds.width, hc.bounds.height, Colors["#8B5A2B"])
+            }
+            HookCrateVisual(hc, crateCont, ropeImg)
         }
 
         // Moving hanging containers (dynamic platforming)
@@ -632,55 +773,13 @@ class GameplayScene(
                 chamber.solidRect(3.0, 360.0, Colors["#131720"]).xy(i * 38.0, 0.0)
             }
             cullable(chamber, conveyorRight, 180.0)
-
-            // Overhead Crane Monorail Track: industrial gantry beam extending from inside facility portal
-            val monorailEnd = conveyorRight + 140.0
-            val monorailCont = worldView.container()
-            val railY = 145.0
-            val railH = 10.0
-            monorailCont.solidRect(monorailEnd, railH, Colors["#222732"]).xy(0.0, railY)
-            monorailCont.solidRect(monorailEnd, 2.0, Colors["#384050"]).xy(0.0, railY) // top highlight
-            // Lower running flange for crane trolleys
-            val flangeY = railY + railH
-            monorailCont.solidRect(monorailEnd, 4.0, Colors["#323a48"]).xy(0.0, flangeY)
-            monorailCont.solidRect(monorailEnd, 1.0, Colors["#485468"]).xy(0.0, flangeY + 3.0)
-            // Ceiling support brackets along the line
-            var bx = 120.0
-            while (bx < conveyorRight) {
-                monorailCont.solidRect(10.0, 20.0, Colors["#1a1e26"]).xy(bx - 5.0, railY - 20.0)
-                monorailCont.solidRect(16.0, 3.0, Colors["#28303d"]).xy(bx - 8.0, railY - 20.0)
-                bx += 160.0
-            }
-            cullable(monorailCont, 0.0, monorailEnd)
         }
 
         // Conveyor crates (crates carried dynamically with the conveyor belt)
-        val craneTrolleyContainers = mutableListOf<Container>()
         val conveyorCrateContainers = world.conveyorCrates.map { crate ->
             val crateCont = worldView.container().xy(crate.x, crate.y)
             if (crate.isHanging) {
-                if (isL4) {
-                    // Level 4 Overhead Crane: chain and rigging tile up to the monorail track (y = 158.0),
-                    // anchored to a rolling hoist carriage trolley. Chains never clip above the roof into the sky!
-                    val railBottomY = 158.0
-                    val maxChainTopLocalY = railBottomY - crate.y
-                    renderHangingCrate(crateCont, crate.width, crate.height, 0.0, crate.isVariant1, maxTopY = maxChainTopLocalY)
-
-                    // Rolling hoist trolley riding on the monorail track
-                    val trolleyW = (crate.width * 0.55).coerceIn(40.0, 75.0)
-                    val trolleyCont = worldView.container().xy(crate.x + (crate.width - trolleyW) / 2.0, 144.0)
-                    // Trolley carriage housing
-                    trolleyCont.solidRect(trolleyW, 15.0, Colors["#2a313e"]).xy(0.0, 0.0)
-                    trolleyCont.solidRect(trolleyW, 2.0, Colors["#455166"]).xy(0.0, 0.0) // top bevel
-                    // Steel flanged guide wheels on monorail flange
-                    trolleyCont.solidRect(12.0, 12.0, Colors["#171b23"]).xy(4.0, -5.0)
-                    trolleyCont.solidRect(12.0, 12.0, Colors["#171b23"]).xy(trolleyW - 16.0, -5.0)
-                    // Heavy suspension shackle block
-                    trolleyCont.solidRect(14.0, 8.0, Colors["#3a4456"]).xy(trolleyW / 2.0 - 7.0, 15.0)
-                    craneTrolleyContainers.add(trolleyCont)
-                } else {
-                    renderHangingCrate(crateCont, crate.width, crate.height, 0.0, crate.isVariant1)
-                }
+                renderHangingCrate(crateCont, crate.width, crate.height, 0.0, crate.isVariant1)
             } else if (crateBitmap != null) {
                 val count = (crate.height / 48.0).toInt().coerceAtLeast(1)
                 val tileH = crate.height / count
@@ -1357,6 +1456,19 @@ class GameplayScene(
             }
         }
 
+        // Heard-not-seen indicator: a plain "!" badge without a background circle (owner request
+        // 2026-09-20). Drawn on the same Graphics as the clock so a guard never shows both at once;
+        // swapped for the real clock the instant that guard's vision actually finds the player.
+        fun Graphics.drawInvestigateMark(tint: RGBA, pulse: Double) {
+            updateShape {
+                clear()
+                fill(tint.withAd(0.80 + 0.20 * pulse)) {
+                    rect(-1.7, -6.2, 3.4, 7.2)
+                    rect(-1.7, 2.8, 3.4, 3.4)
+                }
+            }
+        }
+
         val guardPips = world.allGuards.mapIndexed { i, g ->
             guardContainers[i].uiGraphics().xy(g.width / 2.0, -14.0).also { it.visible = false }
         }
@@ -1530,8 +1642,43 @@ class GameplayScene(
         createImgBtn(jumpX, jumpY, jumpRadius, jumpBtnBitmap, COLOR_ACCENT_GREEN, { drawJumpArrow(COLOR_ACCENT_GREEN) }) {
             touchJump = it
         }
-        createImgBtn(interactX, interactY, interactRadius, interactBtnBitmap, COLOR_ACCENT_CYAN, { drawInteractIcon(COLOR_ACCENT_CYAN) }) {
-            touchInteract = it
+
+        val interactBtnCont: Container?
+        val interactBtnImg: Image?
+        if (interactBtnBitmap != null) {
+            val btn = controlsContainer.container().xy(interactX - interactRadius, interactY - interactRadius)
+            val img = btn.image(interactBtnBitmap) { size(interactRadius * 2.0, interactRadius * 2.0) }
+            img.alpha = if (world.canInteract) 1.0 else translucentEffectAlpha
+            btn.singleTouch {
+                start {
+                    if (world.canInteract) {
+                        touchInteract = true
+                        img.alpha = 0.6
+                    }
+                }
+                end {
+                    touchInteract = false
+                    img.alpha = if (world.canInteract) 1.0 else translucentEffectAlpha
+                }
+                endAnywhere {
+                    touchInteract = false
+                    img.alpha = if (world.canInteract) 1.0 else translucentEffectAlpha
+                }
+                moveAnywhere {
+                    if (btn.hitTest(it.global) == null) {
+                        touchInteract = false
+                        img.alpha = if (world.canInteract) 1.0 else translucentEffectAlpha
+                    }
+                }
+            }
+            interactBtnCont = btn
+            interactBtnImg = img
+        } else {
+            createTouchBtn(interactX, interactY, interactRadius, "", COLOR_ACCENT_CYAN, { drawInteractIcon(COLOR_ACCENT_CYAN) }) {
+                if (world.canInteract) touchInteract = it
+            }
+            interactBtnCont = null
+            interactBtnImg = null
         }
 
         // --- Tutorial Tactical Callout & Action Guidance Overlay ----------------------------
@@ -1598,12 +1745,17 @@ class GameplayScene(
         // CHECKPOINT is deliberately in neither. It is not fired - it is spent for you by the
         // caught overlay's RESPAWN button once a run has already ended - so putting it behind a
         // control that means "tap to use" would misdescribe it.
+        // PROTOTYPE deliberately excluded - it's the in-progress sixth gadget (see Powerup.kt's own
+        // doc comment): a real, spendable item with a timer but no world effect yet, drawn with a
+        // plain "?" mystery-box icon since it has no real art. Showing a usable-looking slot that
+        // does nothing when tapped reads as broken, not mysterious - removed on request after it
+        // showed up in the in-game tray (via a debug powerup grant) as an unexplained "?" icon.
         val gadgetTypes = listOf(
-            PowerupType.SMOKE_SCREEN,
+            PowerupType.CHECKPOINTS,
+            PowerupType.REMOTE_TRIGGER,
             PowerupType.LASER_SHIELD,
             PowerupType.INVISIBILITY,
-            PowerupType.NOISE_SUPPRESSION,
-            PowerupType.PROTOTYPE
+            PowerupType.NOISE_SUPPRESSION
         )
 
         // 42x42 matches the pause button's box exactly. The boxes now sit flush (no gutter left
@@ -1621,6 +1773,10 @@ class GameplayScene(
 
         fun tryActivatePowerup(type: PowerupType) {
             if (world.isLevelComplete || world.isGameOver || isPaused) return
+            // Refuse before spending the item - checking only inside world.activatePowerup would
+            // still burn one from inventory for an activation that silently does nothing.
+            if (world.activePowerups.isActive(type)) return
+            if (type == PowerupType.REMOTE_TRIGGER && !world.hasRemoteTriggerTarget()) return
             if (profileStorage.consumePowerup(type)) {
                 world.activatePowerup(type)
                 // The slot reads the per-frame cache, and this can fire from a key press earlier
@@ -1645,10 +1801,14 @@ class GameplayScene(
             val box: Container,
             val count: Text,
             val frame: Graphics,
+            /** The vertical drain bar shown in place of the count while the gadget is live. */
+            val drain: Graphics,
             /** Where this entry sits once the tray has finished expanding. */
             var restX: Double = 0.0,
             var lastLabel: String = "",
-            var lastLive: Boolean? = null
+            var lastLive: Boolean? = null,
+            /** Quantised remaining-fraction the drain bar was last redrawn at - see refreshTrayLabels. */
+            var lastFraction: Double = -1.0
         )
 
         // The art is fixed per entry and scaled exactly once, at construction. It is NOT one
@@ -1664,11 +1824,14 @@ class GameplayScene(
             gadgetBitmaps[i]?.let { bmp ->
                 box.image(bmp).also {
                     it.scale = slotIconSize / bmp.width.toDouble()
-                    it.xy((slotSize - slotIconSize) / 2.0, 2.0)
+                    // Centred both axes - the box has no other fixed content competing for space
+                    // (the count/drain bar below both float in the corner, over the icon).
+                    it.xy((slotSize - slotIconSize) / 2.0, (slotSize - slotIconSize) / 2.0)
                 }
             }
-            val count = box.text("", textSize = 12.5, font = bebasFont, color = COLOR_BORDER_GOLD)
+            val count = box.text("", textSize = 12.5, font = bebasFont, color = COLOR_TEXT_LIGHT)
             count.graphicsRenderer = GraphicsRenderer.GPU
+            val drain = box.uiGraphics()
             box.visible = false
             box.mouse {
                 onClick {
@@ -1676,7 +1839,7 @@ class GameplayScene(
                     tryActivatePowerup(type)
                 }
             }
-            TrayEntry(type, box, count, frame)
+            TrayEntry(type, box, count, frame, drain)
         }
 
         // Laid out right-to-left from the slot, so the tray unrolls into the empty top-centre
@@ -1713,6 +1876,8 @@ class GameplayScene(
                 entry.box.alpha = if (animate) 0.0 else 1.0
                 entry.lastLabel = ""
                 entry.lastLive = null
+                entry.lastFraction = -1.0
+                entry.drain.updateShape { clear() }
                 entry.frame.updateShape {
                     clear()
                     fill(Colors["#05070A"].withAd(0.62)) {
@@ -1725,25 +1890,60 @@ class GameplayScene(
             }
         }
 
+        // The drain overlay covers the full width and height of the 42x42 box (owner request 2026-09-20),
+        // with corner radius 9.0 matching the box's own rounded rect.
+        val drainCornerRadius = 9.0
+
         // Runs every frame the row is up, because a live gadget's countdown is shown here.
-        // Guarded on the rendered string so the text bounds read that re-centres it only happens
-        // ten times a second rather than sixty.
+        // Guarded on the rendered string/quantised fraction so redraws only happen when the
+        // visible state actually changes, not every frame.
         fun refreshTrayLabels() {
             for (entry in trayEntries) {
                 if (!entry.box.visible) continue
                 val live = world.activePowerups.isActive(entry.type)
-                val rem = world.activePowerups.getRemainingTime(entry.type)
-                val label = when {
-                    live && entry.type.isLevelDuration -> "ON"
-                    live -> "${(rem * 10).toInt() / 10.0}s"
-                    else -> "${cachedProfile.getPowerupCount(entry.type)}"
+
+                // Stock count only shows while idle - a live gadget shows the drain bar instead,
+                // never both fighting for the same corner.
+                val label = if (live) "" else "${cachedProfile.getPowerupCount(entry.type)}"
+                if (entry.lastLabel != label || entry.lastLive != live) {
+                    entry.lastLabel = label
+                    entry.lastLive = live
+                    entry.count.text = label
+                    entry.count.xy(slotSize - entry.count.width - 3.0, slotSize - 15.0)
                 }
-                if (entry.lastLabel == label && entry.lastLive == live) continue
-                entry.lastLabel = label
-                entry.lastLive = live
-                entry.count.text = label
-                entry.count.color = if (live) COLOR_BORDER_GREEN else COLOR_BORDER_GOLD
-                entry.count.xy(slotSize - entry.count.width - 3.0, slotSize - 15.0)
+
+                // Half-transparent white overlay across the WHOLE box, covering the icon like a
+                // curtain: full the instant the gadget goes live, its bottom edge fixed and its
+                // top edge sinking toward the bottom as time runs out - a liquid level draining
+                // away, not a bar filling up. A level-duration gadget (isLevelDuration) has no
+                // clock to drain, so it just reads as permanently full for as long as it's on,
+                // per the owner's call.
+                val fraction = when {
+                    !live -> 0.0
+                    entry.type.isLevelDuration -> 1.0
+                    else -> (world.activePowerups.getRemainingTime(entry.type) / entry.type.duration)
+                        .coerceIn(0.0, 1.0)
+                }
+                // Quantised to fortieths, same allowance as the corner bolt's own drain bar - finer
+                // than that redraws this vector shape every frame for a sub-pixel height change.
+                val fractionStep = if (!live) -1.0 else (fraction * 40.0).toInt() / 40.0
+                if (entry.lastFraction == fractionStep) continue
+                entry.lastFraction = fractionStep
+                entry.drain.updateShape {
+                    clear()
+                    if (live) {
+                        val boxW = slotSize
+                        val boxH = slotSize
+                        val filledH = boxH * fraction
+                        // The overlay covers the entire box when active, and for ones that wear
+                        // down, the overlay remains curved at the top to match the rounded box
+                        // behind it. Clamped to filledH / 2 so corner radii never exceed height.
+                        val corner = drainCornerRadius.coerceAtMost((filledH / 2.0).coerceAtLeast(0.0))
+                        fill(Colors.WHITE.withAd(0.14)) {
+                            roundRect(0.0, boxH - filledH, boxW, filledH, corner, corner)
+                        }
+                    }
+                }
             }
         }
 
@@ -1805,7 +2005,7 @@ class GameplayScene(
         var slotLastSpan = -2.0
         var slotLastLive: Boolean? = null
 
-        val gadgetKeys = listOf(Key.N1, Key.N2, Key.N3, Key.N4, Key.N5)
+        val gadgetKeys = listOf(Key.N1, Key.N2, Key.N3, Key.N4, Key.N5, Key.N6)
 
         // ==========================================
         // 1. PAUSE OVERLAY (Heist Dossier - matches the main menu)
@@ -1822,8 +2022,14 @@ class GameplayScene(
                 isPaused = false
             },
             onRestart = {
-                stopBgMusic()
-                sceneContainer.changeTo { GameplayScene(levelData) }
+                if (world.activePowerups.isCheckpointsActive) {
+                    isPaused = false
+                    world.respawnAtCheckpoint()
+                    world.onCheckpointAutoRespawn?.invoke()
+                } else {
+                    stopBgMusic()
+                    sceneContainer.changeTo { GameplayScene(levelData) }
+                }
             },
             onQuit = {
                 stopBgMusic()
@@ -1851,8 +2057,13 @@ class GameplayScene(
                 getContinueAdBridge().requestContinueAd()
             },
             onRetry = {
-                stopBgMusic()
-                sceneContainer.changeTo { GameplayScene(levelData) }
+                if (world.activePowerups.isCheckpointsActive) {
+                    world.respawnAtCheckpoint()
+                    world.onCheckpointAutoRespawn?.invoke()
+                } else {
+                    stopBgMusic()
+                    sceneContainer.changeTo { GameplayScene(levelData) }
+                }
             },
             onReturnToMenu = {
                 stopBgMusic()
@@ -1955,17 +2166,10 @@ class GameplayScene(
             playerFacingLeft = false
             playerSprite.scaleX = playerBaseScale
             playerSprite.playAnimationLooped(playerAnimations.idle, PlayerAnimations.IDLE_FRAME_TIME_MS.milliseconds)
-            var hangingIdx = 0
             for (i in world.conveyorCrates.indices) {
                 val crate = world.conveyorCrates[i]
                 conveyorCrateContainers[i].xy(crate.x, crate.y)
                 conveyorCrateContainers[i].visible = true
-                if (crate.isHanging && isL4 && hangingIdx < craneTrolleyContainers.size) {
-                    val trolleyW = (crate.width * 0.55).coerceIn(40.0, 75.0)
-                    craneTrolleyContainers[hangingIdx].x = crate.x + (crate.width - trolleyW) / 2.0
-                    craneTrolleyContainers[hangingIdx].visible = true
-                    hangingIdx++
-                }
             }
             objOptState = 0
             setObjMark(objOptMark, 0)
@@ -1986,6 +2190,28 @@ class GameplayScene(
             shieldFlareImage.alpha = 1.0
             shieldFlareImage.scale = 1.0
             sounds.impact.playSfx(sfxContext, GameAudio.LANDING_GAIN, sfxVolume(), GameAudio.SfxFile.IMPACT)
+        }
+
+        world.onCheckpointAutoRespawn = {
+            sounds.toastSuccess.playSfx(sfxContext, GameAudio.TOAST_SUCCESS_GAIN, sfxVolume(), GameAudio.SfxFile.TOAST_SUCCESS)
+            caughtOverlay.hide()
+            pauseOverlay.visible = false
+            isPaused = false
+            isFirstCameraFrame = true
+            playerAnimState = "idle"
+            jumpPhase = "none"
+            landingAbsorb = false
+            swingImpactSoundPlayed = false
+            swingExitTimer = 0.0
+            climbExitTimer = 0.0
+            playerFacingLeft = false
+            playerSprite.scaleX = playerBaseScale
+            playerSprite.playAnimationLooped(playerAnimations.idle, PlayerAnimations.IDLE_FRAME_TIME_MS.milliseconds)
+            playerContainer.xy(world.player.x, world.player.y)
+            shieldDeflectFlashTimer = 0.0
+            shieldFlareTimer = 0.0
+            shieldFlareImage.visible = false
+            laserFlashTimer = 0.0
         }
 
         // Tutorial Controller State
@@ -2039,6 +2265,26 @@ class GameplayScene(
                 }
             }
 
+            // Desktop-only debug cheat: free flight through the level for layout inspection.
+            // Platform.isJvm keeps this out of the Android/iOS builds even if a keyboard is attached.
+            if (Platform.isJvm && views.input.keys.justPressed(Key.F1)) {
+                if (!world.isLevelComplete && !world.isGameOver) {
+                    world.noclipFlying = !world.noclipFlying
+                }
+            }
+
+            // Desktop-only debug cheat: top up every gadget's inventory by 3 so they can all be
+            // tried out in one run without grinding coins for them first. Uses the storage's own
+            // grantDebugPowerups() (GameProfile.kt) - it already existed, wired to nothing until
+            // now. It grants every PowerupType, including PROTOTYPE - harmless, since PROTOTYPE is
+            // deliberately excluded from gadgetTypes above and so never renders in the tray anyway.
+            // refreshProfile() re-reads the cache immediately so the tray shows the new counts the
+            // same frame rather than a tick later.
+            if (Platform.isJvm && views.input.keys.justPressed(Key.F2)) {
+                profileStorage.grantDebugPowerups(3)
+                refreshProfile()
+            }
+
             pauseOverlay.visible = isPaused
 
             // Everything below reads volumes and the powerup inventory off this one snapshot.
@@ -2063,7 +2309,12 @@ class GameplayScene(
             val jumpPressed = views.input.keys[Key.UP] || views.input.keys[Key.W] || views.input.keys[Key.SPACE] || touchJump
             val crouchPressed = views.input.keys[Key.DOWN] || views.input.keys[Key.S] || views.input.keys[Key.C] ||
                     views.input.keys[Key.LEFT_CONTROL] || views.input.keys[Key.RIGHT_CONTROL] || touchCrouch
-            val interactPressed = views.input.keys[Key.E] || views.input.keys[Key.F] || views.input.keys[Key.ENTER] || touchInteract
+            val rawInteractPressed = views.input.keys[Key.E] || views.input.keys[Key.F] || views.input.keys[Key.ENTER] || touchInteract
+            val interactPressed = rawInteractPressed && world.canInteract
+            val canInteract = world.canInteract
+            if (!touchInteract) {
+                interactBtnImg?.alpha = if (canInteract) 1.0 else translucentEffectAlpha
+            }
 
             // Track whether keyboard or touch was most recently used for adaptive tutorial prompt text
             if (views.input.keys[Key.LEFT] || views.input.keys[Key.RIGHT] || views.input.keys[Key.A] ||
@@ -2138,6 +2389,7 @@ class GameplayScene(
                             // early/late jump that misses the hook and falls short must not
                             // dismiss the prompt as if it had succeeded.
                             TutorialAction.SWING -> world.player.isSwinging || playerX > step.triggerMaxX
+                            TutorialAction.INTERACT -> interactPressed || world.levers.any { it.isActivated } || playerX > step.triggerMaxX
                         }
                         if (actionDone) {
                             stepActionCompleted = true
@@ -2391,12 +2643,38 @@ class GameplayScene(
                                 TutorialControlHighlight.NONE -> {
                                     val targetScreenX = step.worldAnchorX * worldZoom + worldView.x
                                     val targetScreenY = step.worldAnchorY * worldZoom + worldView.y
+                                    val textW = tutorialHandwrittenText.width
+                                    val textH = 28.0
 
-                                    val startX = textX + tutorialHandwrittenText.width * 0.75
-                                    val startY = textY + 28.0
-                                    val bowX = if (step.arrowBowsLeft) -20.0 else 20.0
-                                    val ctrlX = (startX + targetScreenX) / 2.0 + bowX
-                                    val ctrlY = (startY + targetScreenY) / 2.0 - 15.0
+                                    val startX: Double
+                                    val startY: Double
+                                    val ctrlX: Double
+                                    val ctrlY: Double
+
+                                    if (targetScreenX > textX + textW) {
+                                        // Target is to the right of the text: start cleanly off the right edge
+                                        // of the text box so the arrow never intersects or overlaps the text.
+                                        startX = textX + textW + 8.0
+                                        startY = textY + textH * 0.5
+                                        val bowY = if (step.arrowBowsLeft) 15.0 else -15.0
+                                        ctrlX = (startX + targetScreenX) / 2.0
+                                        ctrlY = (startY + targetScreenY) / 2.0 + bowY
+                                    } else if (targetScreenX < textX) {
+                                        // Target is to the left of the text: start cleanly off the left edge
+                                        startX = textX - 8.0
+                                        startY = textY + textH * 0.5
+                                        val bowY = if (step.arrowBowsLeft) 15.0 else -15.0
+                                        ctrlX = (startX + targetScreenX) / 2.0
+                                        ctrlY = (startY + targetScreenY) / 2.0 + bowY
+                                    } else {
+                                        // Target is below/above the text (e.g. Level 1 & Level 4)
+                                        startX = textX + textW * 0.75
+                                        startY = textY + 28.0
+                                        val bowX = if (step.arrowBowsLeft) -20.0 else 20.0
+                                        ctrlX = (startX + targetScreenX) / 2.0 + bowX
+                                        ctrlY = (startY + targetScreenY) / 2.0 - 15.0
+                                    }
+
                                     drawCurvedArrow(
                                         startX = startX,
                                         startY = startY,
@@ -2429,11 +2707,39 @@ class GameplayScene(
                 tutorialHighlightGraphics.updateShape { clear() }
             }
 
-            // Update domain simulation (Jump or Interact triggers climb/mantle when facing climbable obstacles)
-            world.update(dtSec, moveInput, jumpPressed || interactPressed, crouchPressed)
+            // Update domain simulation (interact button activates mechanisms, jump button triggers jump/vault/climb/mantle)
+            world.update(dtSec, moveInput, jumpPressed, crouchPressed, interactPressed)
 
             // Sync visual positions
             playerContainer.xy(world.player.x, world.player.y)
+            for ((lever, handleCont) in leverHandles) {
+                handleCont.rotation = if (lever.isActivated) (25.0).degrees else (-25.0).degrees
+            }
+            for (hcv in hookCrateVisuals) {
+                hcv.crateCont.xy(hcv.hc.bounds.x, hcv.hc.bounds.y)
+                val rImg = hcv.ropeImage ?: continue
+                if (!hcv.hc.isDetached) {
+                    hcv.dissolveTimer = 0.0
+                    rImg.visible = true
+                    rImg.alpha = 1.0
+                    ropeDissolveBitmaps.firstOrNull()?.let { rImg.bitmap = it.slice() }
+                } else {
+                    hcv.dissolveTimer += dtSec
+                    val dissolveDuration = 0.55
+                    val progress = (hcv.dissolveTimer / dissolveDuration).coerceIn(0.0, 1.0)
+                    if (progress >= 1.0) {
+                        rImg.visible = false
+                    } else {
+                        rImg.visible = true
+                        rImg.alpha = (1.0 - progress).coerceIn(0.0, 1.0)
+                        if (ropeDissolveBitmaps.isNotEmpty()) {
+                            val frameIdx = (progress * (ropeDissolveBitmaps.size - 1)).toInt()
+                                .coerceIn(0, ropeDissolveBitmaps.size - 1)
+                            ropeDissolveBitmaps[frameIdx].let { rImg.bitmap = it.slice() }
+                        }
+                    }
+                }
+            }
             for (i in world.allGuards.indices) {
                 guardContainers[i].xy(world.allGuards[i].x, world.allGuards[i].y)
             }
@@ -2444,15 +2750,9 @@ class GameplayScene(
                 val mp = world.movingPlatforms[i]
                 movingPlatformContainers[i].xy(mp.x, mp.y)
             }
-            var hangingIdx = 0
             for (i in world.conveyorCrates.indices) {
                 val crate = world.conveyorCrates[i]
                 conveyorCrateContainers[i].xy(crate.x, crate.y)
-                if (crate.isHanging && isL4 && hangingIdx < craneTrolleyContainers.size) {
-                    val trolleyW = (crate.width * 0.55).coerceIn(40.0, 75.0)
-                    craneTrolleyContainers[hangingIdx].x = crate.x + (crate.width - trolleyW) / 2.0
-                    hangingIdx++
-                }
             }
             // Sync animated conveyor belt layers (top moving forward, bottom moving in reverse)
             if (world.conveyorsActive) {
@@ -2515,15 +2815,10 @@ class GameplayScene(
             for (t in cullTargets) {
                 t.view.visible = t.right >= cullLeft && t.left <= cullRight
             }
-            hangingIdx = 0
             for (i in world.conveyorCrates.indices) {
                 val crate = world.conveyorCrates[i]
                 val isVis = crate.bounds.right >= cullLeft && crate.bounds.left <= cullRight
                 conveyorCrateContainers[i].visible = isVis
-                if (crate.isHanging && isL4 && hangingIdx < craneTrolleyContainers.size) {
-                    craneTrolleyContainers[hangingIdx].visible = isVis
-                    hangingIdx++
-                }
             }
             for (visual in laserVisuals) {
                 visual.update(totalElapsedSeconds, cullLeft, cullRight)
@@ -2567,13 +2862,17 @@ class GameplayScene(
                     swingImpactSoundPlayed = false
                     // The push-off is a jump, and the clip opens on one, so it gets the jump's
                     // grunt. There is no dedicated swing sample.
-                    sounds.climb.playSfx(sfxContext, GameAudio.CLIMB_GAIN, sfxVolume(), GameAudio.SfxFile.CLIMB)
+                    if (!world.activePowerups.isNoiseSuppressed) {
+                        sounds.climb.playSfx(sfxContext, GameAudio.CLIMB_GAIN, sfxVolume(), GameAudio.SfxFile.CLIMB)
+                    }
                     playerSprite.playAnimationLooped(playerAnimations.swing, manualFrameTime)
                 }
                 // Play landing impact sound right as the feet plant on the far ledge (frame 44.5)
                 if (!swingImpactSoundPlayed && world.player.swingPhase >= (44.0 / 51.0)) {
                     swingImpactSoundPlayed = true
-                    sounds.impact.playSfx(sfxContext, GameAudio.LANDING_GAIN, sfxVolume(), GameAudio.SfxFile.IMPACT)
+                    if (!world.activePowerups.isNoiseSuppressed) {
+                        sounds.impact.playSfx(sfxContext, GameAudio.LANDING_GAIN, sfxVolume(), GameAudio.SfxFile.IMPACT)
+                    }
                 }
                 playerSprite.setFrame(
                     (world.player.swingPhase * swingFrameSpan).toInt().coerceIn(0, swingFrameSpan)
@@ -2581,7 +2880,9 @@ class GameplayScene(
             } else if (world.player.isClimbing) {
                 if (playerAnimState != "climb") {
                     playerAnimState = "climb"
-                    sounds.climb.playSfx(sfxContext, GameAudio.CLIMB_GAIN, sfxVolume(), GameAudio.SfxFile.CLIMB)
+                    if (!world.activePowerups.isNoiseSuppressed) {
+                        sounds.climb.playSfx(sfxContext, GameAudio.CLIMB_GAIN, sfxVolume(), GameAudio.SfxFile.CLIMB)
+                    }
                     playerSprite.playAnimationLooped(playerAnimations.climb, manualFrameTime)
                 }
                 val frame = climbFirstFrame + (world.player.climbPhase * climbFrameSpan).toInt()
@@ -2605,7 +2906,9 @@ class GameplayScene(
                     climbExitTimer = 0.20
                     val step = if (stepAlternate) sounds.stepB else sounds.stepA
                     stepAlternate = !stepAlternate
-                    step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume(), if (step === sounds.stepA) GameAudio.SfxFile.STEP_A else GameAudio.SfxFile.STEP_B)
+                    if (!world.activePowerups.isNoiseSuppressed) {
+                        step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume(), if (step === sounds.stepA) GameAudio.SfxFile.STEP_A else GameAudio.SfxFile.STEP_B)
+                    }
                 } else if (climbExitTimer > 0.0) {
                     climbExitTimer = maxOf(0.0, climbExitTimer - dtSec)
                 }
@@ -2635,7 +2938,9 @@ class GameplayScene(
                         // reads as gliding forward in a standing pose for those 0.24s before the
                         // walk cut-over. Moving into the touchdown skips straight past it instead.
                         "air", "drop" -> if (world.player.isGrounded) {
-                            sounds.impact.playSfx(sfxContext, GameAudio.LANDING_GAIN, sfxVolume(), GameAudio.SfxFile.IMPACT)
+                            if (!world.activePowerups.isNoiseSuppressed) {
+                                sounds.impact.playSfx(sfxContext, GameAudio.LANDING_GAIN, sfxVolume(), GameAudio.SfxFile.IMPACT)
+                            }
                             if (world.player.isMoving) {
                                 // Cushion the landing impact before transitioning into the forward walk stride.
                                 jumpPhase = "none"
@@ -2817,7 +3122,9 @@ class GameplayScene(
                             playerSprite.setFrame(PlayerAnimations.WALK_TRANSITION_START)
                             val step = if (stepAlternate) sounds.stepB else sounds.stepA
                             stepAlternate = !stepAlternate
-                            step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume(), if (step === sounds.stepA) GameAudio.SfxFile.STEP_A else GameAudio.SfxFile.STEP_B)
+                            if (!world.activePowerups.isNoiseSuppressed) {
+                                step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume(), if (step === sounds.stepA) GameAudio.SfxFile.STEP_A else GameAudio.SfxFile.STEP_B)
+                            }
                         } else {
                             walkInTransition = false
                         }
@@ -2956,7 +3263,9 @@ class GameplayScene(
                                 // clip on repeat, which is what gives a single footstep away.
                                 val step = if (stepAlternate) sounds.stepB else sounds.stepA
                                 stepAlternate = !stepAlternate
-                                step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume(), if (step === sounds.stepA) GameAudio.SfxFile.STEP_A else GameAudio.SfxFile.STEP_B)
+                                if (!world.activePowerups.isNoiseSuppressed) {
+                                    step.playSfx(sfxContext, GameAudio.STEP_GAIN, sfxVolume(), if (step === sounds.stepA) GameAudio.SfxFile.STEP_A else GameAudio.SfxFile.STEP_B)
+                                }
                             }
                         }
                     }
@@ -3072,11 +3381,11 @@ class GameplayScene(
                         if (g.state == GuardState.INVESTIGATING) COLOR_BORDER_GOLD else Colors["#e74c3c"]
                 }
 
-                val isInvestigating = g.state == GuardState.INVESTIGATING
-                if (isInvestigating && !guardWasInvestigating[i]) {
+                val isInvestigatingNoise = g.state == GuardState.INVESTIGATING && g.investigatedFromNoise && !world.activePowerups.isNoiseSuppressed
+                if (isInvestigatingNoise && !guardWasInvestigating[i]) {
                     sounds.guardInvestigate.playSfx(sfxContext, GameAudio.GUARD_INVESTIGATE_GAIN, sfxVolume(), GameAudio.SfxFile.GUARD_INVESTIGATE)
                 }
-                guardWasInvestigating[i] = isInvestigating
+                guardWasInvestigating[i] = isInvestigatingNoise
             }
 
             val alertProgress = world.alertProgress
@@ -3240,34 +3549,44 @@ class GameplayScene(
                 setObjMark(objOptMark, 2)
             }
 
-            // Detection pips. Nothing is drawn on an entity that cannot see the player, so a
-            // clean run has none on screen at all - the absence is the "stealth 100%" readout.
+            // Detection pips. Nothing is drawn on an entity that cannot see or hear the player, so
+            // a clean run has none on screen at all - the absence is the "stealth 100%" readout.
+            // The clock (filling meter) is reserved for an entity that actually has eyes on the
+            // player right now; hearing a noise (INVESTIGATING without vision) gets the plain "!"
+            // badge instead, never the clock - the clock means "look at me, I'm building toward a
+            // catch", which isn't true yet from sound alone. The instant vision confirms it (the
+            // same guard that heard the noise walks into view), seeing wins and the "!" is gone.
             val pipPulse = 0.5 + 0.5 * sin(totalElapsedSeconds * 16.0)
 
-            fun pipFor(seeing: Boolean, investigating: Boolean): Double = when {
+            fun clockProgressFor(seeing: Boolean): Double = when {
                 seeing && world.isGameOver -> 1.0
                 seeing -> world.alertProgress.coerceAtLeast(0.05)
-                // Sweeping a noise it has not pinned down yet: worth a hint, not a filling meter.
-                investigating -> 0.18
                 else -> 0.0
             }
 
-            fun paintPip(pip: Graphics, progress: Double) {
-                if (progress <= 0.0) {
-                    pip.visible = false
-                } else {
-                    pip.visible = true
-                    pip.drawDetectPip(progress, detectPipTint(progress), pipPulse)
+            fun paintPip(pip: Graphics, seeing: Boolean, investigating: Boolean) {
+                when {
+                    seeing -> {
+                        pip.visible = true
+                        val progress = clockProgressFor(true)
+                        pip.drawDetectPip(progress, detectPipTint(progress), pipPulse)
+                    }
+                    investigating -> {
+                        pip.visible = true
+                        pip.drawInvestigateMark(COLOR_BORDER_GOLD, pipPulse)
+                    }
+                    else -> pip.visible = false
                 }
             }
 
             for (i in world.allGuards.indices) {
                 val g = world.allGuards[i]
-                paintPip(
-                    guardPips[i],
-                    if (world.activePowerups.isPhantomCloakActive) 0.0
-                    else pipFor(g in world.detectingGuards, g.state == GuardState.INVESTIGATING)
-                )
+                if (world.activePowerups.isPhantomCloakActive) {
+                    guardPips[i].visible = false
+                } else {
+                    val heardNoise = g.state == GuardState.INVESTIGATING && g.investigatedFromNoise && !world.activePowerups.isNoiseSuppressed
+                    paintPip(guardPips[i], g in world.detectingGuards, heardNoise)
+                }
             }
             for (i in world.cameras.indices) {
                 val isDetecting = world.cameras[i] in world.detectingCameras
@@ -3275,11 +3594,11 @@ class GameplayScene(
                     sounds.cameraDetect.playSfx(sfxContext, GameAudio.CAMERA_DETECT_GAIN, sfxVolume(), GameAudio.SfxFile.CAMERA_DETECT)
                 }
                 cameraWasDetecting[i] = isDetecting
-                paintPip(
-                    cameraPips[i],
-                    if (world.activePowerups.isSmokeScreenActive) 0.0
-                    else pipFor(isDetecting, false)
-                )
+                if (world.activePowerups.isSmokeScreenActive) {
+                    cameraPips[i].visible = false
+                } else {
+                    paintPip(cameraPips[i], isDetecting, investigating = false)
+                }
             }
         }
     }
@@ -3804,7 +4123,10 @@ class GameplayScene(
             "RESTART", paperBtnBitmaps[1], pauseBtnW, pauseBtnH, pauseBtnX, pauseBtnY0 + pauseBtnH + pauseBtnGap,
             bebasFont, paperInk, playClick = playClick,
             iconDrawer = { drawRestartIcon(paperInk) }
-        ) { onRestart() }
+        ) {
+            pauseOverlay.visible = false
+            onRestart()
+        }
 
         pauseOverlay.createPaperMenuBtn(
             "QUIT", paperBtnBitmaps[2], pauseBtnW, pauseBtnH, pauseBtnX, pauseBtnY0 + 2 * (pauseBtnH + pauseBtnGap),
@@ -4342,6 +4664,8 @@ class GameplayScene(
         markLoadProgress()
         val poleBitmap = SceneAssets.bitmap("pole.png")
         markLoadProgress()
+        val craneBitmap = SceneAssets.bitmap("crane.png", minified = false)
+        markLoadProgress()
         val tableBitmap = SceneAssets.bitmap("table.png")
         markLoadProgress()
         val cameraBitmap = SceneAssets.bitmap("cameranew2.png", minified = false)
@@ -4374,6 +4698,16 @@ class GameplayScene(
         markLoadProgress()
         val interactBtnBitmap = SceneAssets.bitmap("interact.png")
         markLoadProgress()
+        val leverBottomBitmap = SceneAssets.bitmap("lever_bottom.png")
+        markLoadProgress()
+        val leverTopBitmap = SceneAssets.bitmap("lever_top.png")
+        markLoadProgress()
+        val ropeBitmap = SceneAssets.bitmap("newrope.png") ?: SceneAssets.bitmap("rope.png")
+        markLoadProgress()
+        val ropeDissolveBitmaps = (0..8).map {
+            SceneAssets.bitmap("rope_dissolve_$it.png") ?: (if (it == 0) ropeBitmap else null)
+        }.filterNotNull()
+        markLoadProgress()
         val paperBtnBitmaps = listOf("button1.png", "button2.png", "button3.png", "button4.png")
             .map { name -> SceneAssets.bitmap(name, minified = false) }
         markLoadProgress()
@@ -4388,7 +4722,7 @@ class GameplayScene(
         val failedBgBitmap = SceneAssets.bitmap("failedscreen.png", minified = false)
         markLoadProgress()
         val gadgetBitmaps = listOf(
-            "gadget_jammer.png", "gadget_lasershield.png", "gadget_invis.png",
+            "gadget_checkpoints.png", "gadget_checkpoint.png", "gadget_lasershield.png", "gadget_invis.png",
             "gadget_boots.png", "gadget_prototype.png"
         ).map { SceneAssets.bitmap(it) }
         markLoadProgress()
@@ -4416,6 +4750,7 @@ class GameplayScene(
             barrelBitmap = barrelBitmap,
             woodCrateBitmap = woodCrateBitmap,
             poleBitmap = poleBitmap,
+            craneBitmap = craneBitmap,
             tableBitmap = tableBitmap,
             cameraBitmap = cameraBitmap,
             laserEmitterBitmap = laserEmitterBitmap,
@@ -4432,6 +4767,10 @@ class GameplayScene(
             crouchBtnBitmap = crouchBtnBitmap,
             jumpBtnBitmap = jumpBtnBitmap,
             interactBtnBitmap = interactBtnBitmap,
+            leverBottomBitmap = leverBottomBitmap,
+            leverTopBitmap = leverTopBitmap,
+            ropeBitmap = ropeBitmap,
+            ropeDissolveBitmaps = ropeDissolveBitmaps,
             paperBtnBitmaps = paperBtnBitmaps,
             victoryBtnBitmaps = victoryBtnBitmaps,
             failedBtnBitmaps = failedBtnBitmaps,
@@ -4456,6 +4795,7 @@ class GameplayScene(
         val barrelBitmap: Bitmap?,
         val woodCrateBitmap: Bitmap?,
         val poleBitmap: Bitmap?,
+        val craneBitmap: Bitmap?,
         val tableBitmap: Bitmap?,
         val cameraBitmap: Bitmap?,
         val laserEmitterBitmap: Bitmap?,
@@ -4472,6 +4812,10 @@ class GameplayScene(
         val crouchBtnBitmap: Bitmap?,
         val jumpBtnBitmap: Bitmap?,
         val interactBtnBitmap: Bitmap?,
+        val leverBottomBitmap: Bitmap? = null,
+        val leverTopBitmap: Bitmap? = null,
+        val ropeBitmap: Bitmap? = null,
+        val ropeDissolveBitmaps: List<Bitmap> = emptyList(),
         val paperBtnBitmaps: List<Bitmap?>,
         val victoryBtnBitmaps: List<Bitmap?>,
         val failedBtnBitmaps: List<Bitmap?>,

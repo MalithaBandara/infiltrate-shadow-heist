@@ -83,7 +83,7 @@ class GameplaySceneTest : ViewsForTesting() {
         // Step scene frames to ensure updater, laserVisuals, and conveyor animators run cleanly
         views.update(16.milliseconds)
         views.update(50.milliseconds)
-        views.update(500.milliseconds)
+        views.update(100.milliseconds)
     }
 
     @Test

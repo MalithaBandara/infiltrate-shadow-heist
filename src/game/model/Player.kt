@@ -42,6 +42,10 @@ data class Player(
     var isDropping: Boolean = false
     var dropLandingTimer: Double = 0.0
     val dropLandingDuration: Double = 0.12
+    var jumpLandingTimer: Double = 0.0
+    val jumpLandingDuration: Double = 0.05
+    var jumpLandingSpeed: Double = 100.0
+    var jumpConsumed: Boolean = false
 
     var isCrouching: Boolean = false
 
@@ -259,6 +263,8 @@ data class Player(
         isJumping = false
         isDropping = false
         dropLandingTimer = 0.0
+        jumpLandingTimer = 0.0
+        jumpConsumed = false
         runUpDistance = 0.0
         runUpDirection = 0.0
     }
@@ -282,7 +288,11 @@ data class Player(
         swingHooks: List<Rect> = emptyList(),
         floatingClimbTargets: List<Rect> = emptyList()
     ) {
-        if (jumpInput && !isClimbing && !isSwinging && !jumpConsumedAfterClimb) {
+        if (!jumpInput) {
+            jumpConsumed = false
+            jumpConsumedAfterClimb = false
+        }
+        if (jumpInput && !isClimbing && !isSwinging && !jumpConsumed && !jumpConsumedAfterClimb) {
             jumpBufferTimer = jumpBufferDuration
         }
         var remaining = dt
@@ -563,15 +573,14 @@ data class Player(
             }
         }
 
-        if (!jumpInput) {
-            jumpConsumedAfterClimb = false
-        }
-
         if (jumpBufferTimer > 0.0) {
             jumpBufferTimer = maxOf(0.0, jumpBufferTimer - dt)
         }
         if (dropLandingTimer > 0.0) {
             dropLandingTimer = maxOf(0.0, dropLandingTimer - dt)
+        }
+        if (jumpLandingTimer > 0.0) {
+            jumpLandingTimer = maxOf(0.0, jumpLandingTimer - dt)
         }
 
         // Coyote timer: active when grounded; counts down once airborne (unless in an upward jump)
@@ -602,6 +611,7 @@ data class Player(
 
         val baseSpeed = when {
             isDropping || dropLandingTimer > 0.0 -> dropSpeed
+            isGrounded && jumpLandingTimer > 0.0 -> jumpLandingSpeed
             else -> moveSpeed
         }
         val currentCrouchSpeed = if (moveInput > 0.0) crouchForwardSpeed else crouchSpeed
@@ -631,10 +641,12 @@ data class Player(
         }
 
         // Jump & Vertical acceleration
-        val effectiveJumpInput = jumpInput && !jumpConsumedAfterClimb
+        val effectiveJumpInput = jumpInput && !jumpConsumed && !jumpConsumedAfterClimb
         val wantsToJump = effectiveJumpInput || jumpBufferTimer > 0.0
-        val canJump = (isGrounded || (coyoteTimer > 0.0 && vy >= 0.0)) && !isCrouching
+        val canJump = (isGrounded || (coyoteTimer > 0.0 && vy >= 0.0)) && !isCrouching && jumpLandingTimer <= 0.0
         if (wantsToJump && canJump) {
+            jumpConsumed = true
+            jumpBufferTimer = 0.0
             // A hook beats open air but not a box: if the player is stood against something
             // climbable, that is what they meant.
             val climbTarget = findClimbTarget(facing, climbTargets, platforms, floatingClimbTargets)
@@ -654,6 +666,7 @@ data class Player(
                 isJumping = false
                 isDropping = false
                 dropLandingTimer = 0.0
+                jumpLandingTimer = 0.0
                 return
             }
             vy = jumpSpeed
@@ -661,6 +674,7 @@ data class Player(
             isJumping = true
             isDropping = false
             dropLandingTimer = 0.0
+            jumpLandingTimer = 0.0
             coyoteTimer = 0.0
             jumpBufferTimer = 0.0
             vx = moveInput.coerceIn(-1.0, 1.0) * moveSpeed
@@ -805,6 +819,10 @@ data class Player(
         if (isDropping && justLanded) {
             dropLandingTimer = dropLandingDuration
             isDropping = false
+        } else if (isJumping && justLanded) {
+            jumpLandingTimer = jumpLandingDuration
+            jumpBufferTimer = 0.0
+            isJumping = false
         }
         isGrounded = landed
         if (isGrounded) {

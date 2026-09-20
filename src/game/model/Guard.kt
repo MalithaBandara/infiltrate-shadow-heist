@@ -63,6 +63,9 @@ data class Guard(
     var investigatePauseTimer: Double = 0.0
         private set
 
+    var investigatedFromNoise: Boolean = false
+        private set
+
     /** Time left standing at a patrol post before turning back; 0 while walking. */
     var patrolPauseTimer: Double = 0.0
         private set
@@ -112,6 +115,7 @@ data class Guard(
             patrolFacing = facing
         }
         state = GuardState.INVESTIGATING
+        investigatedFromNoise = false
         targetInvestigateX = targetX
         isAtInvestigateTarget = true
         investigateTimer = 0.0
@@ -128,6 +132,7 @@ data class Guard(
             patrolFacing = facing
         }
         state = GuardState.INVESTIGATING
+        investigatedFromNoise = true
         targetInvestigateX = noiseX
         isAtInvestigateTarget = true
         investigateTimer = 0.0
@@ -147,6 +152,7 @@ data class Guard(
         targetInvestigateX = playerX
         isAtInvestigateTarget = true
         investigateTimer = 0.0
+        investigatedFromNoise = false
         if (targetInvestigateX > center.x) {
             facing = 1.0
         } else if (targetInvestigateX < center.x) {
@@ -156,6 +162,7 @@ data class Guard(
 
     fun returnToPatrol() {
         state = GuardState.PATROL
+        investigatedFromNoise = false
         isAtInvestigateTarget = true
         investigateTimer = 0.0
         investigatePauseTimer = 0.0

@@ -25,6 +25,7 @@ data class GameProfile(
         "noise_suppression" to 2,
         "stealth_boots" to 0,
         "radar_booster" to 0,
+        "checkpoints" to 1,
         "remote_trigger" to 1
     )
 ) {
@@ -34,7 +35,8 @@ data class GameProfile(
             PowerupType.LASER_SHIELD -> listOf("laser_shield", "shield", "laser_guard", "sleep_darts", "sleep_dart", "phantom_cloak", "guard_sleep")
             PowerupType.INVISIBILITY -> listOf("invisibility", "invisibility_cloak")
             PowerupType.NOISE_SUPPRESSION -> listOf("noise_suppression", "stealth_boots", "stealth", "boots")
-            PowerupType.REMOTE_TRIGGER -> listOf("remote_trigger", "trigger", "remote", "checkpoint", "checkpoints", "tactical_checkpoint")
+            PowerupType.CHECKPOINTS -> listOf("checkpoints", "checkpoint", "tactical_checkpoint")
+            PowerupType.REMOTE_TRIGGER -> listOf("remote_trigger", "trigger", "remote")
             PowerupType.PROTOTYPE -> listOf("prototype")
         }
         return aliases.sumOf { powerupInventory[it] ?: 0 }
@@ -51,7 +53,8 @@ data class GameProfile(
             PowerupType.LASER_SHIELD -> listOf("laser_shield", "shield", "laser_guard", "sleep_darts", "sleep_dart", "phantom_cloak", "guard_sleep")
             PowerupType.INVISIBILITY -> listOf("invisibility", "invisibility_cloak")
             PowerupType.NOISE_SUPPRESSION -> listOf("noise_suppression", "stealth_boots", "stealth", "boots")
-            PowerupType.REMOTE_TRIGGER -> listOf("remote_trigger", "trigger", "remote", "checkpoint", "checkpoints", "tactical_checkpoint")
+            PowerupType.CHECKPOINTS -> listOf("checkpoints", "checkpoint", "tactical_checkpoint")
+            PowerupType.REMOTE_TRIGGER -> listOf("remote_trigger", "trigger", "remote")
             PowerupType.PROTOTYPE -> listOf("prototype")
         }
         for (key in aliases) {

@@ -23,6 +23,12 @@ data class GameWorld(
     val woodCrates: List<Rect> = emptyList(),
     /** Freestanding mounting poles (pole.png), not in [boxes] (no collision) - see LevelLayout.poles. */
     val poles: List<Rect> = emptyList(),
+    /** Background cranes (CraneDef.bounds also in [boxes]) - solid/climbable across their whole
+     *  footprint - see LevelLayout.cranes. */
+    val cranes: List<CraneDef> = emptyList(),
+    /** A box forced to render as a plain structural block, bypassing GameplayScene.kt's
+     *  crate-shaped size heuristics - see LevelLayout.plainPlatforms. */
+    val plainPlatforms: List<Rect> = emptyList(),
     /** Tables (table.png) - the art rects. See LevelLayout.tables and GameplayScene.kt's box loop. */
     val tables: List<Rect> = emptyList(),
     /** Collision boxes covered by a table's art, drawn by nothing - see LevelLayout.tableParts. */
@@ -38,6 +44,8 @@ data class GameWorld(
     val movingPlatforms: List<MovingPlatform> = emptyList(),
     /** Overhead hooks the player can swing from - see LevelLayout.swingHooks and Player's swing. */
     val swingHooks: List<Rect> = emptyList(),
+    val levers: List<Lever> = emptyList(),
+    val hookCrates: List<HookCrate> = emptyList(),
     /** Conveyor belts in the level - see LevelLayout.conveyors. */
     val conveyors: List<ConveyorDef> = emptyList(),
     val conveyorCrates: List<ConveyorCrate> = emptyList(),
@@ -60,9 +68,14 @@ data class GameWorld(
     var onLaserHit: (() -> Unit)? = null,
     var onHangingCrateHit: (() -> Unit)? = null,
     var onLaserShieldBlocked: (() -> Unit)? = null,
+    var onCheckpointAutoRespawn: (() -> Unit)? = null,
+    var spawnGraceTimer: Double = 0.0,
     val conveyorsStartOnMove: Boolean = false,
-    val canClimb: Boolean = true
+    val canClimb: Boolean = true,
+    val manualCheckpoints: List<Checkpoint> = emptyList()
 ) {
+    val canInteract: Boolean
+        get() = levers.any { !it.isActivated && it.isPlayerInRange(player) }
     val hangingCrateVariant1: List<Rect>
         get() = staticHangingCrateVariant1 + conveyorCrates.filter { it.isHanging && it.isVariant1 }.map { it.bounds }
     val hangingCrateVariant2: List<Rect>
@@ -87,6 +100,8 @@ data class GameWorld(
         barrels: List<Rect> = emptyList(),
         woodCrates: List<Rect> = emptyList(),
         poles: List<Rect> = emptyList(),
+        cranes: List<CraneDef> = emptyList(),
+        plainPlatforms: List<Rect> = emptyList(),
         tables: List<Rect> = emptyList(),
         tableParts: List<Rect> = emptyList(),
         tableDecorations: List<Rect> = emptyList(),
@@ -95,6 +110,8 @@ data class GameWorld(
         hangingCrateVariant2: List<Rect> = emptyList(),
         movingPlatforms: List<MovingPlatform> = emptyList(),
         swingHooks: List<Rect> = emptyList(),
+        levers: List<Lever> = emptyList(),
+        hookCrates: List<HookCrate> = emptyList(),
         conveyors: List<ConveyorDef> = emptyList(),
         conveyorCrates: List<ConveyorCrate> = emptyList(),
         lasers: List<Laser> = emptyList(),
@@ -103,7 +120,8 @@ data class GameWorld(
         hasNoGuards: Boolean = false,
         restartOnConveyorFallOff: Boolean = false,
         conveyorsStartOnMove: Boolean = false,
-        canClimb: Boolean = true
+        canClimb: Boolean = true,
+        manualCheckpoints: List<Checkpoint> = emptyList()
     ) : this(
         player = player,
         guard = guard,
@@ -123,6 +141,8 @@ data class GameWorld(
         barrels = barrels,
         woodCrates = woodCrates,
         poles = poles,
+        cranes = cranes,
+        plainPlatforms = plainPlatforms,
         tables = tables,
         tableParts = tableParts,
         tableDecorations = tableDecorations,
@@ -131,6 +151,8 @@ data class GameWorld(
         staticHangingCrateVariant2 = hangingCrateVariant2,
         movingPlatforms = movingPlatforms,
         swingHooks = swingHooks,
+        levers = levers,
+        hookCrates = hookCrates,
         conveyors = conveyors,
         conveyorCrates = conveyorCrates,
         lasers = lasers,
@@ -139,7 +161,8 @@ data class GameWorld(
         hasNoGuards = hasNoGuards,
         restartOnConveyorFallOff = restartOnConveyorFallOff,
         conveyorsStartOnMove = conveyorsStartOnMove,
-        canClimb = canClimb
+        canClimb = canClimb,
+        manualCheckpoints = manualCheckpoints
     )
     var conveyorsActive: Boolean = !conveyorsStartOnMove
     /** Every guard in the level. Single-guard levels simply have no [extraGuards]. Guardless levels set [hasNoGuards] = true. */
@@ -188,10 +211,17 @@ data class GameWorld(
         private set
     var laserGraceTimer: Double = 0.0
 
+    /** Desktop-only debug cheat (see GameplayScene's F1 handler, gated on Platform.isJvm): free
+     *  flight through the level, ignoring gravity/collision/detection, for level-layout inspection. */
+    var noclipFlying: Boolean = false
+
     var continueCount: Int = 0
         private set
     val canContinue: Boolean
-        get() = continueCount < 1
+        get() = activePowerups.isCheckpointsActive || continueCount < 1
+
+    var currentManualCheckpointIndex: Int = -1
+        private set
 
     var lastCheckpointX: Double = player.startX
         private set
@@ -213,8 +243,14 @@ data class GameWorld(
         player.resetTo(lastCheckpointX, lastCheckpointY)
         for (g in allGuards) g.returnToPatrol()
         for (c in cameras) c.reset()
+        for (mp in movingPlatforms) mp.reset()
+        for (crate in conveyorCrates) crate.reset()
+        for (laser in lasers) laser.reset()
+        for (lever in levers) lever.reset()
+        for (hc in hookCrates) hc.reset()
         activePowerups.invisibilityTimer = 3.0
         laserGraceTimer = 3.0
+        spawnGraceTimer = 3.0
         return true
     }
 
@@ -222,7 +258,13 @@ data class GameWorld(
      * Instantly resets the level to its initial state without loading screen or scene rebuild.
      */
     fun restartLevel() {
+        if (activePowerups.isCheckpointsActive) {
+            respawnAtCheckpoint()
+            onCheckpointAutoRespawn?.invoke()
+            return
+        }
         continueCount = 0
+        currentManualCheckpointIndex = -1
         isGameOver = false
         isLevelComplete = false
         isSpotted = false
@@ -236,11 +278,16 @@ data class GameWorld(
         detectingCameras = emptyList()
         recentlySeeingGuards.clear()
         player.resetToStart()
+        lastCheckpointX = player.startX
+        lastCheckpointY = player.startY
+        hasAdvancedCheckpoint = false
         for (g in allGuards) g.returnToPatrol()
         for (c in cameras) c.reset()
         for (mp in movingPlatforms) mp.reset()
         for (crate in conveyorCrates) crate.reset()
         for (laser in lasers) laser.reset()
+        for (lever in levers) lever.reset()
+        for (hc in hookCrates) hc.reset()
         activePowerups.invisibilityTimer = 0.0
         laserGraceTimer = 0.0
         conveyorsActive = !conveyorsStartOnMove
@@ -248,8 +295,46 @@ data class GameWorld(
 
     private val recentlySeeingGuards = LinkedHashSet<Guard>()
 
+    /** Activates a lever exactly as walking up and pressing interact would - shared by the normal
+     *  in-range interact path and REMOTE_TRIGGER's remote one below. */
+    private fun triggerLever(lever: Lever) {
+        lever.isActivated = true
+        if (lever.targetMechanismId != null) {
+            for (hc in hookCrates) {
+                if (hc.id == lever.targetMechanismId) {
+                    hc.isDetached = true
+                }
+            }
+            for (mp in movingPlatforms) {
+                if (mp.id == lever.targetMechanismId) {
+                    mp.activate()
+                }
+            }
+        }
+    }
+
+    /** Whether REMOTE_TRIGGER has anything to do right now - checked by the UI before it spends
+     *  the item, so a level with no levers (or one where they're all already thrown) never burns
+     *  one for nothing. */
+    fun hasRemoteTriggerTarget(): Boolean = levers.any { !it.isActivated }
+
     fun activatePowerup(type: PowerupType): Boolean {
         if (isLevelComplete || isGameOver) return false
+        // Already running (a timed effect mid-countdown, or a level-duration one already on) -
+        // refuse rather than reset its clock/charges, so a stray extra press/key/tap can't shave
+        // time off (or silently no-op waste) an effect that's already active.
+        if (activePowerups.isActive(type)) return false
+        if (type == PowerupType.REMOTE_TRIGGER) {
+            // One-shot, no timer/charge of its own (ActivePowerups.activate() is a no-op for it -
+            // this IS its whole effect): remotely throws the nearest lever the player hasn't
+            // already reached, exactly as if they'd walked up and pressed interact on it, without
+            // needing to be in range. See StoreScreen.kt's own description of the item.
+            val target = levers.filter { !it.isActivated }
+                .minByOrNull { player.center.distanceTo(Vec2d(it.centerX, it.centerY)) }
+                ?: return false
+            triggerLever(target)
+            return true
+        }
         activePowerups.activate(type)
         if (type == PowerupType.SMOKE_SCREEN) {
             for (c in cameras) c.resetDetectionPause()
@@ -279,11 +364,49 @@ data class GameWorld(
     }
 
     fun update(dt: Double, moveInput: Double, jumpInput: Boolean) {
-        update(dt, moveInput, jumpInput, crouchInput = false)
+        update(dt, moveInput, jumpInput, crouchInput = false, interactInput = false)
     }
 
     fun update(dt: Double, moveInput: Double, jumpInput: Boolean, crouchInput: Boolean) {
+        update(dt, moveInput, jumpInput, crouchInput = crouchInput, interactInput = false)
+    }
+
+    fun update(dt: Double, moveInput: Double, jumpInput: Boolean, crouchInput: Boolean, interactInput: Boolean) {
         if (isLevelComplete || isGameOver) return
+
+        if (noclipFlying) {
+            val flySpeed = 420.0
+            val dx = moveInput.coerceIn(-1.0, 1.0) * flySpeed * dt
+            val dy = when {
+                jumpInput && !crouchInput -> -flySpeed * dt
+                crouchInput && !jumpInput -> flySpeed * dt
+                else -> 0.0
+            }
+            player.vx = 0.0
+            player.vy = 0.0
+            player.isGrounded = false
+            val groundY = platforms.firstOrNull { it.y > 300.0 }?.y ?: 440.0
+            player.x = (player.x + dx).coerceIn(0.0, worldWidth - player.width)
+            player.y = (player.y + dy).coerceAtMost(groundY - player.height)
+            return
+        }
+
+        if (spawnGraceTimer > 0.0) {
+            spawnGraceTimer = (spawnGraceTimer - dt).coerceAtLeast(0.0)
+        }
+
+        if (interactInput) {
+            for (lever in levers) {
+                if (!lever.isActivated && lever.isPlayerInRange(player)) {
+                    triggerLever(lever)
+                }
+            }
+        }
+
+        val groundY = platforms.firstOrNull { it.y > 300.0 }?.y ?: 440.0
+        for (hc in hookCrates) {
+            hc.update(dt, 1000.0, groundY)
+        }
 
         if (!conveyorsActive && (moveInput != 0.0 || jumpInput)) {
             conveyorsActive = true
@@ -304,7 +427,7 @@ data class GameWorld(
         var detectorRange: Double = guard.visionRange
 
         // Invisibility: player cannot be spotted by any guard or camera
-        if (!activePowerups.isInvisibilityActive) {
+        if (!activePowerups.isInvisibilityActive && spawnGraceTimer <= 0.0) {
             // Guards vision checks - skipped if Phantom Cloak puts guards to sleep
             if (!activePowerups.isPhantomCloakActive) {
                 for (g in allGuards) {
@@ -388,11 +511,25 @@ data class GameWorld(
 
         // Safe checkpoint recording: update checkpoint when operative is safe on solid ground
         if (!isGameOver && player.isGrounded && !inVision && alertProgress == 0.0) {
-            if (player.x > lastCheckpointX + 250.0) {
-                lastCheckpointX = player.x
-                lastCheckpointY = player.y
-                hasAdvancedCheckpoint = true
-                onCheckpointSecured?.invoke(lastCheckpointX, lastCheckpointY)
+            if (manualCheckpoints.isEmpty()) {
+                if (player.x > lastCheckpointX + 250.0) {
+                    lastCheckpointX = player.x
+                    lastCheckpointY = player.y
+                    hasAdvancedCheckpoint = true
+                    onCheckpointSecured?.invoke(lastCheckpointX, lastCheckpointY)
+                }
+            } else {
+                for (i in manualCheckpoints.indices) {
+                    val cp = manualCheckpoints[i]
+                    val zone = cp.triggerZone ?: Rect(cp.x - 20.0, cp.y - 20.0, 40.0, player.height + 40.0)
+                    if (player.bounds.intersects(zone) && i > currentManualCheckpointIndex) {
+                        currentManualCheckpointIndex = i
+                        lastCheckpointX = cp.x
+                        lastCheckpointY = cp.y
+                        hasAdvancedCheckpoint = true
+                        onCheckpointSecured?.invoke(lastCheckpointX, lastCheckpointY)
+                    }
+                }
             }
         }
 
@@ -414,6 +551,19 @@ data class GameWorld(
             if (onThisPlatform) {
                 player.x += delta.dx
                 player.y += delta.dy
+            }
+        }
+
+        // A lever whose target is a one-shot moving platform comes back up (isActivated = false,
+        // repressable) the instant that platform re-arms (mp.isActive drops back to false after
+        // its single period finishes) - see MovingPlatformDef.oneShot. Harmless no-op for every
+        // other lever: a never-pulled lever's target is already inactive (nothing to reset), and a
+        // continuously-looping (non-oneShot) platform's isActive never goes false once thrown.
+        for (lever in levers) {
+            if (!lever.isActivated || lever.targetMechanismId == null) continue
+            val target = movingPlatforms.firstOrNull { it.id == lever.targetMechanismId }
+            if (target != null && target.startsInactive && !target.isActive) {
+                lever.isActivated = false
             }
         }
 
@@ -465,20 +615,20 @@ data class GameWorld(
             }
         }
 
-        // A level with no moving platforms or conveyor crates reuses its own immutable lists
+        // A level with no moving platforms, conveyor crates, or hook crates reuses its own immutable lists
         val hasMovingPlatforms = movingPlatforms.isNotEmpty()
         val movingBounds = if (hasMovingPlatforms) movingPlatforms.map { it.bounds } else emptyList()
         val hasConveyorCrates = conveyorCrates.isNotEmpty()
         val crateBounds = if (hasConveyorCrates) conveyorCrates.map { it.bounds } else emptyList()
         val floorCrateBounds = if (hasConveyorCrates) conveyorCrates.filter { !it.isHanging }.map { it.bounds } else emptyList()
-        val dynamicBounds = if (hasMovingPlatforms && hasConveyorCrates) movingBounds + crateBounds
-            else if (hasMovingPlatforms) movingBounds
-            else crateBounds
+        val hasHookCrates = hookCrates.isNotEmpty()
+        val hookCrateBounds = if (hasHookCrates) hookCrates.map { it.bounds } else emptyList()
+        val dynamicBounds = if (hasMovingPlatforms || hasConveyorCrates || hasHookCrates) {
+            movingBounds + crateBounds + hookCrateBounds
+        } else emptyList()
         val currentPlatforms = if (dynamicBounds.isNotEmpty()) platforms + dynamicBounds else platforms
         val currentBoxes = if (dynamicBounds.isNotEmpty()) {
-            val dynamicBoxes = if (hasMovingPlatforms && floorCrateBounds.isNotEmpty()) movingBounds + floorCrateBounds
-                else if (hasMovingPlatforms) movingBounds
-                else floorCrateBounds
+            val dynamicBoxes = movingBounds + floorCrateBounds + hookCrateBounds
             if (dynamicBoxes.isNotEmpty()) boxes + dynamicBoxes else boxes
         } else boxes
         val currentOccluders = if (dynamicBounds.isNotEmpty()) occluders + dynamicBounds else occluders
@@ -502,8 +652,11 @@ data class GameWorld(
         playerPlatformsScratch.addAll(currentPlatforms)
         for (g in allGuards) playerPlatformsScratch.add(g.bounds)
         val climbTargets = if (canClimb) currentBoxes else emptyList()
-        val climbFloatingTargets = if (canClimb) floatingClimbTargets else emptyList()
-        player.update(dt, moveInput, jumpInput, crouchInput, playerPlatformsScratch, climbTargets, swingHooks, climbFloatingTargets)
+        val climbFloatingTargets = if (canClimb) (floatingClimbTargets + hookCrateBounds) else emptyList()
+        val activeSwingHooks = if (hookCrates.isEmpty()) swingHooks else swingHooks.filter { hook ->
+            hookCrates.none { !it.isDetached && it.hook == hook }
+        }
+        player.update(dt, moveInput, jumpInput, crouchInput, playerPlatformsScratch, climbTargets, activeSwingHooks, climbFloatingTargets)
 
         // Check Exit / Win condition
         if (player.bounds.intersects(exitZone)) {
@@ -776,6 +929,18 @@ data class GameWorld(
 
         /** Builds a world from an explicit multi-tier LevelLayout (see LevelData.layout). */
         fun createFromLayout(levelData: LevelData, layout: LevelLayout): GameWorld {
+            // Unlike MovingPlatform/ConveyorCrate/Laser (each rebuilt fresh from an immutable Def
+            // below), Lever and HookCrate ARE the live mutable objects held directly on the
+            // (singleton, companion-object) LevelLayout - there's no separate Def indirection for
+            // them. Without this, a lever pulled in one GameWorld (e.g. quitting to the menu and
+            // re-entering the level, which constructs a brand new GameWorld from the same layout
+            // singleton) would still read as isActivated on the next playthrough, since it's the
+            // exact same object, not a fresh one. restartLevel()/respawnAtCheckpoint() reset an
+            // existing GameWorld's own levers/hookCrates already - this covers the other case, a
+            // freshly constructed one.
+            for (lever in layout.levers) lever.reset()
+            for (hc in layout.hookCrates) hc.reset()
+
             val leftWallX = if (layout.hasStartFences) -30.0 else -200.0
             val leftWall = Rect(x = leftWallX, y = -400.0, width = 30.0, height = 1200.0)
             val rightWall = Rect(x = layout.worldWidth, y = -400.0, width = 30.0, height = 1200.0)
@@ -885,7 +1050,10 @@ data class GameWorld(
                     phaseOffsetSeconds = def.phaseOffsetSeconds,
                     isVariant1 = def.isVariant1,
                     initialX = def.initialX,
-                    initialY = def.initialY
+                    initialY = def.initialY,
+                    startsInactive = def.startsInactive,
+                    activationDelaySeconds = def.activationDelaySeconds,
+                    oneShot = def.oneShot
                 )
             }
 
@@ -946,19 +1114,32 @@ data class GameWorld(
                 barrels = layout.barrels,
                 woodCrates = layout.woodCrates,
                 poles = layout.poles,
+                cranes = layout.cranes,
+                plainPlatforms = layout.plainPlatforms,
                 tables = layout.tables,
                 tableParts = layout.tableParts,
                 tableDecorations = layout.tableDecorations,
                 floatingClimbTargets = layout.floatingClimbTargets,
                 movingPlatforms = movingPlatforms,
                 swingHooks = layout.swingHooks,
+                // Fresh copies, not the LevelLayout singleton's own shared instances: layout.levers/
+                // hookCrates are computed once per process (LEVEL_6_LAYOUT etc. are top-level `val`s)
+                // and hold mutable state (Lever.isActivated, HookCrate.isDetached/vy/bounds). Passing
+                // them through directly meant every GameWorld built from the same layout - a level
+                // replayed without restarting the app, or two GameWorld instances alive at once in
+                // tests - shared and mutated the SAME lever/hook-crate objects, so a lever pulled in
+                // one playthrough stayed permanently pulled in the next. Same treatment movingPlatforms/
+                // cameras/conveyorCrates/lasers already get from their Def/spawn objects just above.
+                levers = layout.levers.map { it.copy() },
+                hookCrates = layout.hookCrates.map { it.copy() },
                 conveyors = layout.conveyors,
                 conveyorCrates = conveyorCrates,
                 lasers = lasers,
                 hasNoGuards = guards.isEmpty(),
                 restartOnConveyorFallOff = layout.restartOnConveyorFallOff,
                 conveyorsStartOnMove = layout.conveyorsStartOnMove,
-                canClimb = layout.canClimb
+                canClimb = layout.canClimb,
+                manualCheckpoints = layout.manualCheckpoints
             )
             if (levelData.playerCrouchForwardSpeedMultiplier != 1.0) {
                 world.player.crouchForwardSpeed = world.player.crouchSpeed * levelData.playerCrouchForwardSpeedMultiplier
