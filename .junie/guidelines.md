@@ -226,8 +226,8 @@ image bumps Xcode.
 **Real billing** lives in `paywall-build/src/commonMain/kotlin/com/infiltrate/billing/StoreBilling.kt`
 (`expect`/`actual`), calling `Purchases.sharedInstance.purchase(...)` from `StoreScreen.kt`'s coin
 packs. **Android wired** (`InfiltrateApplication.kt` -> `StoreBilling.initialize(BuildConfig.
-REVENUECAT_GOOGLE_KEY)`). **iOS NOT wired** - `StoreBilling.ios.kt` exists but nothing in
-`ios-shell/` calls `StoreBilling.initialize(...)`. On success `profileStorage.addCoins(pack.amount)`
+REVENUECAT_GOOGLE_KEY)`). **iOS wired** (`AppDelegate.swift` -> `StoreBilling.shared.initialize(apiKey: "appl_...")`,
+with `DEFAULT_APPLE_API_KEY` and lazy initialization fallback in `StoreBilling.ios.kt`). On success `profileStorage.addCoins(pack.amount)`
 credits a plain local integer: RevenueCat validates the money, local storage owns the balance.
 RevenueCat's Virtual Currency ledger is **deliberately not used** - most grants are gameplay-driven
 (level completion) and there is no backend; every level reward would become a network call in a
@@ -361,7 +361,7 @@ NEXT LEVEL deliberately does not show one (an ad on every win was ruled too aggr
   incremented once per *distinct* level in `GameplayScene`'s `world.onLevelComplete` by checking
   `levelStorage.getBestResult(id)?.completed` *before* `saveResult()`). Level 1 is the tutorial,
   level 2 builds a habit before any monetization interruption.
-- `!profile.isPremium` - the Remove Ads purchase promises "removes all banner and interstitial
+- `!profile.isPremium` - the Remove Ads purchase promises "removes all interstitial
   advertisements"; this is the first placement that promise had to be true for.
 - In-memory 180s cooldown seeded from app launch (a cold start always gets 3 min grace) and a
   5-per-session cap (resets on cold launch). The owner chose NOT to enable an AdMob dashboard cap
@@ -511,8 +511,11 @@ surface (bug #7), so the Compose menu draws opaquely on top of an always-visible
 - Levels: `01: Night Arrival` (`DEFAULT_LEVEL_1`, tutorial), `02: Cargo Yard` (`LEVEL_2_LAYOUT`,
   `bgmg5.png`), `03: New Level` (`LEVEL_3_LAYOUT`, WIP), `04: Blind Spot` (`LEVEL_4_LAYOUT`, conveyor,
   `bgmg6.png`, darkness vignette), `05: Restricted Zone` (`SIDE_SCROLL_LEVEL_LAYOUT` - the recovered
-  barrel-wall + hook-swing stub, see "The swing move"), `06: Missing Container` .. `09: Old Signature`
-  (no layout of their own, `GameWorld.createDefault` with a per-level `guardSpeed`). Other levels' backgrounds rotate through `bgmg2/3/4` via
+  barrel-wall + hook-swing stub, see "The swing move"), `06: Missing Container` (`LEVEL_6_LAYOUT` -
+  lever-crate swing, pit crossing, crane crossing; see its own section), `07: Stolen Manifest`
+  (`LEVEL_7_LAYOUT` - linear vent crawling gauntlet, exhaust fans, camera bots, steam pipes; see its
+  own section), `08: Hidden Archive` .. `09: Old Signature` (no layout of their own, `GameWorld.createDefault`
+  with a per-level `guardSpeed`). Other levels' backgrounds rotate through `bgmg2/3/4` via
   `LevelData.resolvedBackgroundImage`.
 
 ## End-of-run dossier sheets (MISSION FAILED / HEIST COMPLETE)
@@ -897,9 +900,10 @@ constant carries its reasoning there. Summary of the current shape:
   time - do not reuse an old crop rect across an asset swap, the margins are different. Current
   crop is `RectangleInt(68, 86, 1401, 839)` for `woodencratenew.png`. `GameplayScene.kt` slices to
   that rect once before the box loop and reuses that slice, the same approach as `tableBitmap`'s own
-  `legSlice`/`plankSlice`. Re-measure this crop (a bitmap bounding-box scan, e.g. via
-  `System.Drawing.Bitmap.GetPixel` in PowerShell - no ImageMagick/Python in this environment) if
-  the wood-crate asset is ever replaced again. See
+  `legSlice`/`plankSlice`. Re-measure this crop (a bitmap bounding-box scan) if the wood-crate
+  asset is ever replaced again - **Python 3.12 with Pillow 12.3 IS on PATH here** (`python`/`py`),
+  which is what `tools/art/*.py` and level 6's crane-silhouette scan use; PowerShell +
+  `System.Drawing.Bitmap.GetPixel` works too. No ImageMagick. See
   `testLevel3GroundDressingUnderBeamHasBarrelsAndWoodCratesSeparately`.
   **This staggered arrangement replaced an earlier straight-up "single crate + a 2-tall stacked
   pair" layout, on request** ("arrange the three wooden crates in a new way: two crates touching
@@ -1092,6 +1096,280 @@ Replaced the barrel-wall + hook-swing layout of the same name, later recovered f
   `conveyorCrateContainers[i].visible = crate.bounds.right >= cullLeft && crate.bounds.left <= cullRight`.
 - Verified: an end-to-end JVM playthrough of an earlier iteration reached MISSION SUCCESSFUL with the
   background tiling; the laser/bobbing version is in the uncommitted working tree. Not on device.
+
+## Level 6 ("06: Missing Container") - `LEVEL_6_LAYOUT`
+
+Five sections; the layout's own doc comments in `LevelData.kt` carry the reasoning, as with
+level 3. Section 1 is a lever-fired moving crate ridden into a swing hook; section 2 is a forced
+fall into a pit under an overwatch guard, then a climb; section 4 is a timed climb under a swinging
+gantry load and section 5 a plank, a patrolling guard and a switched laser curtain (both below);
+section 3 is the crane crossing, rebuilt
+2026-09-23 on request ("take the crane to left, so that the player can climb onto it from the
+otherside of the gap ... the vehicle part of the crane should be just right of the lever ... if it
+is too high to be climbable, make the height of the platform after the lever shorter and put the
+crane there").
+
+**The crane is now the way across, not scenery.** Its machine (`CraneDef`, placed by
+`boomLength` so the tracked base - not the boom tip - lands where the level wants it) stands ~33
+units past `lever_3`, and its boom reaches ~460 units back over the lever, the two ground barrels,
+the ground gap and the last ~176 units of `tallBlock`. The player walks into the boom on
+`tallBlock`, climbs onto it, walks its whole length and comes down the machine's own silhouette to
+the exit, which moved past the machine. The ground-level walk only reaches the tracks, which are
+deliberately unclimbable, so it dead-ends (the retreat to `tallBlock` stays open and is covered by
+a test).
+
+**The boom's height is pinned exactly, and the crane's SIZE is what falls out of it.** "For the
+climbing animation to work, this long beam should be his head height": `boomBounds.top` lands on
+the crown of a player standing on `tallBlock` (`tallBlockTopY - 96`), which also makes the mantle
+a 96-unit rise - this game's own canonical climb height, shared with crate -> terrain and
+stepCrate -> cameraBeam. An earlier pass had the beam at chest height (75-unit rise; legal by
+`climbMinHeight..climbMaxHeight` = 51.2..115, but the climb animation read wrong against it), so
+**a rise that merely sits inside the window is not good enough here - it has to be 96.**
+`CraneDef.heightForBoomTop(baseY, boomTopY)` derives `craneHeight` (~146, up from a hand-picked
+125) from that requirement plus the platform height, so moving either end re-sizes the machine
+instead of silently breaking the climb - never hand-pick `craneHeight` again. The platform stays
+`groundY - 48` (392), flush with the barrels, which is why `endTerrain` AND `cranePlatform` both
+dropped from 96 to 48 tall and the barrel stack became two barrels side by side. Headroom under
+the boom comes along for free: a crane's base always sits `0.8053 * height` below the boom's
+underside (118 here, against the 96 a standing player needs).
+
+**`CraneDef` collides as three boxes, not one** ("dont just use 1 bounding box ... so walking on it
+doesnt feel like flying"): `boomBounds` (the hanging lattice, crop rows 7..88), `bodyBounds` (the
+front section, crop columns 730..1390, topped at the boom's own height because the boom art runs
+right over it) and `houseBounds` (the superstructure past the boom's end, roof at crop row 169).
+Edges came from a per-column alpha scan of `crane.png`'s crop, same method as the guard/table
+crops. **The tracks' own deck is deliberately NOT a step**: the boom hangs only `scale * 226` above
+it (73 units at this crane's size, vs a 96-tall player), so at any size this game would use, a box
+with its top down there just lets the player jump in and wedge under the boom - checked directly,
+not assumed. The boom needs `floatingClimbTargets` (a hanging boom fails the floating-ledge check
+by construction); nothing else on the machine does.
+
+**Climbing under the boom finishes crouched** (`Player.findClimbTarget`/`ClimbTarget.endsCrouched`,
+added for this level on request: "when he climbs up this, make him climb up crouched"). Coming back
+along the ground and climbing `tallBlock` from the gap side lands the player under the boom, where
+there is crouching room (56) but not standing room (96): the climb is allowed and ends in a crouch,
+and the existing can't-stand-up-under-a-ceiling rule holds it until they crawl out. Without it they
+hauled up into a standing pose inside the beam and were wedged - unable to move either way - until
+they happened to press crouch themselves. **The engine fix that came with it applies everywhere**:
+the headroom check used `box.left` regardless of direction, so a climb approached from the right
+tested the wrong edge of the box entirely. It now tests at `climbLandingX`, the same helper
+`startClimb` positions with, so the check and the landing cannot disagree.
+
+### Section 4: the gantry-gated climb (2026-09-23)
+
+Added on request: "after the crane, add a platform that is climbable but there is a hanging crate
+very close to the surface level which makes it unclimbable. pressing that lever makes it move left
+and right so the player has to time when the crate is not there to climb up." It is the last thing
+before extraction - `exitX` moved past it and `worldWidth` to 4390.
+
+**The gate is the CLEARANCE, not the crate.** `Player.findClimbTarget` only refuses a candidate
+when the landing has room for neither a standing body (96) nor a crouched one (`crouchHeight`, 56)
+- with anything above 56 it just returns `endsCrouched` and the climb still goes through (see
+section 3's own boom). `gateCrateClearance` is **30**, so the parked crate refuses the climb
+outright. Anyone re-tuning this has ~26 units of headroom before the puzzle quietly turns into a
+crouch-climb. The crate parks over the landing itself, which is `climbLandingX` - 6 units in from
+the edge the player comes over, not the middle of the block.
+
+**`lever_3` is the trigger** ("the lever for the hanging crate should be the one left of the
+crane"), which finally makes the ground dead-end worth walking: the floor route stops at the
+machine's tracks, and that lever is what the trip buys. It is thrown BEFORE the boom crossing, on
+the far side of the machine from the crate it drives, so the sweep is **not `oneShot`** - one pull
+powers the gantry for good and the player has however long the crossing takes. (Section 1's swing
+crate is the opposite: one attempt, re-armed when it returns to rest.) A player who crosses the
+boom without pulling it arrives at a block they cannot climb; the retreat back over the machine and
+down to the lever is open (the cab roof and the machine's top are both climbable from the platform
+side), and a test drives exactly that whole route.
+
+**`phaseOffsetSeconds = periodSeconds / 2`**, so the cosine starts at `t = 1` - the parked blocking
+position. Without it the crate teleports to the far end of its own sweep the instant the lever is
+thrown, because `MovingPlatform.update` drives `x` straight off its clock.
+
+**The sweep goes LEFT and stops 8 units clear of the cab, and that limit places the whole
+section.** Left, because everything right of the landing then stays permanently clear - whoever
+just climbed can walk out from under the gantry instead of being swept off the block (a right-hand
+sweep pins them at the landing, which is where the crate parks). It stops at the cab because the
+route down off the boom walks along the machine's top and across that roof: a load crossing there
+sweeps through the player standing on it, and further left it would pass through `bodyBounds`
+itself. So `gateCrateMinX = houseBounds.right + 8`, the rest position is one sweep (150) right of
+that, and the block is 100 right of the rest position - i.e. the section is placed **from the
+crane's own cab outwards**, which is as far left as it goes ("take the platform and the hanging
+crate more to the left"). `testLevel6GantryCrateNeverSweepsIntoTheMachineOrOverItsWalkway` pins
+both halves of that.
+
+**It is still not visible from the lever, and cannot be.** The camera shows 1040/1.35 = ~770 world
+units, so standing at `lever_3` the view ends at ~3330 - and the crane's own cab ends at 3303. The
+machine fills the frame from the lever to the right edge. Moving the load any further left is the
+one thing the paragraph above forbids. If that has to change, the options are moving the crane
+itself right (which re-tunes section 3's boom, and the boom's height is pinned to the tallBlock
+climb) or giving the crate its own sweep on the near side of the machine.
+
+Sizing, for whoever re-tunes it: the crate must travel 68 before its right edge passes the
+landing's left, which against a 150 sweep with cosine easing leaves the landing clear for ~53% of
+every cycle - a ~3.7s window at `periodSeconds = 7`, against a ~2s climb. The crate is level 2's
+own hanging container (`isVariant1 = true`, 174x38 - the same box and the long `chainedcrate.png`
+rigging as `LEVEL_2_LAYOUT`'s `hangingCrate1`), on request: "use the hanging crates from level 2".
+
+Verified in the running game, not just the model: thrown from the lever, crossed, timed, climbed,
+walked out and extracted.
+
+### Section 5: the plank, the switch and the laser curtain (2026-09-23)
+
+"after that section, continue that platform and add a crate at the end. after that add a hanging
+platform from level 3. there should be a lever on top and a guard after that moving left and right.
+the lever turns off 3 lasers that are there from the hanging platform to the ground. the bottom is
+the only path out." `gateBlock` runs on (460 wide) and ends in a step crate; the plank is level 3's
+own arrangement rebuilt here - same 96-unit climb off a crate, same `floatingClimbTargets`
+exemption, same `table.png` art via `tableParts`/`tableDecorations`.
+
+**The way back DOWN is the duck, and it is what places everything.** From the crate's top the
+plank's underside is 66 up: a standing body (96) is stopped by it, a crouched one (56) goes under,
+off the block's last lip and into the corridor. That is why the plank's support leg is
+**decoration only** (unlike level 3's, which are solid): it stands on those last 30 units of block,
+directly under the plank's climb end, and a solid post there would seal the quiet way down and
+leave only the walk past the guard. The corridor itself is completely clear - no leg, no crate,
+nothing on the floor between the block and extraction - because it is the only path out.
+
+**The lasers are a door, not a timing puzzle.** Three beams hung off the plank's underside to the
+floor, `isAlwaysActive`, all carrying `mechanismId = "lvl6_exit_lasers"`; `lever_4` on the plank
+matches it and `GameWorld.triggerLever` calls `Laser.disable()` on every one - permanent for the
+run (`Laser.isDisabled`, cleared only by `reset()`). This is the first switched laser in the game;
+everything before it only cycles.
+
+**The third beam hangs off the plank's own far END on purpose.** Without it the plank is its own
+bypass: walk to the tip, step off, land past every beam with the switch never thrown. At the tip,
+stepping off drops the player straight through it.
+
+**The guard patrols the plank past the lever**, which is the section's actual ask: there is no
+cover up there, so the climb has to happen while he is walking away, and the quiet exit is back
+down the duck rather than along the plank past him. `testLevel6SecondSectionCrossesPitAndReachesExit`
+drives exactly that (it waits for `facing > 0` before going up).
+
+**`MovingPlatformDef.crushesOnContact`** (new, and so far only section 4's gantry crate): "when
+trying to climb if he touches the bottom side of the crate it should be mission failed". A mistimed
+climb has the body still coming up when the load sweeps back over the landing - that is a kill now,
+not a wedge. Checked in `GameWorld.update` against the player's own box and **only from below**
+(feet under the crate's underside), so standing on top of a moving platform is still standing on a
+platform.
+
+### The two stance animations this needed (2026-09-23) - both cut from existing frames
+
+Reported against a screenshot ("try to generate an animation for climbing + crouching and also
+crouching -> jumping because current one also goes through the beam"). Neither needed new art, and
+that mattered: the player atlas is the game's biggest memory consumer and grows in 16.8MB pages.
+
+- **Climb that ends crouched** (`Player.CLIMB_CROUCH_END_PHASE = 0.73`). The climb clip already
+  holds the whole action: mantle (raw 100-144) -> settled deep crouch on top (145-175) -> standing
+  up (176-224). A crouched climb simply stops at raw **182** instead of 224, so the stand-up never
+  plays. 182 is measured, not chosen: scoring feet-aligned silhouette overlap of every frame from
+  140 to 215 against the crouch clip's held pose picks the frames coming back out of the settled
+  crouch, and 182's silhouette is 141 frame-px against the crouch pose's 139. Every unit of height
+  is already gained by phase 0.603 (`CLIMB_RISE_CURVE`), so this cuts pose frames only, never the
+  ascent. `GameplayScene` then hands
+  straight to the **held** crouch pose - going through the crouch machine's own "entering" phase
+  would start it at the clip's standing frame and snap the character upright through the ceiling
+  before lowering him back into it, which is the same bug in a different place.
+- **Crouch -> jump** (`crouchJumpSpring*` in `GameplayScene`, `crouchAllowsJump` in `Player`). A
+  jump can now start from a crouch, gated on the same headroom test standing up uses - under a
+  ceiling it stays impossible, which is what keeps a standing pose out of the beam. The launch
+  plays the **crouch clip backwards** over 90ms (139 -> 245 frame-px, then the jump clip's own
+  launch frame at 240, a 5px handover) instead of cutting from the held crouch straight to the
+  launch pose, which was a 139 -> 240 snap in a single frame. `Player.crouchSuppressedByJump` drops
+  the stance for that whole jump even if the crouch button is still held - **without it the hitbox
+  stays 56 tall while the sprite is the 98-unit standing jump, which is what "jumping while
+  crouching goes through the beam" looked like**: the head stops 40+ units inside the beam because
+  the box under it is crouch-sized.
+- **`Player.CEILING_ART_MARGIN` (3.0)** - the character is DRAWN up to 2.6 units taller than his
+  collision box (jump clip peak 251 frame-px against the 244.36 the box is scaled from; climb 248
+  before its own scale correction, idle/crouch 246, walk 242), so a jump stopped with its box flush
+  under a beam still put the head a few units inside it. Ceilings now stop the box that much lower. It is deliberately NOT applied
+  while crouching, whose poses are drawn shorter than their own box. **Careful with this one**: a
+  first attempt also widened the ceiling DETECTION rect and swapped the live `vy < 0.0` for a
+  captured `wasRising`, and that combination is not covered by the suite - keep it to the stop
+  position unless there is a reason.
+- **A crouch survives the fall, and the stand-up happens on the floor** (`Player`'s
+  `crouchedAtTakeoff` + `mustStayCrouched`; `GameplayScene`'s jump machine skips a crouching player
+  and its crouch machine runs while `crouchedInTheAir`). Nothing stands a player up in mid-air, so
+  crouch-walking off a ledge fell with the 56-unit crouched box while the sprite switched to the
+  ~98-unit drop pose - the drawn head jumped 40 units above the body and came out the top of the
+  boom ("when dropping while crouching, the player goes above that beam"). Releasing the button in
+  the air uncoiled him on the spot for the same reason, so the stance is now **held until the feet
+  land** and the crouch machine's own "exiting" phase plays the stand-up there ("make him drop down
+  in the crouch position and then get up"). Only a fall that *began* crouched is locked: pressing
+  crouch after the feet are already off the ground is a tuck the player can come out of, and a jump
+  out of a crouch drops the stance at the launch (`crouchSuppressedByJump`). The gait is held still
+  while airborne rather than walking the legs through the air, and because such a fall never
+  reaches the jump machine, its touchdown plays the landing thud from the crouch machine instead.
+- **The crouched climb's tail runs at 3.0x** (`CLIMB_CROUCH_TAIL_PHASE`/`_SPEEDUP`). The clip's
+  settled-on-top footage is a deep tuck, 80-116 frame-px against the crouch pose's 139, so at
+  normal pacing the character sits balled up far smaller than anywhere else in the game for ~0.29s
+  - reported twice, as "it feels like the character is smaller" and "the character seems smaller
+  when he is climbing than in other positions". Nothing moves in that stretch (rise and shift
+  curves are both already at 1.0), so speeding it to ~0.08s costs nothing.
+- **The climb clip really is drawn 12-22% small, and that is now deliberate.** Measured on the raw
+  plates in `art-source/climb/`: the character grows **24-26%** between the hang and the last
+  standing frame (head-to-toe 416.8 -> 517.9 px and tracked head radius 23.81 -> 30.01, two
+  independent measures agreeing to 1.5%, so it is a plain uniform camera dolly, not perspective),
+  while the scale baked into the processed frames only removes 13% (0.5357 -> 0.4743, recoverable
+  per frame as `sqrt(processedAlphaArea / rawAlphaArea)`). The old "the correction cancels the
+  camera to within 0.2%" note in this file was wrong: it compared a *hanging* silhouette's
+  hand-to-toe span (457) against a *standing* one (516), which is not the same measurement twice.
+  A per-phase correction that held the character at one size for the whole move was built, tested
+  and then **reverted on request** ("change back the size of the person in climbing animation to
+  original size that was there"), so **do not "fix" this again without being asked.** What it costs
+  is visible: the character is smaller through the hang and the tuck and grows back during the
+  stand-up. What the shipped scale buys is the hang's geometry - the drawn reach is exactly one
+  body height, so on a ledge the player's own height (this game's canonical 96-unit climb) the hand
+  lands flush on the lip instead of a head above it, and `CLIMB_GRIP_CURVE` is measured off these
+  plates as shot.
+
+**The jump plate's raw 1-11 is NOT usable as a crouch wind-up** despite what this file's own
+`PlayerAnimations` note calls it: measured on the plate it dips from 1031 to 991 px, a 4% knee
+bend, nowhere near the crouch pose's 57% of standing. The crouch clip in reverse is the only real
+"rising out of a crouch" footage in the set.
+
+Verified by a full walkthrough test that drives the real loop from `farTerrain` to the exit over
+the boom, plus JVM desktop screenshots of the three areas (boom tip over `tallBlock`, machine
+beside the lever, exit past the machine). **Not on Android or iOS.**
+
+## Level 7 ("07: Stolen Manifest") - `LEVEL_7_LAYOUT`
+
+Designed 2026-09-23 as a high-tension linear crawling gauntlet similar in structure to Level 4's
+conveyor run. The player infiltrates the secure facility through a continuous 5200px ventilation
+duct:
+
+- **Enforced crouching**: `ventCeiling` at `y = 344.0..372.0` with `groundY = 440.0` leaves 68px
+  vertical clearance across the duct (player crouching height is 56px, standing is 96px). Standing
+  up is physically blocked throughout the entire shaft. `LevelLayout.playerStartCrouched = true`
+  spawns the player already crouched, and `Player.mustStayCrouched` ensures the player cannot stand
+  up while under the duct ceiling even if crouch input is released.
+- **Vent Fans (`VentFanDef` / `VentFan`, `src/game/model/VentObstacles.kt`)**: Industrial exhaust fans
+  blowing high-velocity backward air (-120..-130 px/s). Holding forward is pushed backward; the
+  player must spam-tap the forward button (`forwardTap`), delivering rhythmic forward stride
+  impulses (+48 px/tap) to muscle through the wind. To ensure human tapping rates (3–5 taps/sec)
+  reliably advance the player even when the forward button is released between taps, a
+  `fanPushbackDampenTimer` (0.22s) dampens pushback between successive presses, and `GameplayScene.kt`
+  latches `touchRightTap` so fast on-screen clicks/taps are never dropped across frame cycles.
+- **Camera Bots (`CameraBotDef` / `CameraBot`)**: Small wheeled/tracked surveillance drones that
+  patrol back and forth along the vent floor, casting a forward vision light cone (`visionRange = 120.0`,
+  FOV 40 degrees). Walking into their vision cone raises an alert and triggers Mission Failed. The
+  player must sneak up from behind within `deactivationRange = 52.0` and press the INTERACT button
+  to permanently deactivate the drone.
+- **Pressurized Steam Pipes (`SteamPipeDef` / `SteamPipe`)**: Top-mounted, bottom-mounted, and paired
+  nozzles blasting lethal pressurized steam on timed cycles (1.3..1.5s active, 2.0..2.5s inactive)
+  with a 0.45s warning progress flare. Touching active steam causes instant Mission Failed,
+  deflectable once by the Laser Shield gadget (`activePowerups.isLaserShieldActive`).
+- **Sequencing & decoupled hazard zones**: Obstacles are decoupled into clean, distinct stages so
+  fans do not blow the player into active steam pipes or drones. Safe recovery and staging zones
+  (100..300px) separate every hazard, housing 6 manual checkpoints.
+- **Visuals and performance discipline**: Procedural textures (`steamParticleBitmap`, `windStreakBitmap`,
+  `botEyeGlowBitmap`), volumetric vision cones, nozzle LED indicators, and duct frame structures are
+  housed in `VentFxAssets.kt` to protect `GameplayScene.sceneMain` against the JVM 64KB bytecode limit.
+  `src/game/model/VentObstacles.kt` remains 100% pure Kotlin with zero `korlibs.*` imports, verified
+  by `ZeroKorlibsLintTest`.
+- Verified by unit tests in `GameplayModelTest.kt`: `testLevel7LayoutStructureAndProperties`,
+  `testLevel7VentCeilingEnforcesContinuousCrouch`, `testLevel7VentFanPushbackAndSpamTapForwardImpulse`,
+  `testLevel7CameraBotPatrolAndDeactivationFromBehind`, `testLevel7SteamPipeHazardsAndLaserShieldDeflection`,
+  and full end-to-end traversal `testLevel7SimulationPlayableWalkthrough`.
 
 ## Guard sprite (`GuardAnimations.kt`, `resources/guard/{idle,walk}/`) - replaced 2026-09-14
 

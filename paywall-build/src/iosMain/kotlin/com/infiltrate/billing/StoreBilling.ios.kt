@@ -2,15 +2,21 @@ package com.infiltrate.billing
 
 import com.revenuecat.purchases.kmp.Purchases
 import com.revenuecat.purchases.kmp.PurchasesConfiguration
+import kotlin.native.ObjCName
 
+@OptIn(kotlin.experimental.ExperimentalObjCName::class, kotlin.experimental.ExperimentalObjCRefinement::class)
+@ObjCName(name = "StoreBilling", exact = true)
 actual object StoreBilling {
+
+    private const val DEFAULT_APPLE_API_KEY = "appl_jnRvGBajbaDGqSLhCCdvqvwsaHs"
 
     actual fun isConfigured(): Boolean = Purchases.isConfigured
 
     actual fun initialize(apiKey: String) {
-        if (apiKey.isBlank()) return
+        val key = apiKey.trim().ifBlank { DEFAULT_APPLE_API_KEY }
+        if (key.isBlank()) return
         if (!Purchases.isConfigured) {
-            Purchases.configure(PurchasesConfiguration.Builder(apiKey).build())
+            Purchases.configure(PurchasesConfiguration.Builder(key).build())
         }
     }
 
@@ -43,6 +49,9 @@ actual object StoreBilling {
     }
 
     actual fun purchase(packageId: String, onResult: (success: Boolean, error: String?) -> Unit) {
+        if (!Purchases.isConfigured) {
+            initialize(DEFAULT_APPLE_API_KEY)
+        }
         if (!Purchases.isConfigured) {
             onResult(false, "Store billing is not initialized")
             return
@@ -83,6 +92,9 @@ actual object StoreBilling {
 
     actual fun restorePurchases(onResult: (success: Boolean, error: String?) -> Unit) {
         if (!Purchases.isConfigured) {
+            initialize(DEFAULT_APPLE_API_KEY)
+        }
+        if (!Purchases.isConfigured) {
             onResult(false, "Store billing is not initialized")
             return
         }
@@ -102,3 +114,39 @@ actual object StoreBilling {
         )
     }
 }
+
+@OptIn(kotlin.experimental.ExperimentalObjCName::class, kotlin.experimental.ExperimentalObjCRefinement::class)
+@ObjCName(name = "RevenueCatVerifyBridge", exact = true)
+object RevenueCatVerifyBridge {
+    var checkStarted: Boolean = false
+        private set
+    var checkFinished: Boolean = false
+        private set
+    var success: Boolean = false
+        private set
+    var resultText: String = "PENDING"
+        private set
+
+    fun startVerification() {
+        if (checkStarted) return
+        checkStarted = true
+        if (!Purchases.isConfigured) {
+            StoreBilling.initialize("")
+        }
+        Purchases.sharedInstance.getOfferings(
+            onError = { error ->
+                success = false
+                resultText = "FAIL:${error.message}"
+                checkFinished = true
+            },
+            onSuccess = { offerings ->
+                val allPackages = offerings.all.values.flatMap { it.availablePackages }
+                val packageIds = allPackages.map { it.identifier }.joinToString(";")
+                success = allPackages.isNotEmpty()
+                resultText = "OK:currentOffering=${offerings.current?.identifier ?: "none"}:packageCount=${allPackages.size}:packages=$packageIds"
+                checkFinished = true
+            }
+        )
+    }
+}
+

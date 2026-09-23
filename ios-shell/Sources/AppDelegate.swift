@@ -25,6 +25,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         let window = ShellAppDelegate.shared.window
         self.shellWindow = window
 
+        // Initialize StoreBilling (RevenueCat In-App Purchases) for iOS
+        StoreBilling.shared.initialize(apiKey: "appl_jnRvGBajbaDGqSLhCCdvqvwsaHs")
+
         runStorageBridgeCheck()
 
         // ShellAppDelegate initialized the warm KorGE ViewController.
@@ -313,6 +316,28 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 }
                 print("ADMOB_TEST: ==== AdMob Verification COMPLETE: \(resultText) ====")
                 self.writeTextFile("admob_verify_result.txt", resultText)
+                self.runRevenueCatVerification()
+            }
+        }
+        _ = pollTimer
+    }
+
+    // MARK: - RevenueCat In-App Purchases On-Device Verification
+
+    private func runRevenueCatVerification() {
+        print("REVENUECAT_TEST: ==== RevenueCat Verification START ====")
+        RevenueCatVerifyBridge.shared.startVerification()
+
+        let deadline = Date().addingTimeInterval(30.0)
+        var pollTimer: Timer?
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] t in
+            let finished = RevenueCatVerifyBridge.shared.checkFinished
+            let timedOut = Date() >= deadline
+            if finished || timedOut {
+                t.invalidate()
+                let resultText = RevenueCatVerifyBridge.shared.resultText
+                print("REVENUECAT_TEST: ==== RevenueCat Verification COMPLETE: \(resultText) ====")
+                self?.writeTextFile("revenuecat_verify_result.txt", resultText)
             }
         }
         _ = pollTimer

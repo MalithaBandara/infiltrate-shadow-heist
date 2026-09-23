@@ -1269,7 +1269,7 @@ private fun RemoveAdsSection(
                     verticalArrangement = Arrangement.spacedBy((8 * scale).dp)
                 ) {
                     val perks = listOf(
-                        "ZERO ADS" to "Completely removes all banner and interstitial advertisements.",
+                        "ZERO ADS" to "Completely removes all interstitial advertisements.",
                         "2X HEIST BOUNTY" to "Permanently doubles all coin payouts for 1-star, 2-star, and 3-star level clears.",
                         "+2,000 BONUS COINS" to "Immediate injection of 2,000 gold coins into your operative balance."
                     )

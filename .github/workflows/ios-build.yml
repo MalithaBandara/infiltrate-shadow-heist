@@ -337,6 +337,37 @@ jobs:
             echo "admob_verify_result.txt did not appear within 40s - see ShellApp log above for diagnosis."
           fi
 
+      # RevenueCat in-app purchase offerings on-device verification
+      - name: "Shell app: wait for RevenueCat verification, read result"
+        continue-on-error: true
+        run: |
+          DEVICE_ID="${{ steps.boot_shell.outputs.device_id }}"
+          BUNDLE_ID="com.infiltrate.shellapp"
+
+          CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" data)
+          RESULT_FILE="$CONTAINER/Documents/revenuecat_verify_result.txt"
+
+          for i in $(seq 1 45); do
+            if [ -f "$RESULT_FILE" ]; then
+              echo "RevenueCat verify result file appeared after ~${i}s of polling."
+              break
+            fi
+            sleep 1
+          done
+
+          if [ -f "$RESULT_FILE" ]; then
+            echo "===== REVENUECAT VERIFY RESULT ====="
+            cat "$RESULT_FILE"
+            echo "===================================="
+            if grep -q "^OK:" "$RESULT_FILE"; then
+              echo "RevenueCat verification SUCCEEDED on-device."
+            else
+              echo "RevenueCat verification returned non-OK result: $(cat "$RESULT_FILE")"
+            fi
+          else
+            echo "revenuecat_verify_result.txt did not appear within 45s - see ShellApp log above for diagnosis."
+          fi
+
       - name: Upload MainMenu and transition screenshots
         if: always()
         uses: actions/upload-artifact@v4
