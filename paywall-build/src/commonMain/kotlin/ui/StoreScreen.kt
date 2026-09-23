@@ -11,6 +11,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -29,7 +31,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -284,8 +288,12 @@ fun StoreScreen(
             .fillMaxSize()
             .background(Color(0xFF0B0B0D))
     ) {
-        val screenHeight = maxHeight
-        val scale = (screenHeight / 720.dp).coerceIn(0.75f, 1.4f)
+        // Two-axis scale - ui/Responsive.kt. The old height-only version floored at 0.75, which
+        // on a landscape phone (~390dp tall, true ratio 0.54) oversized the sidebar and the card
+        // grid by ~39% and pushed the bottom row of power-ups off the screen.
+        val metrics = menuMetrics(maxWidth, maxHeight)
+        val scale = metrics.scale
+        val safe = safeAreaPadding()
 
         Column(modifier = Modifier.fillMaxSize()) {
             // Top Bar
@@ -293,10 +301,15 @@ fun StoreScreen(
                 title = "STORE",
                 font = bebasFont,
                 onBackClicked = onBackClicked,
+                scale = scale,
+                startInset = safe.calculateStartPadding(LocalLayoutDirection.current),
+                endInset = safe.calculateEndPadding(LocalLayoutDirection.current),
+                hideLogo = !metrics.showsTopBarLogo,
                 statPills = {
                     CoinPill(
                         coins = profile.coins,
-                        onPlusClicked = { currentTab = StoreTab.COINS }
+                        onPlusClicked = { currentTab = StoreTab.COINS },
+                        scale = scale
                     )
                 }
             )
@@ -305,7 +318,12 @@ fun StoreScreen(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = (24 * scale).dp, vertical = (12 * scale).dp),
+                    .padding(
+                        start = (24 * scale).dp + safe.calculateStartPadding(LocalLayoutDirection.current),
+                        end = (24 * scale).dp + safe.calculateEndPadding(LocalLayoutDirection.current),
+                        top = (12 * scale).dp,
+                        bottom = (12 * scale).dp + safe.calculateBottomPadding(),
+                    ),
                 horizontalArrangement = Arrangement.spacedBy((20 * scale).dp)
             ) {
                 // --- Sidebar --- (scrollable: the inventory list has no fixed length)
@@ -551,6 +569,10 @@ fun StoreScreen(
         // the button tap and this composable both live in the same Compose tree already, so the
         // reward can be granted directly instead of polling a shared trigger object from Swift.
         if (showCoinsRewardAd) {
+            DisposableEffect(Unit) {
+                com.infiltrate.ads.AdAudioCoordinator.onAdStarted()
+                onDispose { com.infiltrate.ads.AdAudioCoordinator.onAdDismissed() }
+            }
             CoinsRewardAdHost(
                 onRewardEarned = {
                     profileStorage.addCoins(pendingCoinsAdAmount)
@@ -571,6 +593,10 @@ fun StoreScreen(
         // granted type was already chosen (uniformly) when the ad was requested; this only needs
         // to apply it once the reward actually fires.
         if (showGadgetRewardAd) {
+            DisposableEffect(Unit) {
+                com.infiltrate.ads.AdAudioCoordinator.onAdStarted()
+                onDispose { com.infiltrate.ads.AdAudioCoordinator.onAdDismissed() }
+            }
             GadgetRewardAdHost(
                 onRewardEarned = {
                     val grantedType = pendingGadgetType

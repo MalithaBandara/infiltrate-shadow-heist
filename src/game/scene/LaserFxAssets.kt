@@ -334,7 +334,8 @@ class LaserVisual(
                 val totalDist = hypot(dx, dy)
                 val angleDeg = atan2(dy, dx) * 180.0 / PI
 
-                val unitLength = 32.0
+                // Housing size, per beam (LaserDef.emitterScale) - the beam itself is unaffected.
+                val unitLength = 32.0 * laser.emitterScale
                 val unitThickness = unitLength * (148.0 / 512.0)
                 val nozzleDist = unitLength - 1.0
                 val beamLength = (totalDist - 2.0 * nozzleDist).coerceAtLeast(1.0)

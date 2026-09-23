@@ -55,6 +55,27 @@ data class Player(
 
     var isClimbing: Boolean = false
         private set
+
+    /**
+     * Set by [findClimbTarget] when the ledge being climbed has crouching room but not standing
+     * room. The stance is applied the moment the climb finishes (either ending), and the existing
+     * "can't stand up under a ceiling" rule in [updateStep] then holds it until the player walks
+     * out from under whatever is overhead.
+     *
+     * Public because it also shortens the move: see [CLIMB_CROUCH_END_PHASE].
+     */
+    var climbEndsCrouched: Boolean = false
+        private set
+
+    /** Set while a jump launched out of a crouch is in the air - see [updateStep]. */
+    private var crouchSuppressedByJump: Boolean = false
+
+    /** Whether the stance was held on the last grounded frame - i.e. whether a fall began crouched. */
+    private var crouchedAtTakeoff: Boolean = false
+
+    /** Where this climb stops - the whole clip, or [CLIMB_CROUCH_END_PHASE] of it. */
+    private val climbEndPhase: Double get() = if (climbEndsCrouched) CLIMB_CROUCH_END_PHASE else 1.0
+
     val climbDuration: Double = 1.95
     private var climbElapsed: Double = 0.0
 
@@ -198,6 +219,14 @@ data class Player(
     val maxJumpHeight: Double get() = (jumpSpeed * jumpSpeed) / (2.0 * gravity)
 
     /** A box shorter than this is just jumped over normally - no climb needed. */
+    /**
+     * The shortest ledge worth climbing - and deliberately the same number as [maxJumpHeight], so
+     * climbing and jumping are complementary rather than overlapping: a ledge inside jump range is
+     * jumped onto and NEVER mantled, and anything above it up to [climbMaxHeight] is mantled and
+     * can never be jumped. So "jump it, don't climb it" is a question about the ledge's height, and
+     * a ledge that is refused the mantle (LevelLayout.unclimbableBoxes) is simply out of reach
+     * unless it was inside jump range to begin with.
+     */
     val climbMinHeight: Double get() = maxJumpHeight
 
     /** A box taller than this is out of reach even for a climb (nothing to grab). Intended climbs are 72..100 units. */
@@ -252,7 +281,10 @@ data class Player(
         facing = 1.0
         isGrounded = false
         isCrouching = false
+        crouchSuppressedByJump = false
+        crouchedAtTakeoff = false
         isClimbing = false
+        climbEndsCrouched = false
         climbElapsed = 0.0
         isSwinging = false
         swingElapsed = 0.0
@@ -286,7 +318,8 @@ data class Player(
         platforms: List<Rect>,
         climbTargets: List<Rect> = emptyList(),
         swingHooks: List<Rect> = emptyList(),
-        floatingClimbTargets: List<Rect> = emptyList()
+        floatingClimbTargets: List<Rect> = emptyList(),
+        unclimbableBoxes: List<Rect> = emptyList()
     ) {
         if (!jumpInput) {
             jumpConsumed = false
@@ -301,29 +334,61 @@ data class Player(
 
         while (remaining > 1e-6) {
             val step = minOf(remaining, maxStep)
-            updateStep(step, moveInput, if (firstStep) jumpInput else false, crouchInput, platforms, climbTargets, swingHooks, floatingClimbTargets)
+            updateStep(
+                step, moveInput, if (firstStep) jumpInput else false, crouchInput, platforms,
+                climbTargets, swingHooks, floatingClimbTargets, unclimbableBoxes
+            )
             firstStep = false
             remaining -= step
         }
     }
 
     /**
+     * A climb the player can actually make, and the stance they end it in. [endsCrouched] is set
+     * when the landing spot has room to crouch but not to stand - see [findClimbTarget].
+     */
+    private data class ClimbTarget(val box: Rect, val endsCrouched: Boolean)
+
+    /**
+     * Where the player's own left edge ends up after climbing [box] in [direction] - the far side
+     * of the lip they hauled themselves over. [startClimb] moves them here and [findClimbTarget]
+     * tests headroom here, so the two can never disagree about where the climb lands.
+     */
+    private fun climbLandingX(box: Rect, direction: Double): Double {
+        val minX = box.left
+        val maxX = (box.right - width).coerceAtLeast(minX)
+        return if (direction > 0.0) (box.left + 6.0).coerceIn(minX, maxX)
+        else (box.right - width - 6.0).coerceIn(minX, maxX)
+    }
+
+    /**
      * Finds a box immediately ahead (in [direction]) that's too tall to jump onto but short
-     * enough to climb, with clear headroom on top to actually stand there. Only [climbTargets]
-     * (level boxes) are considered - not the full [platforms] list, so the player can't "climb"
-     * a guard or a wall - but the headroom check still uses [platforms] so a low ceiling above
-     * the box correctly blocks the climb.
+     * enough to climb, with room on top to actually be there. Only [climbTargets] (level boxes)
+     * are considered - not the full [platforms] list, so the player can't "climb" a guard or a
+     * wall - but the headroom check still uses [platforms] so a low ceiling above the box
+     * correctly blocks the climb.
+     *
+     * A ceiling that leaves crouching room but not standing room does NOT block it: the climb is
+     * allowed and finishes in a crouch (LEVEL_6_LAYOUT's tallBlock, where the crane's boom hangs
+     * ~70 above the surface - "when he climbs up this, make him climb up crouched"). Without that,
+     * the player hauls up into a standing pose inside the beam and is wedged there until they
+     * happen to press crouch, which is the state this replaced.
      */
     private fun findClimbTarget(
         direction: Double,
         climbTargets: List<Rect>,
         platforms: List<Rect>,
-        floatingClimbTargets: List<Rect> = emptyList()
-    ): Rect? {
+        floatingClimbTargets: List<Rect> = emptyList(),
+        unclimbableBoxes: List<Rect> = emptyList()
+    ): ClimbTarget? {
         if (direction == 0.0) return null
         val reach = 6.0
         val feetY = y + height
         for (box in climbTargets) {
+            // Boxes the level refuses to have mantled (see LevelLayout.unclimbableBoxes). The climb
+            // is all that is denied - the box still collides, is still landed on, and is still
+            // jumped onto if the rise is inside jump height.
+            if (box in unclimbableBoxes) continue
             val adjacent = if (direction > 0.0) {
                 box.left >= x + width - 1.0 && box.left <= x + width + reach
             } else {
@@ -340,15 +405,20 @@ data class Player(
             val climbHeight = feetY - box.top
             if (climbHeight <= climbMinHeight || climbHeight > climbMaxHeight) continue
 
-            // Headroom right where the player actually lands (the box's own climbing edge), not
-            // the target's full width - a wide climb target (e.g. a long plank) can have something
-            // else resting on top of it further along without that falsely blocking the climb from
-            // ever registering anywhere on it.
-            val landing = Rect(box.left, box.top - height, width, height)
-            val blocked = platforms.any { it != box && it.intersects(landing) }
-            if (blocked) continue
+            // Headroom right where the player actually lands (see climbLandingX - the edge they
+            // climb over, which is the box's RIGHT edge when moving left), not the target's full
+            // width: a wide climb target (e.g. a long plank) can have something else resting on
+            // top of it further along without that falsely blocking the climb from ever
+            // registering anywhere on it.
+            val landingX = climbLandingX(box, direction)
+            val standing = Rect(landingX, box.top - height, width, height)
+            val standBlocked = platforms.any { it != box && it.intersects(standing) }
+            if (standBlocked) {
+                val crouched = Rect(landingX, box.top - crouchHeight, width, crouchHeight)
+                if (platforms.any { it != box && it.intersects(crouched) }) continue
+            }
 
-            return box
+            return ClimbTarget(box, endsCrouched = standBlocked)
         }
         return null
     }
@@ -490,16 +560,30 @@ data class Player(
         if (direction > 0.0) facing = 1.0 else if (direction < 0.0) facing = -1.0
     }
 
-    private fun startClimb(box: Rect, direction: Double) {
+    /**
+     * Whether the body can extend to full height where it stands right now - the test behind both
+     * standing up out of a crouch and jumping out of one. Only ceilings count: a platform whose
+     * own top is at or below the crouched head is something the character is standing on or beside,
+     * not under.
+     */
+    private fun hasStandingRoom(platforms: List<Rect>): Boolean {
+        val standRect = Rect(x, y, width, height)
+        return platforms.none { platform ->
+            standRect.intersects(platform) && (platform.top < (y + height - crouchHeight))
+        }
+    }
+
+    private fun startClimb(target: ClimbTarget, direction: Double) {
+        val box = target.box
         isClimbing = true
+        climbEndsCrouched = target.endsCrouched
         climbElapsed = 0.0
         climbStartX = x
         climbStartY = y
+        // Feet-based, so this is the same whether the climb ends standing or crouched - crouching
+        // lowers the head (currentTopY), never the feet.
         climbTargetY = box.top - height
-        val minX = box.left
-        val maxX = (box.right - width).coerceAtLeast(minX)
-        climbTargetX = if (direction > 0.0) (box.left + 6.0).coerceIn(minX, maxX)
-        else (box.right - width - 6.0).coerceIn(minX, maxX)
+        climbTargetX = climbLandingX(box, direction)
         isGrounded = false
         vx = 0.0
         vy = 0.0
@@ -515,7 +599,10 @@ data class Player(
      * levitating up the face. See CLIMB_GRIP_CURVE.
      */
     private fun advanceClimb(dt: Double) {
-        climbElapsed += dt
+        // The crouched variant's settle is a deep tuck - see CLIMB_CROUCH_TAIL_PHASE.
+        val tailSpeed =
+            if (climbEndsCrouched && climbPhase >= CLIMB_CROUCH_TAIL_PHASE) CLIMB_CROUCH_TAIL_SPEEDUP else 1.0
+        climbElapsed += dt * tailSpeed
         val t = climbPhase
         val totalRise = climbStartY - climbTargetY
         // While hanging, the body sits wherever it must for the hands to stay on the lip. Once
@@ -524,7 +611,7 @@ data class Player(
         val pullRise = curveAt(CLIMB_RISE_CURVE, t) * totalRise
         x = climbStartX + (climbTargetX - climbStartX) * curveAt(CLIMB_SHIFT_CURVE, t)
         y = climbStartY - maxOf(gripRise, pullRise)
-        if (t >= 1.0) {
+        if (t >= climbEndPhase) {
             isClimbing = false
             isGrounded = true
             isJumping = false
@@ -535,6 +622,9 @@ data class Player(
             x = climbTargetX
             y = climbTargetY
             jumpBufferTimer = 0.0
+            // Ducking under whatever is overhead is part of arriving, not a separate input the
+            // player has to think of - see ClimbTarget.endsCrouched.
+            if (climbEndsCrouched) isCrouching = true
         }
     }
 
@@ -546,7 +636,8 @@ data class Player(
         platforms: List<Rect>,
         climbTargets: List<Rect> = emptyList(),
         swingHooks: List<Rect> = emptyList(),
-        floatingClimbTargets: List<Rect> = emptyList()
+        floatingClimbTargets: List<Rect> = emptyList(),
+        unclimbableBoxes: List<Rect> = emptyList()
     ) {
         if (isSwinging) {
             jumpBufferTimer = 0.0
@@ -567,6 +658,7 @@ data class Player(
                 y = climbTargetY
                 jumpBufferTimer = 0.0
                 jumpConsumedAfterClimb = true
+                if (climbEndsCrouched) isCrouching = true
                 if (moveInput == 0.0) return
             } else {
                 return
@@ -597,16 +689,30 @@ data class Player(
 
         if (moveInput > 0.0) facing = 1.0 else if (moveInput < 0.0) facing = -1.0
 
-        val wantsToCrouch = crouchInput
-        // If player wants to stand up, check if head would collide with overhead ceiling
-        val mustStayCrouched = if (!wantsToCrouch && isCrouching) {
-            val standRect = Rect(x, y, width, height)
-            platforms.any { platform ->
-                standRect.intersects(platform) && (platform.top < (y + height - crouchHeight))
+        // A jump launched out of a crouch extends the body, and the airborne pose is the standing
+        // jump clip - so the stance stays dropped for that whole jump even if the crouch button is
+        // still held, or the hitbox would be crouch-sized under a full-height sprite. Cleared on
+        // landing; nothing else touches the pre-existing airborne-crouch edge case.
+        if (isGrounded) crouchSuppressedByJump = false
+        // Refreshed every grounded frame, so the first airborne frame still holds the stance the
+        // feet left the ground with.
+        if (isGrounded) crouchedAtTakeoff = isCrouching
+        val wantsToCrouch = crouchInput && !crouchSuppressedByJump
+        // Standing up needs the floor to push against, so a crouch carried off a ledge stays a
+        // crouch until the feet land and the stand-up plays there ("when dropping down while
+        // crouching, make him drop down in the crouch position and then get up"). Releasing the
+        // button in mid-air used to uncoil him on the spot, which also swapped the 56-unit
+        // crouched box for the full-height drop pose on the way down. Only a fall that BEGAN
+        // crouched is held this way - crouching after the feet are already off the ground is a
+        // tuck the player can come out of - and a jump out of a crouch is not this case at all:
+        // that drops the stance at the launch, below.
+        // Otherwise, if the player wants to stand up, check the head against any overhead ceiling.
+        val mustStayCrouched =
+            if (!wantsToCrouch && isCrouching) {
+                (!isGrounded && crouchedAtTakeoff) || !hasStandingRoom(platforms)
+            } else {
+                false
             }
-        } else {
-            false
-        }
         isCrouching = wantsToCrouch || mustStayCrouched
 
         val baseSpeed = when {
@@ -643,13 +749,19 @@ data class Player(
         // Jump & Vertical acceleration
         val effectiveJumpInput = jumpInput && !jumpConsumed && !jumpConsumedAfterClimb
         val wantsToJump = effectiveJumpInput || jumpBufferTimer > 0.0
-        val canJump = (isGrounded || (coyoteTimer > 0.0 && vy >= 0.0)) && !isCrouching && jumpLandingTimer <= 0.0
+        // Jumping out of a crouch is allowed, but only where the body actually has room to
+        // extend: under a low ceiling the stance is the only thing keeping the character clear of
+        // it (see mustStayCrouched above), so a jump there would drive a standing pose straight
+        // through whatever is overhead. Where there IS room, the crouch is simply the start of the
+        // jump - GameplayScene springs out of the crouch pose into the launch rather than cutting.
+        val crouchAllowsJump = !isCrouching || hasStandingRoom(platforms)
+        val canJump = (isGrounded || (coyoteTimer > 0.0 && vy >= 0.0)) && crouchAllowsJump && jumpLandingTimer <= 0.0
         if (wantsToJump && canJump) {
             jumpConsumed = true
             jumpBufferTimer = 0.0
             // A hook beats open air but not a box: if the player is stood against something
             // climbable, that is what they meant.
-            val climbTarget = findClimbTarget(facing, climbTargets, platforms, floatingClimbTargets)
+            val climbTarget = findClimbTarget(facing, climbTargets, platforms, floatingClimbTargets, unclimbableBoxes)
             if (climbTarget == null && moveInput != 0.0) {
                 // Walking is the whole entry condition for the swing - the clip opens on a
                 // push-off stride, and there is no version of it that starts from standing.
@@ -670,6 +782,9 @@ data class Player(
                 return
             }
             vy = jumpSpeed
+            // The jump IS the extension - see crouchAllowsJump.
+            if (isCrouching) crouchSuppressedByJump = true
+            isCrouching = false
             isGrounded = false
             isJumping = true
             isDropping = false
@@ -742,6 +857,14 @@ data class Player(
         val targetY = y + vy * dt
         val targetEffTopY = (targetY + height) - effHeight
         val vRect = Rect(x, targetEffTopY, width, effHeight)
+        // Ceilings stop the box against the DRAWN height, not the box height. Measured across
+        // every frame of every clip, the jump clip's extended poses reach 251 frame-px where the
+        // box is scaled from 244.36 (climb 248, idle/crouch 246, walk 242) - the character is
+        // drawn ~2.6 units taller than he collides, so a jump stopped with its box flush under a
+        // beam still pushed the head a few units into it, which shows against something as thin as
+        // LEVEL_6_LAYOUT's crane boom. Crouched poses are drawn SHORTER than their own box, so
+        // they get no margin.
+        val ceilingMargin = if (isCrouching) 0.0 else CEILING_ART_MARGIN
         var newY = targetY
         var landed = false
 
@@ -788,8 +911,9 @@ data class Player(
                 }
             } else if (vRect.intersects(platform)) {
                 if (vy < 0.0) {
-                    // Head hitting ceiling / overhead platform
-                    val ceilingY = platform.bottom - (height - effHeight)
+                    // Head hitting ceiling / overhead platform - stopped where the drawn head
+                    // sits flush under it rather than inside it (see ceilingMargin).
+                    val ceilingY = platform.bottom - (height - effHeight) + ceilingMargin
                     newY = maxOf(newY, ceilingY)
                     vy = 0.0
                 } else {
@@ -914,6 +1038,61 @@ data class Player(
          *   0.625-0.893 f179-210  standing up smoothly (~0.75s)
          *   0.893-1.000 f210-224  finishing upright into idle (~0.30s)
          */
+        /**
+         * Where a climb that lands crouched stops, in [climbPhase] (so: in clip frames, not real
+         * time). 0.73 of the clip is raw frame 182 - measured, not chosen by eye.
+         *
+         * The clip runs mantle (raw 100-144) -> settled deep crouch on top (145-175) -> standing
+         * up (176-224), and a climb into a low ceiling must never reach that last stretch: the
+         * character standing up inside the beam he just ducked under is exactly what this stops
+         * (LEVEL_6_LAYOUT's boom over tallBlock). 182 is the frame on the way back up out of the
+         * settled crouch whose own silhouette is closest to the crouch clip's held pose - 141
+         * frame-px against its 139, the two within a couple of pixels, scored by feet-aligned
+         * silhouette overlap across every candidate frame from 140 to 215. Anything earlier is
+         * still folded into a deeper squat than the crouch pose and pops on the handover; anything
+         * later is already tall enough to cross the ceiling.
+         *
+         * Every unit of height is gained by [CLIMB_RISE_CURVE] by phase 0.603, so ending here
+         * leaves the body fully up on the ledge - this only cuts pose frames, never the ascent.
+         */
+        const val CLIMB_CROUCH_END_PHASE = 0.73
+
+        /**
+         * How much taller than its own collision box the character is ever DRAWN, in world units,
+         * rounded up from a per-frame scan of every clip (worst case: the jump clip's frame 4 at
+         * 251 of the 244.36 frame-px the box is scaled from = 2.6 units). Only ceilings use it.
+         */
+        const val CEILING_ART_MARGIN = 3.0
+
+        /**
+         * Where the crouched climb's tail starts, and how much faster it runs.
+         *
+         * Between the rise finishing (phase 0.603, [CLIMB_RISE_CURVE]) and
+         * [CLIMB_CROUCH_END_PHASE] the clip is the settled crouch on top - and that footage is a
+         * deep tuck, 80-116 frame-px against the crouch pose's 139, so at normal pacing the
+         * character spends ~0.29s balled up much smaller than he ever is anywhere else in the
+         * game. Reported exactly that way ("when climbing and crouching it feels like the
+         * character is smaller"), then again after a first pass at 2.4x, hence 3.0x and a start
+         * right on the rise finishing: ~0.08s of tuck, enough to read as ducking onto the ledge
+         * and not as shrinking.
+         *
+         * **The clip's own scale is a separate question, and it is deliberately left as shot.**
+         * Measured on the raw plates, the character grows 24-26% across the clip (head-to-toe
+         * 416.8 -> 517.9 px, tracked head radius 23.81 -> 30.01 - a plain uniform camera dolly)
+         * while the scale baked into the processed frames only removes 13%, so everything before
+         * the stand-up is drawn 12-22% smaller than the same character is in every other clip.
+         * A per-phase correction for exactly that was built and then reverted on request ("change
+         * back the size of the person in climbing animation to original size that was there"), so
+         * **the shortfall is intentional now - do not "fix" it again without being asked.** Two
+         * things it costs, for whoever measures this next: the character is visibly smaller
+         * through the hang and the tuck, and he grows back to full size during the stand-up.
+         * What it buys is the hang's own geometry: at the shipped scale the drawn reach is exactly
+         * one body height, so on a ledge the player's own height - which is what this game's
+         * canonical 96-unit climb is - the hand lands flush on the lip instead of a head above it.
+         */
+        const val CLIMB_CROUCH_TAIL_PHASE = 0.605
+        const val CLIMB_CROUCH_TAIL_SPEEDUP = 3.0
+
         private val CLIMB_PACING_CURVE = doubleArrayOf(
             0.000, 0.000,
             0.100, 0.158,

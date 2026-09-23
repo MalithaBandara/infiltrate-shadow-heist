@@ -206,3 +206,14 @@ compose.desktop {
     }
 }
 
+tasks.withType<JavaExec>().configureEach {
+    if (project.hasProperty("windowSize")) {
+        // Mirrors the root build's own pass-through for :runJvm. Lets the desktop menu stand in
+        // for a device aspect ratio that cannot be tested on this machine (no emulator, iOS only
+        // via CI): `./gradlew :paywall-build:run -PwindowSize=844x390` is an iPhone held
+        // sideways, `1024x768` an iPad. Read by Main.kt via System.getenv - the window it opens
+        // is sized in dp, so the Compose constraints match the device's real dp box.
+        environment("windowSize", project.property("windowSize") as String)
+    }
+}
+

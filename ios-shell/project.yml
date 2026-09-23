@@ -43,8 +43,8 @@ targets:
       path: Generated/Info.plist
       properties:
         CFBundleDisplayName: Shadow Heist
-        CFBundleShortVersionString: "0.0.9"
-        CFBundleVersion: "13"
+        CFBundleShortVersionString: "0.0.10"
+        CFBundleVersion: "14"
         ITSAppUsesNonExemptEncryption: false
         UIRequiresFullScreen: true
         UILaunchScreen: {}

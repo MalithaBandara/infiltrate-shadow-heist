@@ -63,20 +63,34 @@ data class Checkpoint(
  * pure-truss region, is 126px (out of the asset's own strict-alpha-bbox crop, 1708x452 - see
  * GameplayScene.kt's dedicated crane-rendering pass for the exact crop rectangles, which are fixed
  * pixel constants tied to the asset itself, not level geometry, so they live there rather than
- * here). [tileCount] only ever ADDS extra truss beyond the asset's own natural boom length (161 +
- * tileCount*126 is compared against the natural truss-to-cab boundary at 685px in
- * GameplayScene.kt) - anything less would just reconstruct the original image's own width and
- * read as no longer at all, which is exactly what an earlier attempt got wrong.
+ * here).
  *
  * [bounds] is the crane's whole visual extent, for positioning/measurement only - it is NOT one
- * solid collision box. [boomBounds] and [cabBounds] are the two real collision pieces: the boom
- * (tip cap + tiles) is only as thick as its own real art (a thin band near the top of the crane's
- * height), so an overhang past the cab/tracked-base end reads as open headroom underneath, not a
- * solid wall - e.g. LEVEL_6_LAYOUT's own crane overhangs above endTerrain so the player can walk
- * underneath it there, while the cab/tracked-base end (a real, full-height block, since that part
- * of the art really does reach the ground) still rests solidly on cranePlatform. Both are meant to
- * go in [LevelLayout.boxes] - real and climbable/walkable, not just decoration, on request ("make
- * sure all parts of the crane is interactable").
+ * solid collision box. **[collisionBoxes] is: three pieces that follow the machine's own drawn
+ * silhouette**, on request ("dont just use 1 bounding box for collisions in the crane, use
+ * multiple of them so walking on it doesnt feel like flying" - a single box spanning the whole
+ * machine put its walkable top at the boom's own height across the entire vehicle, so crossing it
+ * read as floating in mid-air above the tracks and the cab roof). Each one's edges come from a
+ * per-column alpha scan of crane.png's own crop, not from eyeballed fractions:
+ *
+ *  - [boomBounds] - the free-hanging lattice boom, only as thick as its own real art (crop rows
+ *    7..88) and reaching from the tip to where the machine's tracks actually start (crop column
+ *    730). An overhang past that reads as open headroom underneath, not a solid wall.
+ *  - [bodyBounds] - the machine's front section (tracks, A-frame mast, boom root: crop columns
+ *    730..1390), solid from the boom's own top down to the base. Its top is deliberately flush
+ *    with [boomBounds]' top rather than with the tracks' deck, because the boom art runs right
+ *    over this whole section: the deck below it has only ~0.5x the player's standing height of
+ *    clearance at any crane size this game uses, so the deck can never be stood on, and a box
+ *    with its top down there would just let the player jump in and get wedged under the boom.
+ *    Walking this stretch is walking the boom, which is exactly what the art shows.
+ *  - [houseBounds] - the superstructure/counterweight house past the boom's own end (crop columns
+ *    1390..1695, roof at crop row 169), the one piece of the vehicle whose roof is genuinely
+ *    clear of the boom and can be stood on. Stepping off the boom onto it and then down to the
+ *    ground is the staircase the multi-box request asked for.
+ *
+ * All three go in [LevelLayout.boxes] - real and climbable/walkable, not just decoration, on
+ * request ("make sure all parts of the crane is interactable"). See LEVEL_6_LAYOUT for the level
+ * geometry built around this shape.
  */
 data class CraneDef(
     val x: Double,
@@ -89,22 +103,78 @@ data class CraneDef(
         private const val TIP_CAP_CROP_WIDTH = 161.0
         private const val TILE_CROP_WIDTH = 126.0
         private const val CAB_CROP_WIDTH = 1023.0
+        // Where the fixed cab/tracked-base crop starts inside the asset's own 1708-wide crop.
+        private const val CAB_CROP_X = 685.0
         private const val BOOM_CROP_TOP = 7.0
         private const val BOOM_CROP_BOTTOM = 88.0
+        // The machine's own silhouette inside that same crop, measured by per-column alpha scan
+        // (threshold >10): the tracks reach full height from column 730, the lattice boom's art
+        // ends at column 1390, the house roof sits at row 169 and the tracks/house end at 1695.
+        private const val BODY_CROP_LEFT = 730.0
+        private const val BOOM_CROP_END = 1390.0
+        private const val HOUSE_CROP_TOP = 169.0
+        private const val BODY_CROP_RIGHT = 1695.0
+
+        /**
+         * The [height] a crane needs for [boomBounds]' own walkable top to land exactly at
+         * [boomTopY] while its base rests at [baseY].
+         *
+         * The boom's top is a fixed fraction of the crane's height below its own top edge, so
+         * "the boom has to be at this exact height" and "the crane is this tall" are the same
+         * number - which makes the crane's size a derived value, not a picked one, wherever a
+         * level needs the boom at a particular height (LEVEL_6_LAYOUT: "for the climbing
+         * animation to work, this long beam should be his head height").
+         */
+        fun heightForBoomTop(baseY: Double, boomTopY: Double): Double =
+            (baseY - boomTopY) / (1.0 - BOOM_CROP_TOP / CROP_HEIGHT)
     }
 
     private val scale: Double get() = height / CROP_HEIGHT
-    private val boomWidth: Double get() = scale * (TIP_CAP_CROP_WIDTH + tileCount * TILE_CROP_WIDTH)
     private val cabWidth: Double get() = scale * CAB_CROP_WIDTH
 
-    val width: Double get() = boomWidth + cabWidth
+    /**
+     * Distance from [x] to where the fixed cab/tracked-base piece starts being drawn - i.e. how
+     * far the boom reaches back from the machine itself. A level that needs to place the MACHINE
+     * (LEVEL_6_LAYOUT: "the vehicle part of the crane should be just right of the lever") rather
+     * than the boom tip positions with `x = wantedMachineX - preview.boomLength`.
+     */
+    val boomLength: Double get() = scale * (TIP_CAP_CROP_WIDTH + tileCount * TILE_CROP_WIDTH)
+
+    /** World x where the cab/tracked-base crop starts - crop column [CAB_CROP_X]. */
+    private val cabX: Double get() = x + boomLength
+
+    private fun cropX(column: Double): Double = cabX + scale * (column - CAB_CROP_X)
+
+    val width: Double get() = boomLength + cabWidth
 
     val bounds: Rect get() = Rect(x, y, width, height)
 
     val boomBounds: Rect
-        get() = Rect(x, y + scale * BOOM_CROP_TOP, boomWidth, scale * (BOOM_CROP_BOTTOM - BOOM_CROP_TOP))
+        get() = Rect(
+            x,
+            y + scale * BOOM_CROP_TOP,
+            cropX(BODY_CROP_LEFT) - x,
+            scale * (BOOM_CROP_BOTTOM - BOOM_CROP_TOP)
+        )
 
-    val cabBounds: Rect get() = Rect(x + boomWidth, y, cabWidth, height)
+    val bodyBounds: Rect
+        get() = Rect(
+            cropX(BODY_CROP_LEFT),
+            y + scale * BOOM_CROP_TOP,
+            scale * (BOOM_CROP_END - BODY_CROP_LEFT),
+            height - scale * BOOM_CROP_TOP
+        )
+
+    val houseBounds: Rect
+        get() = Rect(
+            cropX(BOOM_CROP_END),
+            y + scale * HOUSE_CROP_TOP,
+            scale * (BODY_CROP_RIGHT - BOOM_CROP_END),
+            height - scale * HOUSE_CROP_TOP
+        )
+
+    /** Every solid piece of the machine, left to right - see the class doc. */
+    val collisionBoxes: List<Rect> get() = listOf(boomBounds, bodyBounds, houseBounds)
 }
 
 /**
@@ -148,8 +218,8 @@ data class LevelLayout(
     // GameWorld.createFromLayout's occluders and GameplayScene.kt's dedicated pole-rendering pass.
     val poles: List<Rect> = emptyList(),
     // Background cranes - see [CraneDef]. On request ("make sure all parts of the crane is
-    // interactable") each one's own [CraneDef.bounds] must ALSO be in [boxes] - solid and
-    // climbable/walkable across its whole footprint, not just decoration.
+    // interactable") every rect in each one's own [CraneDef.collisionBoxes] must ALSO be in
+    // [boxes] - solid and climbable/walkable, not just decoration.
     val cranes: List<CraneDef> = emptyList(),
     // A box that would otherwise fall into one of GameplayScene.kt's crate-shaped size heuristics
     // purely by coincidence of its own dimensions, but should render as a plain structural block
@@ -175,6 +245,27 @@ data class LevelLayout(
     // (see GameWorld's occluders), since it's real drawn geometry a guard's cone shouldn't see
     // through, and either way the generic per-box render cascade skips it to avoid double-drawing.
     val tableDecorations: List<Rect> = emptyList(),
+    /**
+     * Boxes the player may not mantle onto, however climbable the rise would otherwise be. The box
+     * still collides, is still landed on and is still jumped onto if it is inside jump height -
+     * this denies the climb move only.
+     *
+     * LEVEL_6_LAYOUT's crane is the case it exists for: the machine's top sits 52.4 above its own
+     * rear deck, which is inside the climb window, so the jump press against that face hauled the
+     * player back up the machine ("he should be able to climb this but not to the top part from
+     * the crane"). It is NOT jumpable either - a jump clears about 48.5 in practice - and the
+     * geometry is not to be bent to make it so: lifting the deck's collision to buy the jump was
+     * tried and left the player visibly floating above the drawn deck. So the top is simply out of
+     * reach from the deck, and the deck itself stays climbable from the platform (91.6).
+     */
+    val unclimbableBoxes: List<Rect> = emptyList(),
+    /**
+     * Where the level's own extraction structure is drawn, when it has one instead of the shared
+     * entrance.png booth + exitfence.png pair (LEVEL_6_LAYOUT's exitlvl7.png building). Purely
+     * decorative - [exitZone] is still the trigger - but it is level geometry rather than scene
+     * dressing, because it is placed against the rest of the level (see section 5's plank).
+     */
+    val exitStructure: Rect? = null,
     // A box the player can mantle onto directly despite Player.findClimbTarget's usual rule
     // against floating ledges (a box whose underside sits well above the climber's feet) - for a
     // ledge that's meant to be mounted with nothing bracing it underneath. Must also be in
@@ -202,7 +293,17 @@ data class LevelLayout(
     val conveyorsStartOnMove: Boolean = false,
     val canClimb: Boolean = true,
     val lasers: List<LaserDef> = emptyList(),
-    val manualCheckpoints: List<Checkpoint> = emptyList()
+    val manualCheckpoints: List<Checkpoint> = emptyList(),
+    val fans: List<VentFanDef> = emptyList(),
+    val cameraBots: List<CameraBotDef> = emptyList(),
+    val steamPipes: List<SteamPipeDef> = emptyList(),
+    val playerStartCrouched: Boolean = false,
+    // Turns INTERACT into a push-stance toggle anywhere in the level, with no object to push
+    // and nothing to be in range of. Only LEVEL_13_LAYOUT sets it: level 13 is the bare stage
+    // the push animation is tried out on, so the trigger is deliberately the plain button
+    // rather than proximity to anything. A real pushable prop would gate this on range the way
+    // levers and camera bots do, and would leave this flag alone.
+    val pushStanceDemo: Boolean = false
 )
 
 enum class TutorialAction {
@@ -1860,13 +1961,16 @@ data class LevelData(
          * second lever gating a blocking crate, and an undetached hook+rope crate up on the far
          * block, but all of that was removed again on request; it's now a real pit (forcing a fall
          * to the ground) with an overwatch guard on a hanging crate above it, followed by a plain
-         * climb up the far block. Section 3 (past tallBlock) is a lone barrel, then a stacked pair
-         * forming one 96-tall climbable column, leading up to one more platform at that same
-         * groundY-96 tier (tallBlock's own height, not terrain/farTerrain's taller one) with a real
-         * but deliberately non-functional lever near its left corner (no targetMechanismId - see
-         * Lever), a second smaller platform just past it, and a small background crane standing on
-         * that second platform - solid and climbable across its whole footprint, not just
-         * decoration. See each section's own comments below for their geometry reasoning.
+         * climb up the far block. Section 3 (past tallBlock) is the crane crossing: two ground
+         * barrels side by side leading onto a low (groundY-48) platform with a real but
+         * deliberately non-functional lever near its left corner (no targetMechanismId - see
+         * Lever), and a crawler crane parked on a second platform of the same height immediately
+         * past that lever, its lattice boom reaching back over the lever, the barrels and the
+         * ground gap to overhang the last stretch of tallBlock. The machine itself is a wall from
+         * the ground (see CraneDef.bodyBounds); the way past it is over the top, climbing onto the
+         * boom from tallBlock on the far side of the gap and walking it down the machine's own
+         * stepped silhouette to the exit. See each section's own comments below for their geometry
+         * reasoning.
          *
          * Crate -> platform -> lever -> timed moving-crate swing -> landing crate -> platform.
          * Everything from crate1 onward sits at this game's usual "3x crate height" high tier
@@ -1937,7 +2041,11 @@ data class LevelData(
          */
         val LEVEL_6_LAYOUT = run {
             val groundY = 440.0
-            val worldWidth = 3765.0
+            // Runs past the exit by the booth (~117) + exit fence (~312) art's own width, the same
+            // margin LEVEL_3_LAYOUT keeps - see exitX at the end of section 4.
+            // Past the extraction building's own far edge (it ends near 5220), not just past the
+            // exit trigger - the camera clamps to this and the ground is drawn to it.
+            val worldWidth = 5300.0
             val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
 
             val terrainTopY = groundY - 144.0 // this game's usual "3x crate height" high tier
@@ -2081,121 +2189,378 @@ data class LevelData(
                 patrolPauseDuration = 3.0
             )
 
-            // 9. Third section: past tallBlock's own drop, a lone ground barrel (standard 32x48,
-            // same as every other barrel in this game - a plain jump clears it height-wise, but see
-            // this file's own earlier note, Section 2's barrel pyramid now removed, on why any
-            // walkthrough test still needs an ANTICIPATED jump for it rather than a reactive one:
-            // Player.updateStep's horizontal collision pass pins the whole body at the wall,
-            // regardless of the barrel's own height, whenever it's already touching, flush, with no
-            // run-up), then two more barrels STACKED directly on top of each other (same x/width,
-            // zero gap between them) rather than side by side - together they read as one solid
-            // 96-tall column, which is a real [Player.climbMinHeight]..[climbMaxHeight] (51.2..115)
-            // climb straight from the ground, not a jump. Unlike the lone barrel above, a climbable
-            // obstacle like this one is fine with a REACTIVE jump (Player.findClimbTarget takes
-            // over before the horizontal-collision pin ever applies) - same as every other climb in
-            // this file.
-            // Barrel1 sits further out from tallBlock than before (a real run-up), and the stack
-            // now sits flush against its own right face - zero gap, touching - on request ("bring
-            // the two barrels and the platform to left and the single barrel to right... single
-            // barrel should be touching the double barrel").
+            // 9. Third section: past tallBlock's own drop, two ground barrels (standard 32x48
+            // each, same as every other barrel in this game) sitting side by side and touching,
+            // then the lever platform. See this file's own earlier note (Section 2's barrel
+            // pyramid, now removed) on why any walkthrough test crossing them on foot needs an
+            // ANTICIPATED jump rather than a reactive one: Player.updateStep's horizontal
+            // collision pass pins the whole body at the wall, regardless of the barrel's own
+            // height, whenever it's already touching, flush, with no run-up.
+            //
+            // This whole end tier sits ONE barrel high (groundY - 48), not the two it used to.
+            // It dropped 48 units when the crane moved left (see below): the crane's boom has to
+            // pass over the lever platform to reach back across the gap, and a standing player
+            // (96) only fits under the boom if the surface they're standing on is at or below the
+            // crane's own base. At the old groundY - 96 tier the boom would have cut straight
+            // through the player's chest on this platform - it isn't a stylistic choice. The
+            // second barrel, which used to be stacked on the first to make one 96-tall climbable
+            // column up to that old tier, is now beside it instead: at this height the step up is
+            // a plain jump, so nothing here is a climb any more.
             val endBarrelWidth = 32.0
             val endBarrelHeight = 48.0
             val endBarrel1 = Rect(x = tallBlock.right + 150.0, y = groundY - endBarrelHeight, width = endBarrelWidth, height = endBarrelHeight)
-            val endBarrelStackX = endBarrel1.right
-            val endBarrelStackBottom = Rect(x = endBarrelStackX, y = groundY - endBarrelHeight, width = endBarrelWidth, height = endBarrelHeight)
-            val endBarrelStackTop = Rect(x = endBarrelStackX, y = groundY - endBarrelHeight * 2.0, width = endBarrelWidth, height = endBarrelHeight)
+            val endBarrel2 = Rect(x = endBarrel1.right, y = groundY - endBarrelHeight, width = endBarrelWidth, height = endBarrelHeight)
 
-            // The next platform sits flush at the SAME height as the barrel stack's own top
-            // (groundY - 96, the same tier tallBlock itself uses) - a level walk straight off the
-            // climb, not a second climb on top of the first. Shortened from an original 300 to 120
-            // once the crane moved back down to the ground beside it (see below) - it only needs
-            // room for the lever and a bit of standing space now, not a large machine on top of it.
-            val endPlatformTopY = groundY - endBarrelHeight * 2.0
-            val endTerrain = Rect(x = endBarrelStackTop.right, y = endPlatformTopY, width = 120.0, height = groundY - endPlatformTopY)
+            // The lever platform, flush with the barrels' own tops - one continuous walking
+            // surface from the first barrel to the machine. Kept deliberately short (70) so the
+            // crane's tracked base lands just past the lever, on request ("the vehicle part of
+            // the crane should be just right of the lever"); LevelLayout.plainPlatforms keeps a
+            // 70x48 box from tripping GameplayScene.kt's crate-shaped size heuristic.
+            val endPlatformTopY = groundY - endBarrelHeight
+            val endTerrain = Rect(x = endBarrel2.right, y = endPlatformTopY, width = 70.0, height = groundY - endPlatformTopY)
 
             // Lever near the platform's LEFT corner this time (lever/lever2 both sat at their own
-            // platform's right corner) - right where the player arrives, having just climbed the
-            // barrel stack.
+            // platform's right corner) - right where the player arrives if they come along the
+            // ground, and immediately left of the crane's own tracked base. It powers section 4's
+            // gantry, on request ("the lever for the hanging crate should be the one left of the
+            // crane"), which is what this ground dead-end is for: the walk along the floor stops
+            // at the machine's tracks, and this is what the trip was worth. The crate it starts is
+            // past the cab and out of sight from here - the sweep runs continuously (see
+            // gateCrate) precisely so the crossing back over the boom can take as long as it takes.
             val lever3 = Lever(
                 id = "lever_3",
                 x = endTerrain.left + 30.0,
                 y = endPlatformTopY - leverHeight,
                 width = leverWidth,
-                height = leverHeight
+                height = leverHeight,
+                targetMechanismId = "lvl6_gantry_crate"
             )
 
-            // Background crane - see CraneDef. Sized first (before cranePlatform, below) so the
-            // platform can be built to actually fit its tracked-base end - see craneWidthPreview.
-            // Bumped up a little on request ("increase the size of the crane a little bit") - 108
-            // to 125. It no longer has to stay under Player.climbMaxHeight the way the previous
-            // version did: this one is meant to be walked UNDER (see cranePlatform's own comment
-            // below), not climbed.
-            val craneHeight = 125.0
+            // Background crane - see CraneDef. Moved here on request: "take the crane to left, so
+            // that the player can climb onto it from the otherside of the gap. the vehicle part of
+            // the crane should be just right of the lever. if it is too high to be climbable, make
+            // the height of the platform after the lever shorter and put the crane there."
+            //
+            // Placed by its MACHINE, not by its boom tip (CraneDef.boomLength): the tracked base's
+            // own crop starts exactly at endTerrain's right edge, so the vehicle stands a short
+            // step past the lever with the boom reaching back over the lever, the barrels, the
+            // ground gap and the last stretch of tallBlock.
+            //
+            // The boom's own height is the load-bearing number here, and it is pinned exactly, not
+            // chosen: "for the climbing animation to work, this long beam should be his head
+            // height" - the walkable top of the boom lands on the crown of a player standing on
+            // tallBlock. That is also what makes the mantle onto it a 96-unit rise, this game's
+            // own canonical climb height (crate -> terrain, stepCrate -> cameraBeam, the barrel
+            // columns: all 96), comfortably inside Player.climbMinHeight..climbMaxHeight
+            // (51.2..115) rather than the chest-height 75 an earlier pass left it at, which read
+            // wrong the moment the climb animation played against it.
+            //
+            // With the boom's top fixed and the platform staying flush with the barrels at
+            // groundY - 48, the crane's own HEIGHT is what falls out (CraneDef.heightForBoomTop) -
+            // it is a derived value, so moving either the tier or the head-height target re-sizes
+            // the machine automatically instead of silently breaking the climb. The headroom under
+            // the boom on this tier comes along for free: a crane's base always sits a fixed
+            // 0.8053 of its own height below the boom's underside, which is 118 here, well past
+            // the 96 a standing player needs.
             val craneTileCount = 10
-            val craneBackOffset = 100.0
-            val craneWidthPreview = CraneDef(x = 0.0, y = 0.0, height = craneHeight, tileCount = craneTileCount).width
-
-            // A second platform flush against endTerrain's own right face (no gap - "connect the
-            // platform it is on to the one left of it", from an earlier request) - but now raised
-            // back up to EXACTLY endTerrain's own height, on request ("increase the height of the
-            // platform the crane is on so the player can [walk] under the beam and [reach] the
-            // platform with the lever"): both platforms share one flat, connected walking tier, and
-            // the crane sits well clear of it overhead rather than sitting low enough to force a
-            // climb the way an earlier, shorter version of this same platform did.
-            //
-            // Widened to run the crane's own full length past its own near/left edge (minus
-            // craneBackOffset, since that portion overhangs endTerrain instead - see below - and
-            // needs no platform under it there), plus a small margin, so the crane's tracked-base
-            // end has solid ground the whole way ("the crane can't be floating", from an earlier
-            // request) even though its boom now reaches back further than before.
-            //
-            // At a short height, this box's own dimensions could fall inside GameplayScene.kt's
-            // "Step Crate" size heuristic purely by coincidence, so [LevelLayout.plainPlatforms]
-            // forces it back to the plain structural-block look instead of crate art - reported
-            // directly against an earlier, narrower version of this same platform.
             val cranePlatformTopY = endPlatformTopY
-            val cranePlatform = Rect(
-                x = endTerrain.right,
-                y = cranePlatformTopY,
-                width = (craneWidthPreview - craneBackOffset) + 10.0,
-                height = groundY - cranePlatformTopY
-            )
-
-            // The real crane, now that cranePlatform is sized to actually hold its tracked-base end.
-            // Its boom now reaches back across endTerrain's own right portion ("make this beam go
-            // across to the next platform") rather than starting flush at cranePlatform's own edge -
-            // craneBackOffset is how far back over endTerrain it reaches, well short of the barrel
-            // stack at endTerrain's far/left end. Its tracked-base end (CraneDef.cabBounds) still
-            // rests flush on cranePlatform's own surface (cabBounds.bottom == cranePlatform.top
-            // exactly) - "the crane can't be floating" still holds for the one piece of it that's
-            // actually meant to be grounded. The boom itself (CraneDef.boomBounds) is only as thick
-            // as its own real art near the TOP of the crane's height, not the crane's full height,
-            // so the open air underneath it (down to endTerrain's own surface at 344) is genuinely
-            // walkable - checked directly: clearance there clears the player's own standing height
-            // (96) with a real margin, not just barely.
-            //
-            // On request ("make sure all parts of the crane is interactable") both CraneDef.
-            // boomBounds and cabBounds are real boxes - see [LevelLayout.cranes]/[LevelLayout.boxes]
-            // - solid and climbable/walkable, not just decoration, the same as every other box in
-            // this game. Neither needs a floating-ledge exemption: cabBounds rests flush on
-            // cranePlatform from the player's own current stance there, and boomBounds is simply
-            // never approached from underneath as a climb target - it's an overhead crossing.
+            val craneBoomTopY = tallBlockTopY - 96.0 // the standing player's own head, on tallBlock
+            val craneHeight = CraneDef.heightForBoomTop(baseY = cranePlatformTopY, boomTopY = craneBoomTopY)
+            val cranePreview = CraneDef(x = 0.0, y = 0.0, height = craneHeight, tileCount = craneTileCount)
             val crane = CraneDef(
-                x = endTerrain.right - craneBackOffset,
+                x = endTerrain.right - cranePreview.boomLength,
                 y = cranePlatformTopY - craneHeight,
                 height = craneHeight,
                 tileCount = craneTileCount
             )
 
-            // Third section - and the level - ends here, right on cranePlatform itself, a short
-            // walk past the boom's own overhang and before the crane's tracked-base end (a real,
-            // full-height block - see CraneDef.cabBounds - too tall to climb on purpose, since it's
-            // meant to be reached and rested against, not climbed over). Putting the exit any
-            // further along would mean walking INTO that block, which the climb mechanic can't
-            // clear (its own rise, craneHeight, is past Player.climbMaxHeight - deliberately, since
-            // this piece is meant to look and behave like real grounded machinery, not another
-            // climbable step).
-            val exitX = crane.cabBounds.left - 80.0
+            // 12. Fourth section, past the machine: the gantry-gated climb. "after the crane, add
+            // a platform that is climbable but there is a hanging crate very close to the surface
+            // level which makes it unclimbable. pressing that lever makes it move left and right
+            // so the player has to time when the crate is not there to climb up." It is thrown by
+            // lever3 - "the lever for the hanging crate should be the one left of the crane" - so
+            // the ground dead-end that lever sits on is now the section's own trigger, pulled
+            // before the boom crossing rather than after it.
+            //
+            // The whole section is placed from the crane's own cab outwards, as far left as the
+            // sweep can go ("take the platform and the hanging crate more to the left"), because
+            // ONE geometric limit sets everything: the crate hangs 30 above the block's surface,
+            // and the route down from the boom walks along the machine's top and across the cab
+            // roof. A load sweeping over that roof would sweep through the player on it (and over
+            // bodyBounds it would pass through the machine itself), so the crate's left end stops
+            // just past the cab, and the block sits a crate-sweep further right again.
+            val gateCrateWidth = 174.0
+            val gateCrateHeight = 38.0
+
+            // What makes this a gate rather than an obstacle is the CLEARANCE, not the crate:
+            // Player.findClimbTarget only drops a candidate whose landing has room for neither a
+            // standing body (96) nor a crouched one (Player.crouchHeight, 56) - with anything over
+            // 56 the climb still goes through and simply arrives crouched, the way section 3's own
+            // boom does. 30 refuses it outright, and reads as "very close to the surface level"
+            // from down on the platform.
+            val gateCrateClearance = 30.0
+
+            // 150 of travel, ending 8 clear of the cab's right edge. The sweep has to be big
+            // enough to read as movement from a distance and to leave the landing clear for
+            // longer than a climb takes: the crate must travel 68 before its right edge passes the
+            // landing's left, which with cosine easing leaves it clear for ~53% of every cycle -
+            // a ~3.7s window against a ~2s climb.
+            val gateCrateSweep = 150.0
+            val gateCrateMinX = crane.houseBounds.right + 8.0
+            val gateCrateRestX = gateCrateMinX + gateCrateSweep
+
+            // The block itself: this level's standard tier (the same 300x144 as terrain and
+            // farTerrain, top at terrainTopY), stood on the ground so it is 144 from the floor -
+            // past Player.climbMaxHeight, so there is no way around it - and exactly 96 from
+            // cranePlatform's surface, this game's canonical climb. The 100 offset puts the parked
+            // crate over the landing (Player.climbLandingX, 6 units in from the edge the player
+            // comes over) with its own left end hanging clear of the block, which is also what
+            // leaves room for the sweep.
+            val gateBlockLeft = gateCrateRestX + 100.0
+            val gateBlock = Rect(
+                x = gateBlockLeft,
+                y = terrainTopY,
+                width = 460.0,
+                height = groundY - terrainTopY
+            )
+
+            // Thrown by lever3, this one runs CONTINUOUSLY (no oneShot): one pull powers the
+            // gantry for good and the crate sweeps left and back forever, which is what makes the
+            // climb a timing problem rather than a one-attempt one - and it has to survive the
+            // whole trip back over the boom, since the lever is on the far side of the machine.
+            // It sweeps LEFT for the same reason it stops where it does: everything to the RIGHT
+            // of the landing then stays permanently clear, so whoever just climbed can walk out
+            // from under the gantry instead of being swept off the block.
+            val gateCrate = MovingPlatformDef(
+                id = "lvl6_gantry_crate",
+                initialX = gateCrateRestX,
+                y = gateBlock.top - gateCrateClearance - gateCrateHeight,
+                width = gateCrateWidth,
+                height = gateCrateHeight,
+                minX = gateCrateMinX,
+                maxX = gateCrateRestX,
+                periodSeconds = 7.0,
+                // Half a period, so the cosine starts at t = 1 - i.e. at maxX, the parked blocking
+                // position - and eases away from it. Without it the crate would teleport to the
+                // far end of its own sweep the instant the lever was thrown.
+                phaseOffsetSeconds = 3.5,
+                // Level 2's own hanging containers, on request ("use the hanging crates from
+                // level 2"): same 174x38 box and the same long chainedcrate.png rigging as
+                // LEVEL_2_LAYOUT's hangingCrate1, which is also what this level's landingCrate1
+                // and pitLongCrate already use.
+                isVariant1 = true,
+                startsInactive = true,
+                // "when trying to climb if he touches the bottom side of the crate it should be
+                // mission failed" - a mistimed climb puts the head into the underside of a
+                // swinging load, and that is fatal rather than merely wedged. See
+                // MovingPlatformDef.crushesOnContact; it only bites from below.
+                crushesOnContact = true
+            )
+
+            // The platform the machine stands on, flush against endTerrain's own right face and at
+            // exactly its height - one flat tier, no step. It carries the whole tracked base ("the
+            // crane can't be floating", from an earlier request) and then runs on to section 4's
+            // block, so its far edge is that block's own left face: the approach where the player
+            // lands off the cab, waits out the gantry crate's sweep and climbs.
+            val cranePlatform = Rect(
+                x = endTerrain.right,
+                y = cranePlatformTopY,
+                width = gateBlockLeft - endTerrain.right,
+                height = groundY - cranePlatformTopY
+            )
+
+
+            // 13. Fifth section: the hanging platform, the switch and the laser curtain. "after
+            // that section, continue that platform and add a crate at the end. after that add a
+            // hanging platform from level 3. there should be a lever on top and a guard after that
+            // moving left and right. the lever turns off 3 lasers that are there from the hanging
+            // platform to the ground. the bottom is the only path out."
+            //
+            // gateBlock carries it: the block runs on past the gantry climb (460 wide now, not
+            // 300), a step crate stands flush with its far lip ("move the crate to the edge of the
+            // platform"), and the platform hangs past the gap at the CRATE's own top rather than
+            // the block's ("lift the floating platform to the level of the top of the crate on the
+            // edge of the platform before it"), drawn with LEVEL_3_LAYOUT's table.png slab.
+            //
+            // That makes the crate the whole crossing: the block is walked to its end, the crate is
+            // jumped (48 is inside maxJumpHeight's 51.2), and the jump across leaves from the
+            // crate's lip and lands level. Nothing holds the platform up and nothing is drawn
+            // holding it up either - "remove the chain holding the floating platform".
+            val gateCrateStepWidth = 68.0
+            val gateCrateStepHeight = 48.0
+            val endCrate = Rect(
+                x = gateBlock.right - gateCrateStepWidth,
+                y = gateBlock.top - gateCrateStepHeight,
+                width = gateCrateStepWidth,
+                height = gateCrateStepHeight
+            )
+
+            // The gap between the crate's edge and the platform does two jobs at once, and 65 is
+            // how wide it can be while still doing both ("increase gap between the platform and
+            // floating thing"; it was 45, then 55).
+            //
+            // The ceiling is physics: jumpSpeed 320 against gravity 1000 is 0.64s of flight and
+            // moveSpeed 132 carries the body 84.5 units in that time, of which the landing spends
+            // about 6.5 getting a foot onto the far lip - so ~78 is where the crossing becomes
+            // impossible, and every unit below that is margin for pressing jump early. 65 leaves
+            // about 13 units of it (a tenth of a second of walking), which is the part that
+            // actually matters on a touchscreen; 70 would leave 8 and 78 none at all. The earlier
+            // note here claimed a ceiling of 61 - that was wrong, taken from a stale "+18 to land"
+            // figure rather than measured.
+            //
+            // The same gap is also wider than the player's own 36, so simply WALKING off the lip
+            // drops them 192 into the corridor instead ("he should be able to drop down to reach
+            // the place with lasers"). Jump across for the switch, walk off for the way out.
+            //
+            // testLevel6HangingPlatformIsLevelWithTheCrateAndDropsIntoTheCorridor measures that
+            // margin (how many units early the jump may be taken and still land) and asserts it,
+            // so widening this fails loudly rather than quietly.
+            //
+            // Nothing stands in the chute. A prop there would have to be climbable from the floor
+            // AND leave a body-width lane beside it, and it cannot be both at 45 wide - worse, the
+            // platform's own near face hangs at 296..326, so anything 48 tall in the chute pins a
+            // standing body on top of it with no way down. The drop is therefore one-way, which is
+            // what the checkpoint on the platform is for: a player who goes down before throwing
+            // the switch walks into the curtain, and respawns up top to try again.
+            val plankGap = 65.0
+            val plankDepth = 30.0
+            // 370 rather than the original 420 because the curtain hangs off the far end and moves
+            // with it: a shorter platform is how the beams move left ("move the lasers to the
+            // left") without the last one leaving the tip, which it cannot do - see below.
+            val plank = Rect(x = gateBlock.right + plankGap, y = endCrate.top, width = 370.0, height = plankDepth)
+
+            // The switch, at the end of the platform the player arrives on, and the guard pacing
+            // the rest of it - "there should be a lever on top and a guard after that moving left
+            // and right". Cross, throw it, and get back off before he walks into you.
+            // "take the lever little more to left" - 24 from the near end rather than 46, so it is
+            // under the body almost as soon as the jump lands and the exposed stretch on the
+            // platform is that much shorter.
+            val lever4 = Lever(
+                id = "lever_4",
+                x = plank.left + 24.0,
+                y = plank.top - leverHeight,
+                width = leverWidth,
+                height = leverHeight,
+                targetMechanismId = "lvl6_exit_lasers"
+            )
+
+            // "increase the length of the path of guard from either side" - the beat runs 170
+            // units now instead of 70, opened up at both ends (150 -> 110 from the near end, 150 ->
+            // 90 from the far one). It still stops short of the lever at the near end, because the
+            // whole section is the player timing a landing against where he is looking; a guard
+            // standing on the switch would make it a waiting game instead.
+            val plankGuardWidth = 30.0
+            val plankGuard = GuardSpawn(
+                startX = plank.left + 110.0,
+                surfaceY = plank.top,
+                patrolMinX = plank.left + 110.0,
+                patrolMaxX = plank.right - 60.0 - plankGuardWidth,
+                speed = 35.0,
+                facing = 1.0,
+                visionRange = 220.0,
+                width = plankGuardWidth,
+                height = 96.0,
+                visionTilt = 20.0 * PI / 180.0,
+                patrolPauseDuration = 2.5
+            )
+
+            // Three beams hung off the platform's underside down to the floor, always on until
+            // lever4 cuts them (LaserDef.mechanismId - one switch, three beams), and standing close
+            // together on request ("put the 3 lasers close together"): 45 apart, so they read as
+            // one curtain rather than three separate hazards. They are what makes the bottom the
+            // only way out AND what makes it a locked door - the corridor under the platform is the
+            // only route to the extraction point, and it runs through all three.
+            //
+            // The curtain sits at the platform's FAR END, with the last beam hanging off the tip
+            // itself. Anywhere else and the platform is its own bypass: walk to the far tip, step
+            // off, and land past every beam with the switch never touched. At the tip, stepping off
+            // drops the player straight through it. So "move the lasers to the left" is done by
+            // shortening the platform (above) - the beams travel with the tip they hang from.
+            val exitLaserSpacing = 45.0
+            val exitLaserTopY = plank.bottom
+            val exitLasers = listOf(
+                LaserDef(
+                    id = "lvl6_exit_laser_1",
+                    topX = plank.right - 2.0 * exitLaserSpacing,
+                    topY = exitLaserTopY,
+                    bottomX = plank.right - 2.0 * exitLaserSpacing,
+                    bottomY = groundY,
+                    beamThickness = 6.0,
+                    isAlwaysActive = true,
+                    emitterScale = 0.55,
+                    mechanismId = "lvl6_exit_lasers"
+                ),
+                LaserDef(
+                    id = "lvl6_exit_laser_2",
+                    topX = plank.right - exitLaserSpacing,
+                    topY = exitLaserTopY,
+                    bottomX = plank.right - exitLaserSpacing,
+                    bottomY = groundY,
+                    beamThickness = 6.0,
+                    isAlwaysActive = true,
+                    emitterScale = 0.55,
+                    mechanismId = "lvl6_exit_lasers"
+                ),
+                LaserDef(
+                    id = "lvl6_exit_laser_3",
+                    topX = plank.right,
+                    topY = exitLaserTopY,
+                    bottomX = plank.right,
+                    bottomY = groundY,
+                    beamThickness = 6.0,
+                    isAlwaysActive = true,
+                    emitterScale = 0.55,
+                    mechanismId = "lvl6_exit_lasers"
+                )
+            )
+
+            // The level ends past the gantry, not before it - the reverse of the old arrangement,
+            // and the direct consequence of the vehicle now standing right beside the lever. The
+            // machine's front face (CraneDef.bodyBounds, from the boom's own top down to the
+            // tracks) is 123 tall: past Player.climbMaxHeight, and with the boom directly above it
+            // the headroom check in Player.findClimbTarget refuses it anyway, so the ground
+            // approach genuinely stops here. The way through is over the top: climb onto the boom
+            // from tallBlock on the far side of the gap, walk its whole length, step down onto the
+            // house roof (CraneDef.houseBounds, 44.8 below the boom) and drop from there onto this
+            // platform, 78 lower again, and on along it to the gantry. The house roof is climbable
+            // back up from this side too (78.3, inside the climb window, and resting on the
+            // platform rather than floating), so arriving here is never one-way.
+            //
+            // Extraction is on the ground past the laser curtain, the same way every other
+            // level's is (the booth and its fence are drawn standing on exitZone.bottom). The
+            // route in is the corridor UNDER the plank - "the bottom is the only path out" - so
+            // the last thing the level asks is the drop off the block's far side and the walk
+            // through three cut beams.
+            val exitX = plank.right + 45.0
+
+            // The building the level ends at (exitlvl7.png), sized and placed here rather than in
+            // GameplayScene because where it stands is level geometry: "increase size of the
+            // building at end and make sure it is on the floor and the middle part should be
+            // connected to the balcony".
+            //
+            // 401 tall (drawn 200, then 335, then this) standing on groundY, with its left edge
+            // tucked 8 units under the platform's far tip so the two meet with no seam. The height
+            // is what does the connecting: the art's own balcony deck starts 0.5215 of the way
+            // down from its roof, so 440 - 0.4785 * 401 puts that deck's top surface at y=248 -
+            // exactly the platform's own top - and the platform reads as a walkway running off the
+            // building's balcony rather than a slab hanging in the air. Any other height either
+            // steps the two apart or, past ~400, only buys roof that the camera's 356-unit window
+            // cannot show while the player is down on the corridor floor.
+            //
+            // Purely decorative, like every other exit structure: exitZone is still the trigger, 53
+            // units inside the silhouette rather than flush with its left edge, so here the player
+            // genuinely walks INTO the building instead of touching its corner.
+            val exitBuildingHeight = 401.0
+            // 1501x780 is exitlvl7.png's authored size - the source art cropped to its ALPHA
+            // bounds; the file on disk is the POT resample of that, so the aspect is written out
+            // rather than read off the bitmap. (Cropping it to PIL's default getbbox instead left
+            // 27 rows of invisible padding under the building and it hung 12 units off the floor.)
+            val exitBuilding = Rect(
+                x = plank.right - 8.0,
+                y = groundY - exitBuildingHeight,
+                width = exitBuildingHeight * (1501.0 / 780.0),
+                height = exitBuildingHeight
+            )
 
             val checkpoints = listOf(
                 Checkpoint(
@@ -2218,15 +2583,36 @@ data class LevelData(
                 ),
                 Checkpoint(
                     id = "lvl6_cp4_endTerrain",
-                    x = endTerrain.left + 62.0,
+                    x = endTerrain.left + 16.0,
                     y = endPlatformTopY - 96.0,
                     triggerZone = Rect(endTerrain.left, endPlatformTopY - 120.0, endTerrain.width, 140.0)
                 ),
+                // Past the machine, not in front of it: cranePlatform's own left end is under the
+                // crane's tracked base now, and a respawn point inside a solid box would wedge the
+                // player. Both the zone and the respawn spot sit in the clear stretch between the
+                // house's right edge and the extraction point.
+                Checkpoint(
+                    id = "lvl6_cp7_plank",
+                    x = plank.left + 20.0,
+                    y = plank.top - 96.0,
+                    triggerZone = Rect(plank.left, plank.top - 120.0, plank.width, 130.0)
+                ),
+                Checkpoint(
+                    id = "lvl6_cp6_gateBlock",
+                    x = gateBlock.left + 90.0,
+                    y = gateBlock.top - 96.0,
+                    triggerZone = Rect(gateBlock.left, gateBlock.top - 120.0, gateBlock.width, 140.0)
+                ),
                 Checkpoint(
                     id = "lvl6_cp5_cranePlatform",
-                    x = cranePlatform.left + 32.0,
+                    x = crane.houseBounds.right + 20.0,
                     y = cranePlatformTopY - 96.0,
-                    triggerZone = Rect(cranePlatform.left, cranePlatformTopY - 120.0, cranePlatform.width, 140.0)
+                    triggerZone = Rect(
+                        crane.houseBounds.right,
+                        cranePlatformTopY - 120.0,
+                        cranePlatform.right - crane.houseBounds.right,
+                        140.0
+                    )
                 )
             )
 
@@ -2235,33 +2621,43 @@ data class LevelData(
                 playerStartX = 236.0,
                 playerStartY = groundY - 96.0,
                 exitZone = Rect(x = exitX, y = groundY - 100.0, width = 44.0, height = 100.0),
+                exitStructure = exitBuilding,
+                // The machine is crossed one way over the top - in off the boom from tallBlock,
+                // east along it, down onto the rear deck, down onto the platform - and the way back
+                // up is closed: 52.4 from deck to top is a legal mantle and NOT a legal jump (~48.5
+                // is what a jump really clears), so denying the mantle is the whole mechanism.
+                unclimbableBoxes = listOf(crane.bodyBounds),
                 platforms = listOf(ground),
                 boxes = listOf(
                     crate1, terrain, landingCrate1, farTerrain, pitCrate, pitLongCrate, tallBlock,
-                    endBarrel1, endBarrelStackBottom, endBarrelStackTop, endTerrain, cranePlatform,
-                    crane.boomBounds, crane.cabBounds
-                ),
-                guards = listOf(pitGuard),
+                    endBarrel1, endBarrel2, endTerrain, cranePlatform, gateBlock, endCrate, plank
+                ) + crane.collisionBoxes,
+                guards = listOf(pitGuard, plankGuard),
                 hangingCrateVariant1 = listOf(landingCrate1, pitLongCrate),
-                barrels = listOf(endBarrel1, endBarrelStackBottom, endBarrelStackTop),
-                // Player.findClimbTarget's own floating-ledge check compares a candidate box's
-                // bottom against the player's CURRENT feet (here, standing on the ground below,
-                // not on the bottom barrel), and endBarrelStackTop's own bottom (392) sits well
-                // above that (440) even though endBarrelStackBottom is the real, solid thing
-                // bracing it - the check has no notion of "something else is solid underneath",
-                // only of the climbing player's own current stance. Confirmed directly: without
-                // this, the player got stuck flush against the stack, unable to climb it at all
-                // (same signature as the barrel-vs-height quirk documented elsewhere in this file,
-                // but a different cause). Whitelisting it here is the same sanctioned exemption
-                // LEVEL_3_LAYOUT's tablePlank/cameraBeam already use for the identical reason. The
-                // crane itself needs no such exemption - it rests flush on cranePlatform's own
-                // surface, which IS the player's current stance when approaching it.
-                floatingClimbTargets = listOf(endBarrelStackTop),
+                barrels = listOf(endBarrel1, endBarrel2),
+                // The boom is what the player climbs onto from tallBlock, on the far side of the
+                // gap - and Player.findClimbTarget's own floating-ledge check compares a
+                // candidate's bottom against the climbing player's CURRENT feet, with no notion of
+                // "something else is solid underneath". A hanging boom fails that by construction
+                // (its underside hangs ~70 above tallBlock's surface), so it needs the same sanctioned
+                // exemption LEVEL_3_LAYOUT's tablePlank/cameraBeam use. It isn't visually floating:
+                // the crane's own machine holds it up. Nothing else here needs it - the house roof
+                // and the machine's front both rest on cranePlatform, which IS the player's stance
+                // when approaching them, and the barrels now sit on the ground side by side rather
+                // than stacked.
+                floatingClimbTargets = listOf(crane.boomBounds, plank),
+                tables = listOf(plank),
+                tableParts = listOf(plank),
+                // Hangs from its own rigging instead of standing on a leg - see the section note.
+                lasers = exitLasers,
                 cranes = listOf(crane),
-                plainPlatforms = listOf(cranePlatform),
+                // endTerrain is 70x48 and cranePlatform is a long low slab - both land inside
+                // GameplayScene.kt's crate-shaped size heuristics by coincidence of their
+                // dimensions, so both are forced back to the plain structural-block look.
+                plainPlatforms = listOf(endTerrain, cranePlatform),
                 swingHooks = listOf(hook1),
-                levers = listOf(lever, lever3),
-                movingPlatforms = listOf(leverCrate),
+                levers = listOf(lever, lever3, lever4),
+                movingPlatforms = listOf(leverCrate, gateCrate),
                 manualCheckpoints = checkpoints
             )
         }
@@ -2275,15 +2671,274 @@ data class LevelData(
             layout = LEVEL_6_LAYOUT
         )
 
+        /**
+         * Level 7: Vent Infiltration ("07: Stolen Manifest").
+         *
+         * A high-tension linear crawling gauntlet through the facility's narrow ventilation duct:
+         * - Ceiling platform at y = 344.0..372.0 with ground at 440.0 enforces crouched crawling
+         *   across the entire duct (68px vertical clearance vs 56px crouch height / 96px standing).
+         * - Exhaust Fans: High-velocity air blows backwards (-120 px/s). Continuous holding moves
+         *   the player backward; spam-tapping forward delivers stride impulses (+48 px/tap) to push through.
+         * - Camera Bots: Patrolling drones with forward vision cones. Sneak up from behind within 52px
+         *   and press INTERACT to permanently deactivate them.
+         * - Pressurized Steam Pipes: Ceiling, floor, and paired nozzles blasting lethal jets of steam.
+         *   Players must time crawl intervals to cross safely (blockable once with Laser Shield).
+         */
+        val LEVEL_7_LAYOUT = run {
+            val groundY = 440.0
+            val worldWidth = 5200.0
+            val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
+
+            // Whole middle section corridor: top black beam in bglvl7.png is at Y=212.0
+            // Height = (488.0 - 212.0) * (480.0 / 724.0) / 1.35 ≈ 136.0 world units
+            val ceilingBottomY = 304.0
+            val ventCeiling = Rect(x = 0.0, y = ceilingBottomY - 28.0, width = 4950.0, height = 28.0)
+            val chamberBackWall = Rect(x = 5160.0, y = 200.0, width = 40.0, height = groundY - 200.0)
+
+            val fans = listOf(
+                VentFanDef(
+                    id = "lvl7_fan_1",
+                    x = 850.0,
+                    y = ceilingBottomY,
+                    width = 44.0,
+                    height = groundY - ceilingBottomY,
+                    windRange = 360.0,
+                    windPushSpeed = 135.0,
+                    windDirection = -1.0,
+                    fanImpulse = 10.0
+                ),
+                VentFanDef(
+                    id = "lvl7_fan_2",
+                    x = 2600.0,
+                    y = ceilingBottomY,
+                    width = 44.0,
+                    height = groundY - ceilingBottomY,
+                    windRange = 300.0,
+                    windPushSpeed = 140.0,
+                    windDirection = -1.0,
+                    fanImpulse = 10.0
+                ),
+                VentFanDef(
+                    id = "lvl7_fan_3",
+                    x = 4150.0,
+                    y = ceilingBottomY,
+                    width = 44.0,
+                    height = groundY - ceilingBottomY,
+                    windRange = 300.0,
+                    windPushSpeed = 145.0,
+                    windDirection = -1.0,
+                    fanImpulse = 10.0
+                )
+            )
+
+            val steamPipes = listOf(
+                SteamPipeDef(
+                    id = "lvl7_pipe_1",
+                    x = 1150.0,
+                    topY = ceilingBottomY,
+                    bottomY = groundY,
+                    mountType = PipeMountType.TOP,
+                    activeDuration = 1.4,
+                    inactiveDuration = 2.2,
+                    phaseOffsetSeconds = 0.0
+                ),
+                SteamPipeDef(
+                    id = "lvl7_pipe_2",
+                    x = 1450.0,
+                    topY = ceilingBottomY,
+                    bottomY = groundY,
+                    mountType = PipeMountType.BOTTOM,
+                    activeDuration = 1.4,
+                    inactiveDuration = 2.2,
+                    phaseOffsetSeconds = 1.8
+                ),
+                SteamPipeDef(
+                    id = "lvl7_pipe_3",
+                    x = 1800.0,
+                    topY = ceilingBottomY,
+                    bottomY = groundY,
+                    mountType = PipeMountType.PAIR,
+                    activeDuration = 1.5,
+                    inactiveDuration = 2.5,
+                    phaseOffsetSeconds = 0.5
+                ),
+                SteamPipeDef(
+                    id = "lvl7_pipe_4",
+                    x = 2850.0,
+                    topY = ceilingBottomY,
+                    bottomY = groundY,
+                    mountType = PipeMountType.TOP,
+                    activeDuration = 1.3,
+                    inactiveDuration = 2.5,
+                    phaseOffsetSeconds = 1.0
+                ),
+                SteamPipeDef(
+                    id = "lvl7_pipe_5",
+                    x = 3200.0,
+                    topY = ceilingBottomY,
+                    bottomY = groundY,
+                    mountType = PipeMountType.BOTTOM,
+                    activeDuration = 1.4,
+                    inactiveDuration = 2.0,
+                    phaseOffsetSeconds = 0.0
+                ),
+                SteamPipeDef(
+                    id = "lvl7_pipe_6",
+                    x = 3800.0,
+                    topY = ceilingBottomY,
+                    bottomY = groundY,
+                    mountType = PipeMountType.PAIR,
+                    activeDuration = 1.5,
+                    inactiveDuration = 2.3,
+                    phaseOffsetSeconds = 1.2
+                ),
+                SteamPipeDef(
+                    id = "lvl7_pipe_7",
+                    x = 4350.0,
+                    topY = ceilingBottomY,
+                    bottomY = groundY,
+                    mountType = PipeMountType.TOP,
+                    activeDuration = 1.3,
+                    inactiveDuration = 2.0,
+                    phaseOffsetSeconds = 0.4
+                ),
+                SteamPipeDef(
+                    id = "lvl7_pipe_8",
+                    x = 4650.0,
+                    topY = ceilingBottomY,
+                    bottomY = groundY,
+                    mountType = PipeMountType.BOTTOM,
+                    activeDuration = 1.3,
+                    inactiveDuration = 2.0,
+                    phaseOffsetSeconds = 1.5
+                )
+            )
+
+            val cameraBots = listOf(
+                CameraBotDef(
+                    id = "lvl7_bot_1",
+                    startX = 2080.0,
+                    surfaceY = groundY,
+                    patrolMinX = 2050.0,
+                    patrolMaxX = 2250.0,
+                    speed = 36.0,
+                    facing = 1.0,
+                    visionRange = 120.0
+                ),
+                CameraBotDef(
+                    id = "lvl7_bot_2",
+                    startX = 3450.0,
+                    surfaceY = groundY,
+                    patrolMinX = 3420.0,
+                    patrolMaxX = 3620.0,
+                    speed = 38.0,
+                    facing = 1.0,
+                    visionRange = 120.0
+                ),
+                CameraBotDef(
+                    id = "lvl7_bot_3",
+                    startX = 4850.0,
+                    surfaceY = groundY,
+                    patrolMinX = 4820.0,
+                    patrolMaxX = 4980.0,
+                    speed = 40.0,
+                    facing = 1.0,
+                    visionRange = 120.0
+                )
+            )
+
+            val checkpoints = listOf(
+                Checkpoint(
+                    id = "lvl7_cp1_fan1",
+                    x = 950.0,
+                    y = groundY - 96.0,
+                    triggerZone = Rect(930.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
+                ),
+                Checkpoint(
+                    id = "lvl7_cp2_pipes",
+                    x = 1600.0,
+                    y = groundY - 96.0,
+                    triggerZone = Rect(1580.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
+                ),
+                Checkpoint(
+                    id = "lvl7_cp3_bot1",
+                    x = 2300.0,
+                    y = groundY - 96.0,
+                    triggerZone = Rect(2280.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
+                ),
+                Checkpoint(
+                    id = "lvl7_cp4_fan2",
+                    x = 2700.0,
+                    y = groundY - 96.0,
+                    triggerZone = Rect(2680.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
+                ),
+                Checkpoint(
+                    id = "lvl7_cp5_bot2",
+                    x = 3700.0,
+                    y = groundY - 96.0,
+                    triggerZone = Rect(3680.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
+                ),
+                Checkpoint(
+                    id = "lvl7_cp6_fan3",
+                    x = 4250.0,
+                    y = groundY - 96.0,
+                    triggerZone = Rect(4230.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
+                )
+            )
+
+            val exitX = 5050.0
+
+            LevelLayout(
+                worldWidth = worldWidth,
+                playerStartX = 100.0,
+                playerStartY = groundY - 96.0,
+                exitZone = Rect(x = exitX, y = ceilingBottomY, width = 60.0, height = groundY - ceilingBottomY),
+                platforms = listOf(ground, ventCeiling, chamberBackWall),
+                boxes = listOf(ventCeiling, chamberBackWall),
+                guards = emptyList(),
+                fans = fans,
+                cameraBots = cameraBots,
+                steamPipes = steamPipes,
+                hasStartFences = false,
+                canClimb = false,
+                playerStartCrouched = false,
+                manualCheckpoints = checkpoints
+            )
+        }
+
         val DEFAULT_LEVEL_7 = LevelData(
             id = "level_7",
             name = "07: Stolen Manifest",
-            timeTargetSeconds = 25.0f,
-            description = "The container is missing. Search the offices for records that reveal who moved it and where it went.",
-            objectiveHint = "Find the Shipping Records",
-            guardSpeed = 85.0,
-            guardPatrolMinX = 2650.0,
-            guardPatrolMaxX = 3120.0
+            timeTargetSeconds = 85.0f,
+            description = "Infiltrate the secure facility through the maintenance corridor. Push through turbine exhausts, disable patrol drones from behind, and time your passage past pressurized steam vents.",
+            objectiveHint = "Infiltrate Facility",
+            layout = LEVEL_7_LAYOUT,
+            backgroundImage = "bglvl7.png",
+            hasDarknessVignette = false,
+            tutorialSteps = listOf(
+                TutorialStep(
+                    id = "step_spam_fan",
+                    triggerMinX = 500.0,
+                    triggerMaxX = 850.0,
+                    title = "TURBINE EXHAUST",
+                    instructionTouch = "Continuously tap RIGHT to push through the headwind!",
+                    instructionDesktop = "Continuously tap [D] or [RIGHT] to push through the headwind!",
+                    targetAction = TutorialAction.MOVE,
+                    highlight = TutorialControlHighlight.MOVE_RIGHT,
+                    handwrittenCallout = "Continuously tap to fight the wind!"
+                ),
+                TutorialStep(
+                    id = "step_deactivate_bot",
+                    triggerMinX = 1950.0,
+                    triggerMaxX = 2280.0,
+                    title = "PATROL DRONE",
+                    instructionTouch = "Approach the patrol bot from behind and tap INTERACT to disable it.",
+                    instructionDesktop = "Approach the patrol bot from behind and press [E] or [F] to disable it.",
+                    targetAction = TutorialAction.INTERACT,
+                    highlight = TutorialControlHighlight.INTERACT,
+                    handwrittenCallout = "Approach from behind to disable!"
+                )
+            )
         )
 
         val DEFAULT_LEVEL_8 = LevelData(
@@ -2341,15 +2996,73 @@ data class LevelData(
             guardPatrolMaxX = 3000.0
         )
 
+        /**
+         * Level 13: the push-stance stage ("13: Final Proof").
+         *
+         * Deliberately EMPTY - flat ground from wall to wall and nothing else. No guards, no
+         * cameras, no boxes, no hazards, no start fences, no hanging anything. It used to be one
+         * of the `GameWorld.createDefault` levels (a patrolling guard and a corridor derived from
+         * guardPatrolMinX/MaxX); that was cleared out so the push animation can be watched on its
+         * own with nothing walking into frame or killing the player mid-stance.
+         *
+         * [LevelLayout.pushStanceDemo] is what makes it a stage rather than just a bare level:
+         * INTERACT anywhere in it toggles the braced push stance (GameWorld.updatePushStance).
+         * Nothing else in the game sets that flag.
+         *
+         * `canClimb = false` and no boxes means there is nothing to climb; the ground runs the
+         * full width so the player cannot fall out of the world while experimenting. The exit sits
+         * at the far end so the level is still completable - it is a long walk at the braced
+         * stance's ~53 u/s, which is the point: it is enough room to watch a full gait cycle
+         * several times over.
+         */
+        val LEVEL_13_LAYOUT = run {
+            val groundY = 440.0
+            val worldWidth = 3600.0
+            val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
+            val leftWall = Rect(x = -30.0, y = 0.0, width = 30.0, height = 520.0)
+            val rightWall = Rect(x = worldWidth, y = 0.0, width = 30.0, height = 520.0)
+            val exitX = 3380.0
+
+            LevelLayout(
+                worldWidth = worldWidth,
+                // Far enough in that the camera is no longer clamped against the left edge of the
+                // world, so the character sits mid-screen instead of behind the on-screen D-pad.
+                // At a spawn of 160 the whole lean-in played underneath the left movement button,
+                // which on a stage whose only job is to show the animation is the one thing that
+                // must not happen. The camera window is 1040/1.35 = ~770 world units wide, so the
+                // player has to start at least half of that from 0 to be centred.
+                playerStartX = 560.0,
+                playerStartY = groundY - 96.0,
+                exitZone = Rect(x = exitX, y = groundY - 140.0, width = 90.0, height = 140.0),
+                platforms = listOf(ground, leftWall, rightWall),
+                boxes = emptyList(),
+                guards = emptyList(),
+                hasStartFences = false,
+                canClimb = false,
+                pushStanceDemo = true
+            )
+        }
+
         val DEFAULT_LEVEL_13 = LevelData(
             id = "level_13",
             name = "13: Final Proof",
             timeTargetSeconds = 22.0f,
-            description = "The final evidence may reveal the truth about that night and which member of your crew survived.",
-            objectiveHint = "Recover the Evidence",
-            guardSpeed = 115.0,
-            guardPatrolMinX = 2500.0,
-            guardPatrolMaxX = 2980.0
+            description = "An empty yard with nothing left in it. Press INTERACT to brace against the load, walk it along, and press INTERACT again to stand up.",
+            objectiveHint = "Push the load to extraction",
+            layout = LEVEL_13_LAYOUT,
+            tutorialSteps = listOf(
+                TutorialStep(
+                    id = "step_push_stance",
+                    triggerMinX = 600.0,
+                    triggerMaxX = 980.0,
+                    title = "BRACE AND PUSH",
+                    instructionTouch = "Tap INTERACT to brace, then walk. Tap INTERACT again to stand up.",
+                    instructionDesktop = "Press [E] or [F] to brace, then walk. Press it again to stand up.",
+                    targetAction = TutorialAction.INTERACT,
+                    highlight = TutorialControlHighlight.INTERACT,
+                    handwrittenCallout = "Brace, then walk it along!"
+                )
+            )
         )
 
         val DEFAULT_LEVELS: List<LevelData> = listOf(

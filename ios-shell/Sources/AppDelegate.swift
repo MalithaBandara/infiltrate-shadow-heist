@@ -21,6 +21,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        // BEFORE ShellAppDelegate, which boots KorGE on this very line: Korge()'s virtualSize is
+        // read at construction, and a canvas that does not match this screen's aspect is
+        // letterboxed for the whole session (38% of a 4:3 iPad went to black bars before this).
+        // No window exists yet, so only the size can be measured here - the safe area follows
+        // below, once the window is laid out. See GameScreenMetricsBridge / game.model.ScreenLayout.
+        publishScreenMetrics()
+
         ShellAppDelegate.shared.applicationDidFinishLaunching(app: application)
         let window = ShellAppDelegate.shared.window
         self.shellWindow = window
@@ -36,12 +43,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         let compose = MainMenuComposeScreen.shared.makeViewController { [weak self] levelId in
             print("MAIN_MENU: Start Level tapped (\(levelId)) -> Swapping rootViewController to KorGE gameplay")
+            // Before startLevel, not after: startLevel is what builds the GameplayScene, and a
+            // Scene takes its canvas size once, when it is created.
+            self?.refreshScreenMetrics()
             GameLevelStartBridge.shared.startLevel(levelId: levelId)
             self?.switchToKorGE()
         }
         composeVC = compose
         window.rootViewController = compose
         window.makeKeyAndVisible()
+        // Key and visible, so safeAreaInsets is real now: in landscape that is the Dynamic
+        // Island / notch on one side and the home indicator along the bottom, which the HUD's
+        // D-pad and jump cluster used to sit partly underneath.
+        publishSafeArea()
 
         // Automated verification sequence for CI:
         // MainMenu renders -> Switch to KorGE gameplay -> Dwell -> Return to MainMenu.
@@ -92,11 +106,62 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         ShellAppDelegate.shared.applicationWillTerminate(app: application)
     }
 
+    // MARK: - Screen Metrics (canvas size + safe area, consumed by game.model.ScreenLayout)
+
+    /// Publishes the screen size in points. Called before KorGE boots (when only UIScreen exists)
+    /// and again on every switch into gameplay, where the window itself is the better measurement
+    /// - it reflects the settled orientation, which UIScreen.bounds does not always do during the
+    /// first moments of launch. Landscape is assumed on the Kotlin side, so which of the two
+    /// numbers is the larger one does not matter.
+    ///
+    /// Published to BOTH frameworks: GameMain and PaywallModule each compile their own copy of
+    /// `game.model.DeviceScreen`, so one publish reaches only one of them (see
+    /// MenuScreenMetricsBridge's own note). Android has a single process-wide copy and does this
+    /// once, in MainActivity.
+    private func publishScreenMetrics() {
+        let bounds = shellWindow?.bounds ?? UIScreen.main.bounds
+        GameScreenMetricsBridge.shared.publishScreenSize(
+            widthPt: Double(bounds.width),
+            heightPt: Double(bounds.height)
+        )
+        MenuScreenMetricsBridge.shared.publishScreenSize(
+            widthPt: Double(bounds.width),
+            heightPt: Double(bounds.height)
+        )
+    }
+
+    /// Both halves, for the moments where the window is known to be laid out and settled.
+    private func refreshScreenMetrics() {
+        publishScreenMetrics()
+        publishSafeArea()
+    }
+
+    /// Publishes `window.safeAreaInsets`. Zero until the window has been laid out, which is why
+    /// this is separate from the size above.
+    private func publishSafeArea() {
+        guard let insets = shellWindow?.safeAreaInsets else { return }
+        GameScreenMetricsBridge.shared.publishSafeArea(
+            leftPt: Double(insets.left),
+            topPt: Double(insets.top),
+            rightPt: Double(insets.right),
+            bottomPt: Double(insets.bottom)
+        )
+        MenuScreenMetricsBridge.shared.publishSafeArea(
+            leftPt: Double(insets.left),
+            topPt: Double(insets.top),
+            rightPt: Double(insets.right),
+            bottomPt: Double(insets.bottom)
+        )
+    }
+
     // MARK: - RootViewController Swapping (Compose <-> KorGE)
 
     func switchToKorGE() {
         guard let window = self.shellWindow, let korge = self.korgeVC else { return }
         print("SHELL: Swapping to KorGE (Gameplay)")
+        // Also done in the start-level closure in didFinishLaunching, which runs a moment earlier
+        // - this covers the CI path (runAutomatedLevelTransition) that calls switchToKorGE direct.
+        refreshScreenMetrics()
         // Lets CI poll for this instead of guessing a sleep duration - a prior attempt (2026-09-12)
         // spread 6 blind, fixed-interval screenshot attempts across the automated test's ~1.5s
         // KorGE-visible window and missed it every time, since each `simctl io screenshot` call

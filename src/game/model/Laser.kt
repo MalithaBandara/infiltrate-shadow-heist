@@ -28,7 +28,21 @@ data class LaserDef(
     val activeDuration: Double = 2.0,
     val inactiveDuration: Double = 1.5,
     val phaseOffsetSeconds: Double = 0.0,
-    val isAlwaysActive: Boolean = false
+    val isAlwaysActive: Boolean = false,
+    /**
+     * Scales the drawn emitter/receiver housings at either end of the beam (1.0 is the stock 32x9
+     * cannon). Purely visual - the beam's own collision is [beamThickness] and does not move. For
+     * a bank of beams standing close together, where full-size housings crowd each other and the
+     * structure they hang off: LEVEL_6_LAYOUT's exit curtain runs at 0.55.
+     */
+    val emitterScale: Double = 1.0,
+    /**
+     * Ties this beam to a switch: a [Lever] whose targetMechanismId matches kills every laser
+     * carrying it, permanently (see GameWorld's lever handling and [Laser.disable]). Null - the
+     * default, and every laser before LEVEL_6_LAYOUT's exit curtain - means nothing can turn it
+     * off and the only way past is its own on/off cycle.
+     */
+    val mechanismId: String? = null
 ) {
     /**
      * Tilt angle measured from vertical (0° is straight down along +y axis).
@@ -100,10 +114,27 @@ class Laser(
     val activeDuration: Double = 2.0,
     val inactiveDuration: Double = 1.5,
     val phaseOffsetSeconds: Double = 0.0,
-    val isAlwaysActive: Boolean = false
+    val isAlwaysActive: Boolean = false,
+    /** See [LaserDef.emitterScale] - the drawn size of the housings, nothing to do with collision. */
+    val emitterScale: Double = 1.0,
+    /** See [LaserDef.mechanismId] - the switch, if any, that can kill this beam for good. */
+    val mechanismId: String? = null
 ) {
     var isActive: Boolean = true
         private set
+
+    /**
+     * Cut by its switch and staying cut. Unlike the active/inactive cycle this is one-way for the
+     * rest of the run (until [reset]), because it is a lever being thrown, not a timing window.
+     */
+    var isDisabled: Boolean = false
+        private set
+
+    /** Throws the switch. No-op on a laser that has no [mechanismId] - see GameWorld.triggerLever. */
+    fun disable() {
+        isDisabled = true
+        isActive = false
+    }
 
     /**
      * Tilt angle measured from vertical (0° is straight down along +y axis).
@@ -188,6 +219,10 @@ class Laser(
      * Updates laser energized state based on [totalElapsedSeconds].
      */
     fun update(totalElapsedSeconds: Double) {
+        if (isDisabled) {
+            isActive = false
+            return
+        }
         if (isAlwaysActive) {
             isActive = true
             return
@@ -222,5 +257,6 @@ class Laser(
 
     fun reset() {
         isActive = true
+        isDisabled = false
     }
 }

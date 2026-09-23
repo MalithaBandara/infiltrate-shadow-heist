@@ -9,6 +9,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -123,20 +125,28 @@ fun MainMenuScreen(
             .fillMaxSize()
             .background(Color(0xFF0E1115))
     ) {
+        val metrics = menuMetrics(maxWidth, maxHeight, MenuMetrics.MAIN_MENU_MIN_SCALE)
+        val safe = safeAreaPadding()
         val screenWidth = maxWidth
         val screenHeight = maxHeight
-        val isCompact = screenWidth < 700.dp
+        val isCompact = metrics.isNarrow
 
-        // Reference 720p scale factor for widescreen phone / desktop displays.
+        // Reference scale factor - ui/Responsive.kt.
         //
         // Was floored at 0.85 on the theory that touch-target legibility mattered more than
         // fitting without scrolling - real device testing overturned that: a landscape phone's
         // natural scale (~0.54 at ~390dp tall) got clamped up to 0.85, ballooning the button
-        // stack to ~1.57x the size that actually fits, pushing STORE/SETTINGS off-screen. 0.55
-        // still keeps buttonHeight (84*scale) just above the 48dp touch minimum at the shortest
-        // realistic phone height, while letting real devices reach close to their natural scale
-        // instead of being forced oversized.
-        val scale = if (isCompact) 0.65f else (screenHeight / 720.dp).coerceIn(0.55f, 1.4f)
+        // stack to ~1.57x the size that actually fits, pushing STORE/SETTINGS off-screen. The
+        // 0.62 floor still keeps buttonHeight (84*scale) above the 48dp touch minimum at the
+        // shortest realistic phone height.
+        //
+        // It is now min(height/720, width/1280) rather than height alone, which changes nothing
+        // on a phone or on desktop (where height is the binding axis anyway) but matters on a
+        // tablet: a 4:3 iPad is 768dp TALL, so a height-driven scale reached 1.07 and laid a
+        // 598dp-wide button stack plus a 107dp margin across a 1024dp screen, crushing the
+        // silhouette art the left gradient is there to reveal. Taking the width into account
+        // lands it at 0.8 and gives the artwork back its half of the screen.
+        val scale = if (isCompact) 0.65f else metrics.scale
 
         val logoWidth = if (isCompact) 280.dp else (540 * scale).dp
         val logoHeight = if (isCompact) 82.dp else (158 * scale).dp
@@ -147,8 +157,11 @@ fun MainMenuScreen(
         val buttonFontSize = if (isCompact) 24.sp else (36 * scale).sp
         val iconSize = if (isCompact) 24.dp else (36 * scale).dp
 
-        // Moved slightly to the right for better visual breathing room
-        val startMargin = if (isCompact) 16.dp else (100 * scale).dp
+        // Moved slightly to the right for better visual breathing room. Plus whatever the host
+        // reports as a landscape notch on the leading edge - this column starts closer to the
+        // screen edge than anything else in the app.
+        val startMargin = (if (isCompact) 16.dp else (100 * scale).dp) +
+            safe.calculateStartPadding(LocalLayoutDirection.current)
 
         // The dossier card sizes off its own floor rather than the menu's 0.85.
         //

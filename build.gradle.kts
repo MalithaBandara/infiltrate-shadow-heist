@@ -62,5 +62,12 @@ tasks.withType<JavaExec>().configureEach {
         // silently fell back to level_1 no matter which mission was actually picked.
         environment("startLevel", project.property("startLevel") as String)
     }
+    if (project.hasProperty("windowSize")) {
+        // Same environment-variable (not system-property) route as startLevel above, read by
+        // main.kt's own `windowSize`. It lets a desktop run stand in for a device aspect ratio
+        // that cannot be tested on this machine: -PwindowSize=1024x768 is an iPad, 932x400 a
+        // 21:9 phone. See game.model.ScreenLayout.
+        environment("windowSize", project.property("windowSize") as String)
+    }
 }
 

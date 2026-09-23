@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -25,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -100,8 +103,12 @@ fun LevelSelectScreen(
             .fillMaxSize()
             .background(Color(0xFF0B0B0D))
     ) {
-        val screenHeight = maxHeight
-        val scale = (screenHeight / 720.dp).coerceIn(0.75f, 1.4f)
+        // Two-axis scale (ui/Responsive.kt). The old height-only version floored at 0.75, which on
+        // a 390dp-tall landscape phone inflated everything ~39% past the room available and pushed
+        // the mission grid off the bottom - the screen was only reachable by scrolling.
+        val metrics = menuMetrics(maxWidth, maxHeight)
+        val scale = metrics.scale
+        val safe = safeAreaPadding()
 
         Column(modifier = Modifier.fillMaxSize()) {
             // Top Bar
@@ -109,15 +116,21 @@ fun LevelSelectScreen(
                 title = "MISSIONS",
                 font = bebasFont,
                 onBackClicked = onBackClicked,
+                scale = scale,
+                startInset = safe.calculateStartPadding(LocalLayoutDirection.current),
+                endInset = safe.calculateEndPadding(LocalLayoutDirection.current),
+                hideLogo = !metrics.showsTopBarLogo,
                 statPills = {
                     StatPill(
                         label = "$starsEarned/$starsMax",
                         icon = { drawStar(size.width / 2f, size.height / 2f, 7f, 2.8f, Color(0xFFFFD54F)) },
-                        pillWidth = 95.dp
+                        pillWidth = 95.dp,
+                        scale = scale
                     )
                     CoinPill(
                         coins = profile.coins,
-                        onPlusClicked = onStoreClicked
+                        onPlusClicked = onStoreClicked,
+                        scale = scale
                     )
                 }
             )
@@ -129,13 +142,21 @@ fun LevelSelectScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = (30 * scale).dp, vertical = (12 * scale).dp)
+                    .padding(
+                        start = metrics.gutter + safe.calculateStartPadding(LocalLayoutDirection.current),
+                        end = metrics.gutter + safe.calculateEndPadding(LocalLayoutDirection.current),
+                        top = (12 * scale).dp,
+                        bottom = (12 * scale).dp + safe.calculateBottomPadding(),
+                    )
             ) {
-                // Chapter Cards Row
+                // Chapter Cards Row. Three of its four cards are COMING SOON placeholders, so on a
+                // screen with no height to spare it is the first thing to give: shorter here,
+                // rather than shrinking the missions the screen is actually for.
+                val chapterRowHeight = if (metrics.isShort) (86 * scale).dp else (110 * scale).dp
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height((110 * scale).dp),
+                        .height(chapterRowHeight),
                     horizontalArrangement = Arrangement.spacedBy((16 * scale).dp)
                 ) {
                     for (i in 0 until 4) {
@@ -151,7 +172,7 @@ fun LevelSelectScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height((18 * scale).dp))
+                Spacer(modifier = Modifier.height(if (metrics.isShort) (10 * scale).dp else (18 * scale).dp))
 
                 // Section Header
                 Row(
@@ -174,7 +195,7 @@ fun LevelSelectScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height((16 * scale).dp))
+                Spacer(modifier = Modifier.height(if (metrics.isShort) (8 * scale).dp else (16 * scale).dp))
 
                 // Mission Cards Grid. 12 missions no longer fit one row, so they wrap 4-per-row
                 // (matching the chapter row's own column count above) instead of squeezing all of
@@ -208,6 +229,10 @@ fun LevelSelectScreen(
                                 canPlay = canPlay,
                                 font = bebasFont,
                                 scale = scale,
+                                // Two lines of briefing on a phone in landscape, three where
+                                // there is room. The third line is the first thing that pushes a
+                                // row past the fold.
+                                descriptionLines = if (metrics.isShort) 2 else 3,
                                 onClick = { if (canPlay) onStartMission(levelData) else toastError() },
                                 modifier = Modifier
                                     .weight(1f)
@@ -220,7 +245,7 @@ fun LevelSelectScreen(
                             Spacer(modifier = Modifier.weight(1f))
                         }
                     }
-                    Spacer(modifier = Modifier.height((16 * scale).dp))
+                    Spacer(modifier = Modifier.height(if (metrics.isShort) (10 * scale).dp else (16 * scale).dp))
                 }
             }
         }
@@ -318,6 +343,7 @@ private fun MissionCard(
     canPlay: Boolean,
     font: FontFamily,
     scale: Float,
+    descriptionLines: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -370,24 +396,24 @@ private fun MissionCard(
                         letterSpacing = 1.sp
                     )
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height((6 * scale).dp))
 
                     Text(
                         text = levelData.description,
                         color = Color.White.copy(alpha = 0.55f),
                         fontSize = (11 * scale).sp,
                         lineHeight = (14 * scale).sp,
-                        maxLines = 3,
+                        maxLines = descriptionLines,
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height((10 * scale).dp))
 
                     // Star Row
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy((4 * scale).dp)) {
                         for (s in 0 until 3) {
                             val earned = s < (result?.starCount ?: 0)
-                            Canvas(modifier = Modifier.size(16.dp)) {
+                            Canvas(modifier = Modifier.size((16 * scale).dp)) {
                                 drawStar(
                                     size.width / 2f,
                                     size.height / 2f,

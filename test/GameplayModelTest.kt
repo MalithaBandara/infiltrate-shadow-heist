@@ -3930,81 +3930,144 @@ class GameplayModelTest {
         world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
         assertTrue(leverCrate.x > restX, "The lever's target moving platform should start moving from a remote trigger exactly as it would from a direct interact")
 
-        // Level 6 has a second lever (lever_3, section 3's still-unwired one) still un-thrown -
-        // Remote Trigger must reach that one next, not report nothing left. Throwing it is a
-        // harmless no-op on the world otherwise (see Lever.targetMechanismId == null), but it still
-        // counts as "thrown" for hasRemoteTriggerTarget()'s own purposes.
+        // Level 6 has a second lever (lever_3, out on the ground dead-end past the barrels) still
+        // un-thrown - Remote Trigger must reach that one next, not report nothing left. It powers
+        // section 4's gantry on the far side of the machine, so a remote throw has to start that
+        // crate sweeping exactly as an in-range press would.
+        val gantryCrate = world.movingPlatforms.first { it.id == "lvl6_gantry_crate" }
+        val gantryRestX = gantryCrate.x
         assertTrue(world.hasRemoteTriggerTarget(), "lever_3 is still un-thrown - Remote Trigger should have another target")
         val lever3 = world.levers.first { it.id == "lever_3" }
         assertTrue(world.activatePowerup(PowerupType.REMOTE_TRIGGER), "Remote Trigger must succeed again with lever_3 still available")
         assertTrue(lever3.isActivated, "The second Remote Trigger use should throw lever_3")
+        world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+        assertTrue(gantryCrate.x < gantryRestX, "The gantry crate should start sweeping off the landing")
+
+        // And section 5's switch, the furthest out - the one that cuts the exit laser curtain.
+        val exitLasers = world.lasers.filter { it.mechanismId == "lvl6_exit_lasers" }
+        assertTrue(exitLasers.isNotEmpty(), "Level 6 ends behind a switched laser curtain")
+        assertTrue(world.hasRemoteTriggerTarget(), "lever_4 is still un-thrown - Remote Trigger should have another target")
+        val lever4 = world.levers.first { it.id == "lever_4" }
+        assertTrue(world.activatePowerup(PowerupType.REMOTE_TRIGGER), "Remote Trigger must succeed again with lever_4 still available")
+        assertTrue(lever4.isActivated, "The third Remote Trigger use should throw lever_4")
+        world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+        assertTrue(exitLasers.all { !it.isActive }, "...which cuts every beam in the curtain")
 
         // Nothing left to throw now - a further use must be refused, not silently do nothing while
         // still charging the player an item (checked at the GameplayScene call site via
         // hasRemoteTriggerTarget(), verified directly on the model here).
-        assertFalse(world.hasRemoteTriggerTarget(), "No levers should remain once both have been thrown")
+        assertFalse(world.hasRemoteTriggerTarget(), "No levers should remain once all three have been thrown")
         assertFalse(world.activatePowerup(PowerupType.REMOTE_TRIGGER), "Remote Trigger must refuse when there is nothing left to trigger")
     }
 
     @Test
-    fun testLevel6ThirdLeverIsPresentButNotYetFunctional() {
-        // "put a lever on that platform (currently not functional)" - real, interactable, visually
-        // no different from lever_1, but wired to nothing (Lever.targetMechanismId defaults to
-        // null) - a glimpse of more to come, the same pattern this file's own hookCrate2 (since
-        // removed) and LEVEL_3/SIDE_SCROLL_LAYOUT were all built with.
+    fun testLevel6ThirdLeverNowDrivesTheGantryAcrossTheMachine() {
+        // lever_3 was "put a lever on that platform (currently not functional)" - real and
+        // interactable but wired to nothing. It is section 4's trigger now ("the lever for the
+        // hanging crate should be the one left of the crane"), which is what the ground dead-end
+        // it stands on is worth: the walk along the floor stops at the crane's tracks, and this is
+        // the reason to have made it. The crate it starts is on the far side of the machine, so
+        // the sweep runs continuously - the player has the whole boom crossing to get there.
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
         val lever3 = world.levers.first { it.id == "lever_3" }
-        assertNull(lever3.targetMechanismId, "lever_3 should not be wired to any mechanism yet")
+        val gantry = world.movingPlatforms.first { it.id == "lvl6_gantry_crate" }
+        assertEquals("lvl6_gantry_crate", lever3.targetMechanismId, "lever_3 drives section 4's gantry")
+        assertFalse(gantry.isActive, "...which is parked until it is pulled")
 
-        val restPositions = world.movingPlatforms.map { it.x }
+        val restX = gantry.x
         world.player.resetTo(lever3.centerX - world.player.width / 2.0, lever3.y + lever3.height - world.player.height)
         world.update(1.0 / 60.0, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = true)
-        assertTrue(lever3.isActivated, "lever_3 should still visually activate when interacted with in range")
+        assertTrue(lever3.isActivated, "Standing at lever_3 and pressing interact should throw it")
+        assertTrue(gantry.isActive, "...and power the gantry")
 
         for (i in 0 until 60) {
             world.update(1.0 / 60.0, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
         }
-        assertEquals(restPositions, world.movingPlatforms.map { it.x },
-            "Pulling lever_3 must not move any moving platform - it has no target wired up yet")
+        assertTrue(gantry.x < restX - 1.0, "The crate should be sweeping off the landing a second later")
     }
 
     @Test
-    fun testLevel6CranePlatformMatchesEndTerrainHeightSoThePlayerCanWalkUnderTheBoom() {
-        // "increase the height of the platform the crane is on so the player can [walk] under the
-        // beam and [reach] the platform with the lever" - cranePlatform is connected to endTerrain
-        // (no gap, from an earlier request) and now shares its exact height, one flat walkable tier.
+    fun testLevel6CraneStandsJustRightOfTheLeverOnOneLowFlatTier() {
+        // "take the crane to left ... the vehicle part of the crane should be just right of the
+        // lever ... make the height of the platform after the lever shorter and put the crane
+        // there." endTerrain and cranePlatform are one flat groundY-48 tier (they used to be
+        // groundY-96) and the machine's own tracked base starts a short step past the lever.
         val layout = LevelData.LEVEL_6_LAYOUT
-        val endTerrain = layout.boxes.first { it.width == 120.0 && it.height == 96.0 }
-        val cranePlatform = layout.boxes.first { it.height == 96.0 && it.x == endTerrain.right }
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val groundY = 440.0
+        val crane = world.cranes.single()
+        val lever3 = world.levers.first { it.id == "lever_3" }
+        val endTerrain = layout.boxes.first { it.width == 70.0 }
+        val cranePlatform = layout.boxes.first { it.x == endTerrain.right && it.height == endTerrain.height }
+
+        assertEquals(groundY - 48.0, endTerrain.top, 1e-9, "The lever platform is one barrel high now, not two")
         assertEquals(endTerrain.right, cranePlatform.left, 1e-9, "cranePlatform must be connected to endTerrain, no gap")
         assertEquals(endTerrain.top, cranePlatform.top, 1e-9, "cranePlatform must share endTerrain's own height, one flat tier")
-        assertTrue(cranePlatform in layout.plainPlatforms,
-            "cranePlatform's own dimensions could trip GameplayScene.kt's crate-shaped size " +
-                "heuristic, so it must be forced back to the plain structural-block look")
+        assertTrue(endTerrain in layout.plainPlatforms && cranePlatform in layout.plainPlatforms,
+            "Both are inside GameplayScene.kt's crate-shaped size heuristics by coincidence, so both must opt out")
 
-        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
-        val lever3 = world.levers.first { it.id == "lever_3" }
-        assertEquals(1, world.cranes.size, "Exactly one crane added")
-        val crane = world.cranes.single()
+        // "just right of the lever" - the machine itself, not the boom tip 393 units further back.
+        val machineGap = crane.bodyBounds.left - (lever3.x + lever3.width)
+        assertTrue(machineGap in 10.0..60.0,
+            "The crane's tracked base should stand just past the lever, not across the level (gap was $machineGap)")
+        assertEquals(cranePlatform.top, crane.bodyBounds.bottom, 1e-9, "The machine must rest flush on cranePlatform")
+        assertEquals(cranePlatform.top, crane.houseBounds.bottom, 1e-9, "The machine must rest flush on cranePlatform")
+        assertTrue(crane.bodyBounds.left >= cranePlatform.left && crane.houseBounds.right <= cranePlatform.right + 1e-6,
+            "The machine must be fully contained within cranePlatform, not overhanging it")
+        assertTrue(crane.height > 90.0, "The crane should still be the larger version, not the old 90-tall one")
 
-        // "make this beam go across to the next platform" - the boom now reaches back over
-        // endTerrain's own right portion, well clear of the barrel stack at its far/left end.
-        assertTrue(crane.boomBounds.left < endTerrain.right, "The boom should reach back across to endTerrain, the next platform")
-        assertTrue(crane.boomBounds.left > endTerrain.left, "...but not so far it reaches all the way past endTerrain's own far edge")
-
-        // Clearance under the boom, from endTerrain's own surface, must clear a standing player.
+        // A standing player still fits under the boom on this tier - that is the whole reason it
+        // dropped 48 units when the crane moved left.
         val playerHeight = 96.0
         assertTrue(endTerrain.top - crane.boomBounds.bottom >= playerHeight,
-            "The player must be able to walk under the boom at full standing height, not just crouched")
+            "The player must be able to walk under the boom at full standing height on the lever platform")
+    }
 
-        // The tracked-base end still rests on solid ground, not floating - see cabBounds.
-        assertEquals(cranePlatform.top, crane.cabBounds.bottom, 1e-9, "The crane's tracked-base end must rest flush on cranePlatform")
-        assertTrue(crane.cabBounds.left >= cranePlatform.left && crane.cabBounds.right <= cranePlatform.right + 1e-6,
-            "The tracked-base end must be fully contained within cranePlatform, not overhanging it")
+    @Test
+    fun testLevel6BoomOverhangsTallBlockAndIsClimbableFromTheFarSideOfTheGap() {
+        // "take the crane to left, so that the player can climb onto it from the otherside of the
+        // gap" - the boom now reaches back across the ground gap and over tallBlock's own far end,
+        // at a height inside Player's climb window from that surface, and it is whitelisted as a
+        // floating climb target (its underside hangs well above the climbing player's feet).
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val crane = world.cranes.single()
+        val tallBlock = layout.boxes.first { it.width == 300.0 && it.height == 96.0 }
+        val endBarrel1 = layout.barrels.minByOrNull { it.left }!!
 
-        assertTrue(crane.cabBounds.left > lever3.x + lever3.width,
-            "The crane's tracked-base end (its main body) should still sit to the right of the lever, even though its boom now reaches back over it")
-        assertTrue(crane.height > 90.0, "The crane should be a real size increase over its previous 90-tall version")
+        assertTrue(crane.boomBounds.left in tallBlock.left..tallBlock.right,
+            "The boom tip must overhang tallBlock itself, so the player meets it before the ledge")
+        assertTrue(crane.boomBounds.left < endBarrel1.left,
+            "...having reached back across the ground gap to get there")
+        assertTrue(crane.boomBounds in layout.floatingClimbTargets,
+            "A hanging boom fails findClimbTarget's floating-ledge check by construction, so it needs the exemption")
+
+        val player = world.player
+        // "for the climbing animation to work, this long beam should be his head height" - the
+        // boom's walkable top lands on the crown of a player standing on tallBlock, which is also
+        // this game's own canonical 96-unit climb. CraneDef.heightForBoomTop derives the crane's own
+        // height from this, so a regression here means the machine was re-sized by hand.
+        assertEquals(tallBlock.top - player.height, crane.boomBounds.top, 1e-9,
+            "The beam has to sit at the standing head height of a player on tallBlock")
+        val climbRise = tallBlock.top - crane.boomBounds.top
+        assertTrue(climbRise > player.climbMinHeight && climbRise <= player.climbMaxHeight,
+            "The climb onto the boom from tallBlock must be inside ${player.climbMinHeight}..${player.climbMaxHeight} (was $climbRise)")
+
+        // Drive the real loop: walk right along tallBlock until the boom stops the player, press
+        // jump there, end up standing on the boom. Jump is pressed on the stall rather than held
+        // every frame - a held jump re-fires as an ordinary hop and never settles into the climb.
+        val dt = 1.0 / 60.0
+        player.resetTo(tallBlock.left + 40.0, tallBlock.top - player.height)
+        var elapsed = 0.0
+        var stalledFor = 0.0
+        while (elapsed < 8.0 && player.y + player.height > crane.boomBounds.top + 1.0) {
+            val beforeX = player.x
+            world.update(dt, moveInput = 1.0, jumpInput = player.isGrounded && stalledFor > 0.05, crouchInput = false, interactInput = false)
+            stalledFor = if (kotlin.math.abs(player.x - beforeX) < 0.5) stalledFor + dt else 0.0
+            elapsed += dt
+        }
+        assertEquals(crane.boomBounds.top, player.y + player.height, 1.0,
+            "The player should be standing on the boom after climbing from tallBlock, ended at y=${player.y}")
     }
 
     @Test
@@ -4020,18 +4083,871 @@ class GameplayModelTest {
     }
 
     @Test
-    fun testLevel6EntireCraneIsSolidAndTheExitSitsBeforeItsTrackedBase() {
-        // "make sure all parts of the crane is interactable" - both boomBounds and cabBounds are
-        // real boxes the player can bump into, not just background art. The tracked-base end
-        // (cabBounds) is a genuine full-height block - too tall to climb on purpose (its own
-        // height is past Player.climbMaxHeight, so it reads as real grounded machinery rather than
-        // another climbable step) - so the exit has to sit before it, not past it.
+    fun testLevel6CraneCollidesAsSeveralPiecesThatFollowItsOwnSilhouette() {
+        // "dont just use 1 bounding box for collisions in the crane. use multiple of them so
+        // walking on it doesnt feel like flying" - crossing the machine is a real staircase down
+        // its own drawn shape (boom -> house roof -> the platform), not one flat surface at the
+        // boom's height all the way across the vehicle.
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
         val crane = world.cranes.single()
-        assertTrue(crane.boomBounds in world.boxes, "The boom must be solid, not just background art")
-        assertTrue(crane.cabBounds in world.boxes, "The tracked-base end must be solid, not just background art")
-        assertTrue(crane.cabBounds.height > 115.0, "The tracked-base end's own rise must exceed Player.climbMaxHeight, so it isn't climbable")
-        assertTrue(world.exitZone.x < crane.cabBounds.left, "The exit must sit before the tracked-base end, which the player cannot climb past")
+        val cranePlatform = LevelData.LEVEL_6_LAYOUT.boxes.first { it.height == 48.0 && it.width > 300.0 }
+
+        assertEquals(3, crane.collisionBoxes.size, "The crane collides as three pieces, not one")
+        crane.collisionBoxes.forEach { piece ->
+            assertTrue(piece in world.boxes, "Every piece of the crane must be solid: $piece")
+        }
+
+        // Left to right, with no gaps between them.
+        assertEquals(crane.boomBounds.right, crane.bodyBounds.left, 1e-9, "boom and body must meet")
+        assertEquals(crane.bodyBounds.right, crane.houseBounds.left, 1e-9, "body and house must meet")
+        assertEquals(crane.boomBounds.top, crane.bodyBounds.top, 1e-9,
+            "The boom art runs right over the machine's front, so that stretch walks at the boom's own height")
+
+        // The steps themselves - each one a real drop the player can take, and the house roof is
+        // the piece whose top is genuinely its own drawn roof rather than the boom's height.
+        val boomToHouse = crane.houseBounds.top - crane.boomBounds.top
+        val houseToPlatform = cranePlatform.top - crane.houseBounds.top
+        assertTrue(boomToHouse > 30.0 && boomToHouse < 60.0,
+            "Stepping off the boom onto the house roof should be a real step, not a cliff or a seam (was $boomToHouse)")
+        assertTrue(houseToPlatform > 60.0, "The house roof must sit well above the platform (was $houseToPlatform)")
+
+        // Climbing back up onto the house from the exit side is allowed (it rests on the platform);
+        // the machine's front face is not (too tall, and the boom above it blocks the headroom).
+        val player = world.player
+        assertTrue(cranePlatform.top - crane.houseBounds.top <= player.climbMaxHeight,
+            "The house roof must be climbable from the exit side, so arriving there is never one-way")
+        assertTrue(cranePlatform.top - crane.bodyBounds.top > player.climbMaxHeight,
+            "The machine's front face must be too tall to climb, so the way past it is over the boom")
+    }
+
+    @Test
+    fun testLevel6GroundApproachStopsAtTheMachineWithoutWedgingThePlayer() {
+        // The machine is a wall to anyone walking the lower tier, and that has to be a clean stop:
+        // the player ends up standing on the platform in front of the tracks, not wedged inside the
+        // boom or the body, and the walk back out (to tallBlock, and the boom) stays open. Driven
+        // through the real loop rather than reasoned from the box heights.
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val crane = layout.cranes.single()
+        val endTerrain = layout.boxes.first { it.width == 70.0 }
+        val tallBlock = layout.boxes.first { it.width == 300.0 && it.height == 96.0 }
+        val player = world.player
+        val dt = 1.0 / 60.0
+
+        player.resetTo(endTerrain.left + 2.0, endTerrain.top - player.height)
+        var stalledFor = 0.0
+        var elapsed = 0.0
+        while (elapsed < 6.0) {
+            val beforeX = player.x
+            world.update(dt, moveInput = 1.0, jumpInput = player.isGrounded && stalledFor > 0.05, crouchInput = false, interactInput = false)
+            stalledFor = if (kotlin.math.abs(player.x - beforeX) < 0.5) stalledFor + dt else 0.0
+            elapsed += dt
+        }
+        // Let the autopilot stop hopping against the wall and settle before reading its stance.
+        repeat(40) { world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false) }
+        assertFalse(world.isLevelComplete, "The ground approach must not reach the exit - the machine blocks it")
+        assertEquals(crane.bodyBounds.left, player.x + player.width, 1.0,
+            "The player should come to rest flush against the machine's tracks")
+        assertEquals(endTerrain.top, player.y + player.height, 1e-6,
+            "...standing on the platform, not wedged somewhere inside the crane")
+
+        // And back out again, on foot, with the ground and tallBlock's own climb still reachable.
+        elapsed = 0.0
+        while (elapsed < 4.0) {
+            world.update(dt, moveInput = -1.0, jumpInput = false, crouchInput = false, interactInput = false)
+            elapsed += dt
+        }
+        assertEquals(tallBlock.right, player.x, 1.0,
+            "Walking back left must bring the player all the way to tallBlock's own right face, where its climb is")
+    }
+
+    @Test
+    fun testLevel6ClimbingUnderTheBoomFinishesCrouchedInsteadOfWedged() {
+        // "when he climbs up this, make him climb up crouched" - coming back along the ground and
+        // climbing tallBlock from the gap side lands the player under the crane's boom, which
+        // hangs ~70 above that surface: standing room is 96, crouching room is 56. The climb is
+        // still allowed, and it now finishes in a crouch. Before this, the player hauled up into a
+        // standing pose inside the beam and was stuck there, unable to move either way, until they
+        // happened to press crouch.
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val crane = layout.cranes.single()
+        val tallBlock = layout.boxes.first { it.width == 300.0 && it.height == 96.0 }
+        val player = world.player
+        val dt = 1.0 / 60.0
+        val groundY = 440.0
+
+        // The boom really is overhead at the edge being climbed, and really is too low to stand.
+        assertTrue(crane.boomBounds.left < tallBlock.right && crane.boomBounds.right > tallBlock.right,
+            "This test is only meaningful while the boom overhangs tallBlock's own right edge")
+        val headroom = tallBlock.top - crane.boomBounds.bottom
+        assertTrue(headroom < player.height && headroom > player.crouchHeight,
+            "Headroom under the boom there must be crouch-only (was $headroom)")
+
+        // Walk left out of the gap and climb, never pressing crouch.
+        player.resetTo(tallBlock.right + 60.0, groundY - player.height)
+        var stalledFor = 0.0
+        var elapsed = 0.0
+        // Run until the climb has actually finished - the feet reach the lip partway through the
+        // animation, so a loop that stops on height alone reads the stance mid-haul.
+        while (elapsed < 8.0 &&
+            !(player.isGrounded && !player.isClimbing && player.y + player.height <= tallBlock.top + 1.0)
+        ) {
+            val beforeX = player.x
+            world.update(dt, moveInput = -1.0, jumpInput = player.isGrounded && stalledFor > 0.05, crouchInput = false, interactInput = false)
+            stalledFor = if (kotlin.math.abs(player.x - beforeX) < 0.5) stalledFor + dt else 0.0
+            elapsed += dt
+        }
+        assertEquals(tallBlock.top, player.y + player.height, 1.0,
+            "The player should have climbed onto tallBlock, ended at y=" + player.y)
+        assertTrue(player.isCrouching, "The climb under the boom has to finish crouched, not standing")
+        assertTrue(player.bounds.top >= crane.boomBounds.bottom,
+            "...which means the body is clear of the beam: top=" + player.bounds.top + " beam bottom=" + crane.boomBounds.bottom)
+
+        // And they can actually leave - crouch-walking out from under the boom, still without the
+        // player ever pressing crouch themselves.
+        val afterClimbX = player.x
+        elapsed = 0.0
+        while (elapsed < 4.0) {
+            world.update(dt, moveInput = -1.0, jumpInput = false, crouchInput = false, interactInput = false)
+            elapsed += dt
+        }
+        assertTrue(player.x < afterClimbX - 50.0,
+            "The player must be able to crawl out from under the beam, moved only " + (afterClimbX - player.x))
+        assertTrue(player.x < crane.boomBounds.left && !player.isCrouching,
+            "Once out from under the beam they stand back up on their own")
+    }
+
+    @Test
+    fun testClimbUnderACeilingStopsOnTheCrouchPoseInsteadOfStandingUp() {
+        // "try to generate an animation for climbing + crouching ... because current one also goes
+        // through the beam." The climb clip runs mantle -> settled deep crouch on top (raw
+        // 145-175) -> standing up (raw 176-224). A climb into a low ceiling has to stop before
+        // that last stretch, or the character stands up straight through the beam he just ducked
+        // under. Player ends the move at CLIMB_CROUCH_END_PHASE instead of 1.0, and the frame that
+        // lands on is the one whose silhouette matches the crouch clip's own held pose.
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val tallBlock = layout.boxes.first { it.width == 300.0 && it.height == 96.0 }
+        val player = world.player
+        val dt = 1.0 / 60.0
+
+        player.resetTo(tallBlock.right + 60.0, 440.0 - player.height)
+        var stalledFor = 0.0
+        var elapsed = 0.0
+        while (elapsed < 8.0 &&
+            !(player.isGrounded && !player.isClimbing && player.y + player.height <= tallBlock.top + 1.0)
+        ) {
+            val beforeX = player.x
+            world.update(dt, moveInput = -1.0, jumpInput = player.isGrounded && stalledFor > 0.05, crouchInput = false, interactInput = false)
+            stalledFor = if (kotlin.math.abs(player.x - beforeX) < 0.5) stalledFor + dt else 0.0
+            elapsed += dt
+        }
+
+        assertTrue(player.climbEndsCrouched, "This climb has a ceiling over its landing, so it is the crouched variant")
+        assertTrue(player.climbPhase >= Player.CLIMB_CROUCH_END_PHASE && player.climbPhase < Player.CLIMB_CROUCH_END_PHASE + 0.02,
+            "The move must stop at the crouch phase, not run the clip out to 1.0 (was ${player.climbPhase})")
+
+        // The frame GameplayScene draws at that phase, in the clip's own raw file numbering.
+        val span = game.scene.PlayerAnimations.CLIMB_END - game.scene.PlayerAnimations.CLIMB_START
+        val stopFrame = game.scene.PlayerAnimations.CLIMB_START + (player.climbPhase * span).toInt()
+        val stopFile = stopFrame + 70 // CLIMB_FILE_START - raw 70 is loaded index 0
+        assertEquals(182, stopFile,
+            "The clip has to stop on raw frame 182 - measured as the frame coming back out of the " +
+                "settled crouch whose silhouette matches the crouch clip's held pose (141 vs 139 " +
+                "frame-px). Re-measure before changing it, don't nudge.")
+        assertTrue(stopFile < 205,
+            "...and well before the clip reaches its full standing height, which is what used to cross the beam")
+
+        // The ascent itself is still finished - this only cuts pose frames.
+        assertEquals(tallBlock.top, player.y + player.height, 1e-6, "The body must be fully up on the ledge")
+        assertTrue(player.isCrouching, "...and crouched, ready for the held crouch pose to take over")
+    }
+
+    @Test
+    fun testJumpOutOfACrouchNeedsRoomToStandAndDropsTheStance() {
+        // "and also crouching -> jumping": a jump can start from a crouch now, so the launch has a
+        // stance to spring out of instead of snapping upright. It is gated on the same headroom
+        // test standing up uses - under a ceiling the crouch is the only thing keeping the body
+        // clear of it, so a jump there would drive a standing pose straight through the beam.
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val tallBlock = layout.boxes.first { it.width == 300.0 && it.height == 96.0 }
+        val dt = 1.0 / 60.0
+        val groundY = 440.0
+
+        // Open ground, nothing overhead: crouch, then jump while still holding crouch.
+        val open = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val p = open.player
+        p.resetTo(tallBlock.right + 90.0, groundY - p.height)
+        repeat(30) { open.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = true, interactInput = false) }
+        assertTrue(p.isCrouching, "Crouched on open ground first")
+
+        var minFeet = Double.MAX_VALUE
+        var crouchedWhileAirborne = false
+        repeat(60) {
+            open.update(dt, moveInput = 0.0, jumpInput = true, crouchInput = true, interactInput = false)
+            minFeet = minOf(minFeet, p.y + p.height)
+            if (!p.isGrounded && p.isCrouching) crouchedWhileAirborne = true
+        }
+        val rise = groundY - minFeet
+        assertTrue(rise > p.maxJumpHeight * 0.9,
+            "A crouch jump should clear nearly a full jump's height (rose $rise of ${p.maxJumpHeight})")
+        assertFalse(crouchedWhileAirborne, "The jump IS the extension - the stance is dropped on launch, not carried into the air")
+
+        // Under the boom, the same inputs must do nothing at all: there is no room to extend.
+        val under = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val q = under.player
+        val crane = layout.cranes.single()
+        q.resetTo(crane.boomBounds.left + 60.0, tallBlock.top - q.height)
+        repeat(30) { under.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = true, interactInput = false) }
+        assertTrue(q.isCrouching, "Crouched under the boom")
+        var movedUp = 0.0
+        repeat(60) {
+            under.update(dt, moveInput = 0.0, jumpInput = true, crouchInput = false, interactInput = false)
+            movedUp = maxOf(movedUp, tallBlock.top - (q.y + q.height))
+        }
+        assertEquals(0.0, movedUp, 1e-9,
+            "Jumping under the beam must stay impossible - that is what keeps a standing pose out of it")
+        assertTrue(q.isCrouching, "...and the player stays crouched, held there by the ceiling")
+    }
+
+    @Test
+    fun testJumpUnderTheBoomLeavesTheDrawnHeadClearOfIt() {
+        // "when jumping while crouching, it still goes through the beam." On the lever platform
+        // the boom is 118 above the floor: a standing player fits under it, so the jump is allowed
+        // and simply bonks - but the character is DRAWN up to 2.6 units taller than his collision
+        // box (the jump clip's extended poses are 251 frame-px against the 244.36 the box is
+        // scaled from), so stopping the box flush against the beam still pushed the head into it.
+        // Player.CEILING_ART_MARGIN stops the box that much lower instead.
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val crane = layout.cranes.single()
+        val endTerrain = layout.boxes.first { it.width == 70.0 }
+        val dt = 1.0 / 60.0
+
+        for (crouchFirst in listOf(false, true)) {
+            val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+            val p = world.player
+            p.resetTo(endTerrain.left + 10.0, endTerrain.top - p.height)
+            if (crouchFirst) {
+                repeat(30) { world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = true, interactInput = false) }
+                assertTrue(p.isCrouching, "Crouched on the lever platform first")
+            }
+            var minFeet = Double.MAX_VALUE
+            repeat(72) {
+                world.update(dt, moveInput = 0.0, jumpInput = true, crouchInput = false, interactInput = false)
+                minFeet = minOf(minFeet, p.y + p.height)
+            }
+            assertTrue(minFeet < endTerrain.top - 1.0, "The jump should still happen (crouchFirst=$crouchFirst)")
+            val boxTop = minFeet - p.height
+            assertTrue(boxTop >= crane.boomBounds.bottom + Player.CEILING_ART_MARGIN - 1e-6,
+                "The box must stop at least CEILING_ART_MARGIN below the beam so the drawn head stays out of it " +
+                    "(crouchFirst=$crouchFirst, box top $boxTop vs beam bottom ${crane.boomBounds.bottom})")
+        }
+    }
+
+    @Test
+    fun testCrouchWalkingOffTheLedgeStaysCrouchedThroughTheFall() {
+        // "when dropping while crouching, the player goes above that beam." Nothing stands the
+        // player up in mid-air, so a crouch-walk off tallBlock's edge falls with the 56-unit
+        // crouched box - while GameplayScene used to switch the sprite to the ~98-unit drop pose
+        // the moment the feet left the ledge, which threw the drawn head 40 units above the body
+        // and straight through the boom. The scene now keeps the crouched pose for a crouched
+        // fall; this pins the model state that makes that the right pose.
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val crane = layout.cranes.single()
+        val tallBlock = layout.boxes.first { it.width == 300.0 && it.height == 96.0 }
+        val p = world.player
+        val dt = 1.0 / 60.0
+
+        // Start crouched under the boom and crawl right, off the ledge.
+        p.resetTo(tallBlock.right - 120.0, tallBlock.top - p.height)
+        repeat(30) { world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = true, interactInput = false) }
+        assertTrue(p.isCrouching, "Crouched under the boom to begin with")
+
+        var sawAirborne = false
+        var stoodUpUnderTheBeam = false
+        repeat(300) {
+            world.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = true, interactInput = false)
+            if (!p.isGrounded) {
+                sawAirborne = true
+                val underTheBoom = p.x + p.width > crane.boomBounds.left && p.x < crane.boomBounds.right
+                if (underTheBoom && !p.isCrouching) stoodUpUnderTheBeam = true
+                if (underTheBoom) {
+                    assertTrue(p.bounds.top >= crane.boomBounds.bottom - 1e-6,
+                        "The falling body must stay below the boom (top=${p.bounds.top}, boom bottom=${crane.boomBounds.bottom})")
+                }
+            }
+        }
+        assertTrue(sawAirborne, "The crawl should actually take the player off the ledge")
+        assertFalse(stoodUpUnderTheBeam, "A crouched fall stays crouched while it is still under the beam")
+    }
+
+    @Test
+    fun testCrouchedFallKeepsTheStanceDownAndStandsUpOnLanding() {
+        // "when dropping down while crouching, make him drop down in the crouch position and then
+        // get up." Crouching is held for the whole fall - there is nothing to push off in mid-air -
+        // and the stand-up happens on the floor, which is where GameplayScene's crouch machine
+        // plays the clip backwards. Releasing the button in the air used to uncoil him on the spot.
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val tallBlock = layout.boxes.first { it.width == 300.0 && it.height == 96.0 }
+        val p = world.player
+        val dt = 1.0 / 60.0
+
+        // Settle into the crouch on top of the block, then crawl off its right edge - and let go
+        // of the crouch button the moment the feet leave the ledge.
+        p.resetTo(tallBlock.right - 120.0, tallBlock.top - p.height)
+        repeat(30) { world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = true, interactInput = false) }
+        assertTrue(p.isCrouching, "Crouched on the block to begin with")
+
+        var sawAirborne = false
+        var stoodUpInTheAir = false
+        var landed = false
+        var crouchingOnTouchdown = false
+        var standingAfterLanding = false
+        var sinceLanding = 0.0
+        repeat(400) {
+            val releaseTheButton = sawAirborne
+            world.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = !releaseTheButton, interactInput = false)
+            if (!p.isGrounded) {
+                if (!landed) {
+                    sawAirborne = true
+                    if (!p.isCrouching) stoodUpInTheAir = true
+                }
+            } else if (sawAirborne && !landed) {
+                landed = true
+                crouchingOnTouchdown = p.isCrouching
+            } else if (landed) {
+                sinceLanding += dt
+                if (!p.isCrouching) standingAfterLanding = true
+            }
+        }
+        assertTrue(sawAirborne, "The crawl should take the player off the ledge")
+        assertTrue(landed, "...and land again")
+        assertFalse(stoodUpInTheAir, "The stance is held for the whole fall, button or no button")
+        assertTrue(crouchingOnTouchdown, "He arrives crouched, which is the pose the landing is drawn in")
+        assertTrue(standingAfterLanding, "...and stands up once he is back on the floor")
+    }
+
+    @Test
+    fun testCrouchingAfterLeavingTheGroundIsStillTheTuckThePlayerControls() {
+        // The counterpart to the test above: only a fall that BEGAN crouched is locked. Pressing
+        // crouch while already airborne is a tuck, and letting go extends again - otherwise a
+        // stray press in mid-air would pin the stance (and the 56-unit box) until touchdown.
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val p = world.player
+        val dt = 1.0 / 60.0
+        val floorY = p.y + p.height
+
+        repeat(60) { world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false) }
+        assertTrue(p.isGrounded, "Standing on the floor first")
+        world.update(dt, moveInput = 0.0, jumpInput = true, crouchInput = false, interactInput = false)
+        repeat(6) { world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false) }
+        assertFalse(p.isGrounded, "Airborne on the way up")
+
+        world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = true, interactInput = false)
+        assertTrue(p.isCrouching, "Crouch pressed in mid-air still tucks")
+        world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+        assertFalse(p.isCrouching, "...and releasing it in mid-air comes straight back out")
+        assertTrue(p.y + p.height <= floorY + 1e-6, "(still in the air for that check)")
+    }
+
+    @Test
+    fun testLevel6GantryCrateParksOverTheLandingAndRefusesTheClimbUntilItIsThrown() {
+        // "there is a hanging crate very close to the surface level which makes it unclimbable."
+        // The gate is the CLEARANCE, not the crate: Player.findClimbTarget drops a candidate whose
+        // landing has room for neither a standing body nor a crouched one, so the crate has to
+        // hang closer than crouchHeight or the climb would simply arrive crouched instead.
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val cranePlatform = layout.boxes.first { it.height == 48.0 && it.width > 300.0 }
+        val gateBlock = layout.boxes.first { it.x == cranePlatform.right }
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val crate = world.movingPlatforms.first { it.id == "lvl6_gantry_crate" }
+        val p = world.player
+        val dt = 1.0 / 60.0
+
+        val clearance = gateBlock.top - crate.bounds.bottom
+        assertTrue(clearance > 0.0 && clearance < p.crouchHeight,
+            "The crate has to hang inside the crouched body's own headroom ($clearance vs ${p.crouchHeight})")
+        // findClimbTarget measures headroom 6 units in from the edge the player comes over.
+        val landing = Rect(gateBlock.left + 6.0, gateBlock.top - p.height, p.width, p.height)
+        assertTrue(crate.bounds.intersects(landing), "At rest the crate has to sit over the landing itself")
+        val step = cranePlatform.top - gateBlock.top
+        assertTrue(step > p.climbMinHeight && step <= p.climbMaxHeight,
+            "...on a step that would otherwise be a perfectly ordinary climb (was $step)")
+
+        // Walk into the face and keep trying, with the lever untouched. Nothing should get up.
+        p.resetTo(gateBlock.left - p.width - 2.0, cranePlatform.top - p.height)
+        var elapsed = 0.0
+        var stalledFor = 0.0
+        while (elapsed < 6.0) {
+            val beforeX = p.x
+            world.update(dt, moveInput = 1.0, jumpInput = p.isGrounded && stalledFor > 0.05, crouchInput = false, interactInput = false)
+            stalledFor = if (kotlin.math.abs(p.x - beforeX) < 0.5) stalledFor + dt else 0.0
+            elapsed += dt
+            assertFalse(p.isClimbing, "No climb may start while the crate is parked over the landing")
+            assertTrue(p.y + p.height > gateBlock.top + 1.0,
+                "...and nothing else may get the player onto the block either (feet at ${p.y + p.height})")
+        }
+        assertFalse(crate.isActive, "The gantry stays parked until its lever is thrown")
+    }
+
+    @Test
+    fun testLevel6GantryLeverOpensARepeatingWindowTheClimbFitsInside() {
+        // "pressing that lever makes it move left and right so the player has to time when the
+        // crate is not there to climb up." Two things make that a fair ask rather than a wall: the
+        // window has to outlast the climb it is gating, and it has to come back around - one
+        // missed attempt cannot cost the level (this crate is deliberately NOT oneShot).
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val cranePlatform = layout.boxes.first { it.height == 48.0 && it.width > 300.0 }
+        val gateBlock = layout.boxes.first { it.x == cranePlatform.right }
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val crate = world.movingPlatforms.first { it.id == "lvl6_gantry_crate" }
+        val lever = world.levers.first { it.id == "lever_3" }
+        val p = world.player
+        val dt = 1.0 / 60.0
+
+        // Stand at the lever - out on the ground dead-end, the far side of the machine from the
+        // crate it drives - and press interact, exactly as the player does.
+        p.resetTo(lever.centerX - p.width / 2.0, lever.y + lever.height - p.height)
+        world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = true)
+        assertTrue(lever.isActivated, "Standing at lever_3 and pressing interact should throw it")
+        assertTrue(crate.isActive, "...which powers the gantry")
+
+        val landingLeft = gateBlock.left + 6.0
+        val landingRight = landingLeft + p.width
+        val restX = crate.x
+        var window = 0.0
+        var longestWindow = 0.0
+        var windows = 0
+        var returnedToRest = false
+        var elapsed = 0.0
+        while (elapsed < 20.0) {
+            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+            elapsed += dt
+            val clear = crate.right < landingLeft || crate.left > landingRight
+            if (clear) {
+                if (window == 0.0) windows++
+                window += dt
+                longestWindow = maxOf(longestWindow, window)
+            } else {
+                window = 0.0
+                if (elapsed > 1.0 && kotlin.math.abs(crate.x - restX) < 1.0) returnedToRest = true
+            }
+        }
+        assertTrue(windows >= 2, "The sweep has to repeat, so a missed attempt is not a dead end (saw $windows)")
+        assertTrue(returnedToRest, "...and it has to come all the way back over the landing, or there is no gate")
+        assertTrue(longestWindow > p.climbDuration + 1.0,
+            "The clear window ($longestWindow s) has to outlast the climb itself (${p.climbDuration} s), with room to start it")
+    }
+
+    @Test
+    fun testLevel6GantryCrateNeverSweepsIntoTheMachineOrOverItsWalkway() {
+        // The sweep is pushed as far left as it goes ("take the platform and the hanging crate more
+        // to the left") and this is the wall it stops at. Two things live in that airspace: the
+        // machine itself (bodyBounds' top is the boom's own height, so a crate hanging 30 above
+        // gateBlock would pass straight through it) and the route down off the boom, which walks
+        // along that top and across the cab roof - a load sweeping over the roof sweeps through
+        // whoever is standing on it. Both are geometry, so both are checked as geometry.
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val crane = world.cranes.single()
+        val crate = world.movingPlatforms.first { it.id == "lvl6_gantry_crate" }
+        val lever = world.levers.first { it.id == "lever_3" }
+        val p = world.player
+        val dt = 1.0 / 60.0
+
+        p.resetTo(lever.centerX - p.width / 2.0, lever.y + lever.height - p.height)
+        world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = true)
+        assertTrue(crate.isActive, "Lever thrown, gantry running")
+
+        // Park the player out of the way and watch three full cycles of the sweep.
+        p.resetTo(crane.houseBounds.right + 140.0, 392.0 - p.height)
+        var elapsed = 0.0
+        var leftmost = Double.MAX_VALUE
+        while (elapsed < 21.0) {
+            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+            elapsed += dt
+            leftmost = minOf(leftmost, crate.left)
+            for (piece in crane.collisionBoxes) {
+                assertFalse(crate.bounds.intersects(piece),
+                    "The load passed through the machine at x=${crate.x} (piece $piece)")
+            }
+            // A standing player on the cab roof occupies its top 96 units; nothing may sweep there.
+            val onTheRoof = Rect(
+                crane.houseBounds.left, crane.houseBounds.top - p.height,
+                crane.houseBounds.width, p.height
+            )
+            assertFalse(crate.bounds.intersects(onTheRoof),
+                "The load swept through where the player stands coming down off the boom (x=${crate.x})")
+        }
+        assertTrue(leftmost < crane.houseBounds.right + 20.0,
+            "...while still going as far left as it safely can - that is what puts it in view (got $leftmost)")
+    }
+
+    @Test
+    fun testLevel6GantryClimbGoesThroughOnceTheCrateSwingsOff() {
+        // The whole section on the real loop: throw the lever, keep walking into the face and
+        // pressing jump, and the climb goes through the moment the load is clear - after which the
+        // player can walk out from under the gantry to the right, which is why it sweeps left.
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val cranePlatform = layout.boxes.first { it.height == 48.0 && it.width > 300.0 }
+        val gateBlock = layout.boxes.first { it.x == cranePlatform.right }
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val crate = world.movingPlatforms.first { it.id == "lvl6_gantry_crate" }
+        val p = world.player
+        val dt = 1.0 / 60.0
+        world.allGuards.forEach { it.visionRange = 0.0 }
+
+        // Throw lever_3 where it stands, on the ground the far side of the machine - the crossing
+        // back over the boom is the walkthrough test's job, not this one's.
+        val lever = world.levers.first { it.id == "lever_3" }
+        p.resetTo(lever.centerX - p.width / 2.0, lever.y + lever.height - p.height)
+        world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = true)
+        assertTrue(crate.isActive, "The gantry has to be running before the climb is possible at all")
+
+        p.resetTo(cranePlatform.right - 200.0, cranePlatform.top - p.height)
+        var elapsed = 0.0
+        var stalledFor = 0.0
+        var onTheBlock = false
+        var clearOfTheGantry = false
+        while (elapsed < 25.0 && !clearOfTheGantry) {
+            val beforeX = p.x
+            world.update(dt, moveInput = 1.0, jumpInput = p.isGrounded && stalledFor > 0.05, crouchInput = false, interactInput = false)
+            stalledFor = if (kotlin.math.abs(p.x - beforeX) < 0.5) stalledFor + dt else 0.0
+            elapsed += dt
+            if (p.isGrounded && kotlin.math.abs((p.y + p.height) - gateBlock.top) < 1.0) {
+                onTheBlock = true
+                // Out from under every position the crate can ever reach, walking right.
+                if (p.x > crate.maxX + crate.width) clearOfTheGantry = true
+            }
+        }
+        assertTrue(onTheBlock, "The player should end up on top of the gantry block (ended at x=${p.x.toInt()} y=${p.y.toInt()})")
+        assertTrue(clearOfTheGantry, "...and be able to walk clear of the crate's whole sweep from there")
+    }
+
+    @Test
+    fun testLevel6GantryCrateKillsWhateverItCatchesUnderneath() {
+        // "when trying to climb if he touches the bottom side of the crate it should be mission
+        // failed." The load hangs 30 over the ledge it gates, so a climb that starts too late has
+        // the body still coming up when the crate sweeps back over the landing. That is a kill,
+        // not a wedge - MovingPlatformDef.crushesOnContact.
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val cranePlatform = layout.boxes.first { it.height == 48.0 && it.width > 300.0 }
+        val gateBlock = layout.boxes.first { it.x == cranePlatform.right }
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val crate = world.movingPlatforms.first { it.id == "lvl6_gantry_crate" }
+        val lever = world.levers.first { it.id == "lever_3" }
+        val p = world.player
+        val dt = 1.0 / 60.0
+        world.allGuards.forEach { it.visionRange = 0.0 }
+
+        p.resetTo(lever.centerX - p.width / 2.0, lever.y + lever.height - p.height)
+        world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = true)
+        assertTrue(crate.isActive, "Gantry running")
+
+        // Stand exactly where a climb arrives and wait for the load to come back.
+        p.resetTo(gateBlock.left + 6.0, gateBlock.top - p.height)
+        var elapsed = 0.0
+        while (elapsed < 10.0 && !world.isGameOver) {
+            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+            elapsed += dt
+        }
+        assertTrue(world.isGameOver,
+            "Standing under the returning load has to end the run (crate at ${crate.x}, player ${p.bounds})")
+
+        // ...and the far end of the block, past everything the crate can reach, stays safe - that
+        // is the whole point of sweeping left rather than right.
+        val safe = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val safeCrate = safe.movingPlatforms.first { it.id == "lvl6_gantry_crate" }
+        val safeLever = safe.levers.first { it.id == "lever_3" }
+        safe.allGuards.forEach { it.visionRange = 0.0 }
+        safe.player.resetTo(safeLever.centerX - safe.player.width / 2.0, safeLever.y + safeLever.height - safe.player.height)
+        safe.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = true)
+        safe.player.resetTo(safeCrate.maxX + safeCrate.width + 10.0, gateBlock.top - safe.player.height)
+        var safeElapsed = 0.0
+        while (safeElapsed < 10.0) {
+            safe.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+            safeElapsed += dt
+        }
+        assertFalse(safe.isGameOver, "Clear of the sweep is clear of the crate")
+    }
+
+    @Test
+    fun testLevel6ExitCorridorIsShutByThreeLasersUntilThePlankLeverCutsThem() {
+        // "the lever turns off 3 lasers that are there from the hanging platform to the ground.
+        // the bottom is the only path out." The corridor under the plank is the way to extraction,
+        // and it is a closed door until lever_4 is thrown - the beams are isAlwaysActive, so there
+        // is no timing window to slip through, only the switch.
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val cranePlatform = layout.boxes.first { it.height == 48.0 && it.width > 300.0 }
+        val gateBlock = layout.boxes.first { it.x == cranePlatform.right }
+        val plank = layout.boxes.first { it.height == 30.0 }
+        val dt = 1.0 / 60.0
+
+        fun freshWorld(): GameWorld {
+            val w = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+            w.allGuards.forEach { it.visionRange = 0.0 }
+            return w
+        }
+
+        val blocked = freshWorld()
+        val beams = blocked.lasers.filter { it.mechanismId == "lvl6_exit_lasers" }
+        assertEquals(3, beams.size, "Three beams, one switch")
+        assertTrue(beams.all { it.isActive }, "...all live from the start")
+        assertTrue(beams.all { it.top >= plank.bottom - 1e-6 && it.bottom >= 440.0 - 1e-6 },
+            "...hung from the plank's underside down to the floor")
+        assertTrue(beams.any { it.left >= plank.right - 12.0 },
+            "...one of them at the plank's own far end, or walking off the tip would bypass the lot")
+
+        // Walk the corridor with the switch untouched: it ends at the first beam.
+        blocked.player.resetTo(plank.left + 10.0, 440.0 - blocked.player.height)
+        var elapsed = 0.0
+        while (elapsed < 12.0 && !blocked.isGameOver && !blocked.isLevelComplete) {
+            blocked.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false, interactInput = false)
+            elapsed += dt
+        }
+        assertTrue(blocked.isGameOver, "The curtain has to stop an untouched run")
+        assertFalse(blocked.isLevelComplete, "...well short of extraction")
+
+        // Same walk with the switch thrown from the plank above it.
+        val open = freshWorld()
+        val lever4 = open.levers.first { it.id == "lever_4" }
+        open.player.resetTo(lever4.centerX - open.player.width / 2.0, plank.top - open.player.height)
+        open.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = true)
+        assertTrue(lever4.isActivated, "Standing at lever_4 on the plank and pressing interact should throw it")
+        val openBeams = open.lasers.filter { it.mechanismId == "lvl6_exit_lasers" }
+        assertTrue(openBeams.all { it.isDisabled && !it.isActive }, "...which cuts all three for good")
+
+        open.player.resetTo(plank.left + 10.0, 440.0 - open.player.height)
+        elapsed = 0.0
+        while (elapsed < 12.0 && !open.isGameOver && !open.isLevelComplete) {
+            open.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false, interactInput = false)
+            elapsed += dt
+        }
+        assertFalse(open.isGameOver, "A cut beam cannot kill")
+        assertTrue(open.isLevelComplete, "...and the corridor is the way out (ended at x=${open.player.x.toInt()})")
+    }
+
+    @Test
+    fun testLevel6HangingPlatformIsLevelWithTheCrateAndDropsIntoTheCorridor() {
+        // "lift the floating platform to the level of the top of the crate on the edge of the
+        // platform before it" and "move the crate to the edge of the platform". The step crate now
+        // stands flush with the block's far lip, the platform hangs past the gap at the crate's own
+        // top, and that gap is both the crossing and the way down: jumped from the crate it lands
+        // level on the platform; walked off it drops to the corridor floor. Nothing holds the
+        // platform up and nothing is drawn holding it up either ("remove the chain holding the
+        // floating platform").
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val cranePlatform = layout.boxes.first { it.height == 48.0 && it.width > 300.0 }
+        val gateBlock = layout.boxes.first { it.x == cranePlatform.right }
+        val plank = layout.boxes.first { it.height == 30.0 }
+        val endCrate = layout.boxes.first { it.height == 48.0 && it.width == 68.0 && it.x > gateBlock.left }
+        val dt = 1.0 / 60.0
+
+        assertEquals(gateBlock.right, endCrate.right, 1e-9, "The step crate sits on the block's own edge")
+        assertEquals(gateBlock.top, endCrate.bottom, 1e-9, "...standing on it, not floating over it")
+        assertEquals(endCrate.top, plank.top, 1e-9, "The platform is level with the top of that crate")
+        assertTrue(plank.left > endCrate.right, "...and starts past its edge, with a gap between them")
+        val gap = plank.left - endCrate.right
+        assertTrue(layout.tableDecorations.isEmpty(), "Nothing props the platform up")
+        assertTrue(layout.boxes.none { it.left < plank.left && it.right > endCrate.right && it.top > plank.top },
+            "The chute has to be clear - anything standing in it pins a body under the platform's face")
+
+        // Walked off, the crate's lip drops the player into the corridor.
+        val falling = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        falling.allGuards.forEach { it.visionRange = 0.0 }
+        val fp = falling.player
+        assertTrue(gap > fp.width, "The chute has to be wider than the body that falls down it (was $gap)")
+        fp.resetTo(endCrate.left, endCrate.top - fp.height)
+        var elapsed = 0.0
+        while (elapsed < 4.0 && !(fp.isGrounded && fp.y + fp.height >= 439.0)) {
+            falling.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false, interactInput = false)
+            elapsed += dt
+        }
+        assertTrue(fp.isGrounded && fp.y + fp.height >= 439.0,
+            "Walking off the lip has to reach the corridor floor (ended feet=${fp.y + fp.height})")
+        assertTrue(fp.x < plank.left, "...down the chute, not across it")
+
+        // Jumped, the same lip crosses to the platform - and the crate itself is reachable from the
+        // block, or there would be no way onto that lip in the first place.
+        val jumping = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        jumping.allGuards.forEach { it.visionRange = 0.0 }
+        val jp = jumping.player
+        jp.resetTo(endCrate.left - 120.0, gateBlock.top - jp.height)
+        elapsed = 0.0
+        var onTheCrate = false
+        var landed = false
+        while (elapsed < 6.0 && !landed) {
+            val atTheCrateFace = !onTheCrate && (endCrate.left - (jp.x + jp.width)) in 0.0..6.0
+            val atTheLip = onTheCrate && (endCrate.right - (jp.x + jp.width)) in 0.0..4.0
+            jumping.update(
+                dt,
+                moveInput = 1.0,
+                jumpInput = jp.isGrounded && (atTheCrateFace || atTheLip),
+                crouchInput = false,
+                interactInput = false
+            )
+            elapsed += dt
+            if (jp.isGrounded && kotlin.math.abs((jp.y + jp.height) - endCrate.top) < 1.0 && jp.x < plank.left) onTheCrate = true
+            landed = jp.isGrounded && kotlin.math.abs((jp.y + jp.height) - plank.top) < 1.0 && jp.x > plank.left - 1.0
+        }
+        assertTrue(onTheCrate, "The step crate has to be reachable from the block (48 is inside the jump)")
+        assertTrue(landed, "A jump off the crate has to clear the gap onto the platform (ended x=${jp.x.toInt()} feet=${(jp.y + jp.height).toInt()})")
+
+        // How badly the press may be mistimed and still make it across - the number the gap's width
+        // is actually spending. Jumping early wastes arc, so this is the playable margin: it has to
+        // stay a handful of units, or the crossing becomes pixel-perfect and the section unfair.
+        var slack = 0
+        for (early in 1..24) {
+            val trial = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+            trial.allGuards.forEach { it.visionRange = 0.0 }
+            val tp = trial.player
+            tp.resetTo(endCrate.left - 120.0, gateBlock.top - tp.height)
+            var t = 0.0
+            var up = false
+            var over = false
+            while (t < 6.0 && !over) {
+                val atFace = !up && (endCrate.left - (tp.x + tp.width)) in 0.0..6.0
+                val atLip = up && (endCrate.right - (tp.x + tp.width)) <= early.toDouble()
+                trial.update(dt, moveInput = 1.0, jumpInput = tp.isGrounded && (atFace || atLip), crouchInput = false, interactInput = false)
+                t += dt
+                if (tp.isGrounded && kotlin.math.abs((tp.y + tp.height) - endCrate.top) < 1.0 && tp.x < plank.left) up = true
+                over = tp.isGrounded && kotlin.math.abs((tp.y + tp.height) - plank.top) < 1.0 && tp.x > plank.left - 1.0
+            }
+            if (!over) break
+            slack = early
+        }
+        assertTrue(slack >= 10, "The chute ($gap) has to leave room to mistime the jump - only $slack units of it do")
+    }
+
+    @Test
+    fun testLevel6CraneTopIsNeitherClimbedNorJumpedFromItsOwnRearDeck() {
+        // "he should be able to climb this but not to the top part from the crane." The machine is
+        // crossed one way: in off the boom, east along it, down onto the rear deck, down onto the
+        // platform. The deck is climbed from the platform beside it; the machine's top above it is
+        // refused, and it is refused by DENYING THE MANTLE rather than by moving any geometry - the
+        // collision boxes stay on the art (a lift to make the top jumpable left the player visibly
+        // floating above the deck, and was taken back out).
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val crane = layout.cranes.single()
+        val house = crane.houseBounds
+        val body = crane.bodyBounds
+        val platform = layout.boxes.first { it.height == 48.0 && it.width > 300.0 }
+        val dt = 1.0 / 60.0
+
+        assertTrue(body in layout.unclimbableBoxes, "The machine's top is on the level's no-mantle list")
+        assertFalse(house in layout.unclimbableBoxes, "...but its rear deck is not")
+        assertEquals(platform.top, house.bottom, 1e-9, "The deck's box rests on the platform, as drawn")
+
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        world.allGuards.forEach { it.visionRange = 0.0 }
+        val p = world.player
+
+        val deckRise = platform.top - house.top
+        assertTrue(deckRise > p.climbMinHeight && deckRise <= p.climbMaxHeight,
+            "The deck is meant to be a climb from the platform ($deckRise)")
+        val topRise = house.top - body.top
+        assertTrue(topRise > p.maxJumpHeight,
+            "The machine's top is out of jump range from the deck ($topRise) - so the mantle is the only " +
+                "thing that could ever have got the player up there, and it is what gets denied")
+
+        // Up onto the deck from the platform: a climb, and allowed. (A climb is a jump PRESS against
+        // the face - see Player.updateStep - so the press is pulsed; a held one is consumed once.)
+        p.resetTo(house.right + 10.0, platform.top - p.height)
+        var elapsed = 0.0
+        var frame = 0
+        var onTheDeck = false
+        var climbedOntoTheDeck = false
+        while (elapsed < 6.0 && !onTheDeck) {
+            world.update(dt, moveInput = -1.0, jumpInput = frame % 20 < 2, crouchInput = false, interactInput = false)
+            elapsed += dt
+            frame++
+            if (p.isClimbing) climbedOntoTheDeck = true
+            onTheDeck = p.isGrounded && kotlin.math.abs((p.y + p.height) - house.top) < 1.0
+        }
+        assertTrue(onTheDeck, "Walking into the rear deck from the platform still has to get up it (feet=${p.y + p.height})")
+        assertTrue(climbedOntoTheDeck, "...as a climb - it is well past jump height")
+
+        // Up onto the machine's top from that deck: refused, by climb and by jump alike.
+        elapsed = 0.0
+        frame = 0
+        var everClimbed = false
+        var reachedTheTop = false
+        while (elapsed < 6.0) {
+            world.update(dt, moveInput = -1.0, jumpInput = frame % 20 < 2, crouchInput = false, interactInput = false)
+            elapsed += dt
+            frame++
+            if (p.isClimbing) everClimbed = true
+            if (p.isGrounded && kotlin.math.abs((p.y + p.height) - body.top) < 1.0) reachedTheTop = true
+        }
+        assertFalse(everClimbed, "The machine's top must never be mantled")
+        assertFalse(reachedTheTop, "...and the jump against it cannot land up there either")
+        elapsed = 0.0
+        while (elapsed < 1.0) {
+            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+            elapsed += dt
+        }
+        assertTrue(p.isGrounded && kotlin.math.abs((p.y + p.height) - house.top) < 1.0,
+            "...the player is left standing on the deck (feet=${p.y + p.height}, deck=${house.top})")
+
+        // The way in is untouched: tallBlock to the boom, on the far side of the machine.
+        val boom = crane.boomBounds
+        val tallBlock = layout.boxes.first { it.width == 300.0 && it.height == 96.0 }
+        assertFalse(boom in layout.unclimbableBoxes, "The boom is still the way onto the machine")
+        val boomRise = tallBlock.top - boom.top
+        assertTrue(boomRise > p.climbMinHeight && boomRise <= p.climbMaxHeight,
+            "...and that climb is still a legal one ($boomRise)")
+    }
+
+    @Test
+    fun testLevel6ExtractionBuildingStandsOnTheFloorAndCarriesTheHangingPlatform() {
+        // "increase size of the building at end and make sure it is on the floor and the middle
+        // part should be connected to the balcony." The building is the one thing in the section
+        // that can hold the platform up visually now that its chains are gone, so its height is
+        // chosen to put the art's own balcony deck at the platform's underside, and its left edge
+        // runs under the platform's tip rather than stopping short of it.
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val building = layout.exitStructure
+        assertNotNull(building, "Level 6 draws its own extraction building rather than the shared booth")
+        val plank = layout.boxes.first { it.height == 30.0 }
+        val groundTop = layout.platforms.first().top
+
+        assertEquals(groundTop, building!!.bottom, 1e-9, "It stands on the floor, not above or inside it")
+        assertTrue(building.height > 335.0, "...and it is bigger again than the 335 before it")
+        assertTrue(building.left <= plank.right, "Its left edge runs under the platform's tip, so the two meet")
+        assertTrue(building.left > plank.left, "...only the tip, though - it does not swallow the whole platform")
+        // 0.5215 down from the roof is where exitlvl7.png's own balcony deck starts. The art fills
+        // its box (it is cropped to its alpha bounds), so this fraction is the drawn deck.
+        val deckY = building.top + 0.5215 * building.height
+        assertTrue(kotlin.math.abs(deckY - plank.top) < 4.0,
+            "The building's balcony deck should be flush with the platform's own surface (deck=$deckY, platform=${plank.top})")
+        assertTrue(layout.exitZone.x > building.left && layout.exitZone.right < building.right,
+            "The trigger sits inside the silhouette - the player walks into the building")
+        assertTrue(building.right <= layout.worldWidth,
+            "The world has to reach past it (building ends ${building.right}, world ${layout.worldWidth})")
+    }
+
+    @Test
+    fun testLevel6ExitSitsPastTheGantryBlockWithTheWholeSectionInFrontOfIt() {
+        // The exit moved to the far side of the machine when the vehicle moved next to the lever,
+        // and then past section 4's gantry block when that was added - so the crane crossing gets
+        // the player to the gantry, and the gantry's own timed climb is the last thing before
+        // extraction. Nothing may reach it on the ground: gateBlock is 144 from the floor, past
+        // Player.climbMaxHeight.
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
+        val crane = world.cranes.single()
+        val layout = LevelData.LEVEL_6_LAYOUT
+        val cranePlatform = layout.boxes.first { it.height == 48.0 && it.width > 300.0 }
+        val gateBlock = layout.boxes.first { it.x == cranePlatform.right }
+        assertTrue(world.exitZone.x > crane.houseBounds.right,
+            "The exit must sit past the machine, which the ground approach cannot climb")
+        assertTrue(world.exitZone.x > gateBlock.right,
+            "...and past the gantry block, so its timed climb is on the only route there")
+        assertTrue(gateBlock.height > world.player.climbMaxHeight,
+            "The block has to be unclimbable from the ground (${gateBlock.height} vs ${world.player.climbMaxHeight})")
+        assertTrue(layout.worldWidth > world.exitZone.right + 420.0,
+            "...with the booth and its fence still fitting inside the world past the exit")
     }
 
     @Test
@@ -4079,18 +4995,23 @@ class GameplayModelTest {
         // pattern as LEVEL_3_LAYOUT's longCrate1/overwatchGuard1) and a plain rescue crate in the
         // pit's own left corner -> climb tallBlock. Crouching underneath the overwatch crate's own
         // span (with a margin either side, the same evasion mechanic LEVEL_3_LAYOUT's own tutorial
-        // teaches) is what keeps this crossing undetected. Section 3 (past tallBlock) is a short
-        // barrel gauntlet (needing the same ANTICIPATED jump as this file's own removed section 2
-        // barrel pyramid used to - see endBarrel1's own comment) leading up to endTerrain and the
-        // (currently non-functional) exit-side lever, then a plain, flat walk onto cranePlatform
-        // (connected at the same height now) and under the crane's own boom to the exit, which sits
-        // just short of the crane's tracked-base end (see CraneDef.cabBounds - too tall to climb
-        // past on purpose).
+        // teaches) is what keeps this crossing undetected. Section 3 (past tallBlock) is the crane
+        // crossing: walking on along tallBlock runs into the boom that now overhangs its far end,
+        // which is climbable from exactly there ("so that the player can climb onto it from the
+        // otherside of the gap"), and the boom carries the player over the ground gap, the barrel
+        // pair and the lever platform to the machine itself, whose own stepped silhouette
+        // (CraneDef.bodyBounds -> houseBounds -> cranePlatform) walks down to the exit. The same
+        // walk on the ground below only reaches the machine's tracks, which are too tall to climb.
         val layout = LevelData.LEVEL_6_LAYOUT
         val farTerrain = layout.boxes.first { it.x == 1592.0 }
         val tallBlock = layout.boxes.first { it.width == 300.0 && it.height == 96.0 }
         val pitLongCrate = layout.boxes.first { it.width == 174.0 && it.height == 38.0 && it.y == 300.0 }
-        val endTerrain = layout.boxes.first { it.width == 120.0 && it.x > tallBlock.right }
+        val endTerrain = layout.boxes.first { it.width == 70.0 && it.x > tallBlock.right }
+        val crane = layout.cranes.single()
+        val cranePlatform = layout.boxes.first { it.height == 48.0 && it.width > 300.0 }
+        val gateBlock = layout.boxes.first { it.x == cranePlatform.right }
+        val plank = layout.boxes.first { it.height == 30.0 }
+        val endCrate = layout.boxes.first { it.height == 48.0 && it.width == 68.0 && it.x > gateBlock.left }
         val endBarrelWalls = layout.barrels.map { it.left }.distinct()
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_6)
         val dt = 1.0 / 60.0
@@ -4100,26 +5021,114 @@ class GameplayModelTest {
 
         var elapsed = 0.0
         var stalledFor = 0.0
-        while (elapsed < 30.0 && !world.isLevelComplete && !world.isGameOver) {
+        var walkedTheBoom = false
+        var climbedTheGantryBlock = false
+        var tookTheCorridor = false
+        // Five legs, because the level's own route doubles back twice now: out along the GROUND to
+        // lever_3 (section 4's trigger, "the lever for the hanging crate should be the one left of
+        // the crane"), back west to the foot of the boom, over the machine and up the gantry
+        // block, up the plank for lever_4 while the guard is walking away, then back down and out
+        // along the corridor under the plank. Leg 0 crouches under the boom where it overhangs
+        // tallBlock - which also stops the autopilot climbing onto it early, since Player refuses a
+        // jump with no room to stand.
+        var leg = 0
+        val lever3 = world.levers.first { it.id == "lever_3" }
+        val lever4 = world.levers.first { it.id == "lever_4" }
+        val plankGuard = world.allGuards.first { it.x > plank.left - 100.0 }
+        val boom = crane.boomBounds
+        while (elapsed < 110.0 && !world.isLevelComplete && !world.isGameOver) {
             val beforeX = world.player.x
-            val nearLedgeEdge = listOf(farTerrain.right, tallBlock.right, endTerrain.right).any { ledgeRight ->
-                (ledgeRight - (world.player.x + world.player.width)) in 0.0..18.0
+            val p = world.player
+            val feetY = p.y + p.height
+            val onTallBlock = p.isGrounded && kotlin.math.abs(feetY - tallBlock.top) < 1.0
+            val onThePlank = p.isGrounded && kotlin.math.abs(feetY - plank.top) < 1.0
+            // The wait for the guard happens BEFORE the step crate, on the block, not on top of
+            // it: the crate's top is level with the platform, so a body standing up there is
+            // inside the guard's 220 of vision from his near turn - the whole approach has to be
+            // made in one burst while he is walking away. Waiting a body-length short of the
+            // crate's face keeps the player outside it.
+            val beforeTheCrate = p.isGrounded && kotlin.math.abs(feetY - gateBlock.top) < 1.0 &&
+                (endCrate.left - (p.x + p.width)) in 0.0..24.0
+            // ...and then the jump across is taken at the crate's own lip. (Getting onto the crate
+            // needs no special case: walking into its face stalls, and a stalled autopilot jumps.)
+            val atTheLip = p.isGrounded && kotlin.math.abs(feetY - endCrate.top) < 1.0 &&
+                (endCrate.right - (p.x + p.width)) <= 3.0
+            // Ducks a little BEFORE the beam, not at it: standing into its face stalls the walk,
+            // and a stalled autopilot jumps - which is the climb onto the boom, the leg-2 move.
+            val underTheBoom = onTallBlock && p.x + p.width > boom.left - 60.0 && p.x < boom.right
+            if (leg == 0 && lever3.isActivated) leg = 1
+            if (leg == 1 && onTallBlock && p.x + p.width < boom.left - 20.0) leg = 2
+            if (leg == 2 && lever4.isActivated) leg = 3
+            // Off the platform's near end, down the chute, and out along the corridor floor.
+            if (leg == 3 && p.isGrounded && feetY >= 439.0) {
+                leg = 4
+                tookTheCorridor = true
             }
-            val nearWall = endBarrelWalls.any { wallX -> (wallX - (world.player.x + world.player.width)) in 0.0..18.0 }
-            val jump = world.player.isGrounded && (stalledFor > 0.05 || nearLedgeEdge || nearWall)
-            val underOverwatch = world.player.x + world.player.width > pitLongCrate.left - 60.0 &&
-                world.player.x < pitLongCrate.right + 60.0
-            world.update(dt, moveInput = 1.0, jumpInput = jump, crouchInput = underOverwatch, interactInput = true)
-            stalledFor = if (kotlin.math.abs(world.player.x - beforeX) < 0.5) stalledFor + dt else 0.0
+            // Only start the crossing while the guard is walking away AND still in the near half
+            // of his (now much longer) beat - that is the only window where he stays turned away
+            // long enough for the crate hop, the jump, the lever and the way back off.
+            val guardLooking = !(plankGuard.facing > 0.0 && plankGuard.x < plank.left + 200.0)
+            val holdForTheGuard = leg == 2 && beforeTheCrate && guardLooking
+            val move = when {
+                leg == 1 -> -1.0
+                // Back off the platform's near end, into the chute.
+                leg == 3 -> -1.0
+                holdForTheGuard -> 0.0
+                else -> 1.0
+            }
+            val nearLedgeEdge = leg != 1 && leg < 3 &&
+                listOf(farTerrain.right, tallBlock.right, endTerrain.right).any { ledgeRight ->
+                    (ledgeRight - (p.x + p.width)) in 0.0..18.0
+                }
+            // The jump across the chute is taken at the very lip, not 18 units short of it: the
+            // gap is 65 and the arc only carries 84.5, so a wasted run-up misses the platform.
+            val jumpTheChute = leg == 2 && atTheLip
+            val nearWall = leg != 1 && leg != 3 && endBarrelWalls.any { wallX -> (wallX - (p.x + p.width)) in 0.0..18.0 }
+            // Leg 0 walks the ground under the boom and off tallBlock's far edge, so it must NOT
+            // hop that ledge - dropping off it is the way on to the barrels and the lever. Legs 3
+            // and 4 are the way back DOWN: no jumping at all, or the crate simply gets re-climbed.
+            val ledgeJump = nearLedgeEdge && !(leg == 0 && onTallBlock)
+            // Legs 3+ are the way back DOWN and out: no jumping at all, or the chute gets
+            // re-crossed and the platform re-taken, straight into the guard.
+            val jump = p.isGrounded && leg < 3 && !holdForTheGuard &&
+                (stalledFor > 0.05 || ledgeJump || nearWall || jumpTheChute)
+            val underOverwatch = p.x + p.width > pitLongCrate.left - 60.0 && p.x < pitLongCrate.right + 60.0
+            world.update(
+                dt,
+                moveInput = move,
+                jumpInput = jump,
+                crouchInput = underOverwatch || (leg < 2 && underTheBoom),
+                interactInput = leg == 0 || leg == 2
+            )
+            if (p.isGrounded && kotlin.math.abs((p.y + p.height) - boom.top) < 1.0 && p.x > boom.left) {
+                walkedTheBoom = true
+            }
+            if (p.isGrounded && kotlin.math.abs((p.y + p.height) - gateBlock.top) < 1.0) {
+                climbedTheGantryBlock = true
+            }
+            stalledFor = if (kotlin.math.abs(p.x - beforeX) < 0.5) stalledFor + dt else 0.0
             elapsed += dt
         }
+
+        assertTrue(lever3.isActivated,
+            "The ground leg has to reach lever_3 - nothing else starts the gantry, and the climb past it " +
+                "is the only way on")
+        assertTrue(lever4.isActivated,
+            "...and the plank's own lever has to be thrown, or the laser curtain is still across the way out")
+        assertTrue(tookTheCorridor,
+            "...and the way out is the corridor under the plank, on the ground")
 
         assertFalse(world.isGameOver,
             "Player should not be caught by the pit's overwatch guard while crouched underneath. Ended at " +
                 "x=${world.player.x.toInt()} y=${world.player.y.toInt()} after ${elapsed.toInt()}s")
+        assertTrue(walkedTheBoom,
+            "The crossing has to actually go over the crane's boom - nothing else reaches the gantry")
+        assertTrue(climbedTheGantryBlock,
+            "...and section 4's timed climb has to be taken on the way, since the exit is past it")
         assertTrue(world.isLevelComplete,
-            "Level should complete after falling into the pit, climbing tallBlock, crossing the barrel " +
-                "gauntlet, climbing endTerrain, and walking onto cranePlatform under the crane's boom. " +
+            "Level should complete after falling into the pit, climbing tallBlock, climbing onto the boom " +
+                "that overhangs it, walking down the machine, and timing the climb up " +
+                "gateBlock while the gantry crate is swung off it. " +
                 "Ended at x=${world.player.x.toInt()} y=${world.player.y.toInt()} after ${elapsed.toInt()}s")
     }
 
@@ -5162,5 +6171,398 @@ class GameplayModelTest {
         assertTrue(world.player.isGrounded)
         assertTrue(world.hasAdvancedCheckpoint, "Level 4 should continue using automatic distance-based checkpoints")
         assertEquals(world.player.x, world.lastCheckpointX, 1e-4)
+    }
+
+    // -------------------------------------------------------------------------
+    // Level 7: Vent Infiltration Gauntlet Tests
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun testLevel7LayoutStructureAndProperties() {
+        val levelData = LevelData.DEFAULT_LEVEL_7
+        assertEquals("level_7", levelData.id)
+        assertEquals("07: Stolen Manifest", levelData.name)
+        val layout = levelData.layout
+        assertNotNull(layout)
+        assertEquals(5200.0, layout.worldWidth)
+        assertEquals(100.0, layout.playerStartX)
+        assertFalse(layout.playerStartCrouched)
+        assertFalse(layout.canClimb)
+        assertFalse(layout.hasStartFences)
+        assertEquals(3, layout.fans.size)
+        assertEquals(8, layout.steamPipes.size)
+        assertEquals(3, layout.cameraBots.size)
+        assertEquals(6, layout.manualCheckpoints.size)
+        assertEquals(1.0, levelData.playerCrouchForwardSpeedMultiplier)
+
+        val world = GameWorld.createDefault(levelData)
+        assertFalse(world.player.isCrouching, "Player in level 7 must start standing")
+        assertEquals(3, world.fans.size)
+        assertEquals(8, world.steamPipes.size)
+        assertEquals(3, world.cameraBots.size)
+        assertEquals(6, world.manualCheckpoints.size)
+    }
+
+    @Test
+    fun testLevel7MiddleSectionCorridorAndMovement() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_7)
+        assertFalse(world.player.isCrouching, "Player should start standing")
+
+        // Player walks right standing
+        for (i in 0 until 60) {
+            world.update(1.0 / 60.0, moveInput = 1.0, jumpInput = false, crouchInput = false, interactInput = false)
+        }
+        assertTrue(world.player.x > 100.0)
+        assertFalse(world.player.isCrouching, "Player can walk standing through the middle section corridor")
+
+        // Player can also crouch when desired
+        world.update(1.0 / 60.0, moveInput = 1.0, jumpInput = false, crouchInput = true, interactInput = false)
+        assertTrue(world.player.isCrouching, "Player can crouch when crouchInput is pressed")
+    }
+
+    @Test
+    fun testLevel7VentFanPushbackAndSpamTapForwardImpulse() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_7)
+        val fan = world.fans.first() // x = 850.0, windRange = 360.0 (windMinX = 490.0)
+        val dt = 1.0 / 60.0
+
+        // 0. Boundary check: At x = 500.0 where step_spam_fan triggers, player must already be in wind zone
+        world.player.resetTo(500.0, 440.0 - 96.0)
+        assertFalse(world.player.isCrouching, "Player stands by default in level 7")
+        assertTrue(fan.isPlayerInWind(world.player), "Player at tutorial trigger x=500.0 must be recognized as inside wind zone")
+
+        // Single tap delivers measured forward impulse (+10.0 px)
+        val preTapX = world.player.x
+        world.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false, interactInput = false, forwardTap = true)
+        assertTrue(world.player.x >= preTapX + 8.0, "Single tap in wind zone must deliver measured forward surge")
+
+        // Place player inside fan wind zone
+        val testX = 700.0
+        world.player.resetTo(testX, 440.0 - 96.0)
+        assertTrue(fan.isPlayerInWind(world.player))
+
+        // 1. Long pressing forward without tapping (moveInput = 1.0, forwardTap = false)
+        // Fan pushes back at 135 px/s while standing move speed is 132 px/s -> player is pushed backward!
+        for (i in 0 until 30) {
+            world.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false, interactInput = false, forwardTap = false)
+        }
+        val startX = world.player.x
+        for (i in 0 until 40) {
+            world.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false, interactInput = false, forwardTap = false)
+        }
+        assertTrue(world.player.x < startX, "Holding forward alone should be pushed backward by high-velocity exhaust fan")
+
+        // 2. Spam-tapping forward button at human cadence (e.g. 3-4 taps/sec, tap every 18 frames) while driving forward
+        // Stride impulse (+10 px/tap) and pushback dampening (0.10s) deliver steady, measured forward progress (~55-75 px/s)!
+        val pushbackX = world.player.x
+        for (i in 0 until 60) {
+            val tap = (i % 18 == 0) // ~3.3 taps per second
+            world.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false, interactInput = false, forwardTap = tap)
+        }
+        assertTrue(world.player.x > pushbackX + 40.0, "Continuously tapping forward button must deliver measured impulses pushing through headwind")
+        assertTrue(world.player.x < pushbackX + 90.0, "Continuously tapping forward must not move too fast through airflow")
+    }
+
+    @Test
+    fun testLevel7CameraBotPatrolAndDeactivationFromBehind() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_7)
+        val bot = world.cameraBots.first() // startX = 2080, patrolMinX = 2050, patrolMaxX = 2280
+        val dt = 1.0 / 60.0
+
+        // 1. Patrol back and forth
+        val initX = bot.x
+        for (i in 0 until 120) {
+            bot.update(dt)
+        }
+        assertNotEquals(initX, bot.x)
+
+        // 2. Deactivation check: player in front of bot vs behind bot
+        bot.reset()
+        // Bot is at 2080, facing = 1.0 (facing right)
+        // Player in front of bot (to the right of bot, e.g. x = 2110)
+        world.player.resetTo(2110.0, 440.0 - 96.0)
+        assertFalse(bot.canDeactivate(world.player), "Player in front of bot cannot deactivate it")
+
+        // Player approaches behind bot (to the left of bot within deactivationRange = 52.0, e.g. x = 2055)
+        world.player.resetTo(2055.0, 440.0 - 96.0)
+        assertTrue(bot.canDeactivate(world.player), "Player behind bot within range should be able to deactivate it")
+        assertTrue(world.canInteract, "GameWorld.canInteract should be true when player is in deactivation position")
+
+        // 3. Press interact to deactivate
+        var deactivatedBot: CameraBot? = null
+        world.onCameraBotDeactivated = { b -> deactivatedBot = b }
+        world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = true)
+        assertTrue(bot.isDeactivated, "Bot should now be permanently deactivated")
+        assertEquals(bot, deactivatedBot)
+
+        // Verify deactivated bot stops patrolling and no longer detects player
+        val deactX = bot.x
+        bot.update(dt * 10)
+        assertEquals(deactX, bot.x, "Deactivated bot must not move")
+    }
+
+    @Test
+    fun testLevel7SteamPipeHazardsAndLaserShieldDeflection() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_7)
+        val pipe = world.steamPipes.first() // x = 1150.0, activeDuration = 1.4, inactiveDuration = 2.2
+        val dt = 1.0 / 60.0
+
+        // At t = 0, pipe is active
+        pipe.update(0.0)
+        assertTrue(pipe.isActive)
+
+        // 1. Touching active steam pipe causes Mission Failed
+        world.player.resetTo(pipe.x - 10.0, 440.0 - 96.0)
+        world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+        assertTrue(world.isGameOver, "Touching active steam pipe must trigger game over")
+        assertEquals(1, world.spottedCount)
+
+        // 2. Laser Shield deflects steam blast once safely
+        val worldShield = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_7)
+        worldShield.activePowerups.activate(PowerupType.LASER_SHIELD)
+        assertTrue(worldShield.activePowerups.isLaserShieldActive)
+
+        var blockedEventFired = false
+        worldShield.onLaserShieldBlocked = { blockedEventFired = true }
+
+        worldShield.player.resetTo(pipe.x - 10.0, 440.0 - 96.0)
+        worldShield.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+
+        assertFalse(worldShield.isGameOver, "Laser Shield must prevent game over from steam pipe")
+        assertFalse(worldShield.activePowerups.isLaserShieldActive, "Laser Shield must be consumed after absorbing hit")
+        assertTrue(blockedEventFired, "onLaserShieldBlocked callback should fire")
+        assertTrue(worldShield.laserGraceTimer > 0.0, "Grace period should be active after shield absorption")
+    }
+
+    @Test
+    fun testLevel7SimulationPlayableWalkthrough() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_7)
+        val dt = 1.0 / 60.0
+        var elapsed = 0.0
+        var restarts = 0
+
+        world.onGameOver = {
+            restarts++
+            world.restartLevel()
+        }
+
+        var crossingPipe: SteamPipe? = null
+        val maxSimTime = 160.0
+        while (elapsed < maxSimTime && !world.isLevelComplete && restarts == 0) {
+            val px = world.player.x
+
+            // 1. Camera Bot stealth:
+            // Do not enter bot's patrol territory while bot is facing/walking left towards player.
+            // Wait safely outside its vision range until it turns around to face right (away).
+            val botDangerousAhead = world.cameraBots.firstOrNull { bot ->
+                if (bot.isDeactivated) false
+                else if (bot.facing < 0.0) {
+                    px in (bot.patrolMinX - bot.visionRange - 30.0)..bot.patrolMaxX
+                } else {
+                    (bot.x - px) < 15.0 || (px in (bot.patrolMinX - bot.visionRange - 30.0)..bot.patrolMinX && bot.x > bot.patrolMinX + 40.0)
+                }
+            }
+            // Approach from behind and deactivate when in range
+            val botToDeactivate = world.cameraBots.firstOrNull { !it.isDeactivated && it.canDeactivate(world.player) }
+            val interact = botToDeactivate != null
+
+            // 3. Steam Pipe hazard avoidance:
+            val nextPipe = world.steamPipes.firstOrNull { pipe -> px < pipe.x + 20.0 }
+            val pipeAhead = if (nextPipe != null && (nextPipe.x - px) in 30.0..110.0) nextPipe else null
+
+            if (crossingPipe != null) {
+                if (px > crossingPipe!!.x + 20.0) {
+                    crossingPipe = null
+                }
+            } else if (pipeAhead != null) {
+                if (pipeAhead.remainingInactiveTime(elapsed) >= 1.5) {
+                    crossingPipe = pipeAhead
+                }
+            }
+
+            val waitingForPipe = crossingPipe == null && pipeAhead != null
+            val shouldPause = waitingForPipe || (crossingPipe == null && botDangerousAhead != null)
+            val moveInput = if (shouldPause) 0.0 else 1.0
+
+            // 2. Exhaust Fan wind zone: spam forward tap to push through backward air blast (only when moving forward)
+            val inFanWind = world.fans.any { it.isPlayerInWind(world.player) }
+            val forwardTap = inFanWind && !shouldPause && ((elapsed * 60).toInt() % 2 == 0)
+
+            world.update(
+                dt,
+                moveInput = moveInput,
+                jumpInput = false,
+                crouchInput = false,
+                interactInput = interact,
+                forwardTap = forwardTap
+            )
+            elapsed += dt
+        }
+
+        assertTrue(world.isLevelComplete, "Level 7 simulation must reach exit zone within time limit (reached x=${world.player.x} at t=${elapsed}s)")
+        assertEquals(0, restarts, "Level 7 simulation should clear without any deaths")
+    }
+
+    // ---- Level 13: the cleared push-stance stage --------------------------------------------
+
+    @Test
+    fun testLevel13IsClearedOfEverythingButTheGroundAndTheExit() {
+        val layout = LevelData.LEVEL_13_LAYOUT
+        assertTrue(layout.boxes.isEmpty(), "level 13 must have no boxes")
+        assertTrue(layout.guards.isEmpty(), "level 13 must have no guards")
+        assertTrue(layout.cameras.isEmpty(), "level 13 must have no cameras")
+        assertTrue(layout.lasers.isEmpty(), "level 13 must have no lasers")
+        assertTrue(layout.levers.isEmpty(), "level 13 must have no levers")
+        assertTrue(layout.movingPlatforms.isEmpty(), "level 13 must have no moving platforms")
+        assertTrue(layout.conveyors.isEmpty() && layout.conveyorCrates.isEmpty(), "level 13 must have no conveyors")
+        assertTrue(
+            layout.fans.isEmpty() && layout.steamPipes.isEmpty() && layout.cameraBots.isEmpty(),
+            "level 13 must have no vent hazards"
+        )
+        assertTrue(
+            layout.hangingCrateVariant1.isEmpty() && layout.hangingCrateVariant2.isEmpty(),
+            "level 13 must have nothing hanging"
+        )
+        assertTrue(layout.swingHooks.isEmpty() && layout.hookCrates.isEmpty(), "level 13 must have no hooks")
+        assertFalse(layout.hasStartFences, "level 13 must have no start fences")
+
+        // Exactly the floor and the two side walls - nothing to stand on above ground level.
+        assertEquals(3, layout.platforms.size, "level 13 should be ground plus the two bounding walls")
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_13)
+        assertTrue(world.hasNoGuards, "no guards are constructed for level 13")
+        assertTrue(world.pushStanceDemo, "level 13 is the push-stance stage")
+
+        // A flat, uninterrupted walk from spawn to the exit, with the ground under the player the
+        // whole way - the stage is only useful if nothing can strand or kill him on it.
+        var elapsed = 0.0
+        val dt = 1.0 / 60.0
+        while (elapsed < 60.0 && !world.isLevelComplete) {
+            world.update(dt, moveInput = 1.0, jumpInput = false)
+            assertFalse(world.isGameOver, "nothing in level 13 may kill the player")
+            assertTrue(world.player.isGrounded, "the floor must run the whole width of level 13")
+            elapsed += dt
+        }
+        assertTrue(world.isLevelComplete, "level 13 must still be walkable to its exit (stopped at x=" + world.player.x + ")")
+    }
+
+    // ---- Push stance ------------------------------------------------------------------------
+
+    private fun pushWorld() = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_13)
+
+    /** One frame with INTERACT held, then one with it released - i.e. a single button press. */
+    private fun GameWorld.tapInteract(dt: Double = 1.0 / 60.0) {
+        update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = true)
+        update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+    }
+
+    private fun GameWorld.coast(seconds: Double, moveInput: Double = 0.0) {
+        val dt = 1.0 / 60.0
+        var t = 0.0
+        while (t < seconds) {
+            update(dt, moveInput = moveInput, jumpInput = false, crouchInput = false, interactInput = false)
+            t += dt
+        }
+    }
+
+    @Test
+    fun testPushStanceTogglesOnInteractAndBlendsBothWays() {
+        val world = pushWorld()
+        assertTrue(world.isPushStanceIdle, "starts upright")
+        assertFalse(world.isPushing)
+
+        world.tapInteract()
+        assertTrue(world.isPushStanceHeld, "one press brings the stance on")
+        assertFalse(world.isPushing, "still leaning in - the gait only runs once fully braced")
+        assertTrue(world.pushStanceBlend > 0.0 && world.pushStanceBlend < 1.0)
+
+        world.coast(GameWorld.PUSH_STANCE_ENTER_SECONDS + 0.1)
+        assertEquals(1.0, world.pushStanceBlend, "the lean-in finishes")
+        assertTrue(world.isPushing, "braced, so the gait loop is live")
+
+        world.tapInteract()
+        assertFalse(world.isPushStanceHeld, "a second press releases it")
+        assertTrue(
+            world.pushStanceBlend < 1.0 && world.pushStanceBlend > 0.0,
+            "and it stands up through the same blend"
+        )
+
+        world.coast(GameWorld.PUSH_STANCE_EXIT_SECONDS + 0.1)
+        assertTrue(world.isPushStanceIdle, "back upright, so the scene hands the sprite back to idle")
+    }
+
+    @Test
+    fun testPushStanceIgnoresAHeldInteractButtonAfterTheFirstFrame() {
+        // The scene passes the raw button LEVEL, not an edge, so a toggle that read it directly
+        // would flip once per frame and never settle. Holding it must count exactly once.
+        val world = pushWorld()
+        val dt = 1.0 / 60.0
+        repeat(30) {
+            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = true)
+        }
+        assertTrue(world.isPushStanceHeld, "a held button is one press, not thirty")
+        assertTrue(world.pushStanceBlend > 0.4, "and the blend ran for the whole hold")
+    }
+
+    @Test
+    fun testPushStanceSlowsMovementAndBlocksJumpAndCrouch() {
+        val world = pushWorld()
+        val dt = 1.0 / 60.0
+
+        // Sampled after a moment of walking, not on the first frame: Player ramps vx up to
+        // moveSpeed rather than snapping to it, so frame one reads 30 whatever the state is.
+        world.coast(0.5, moveInput = 1.0)
+        assertEquals(world.player.moveSpeed, world.player.vx, 0.001, "unbraced, he walks at full speed")
+
+        world.tapInteract()
+        world.coast(GameWorld.PUSH_STANCE_ENTER_SECONDS + 0.1)
+        world.coast(0.5, moveInput = 1.0)
+        world.update(dt, moveInput = 1.0, jumpInput = true, crouchInput = true, interactInput = false)
+        assertEquals(
+            world.player.moveSpeed * GameWorld.PUSH_MOVE_FACTOR, world.player.vx, 0.001,
+            "braced, he leans into it at a fraction of walking speed"
+        )
+        assertFalse(world.player.isCrouching, "a braced body cannot duck")
+        assertTrue(world.player.isGrounded, "and cannot jump - INTERACT is the only way out")
+    }
+
+    @Test
+    fun testPushStanceIsClearedByARestart() {
+        val world = pushWorld()
+        world.tapInteract()
+        world.coast(GameWorld.PUSH_STANCE_ENTER_SECONDS + 0.1)
+        assertTrue(world.isPushing)
+        world.restartLevel()
+        assertTrue(world.isPushStanceIdle, "a restart puts him back upright")
+        assertFalse(world.isPushStanceHeld)
+        // And the toggle's own edge state resets with it, so the first press after a restart works.
+        world.tapInteract()
+        assertTrue(world.isPushStanceHeld)
+    }
+
+    @Test
+    fun testPushStanceIsLevel13OnlyAndLeavesEveryOtherLevelAlone() {
+        val other = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1)
+        assertFalse(other.pushStanceDemo)
+        val dt = 1.0 / 60.0
+        repeat(120) {
+            other.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = true)
+        }
+        assertTrue(other.isPushStanceIdle, "INTERACT outside level 13 never braces anyone")
+        assertEquals(0.0, other.pushStanceBlend)
+
+        for (level in LevelData.DEFAULT_LEVELS) {
+            val expected = level.id == "level_13"
+            assertEquals(expected, level.layout?.pushStanceDemo ?: false, level.id + " pushStanceDemo")
+        }
+    }
+
+    @Test
+    fun testPushStanceKeepsTheInteractButtonLiveSoTheTogglePressReachesTheWorld() {
+        // GameplayScene gates its interactPressed on world.canInteract before handing it over.
+        // With no levers and no camera bots in level 13, canInteract would be false forever and
+        // the toggle could never fire.
+        val world = pushWorld()
+        assertTrue(world.canInteract, "the button has to be live in the push-stance level")
+        assertFalse(GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1).canInteract)
     }
 }

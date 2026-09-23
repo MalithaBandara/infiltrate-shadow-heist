@@ -182,6 +182,15 @@ object GameAudio {
      */
     val STEP_PHASES = doubleArrayOf(0.16, 0.70)
 
+    /**
+     * The same thing for the braced push gait, measured on the shipped 20-frame loop rather than
+     * reused from [STEP_PHASES]: a contact-band scan of every frame under `resources/player/push`
+     * (columns within 3px of each frame's lowest row) puts the two touchdowns at 13 and 36 of 40.
+     * The push cycle is not the walk cycle rotated - its stance/swing split is different - so
+     * borrowing walk's phases here would fire both steps visibly off the feet.
+     */
+    val PUSH_STEP_PHASES = doubleArrayOf(0.33, 0.90)
+
     // Real-device regression, not just theory: after primeAll() started running on every load,
     // "restart", "quit then play again", and "watch ad to continue" all started grey-screening
     // instead of loading the level. RESTART's crash (an uncaught exception from priming, since a

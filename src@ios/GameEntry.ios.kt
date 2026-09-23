@@ -1,4 +1,6 @@
+import game.model.DeviceScreen
 import game.model.LevelData
+import game.scene.DeviceViewport
 import game.scene.GameplayScene
 import korlibs.image.color.*
 import korlibs.io.async.launchImmediately
@@ -35,6 +37,12 @@ object GameLevelStartBridge {
         val sc = activeSceneContainer ?: return
         val levelData = LevelData.DEFAULT_LEVELS.firstOrNull { it.id == levelId } ?: LevelData.DEFAULT_LEVEL_1
         sc.stage?.launchImmediately {
+            // iOS is the platform that cannot know its screen at Korge() time (see
+            // DeviceViewport's doc comment), so this is where the real canvas lands: Swift has
+            // published the window's size and safe area by now, because a level can only be
+            // started from a menu that has been on screen. Must precede changeTo - a Scene copies
+            // sceneContainer.size when it is built.
+            DeviceViewport.apply(sc.views, sc)
             sc.changeTo { GameplayScene(levelData) }
         }
     }
@@ -46,12 +54,16 @@ private val iosWindowSize = Size(1560, 720)
 
 suspend fun gameMain() = Korge(
     windowSize = iosWindowSize,
-    virtualSize = Size(480.0 * (iosWindowSize.width / iosWindowSize.height), 480.0),
+    // Best guess at construction time: whatever AppDelegate.swift managed to publish before it
+    // called into ShellAppDelegate, falling back to the authored 1040x480. The canvas that
+    // actually gets used is re-applied per level in startLevel() above.
+    virtualSize = DeviceScreen.viewport.let { Size(it.width, it.height) },
     scaleMode = ScaleMode.SHOW_ALL,
     backgroundColor = Colors["#16161d"],
     title = "Infiltrate: Shadow Heist",
 ) {
     val sc = sceneContainer()
     GameLevelStartBridge.bind(sc)
+    DeviceViewport.apply(views, sc)
     sc.changeTo { GameplayScene(LevelData.DEFAULT_LEVEL_1) }
 }

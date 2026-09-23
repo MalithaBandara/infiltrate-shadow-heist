@@ -1,6 +1,7 @@
 package com.infiltrate.ads
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import app.lexilabs.basic.ads.DependsOnGoogleMobileAds
@@ -62,6 +63,10 @@ object InterstitialAdTrigger {
 @Composable
 fun InterstitialAdContent() {
     if (InterstitialAdTrigger.showRequested.value) {
+        DisposableEffect(Unit) {
+            AdAudioCoordinator.onAdStarted()
+            onDispose { AdAudioCoordinator.onAdDismissed() }
+        }
         InterstitialAd(
             adUnitId = AdUnitIds.INTERSTITIAL_LEVEL_EXIT,
             onDismissed = { InterstitialAdTrigger.onAdClosed() },

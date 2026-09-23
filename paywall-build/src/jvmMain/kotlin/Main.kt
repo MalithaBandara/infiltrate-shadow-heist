@@ -45,6 +45,15 @@ fun launchKorgeGame(levelId: String, onFinished: () -> Unit) {
     }
 }
 
+private fun parseWindowSizeOverride(raw: String?): Pair<Float, Float>? {
+    val parts = raw?.trim()?.lowercase()?.split("x") ?: return null
+    if (parts.size != 2) return null
+    val w = parts[0].trim().toFloatOrNull() ?: return null
+    val h = parts[1].trim().toFloatOrNull() ?: return null
+    if (w < 200f || h < 200f) return null
+    return w to h
+}
+
 fun main() {
     // Eagerly pre-warm video decoder in background so it's ready on the very first frame
     val candidates = listOf(
@@ -57,9 +66,19 @@ fun main() {
         DesktopVideoPlayerManager.initialize(videoFile)
     }
 
+    // Responsive testing affordance: `./gradlew :paywall-build:run -PwindowSize=844x390` opens
+    // the menu in an iPhone-sized dp box, `-PwindowSize=1024x768` an iPad's. The window is sized
+    // in dp, so BoxWithConstraints sees exactly the constraints that device would give it - which
+    // is how the menu scale was checked here, since this machine has no emulator and iOS builds
+    // only in CI. Unset, nothing changes.
+    val override = parseWindowSizeOverride(System.getenv("windowSize"))
+
     application {
         var isWindowVisible by remember { mutableStateOf(true) }
-        val windowState = rememberWindowState(width = 1560.dp, height = 720.dp)
+        val windowState = rememberWindowState(
+            width = (override?.first ?: 1560f).dp,
+            height = (override?.second ?: 720f).dp,
+        )
 
         // Galaxy S25 Ultra landscape aspect ratio (3120x1440 at half-scale)
         Window(

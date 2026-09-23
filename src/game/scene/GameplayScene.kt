@@ -68,6 +68,106 @@ class GameplayScene(
 
     private var bgMusicChannel: SoundChannel? = null
 
+    // Canvas & Viewport dimensions
+    private var canvasW: Double = 1040.0
+    private var canvasH: Double = 480.0
+    private val worldZoom: Double = 1.35
+    private val baseGroundY: Double = 410.0
+
+    // Runtime flags & timing
+    private var isPaused: Boolean = false
+    private var isFirstCameraFrame: Boolean = true
+    private var totalElapsedSeconds: Double = 0.0
+    private var conveyorElapsedSeconds: Double = 0.0
+
+    // Player & movement state
+    private var currentGroundingOffset: Double = 0.0
+    private var playerWasGroundedBefore: Boolean = false
+    private var playerAnimState: String = "idle"
+    private var playerFacingLeft: Boolean = false
+    private var stepAlternate: Boolean = false
+    private var jumpPhase: String = "none"
+    private var jumpPhaseElapsed: Double = 0.0
+    private var jumpStartY: Double = 0.0
+    private var dropFromWalk: Boolean = false
+    private var climbExitTimer: Double = 0.0
+    private var crouchFallAirborne: Boolean = false
+    private var swingExitTimer: Double = 0.0
+    private var swingImpactSoundPlayed: Boolean = false
+    private var landingAbsorb: Boolean = false
+    private var landingAbsorbElapsed: Double = 0.0
+    private var crouchPhase: String = "none"
+    private var crouchFrameProgress: Double = 0.0
+    private var crouchJumpSpringElapsed: Double = -1.0
+    private var crouchJumpSpringFrom: Double = 0.0
+    private val crouchJumpSpringDuration: Double = 0.09
+    private var crouchwalkCycleProgress: Double = 0.0
+    private var crouchwalkTransitionProgress: Double = 0.0
+    private var crouchwalkInTransition: Boolean = false
+    /** Phase through the push gait loop, 0..1 - driven by distance like walkCycleProgress. */
+    private var pushCycleProgress: Double = 0.0
+    /** True while the gait loop is running, so a stop-start re-enters it at its first frame. */
+    private var pushStriding: Boolean = false
+    /** Which of the two push clips the sprite currently holds - swapping costs a rebind. */
+    private var pushLoopClipLoaded: Boolean = false
+    /** Facing is locked for the whole stance: a braced body drags the load back, it does not
+     *  turn around. Captured when the lean-in starts. */
+    private var pushFacingLeft: Boolean = false
+    private var walkCycleProgress: Double = 0.0
+    private var walkTransitionElapsed: Double = 0.0
+    private var walkInTransition: Boolean = false
+    private var walkTransitionStartFrame: Int = PlayerAnimations.WALK_TRANSITION_START
+    private var walkTransitionCurrentDuration: Double = 0.28
+    private var stationaryElapsed: Double = 0.20
+    private var crouchStationaryElapsed: Double = 0.25
+    private var tapWalkGraceTimer: Double = 0.0
+
+    // Vignette elements
+    private var darknessVignetteImg: Image? = null
+    private var darknessLeftRect: SolidRect? = null
+    private var darknessRightRect: SolidRect? = null
+    private var darknessTopRect: SolidRect? = null
+    private var darknessBotRect: SolidRect? = null
+
+    // Objectives state
+    private var objMainState: Int = 0
+    private var objOptState: Int = 0
+
+    // Touch controls state
+    private var touchLeft: Boolean = false
+    private var touchRight: Boolean = false
+    private var touchRightTap: Boolean = false
+    private var touchJump: Boolean = false
+    private var touchCrouch: Boolean = false
+    private var touchInteract: Boolean = false
+
+    // Gadgets state
+    private var gadgetsShown: Boolean = false
+    private var trayExpand: Double = 0.0
+    private var trayBuiltFor: Int = -1
+    private var slotLastSpan: Double = -2.0
+    private var slotLastLive: Boolean? = null
+
+    // Timers & FX
+    private var shieldDeflectFlashTimer: Double = 0.0
+    private var shieldFlareTimer: Double = 0.0
+    private var laserFlashTimer: Double = 0.0
+    private var bgMusicAppliedVolume: Double = -1.0
+    private var cachedProfile: GameProfile = GameProfile()
+
+    // Tutorial state
+    private var currentTutorialStep: TutorialStep? = null
+    private val completedTutorialStepIds = mutableSetOf<String>()
+    private var tutorialAlpha: Double = 0.0
+    private var isTutorialFadingIn: Boolean = false
+    private var isTutorialFadingOut: Boolean = false
+    private var tutorialPulseTimer: Double = 0.0
+    private var stepActionCompleted: Boolean = false
+    private var stepActionTimer: Double = 0.0
+    private var stepActivatedX: Double = 0.0
+    private var lastUsedKeyboard: Boolean = false
+    private var prevRightPressed: Boolean = false
+
     /** Stops whichever of korlibs' channel / the native mixer's music voice is actually active. */
     private fun stopBgMusic() {
         try {
@@ -83,8 +183,16 @@ class GameplayScene(
     }
 
     override suspend fun SContainer.sceneMain() {
-        val canvasW = sceneWidth.toDouble().coerceAtLeast(800.0)
-        val canvasH = sceneHeight.toDouble().coerceAtLeast(480.0)
+        canvasW = sceneWidth.toDouble().coerceAtLeast(800.0)
+        canvasH = sceneHeight.toDouble().coerceAtLeast(480.0)
+
+        // What the OS keeps of this screen, converted from the host's dp/points into this canvas's
+        // own units (game.model.ScreenLayout). Landscape puts the notch / Dynamic Island on a SIDE,
+        // which is exactly where the D-pad and the jump cluster live, and the home-indicator strip
+        // along the bottom edge they are anchored to. Zero on desktop, on Android hardware without
+        // a cutout, and whenever no host has published anything - in which case every inset below
+        // falls back to the number it has always had.
+        val safeInsets = DeviceScreen.safeInsetsForCanvas(canvasW, canvasH)
 
         // --- Loading screen -------------------------------------------------------------
         val loadingBgBitmap = SceneAssets.bitmap("loadingbg.png", minified = false)
@@ -166,10 +274,7 @@ class GameplayScene(
             setRaw = { k, v -> views.storage[k] = v }
         )
 
-        var isPaused = false
-
-        val worldZoom = 1.35
-        val baseGroundY = 410.0
+        isPaused = false
 
         val bgFileName = levelData.resolvedBackgroundImage
         val bitmaps = loadGameplayBitmaps(bgFileName, ::markLoadProgress)
@@ -194,6 +299,7 @@ class GameplayScene(
         val entranceBitmap = bitmaps.entranceBitmap
         val exitFenceBitmap = bitmaps.exitFenceBitmap
         val l4endBitmap = bitmaps.l4endBitmap
+        val exitLvl7Bitmap = bitmaps.exitLvl7Bitmap
         val leftBtnBitmap = bitmaps.leftBtnBitmap
         val rightBtnBitmap = bitmaps.rightBtnBitmap
         val crouchBtnBitmap = bitmaps.crouchBtnBitmap
@@ -270,6 +376,17 @@ class GameplayScene(
         // Everything inside worldView scrolls with the camera; HUD & Touch controls stay fixed.
         val worldView = container()
         worldView.scale(worldZoom)
+        val initialPlayerCenterX = world.player.x + world.player.width / 2.0
+        val initialDesiredWorldViewX = (canvasW / 2.0) - initialPlayerCenterX * worldZoom
+        val initialMinWorldViewX = canvasW - world.worldWidth * worldZoom
+        val initialWorldViewX = initialDesiredWorldViewX.coerceIn(initialMinWorldViewX.coerceAtMost(0.0), 0.0)
+        val baseWorldViewY = if (bgFileName == "bglvl7.png") {
+            val lvl7GroundY = world.platforms.firstOrNull { it.y >= 400.0 && it.width >= 1000.0 }?.y ?: 440.0
+            canvasH * (488.0 / 724.0) - (lvl7GroundY * worldZoom)
+        } else {
+            canvasH - (baseGroundY + 70.0) * worldZoom
+        }
+        worldView.xy(initialWorldViewX, baseWorldViewY)
         val isSideScrolling = world.worldWidth > 800.0
 
         // Off-screen culling. KorGE does no frustum culling of its own, so every child of worldView
@@ -293,9 +410,14 @@ class GameplayScene(
             if (platform in world.boxes) continue
             if (platform.width >= 1000.0 && platform.height >= 1000.0) continue // Skip bounds walls
             if (!isSideScrolling && (platform.x < 0 || platform.x >= 800)) continue
-
             val platCont = worldView.container().xy(platform.x, platform.y)
-            renderRoughBlock(platCont, platform.width, platform.height, seed = (platform.x * 47.0 + platform.y).toLong())
+            if (bgFileName == "bglvl7.png" && platform.y >= 400.0 && platform.width >= 1000.0) {
+                // Black colour platform over the black floor beam in bglvl7.png (Y=488..534 in background)
+                val beamHeightWorld = (534.0 - 488.0) * (canvasH / 724.0) / worldZoom
+                platCont.solidRect(platform.width, beamHeightWorld, Colors.BLACK)
+            } else {
+                renderRoughBlock(platCont, platform.width, platform.height, seed = (platform.x * 47.0 + platform.y).toLong())
+            }
             cullable(platCont, platform.x, platform.width)
         }
 
@@ -319,7 +441,21 @@ class GameplayScene(
         // a negative scaleX on an Image corrupts the draw into a torn, mostly-transparent mess on
         // this KorGE/OpenGL backend, discovered via the identical bug on the truck below) so the
         // roof overhang leans out towards the player's approach.
-        if (levelData.id != "level_4" && entranceBitmap != null) {
+        // A level with its own extraction structure (LevelLayout.exitStructure - so far only level
+        // 6's exitlvl7.png, the shed and its yard fence in one silhouette) draws that instead of
+        // the shared booth + fence pair below. Same contract as those - purely decorative, the real
+        // trigger is world.exitZone - but the box comes from the level rather than from exitZone,
+        // because this one is placed against the level's own geometry: it stands on the ground and
+        // its balcony deck meets the hanging platform's far tip. See LEVEL_6_LAYOUT, section 5.
+        val exitStructureRect = levelData.layout?.exitStructure
+        if (exitStructureRect != null && exitLvl7Bitmap != null) {
+            cullable(
+                worldView.image(exitLvl7Bitmap) {
+                    size(exitStructureRect.width, exitStructureRect.height)
+                }.xy(exitStructureRect.x, exitStructureRect.y),
+                exitStructureRect.x, exitStructureRect.width
+            )
+        } else if (levelData.id != "level_4" && entranceBitmap != null) {
             val entranceHeight = 135.0
             // Pinned to entrance.png's authored 531x612 rather than read off the loaded bitmap.
             // Same value, but the number no longer moves if the file is ever resampled - it used
@@ -496,7 +632,7 @@ class GameplayScene(
             }
             // 3b2. A crane (LevelLayout.cranes) - covered by the dedicated crane-rendering pass
             // below, same reasoning as tableParts just above.
-            else if (world.cranes.any { it.boomBounds == box || it.cabBounds == box }) {
+            else if (world.cranes.any { box in it.collisionBoxes }) {
                 // covered by the crane art
             }
             // 3c. Conveyors (conveyor.png): drawn in dedicated conveyor pass below
@@ -546,7 +682,11 @@ class GameplayScene(
             }
             // 7. Long Structural Platforms and Blocks (Solid blocks with tiny rough edge irregularities)
             else {
-                renderRoughBlock(boxContainer, box.width, box.height, seed = (box.x * 101.0 + box.y).toLong())
+                if (bgFileName == "bglvl7.png" && (box.height <= 30.0 || box.width >= 1000.0)) {
+                    // bglvl7.png already depicts the metal duct ceiling; avoid drawing an opaque black block across it
+                } else {
+                    renderRoughBlock(boxContainer, box.width, box.height, seed = (box.x * 101.0 + box.y).toLong())
+                }
             }
         }
 
@@ -563,12 +703,11 @@ class GameplayScene(
             val legSlice = tableBitmap.slice(RectangleInt(1870, 0, 178, 512))
             val plankSlice = tableBitmap.slice(RectangleInt(0, 0, 1870, 102))
             for (part in world.tableParts) {
-                cullable(
-                    worldView.image(plankSlice) {
-                        size(part.width, part.height)
-                    }.xy(part.x, part.y),
-                    part.x, part.width
-                )
+                val partCont = worldView.container().xy(part.x, part.y)
+                partCont.image(plankSlice) {
+                    size(part.width, part.height)
+                }.xy(0.0, 0.0)
+                cullable(partCont, part.x, part.width)
             }
             // Purely decorative table pieces (LevelLayout.tableDecorations) - not in world.boxes,
             // not occluders, no part in reaching the table. A support post drawn for flavor at one
@@ -795,6 +934,16 @@ class GameplayScene(
         // Laser hazards: realistic volumetric gradient beams with blooming contact flares
         val laserVisuals = LaserVisual.createAll(worldView, world.lasers, laserEmitterBitmap)
 
+        // Level 7 Vent Infiltration: duct corridor framing, exhaust fans, camera bots, and steam pipes
+        val isL7 = levelData.id == "level_7"
+        val l7Layout = levelData.layout
+        val ventCorridorVisual = if (isL7 && l7Layout != null) {
+            VentCorridorVisual.create(worldView, l7Layout)
+        } else null
+        val ventFanVisuals = VentFanVisual.createAll(worldView, world.fans)
+        val cameraBotVisuals = CameraBotVisual.createAll(worldView, world.cameraBots)
+        val steamPipeVisuals = SteamPipeVisual.createAll(worldView, world.steamPipes)
+
         // Conveyors: infinite-repeating conveyor belt cut from middle of conveyor.png,
         // animated with top layer moving forward and bottom layer moving in reverse.
         val conveyorAnimators = setupConveyorAnimators(
@@ -1012,27 +1161,27 @@ class GameplayScene(
                 footCenter >= p.left && footCenter <= p.right && kotlin.math.abs(footY - p.top) <= 3.0
             } || (truck != null && footCenter >= truck.left && footCenter <= truck.right && kotlin.math.abs(footY - truck.top) <= 3.0)
         }
-        var currentGroundingOffset = idleFeetOffset
-        var playerWasGroundedBefore = world.player.isGrounded
+        currentGroundingOffset = idleFeetOffset
+        playerWasGroundedBefore = world.player.isGrounded
 
         val playerSprite = playerContainer.sprite(playerAnimations.idle, Anchor2D(0.5, playerFeetAnchorY))
         playerSprite.scaleX = playerBaseScale
         playerSprite.scaleY = playerBaseScale
         playerSprite.xy(world.player.width / 2.0, world.player.height + currentGroundingOffset)
         playerSprite.playAnimationLooped(playerAnimations.idle, PlayerAnimations.IDLE_FRAME_TIME_MS.milliseconds)
-        var playerAnimState = "idle"
-        var playerFacingLeft = false
-        var isFirstCameraFrame = true
+        playerAnimState = "idle"
+        playerFacingLeft = false
+        isFirstCameraFrame = true
 
         val shieldGlowImage = shieldGlowContainer.image(playerSprite.bitmap, Anchor2D(0.5, playerFeetAnchorY))
 
-        var shieldDeflectFlashTimer = 0.0
+        shieldDeflectFlashTimer = 0.0
         val shieldFlareImage = worldView.image(LaserFxAssets.flareBitmap, Anchor2D(0.5, 0.5)).apply {
             size(52.0, 52.0)
             blendMode = BlendMode.ADD
             visible = false
         }
-        var shieldFlareTimer = 0.0
+        shieldFlareTimer = 0.0
 
         val jumpLaunchFrame = PlayerAnimations.JUMP_LAUNCH_START
         val jumpAirborneFrame = PlayerAnimations.JUMP_RISE_START
@@ -1042,19 +1191,22 @@ class GameplayScene(
         val jumpLastFrame = PlayerAnimations.JUMP_LAND_END
         val jumpLaunchDuration = 0.05
         val jumpLandDuration = 0.24
-        var jumpPhase = "none"
-        var jumpPhaseElapsed = 0.0
-        var jumpStartY = world.player.y
-        var dropFromWalk = false
-        var climbExitTimer = 0.0
-        var swingExitTimer = 0.0
-        var swingImpactSoundPlayed = false
+        jumpPhase = "none"
+        jumpPhaseElapsed = 0.0
+        jumpStartY = world.player.y
+        dropFromWalk = false
+        climbExitTimer = 0.0
+        // A fall taken crouched never reaches the jump machine (it keeps the crouched pose all
+        // the way down), so its touchdown has to be noticed here to get the landing thud.
+        crouchFallAirborne = false
+        swingExitTimer = 0.0
+        swingImpactSoundPlayed = false
 
         // Landing absorption: when the player lands while moving, play a brief cushion of the
         // initial touchdown frames (27..28) before handing over to the forward walk stride (frame 5..17).
         // This eliminates the jarring pop from airborne/squat to full-speed run stride.
-        var landingAbsorb = false
-        var landingAbsorbElapsed = 0.0
+        landingAbsorb = false
+        landingAbsorbElapsed = 0.0
         val landingAbsorbDuration = 0.05
         val landingAbsorbFrames = 2
 
@@ -1066,7 +1218,7 @@ class GameplayScene(
         // Audio trigger state. Footsteps are edge-triggered off the same distance-driven gait
         // cycle that picks the walk frame, so a step fires when the foot lands rather than on a
         // timer that drifts against the animation whenever speed changes.
-        var stepAlternate = false
+        stepAlternate = false
         // One profile read per frame, not four. InMemoryGameProfileStorage.getProfile() hands back
         // a deep copy - a fresh GameProfile plus a copied unlocked-level set plus a copied powerup
         // map - so reading a single volume float allocated three objects. The updater was doing
@@ -1075,14 +1227,14 @@ class GameplayScene(
         // pressure from the texture atlas. Refreshed at the top of the updater (and immediately
         // after anything that mutates the profile) so a change made in the menus still lands on
         // the very next frame, exactly as it did when every call re-read storage.
-        var cachedProfile = profileStorage.getProfile()
+        cachedProfile = profileStorage.getProfile()
         val refreshProfile = { cachedProfile = profileStorage.getProfile() }
         val sfxVolume = { cachedProfile.sfxVolume }
         val musicVolume = { cachedProfile.musicVolume }
 
         // -1.0 is a sentinel, not a real volume: it means "nothing applied yet", distinct from a
         // legitimate 0.0 (muted). See syncBgMusicVolume's own doc comment for why this exists.
-        var bgMusicAppliedVolume = -1.0
+        bgMusicAppliedVolume = -1.0
 
         /**
          * Tries [GameAudio.startNativeMusic] first - Android's software mixer, one continuous
@@ -1157,12 +1309,20 @@ class GameplayScene(
         val crouchLastFrame = PlayerAnimations.CROUCH_LAST
         val crouchDownDuration = 0.22
         val crouchUpDuration = 0.18
-        var crouchPhase = "none"
-        var crouchFrameProgress = 0.0
+        crouchPhase = "none"
+        crouchFrameProgress = 0.0
+
+        // Crouch -> jump: the launch plays the crouch clip backwards at speed (the body springing
+        // straight - which is exactly what the footage of the crouch descent is in reverse) before
+        // the jump clip's own push-off takes over. Cutting straight to the jump clip instead snaps
+        // the silhouette from the crouch's 139 frame-px to the launch frame's 240 in a single
+        // frame, which reads as the character teleporting upright.
+        crouchJumpSpringElapsed = -1.0
+        crouchJumpSpringFrom = 0.0
         // Climb: Player.isClimbing drives the actual world position (see Player.advanceClimb),
         
         val crouchwalkCycleDistance = playerVisualHeight * PlayerAnimations.CROUCHWALK_STRIDE_PER_HEIGHT
-        var crouchwalkCycleProgress = 0.0
+        crouchwalkCycleProgress = 0.0
         // Unlike the idle->walk lean-in, the crouch-walk lean-in is distance-driven like its loop.
         // Its 91 frames are already a walk in the footage - they start on the crouch's held pose
         // and build the stride out of it - so they carry the same ground speed as the loop and a
@@ -1172,8 +1332,8 @@ class GameplayScene(
         val crouchwalkTransitionCycles =
             (PlayerAnimations.CROUCHWALK_TRANSITION_END - PlayerAnimations.CROUCHWALK_TRANSITION_START + 1)
                 .toDouble() / PlayerAnimations.CROUCHWALK_LOOP_LENGTH
-        var crouchwalkTransitionProgress = 0.0
-        var crouchwalkInTransition = false
+        crouchwalkTransitionProgress = 0.0
+        crouchwalkInTransition = false
         // and its climbProgress picks the frame here, so pose and position stay in step.
         val climbFirstFrame = PlayerAnimations.CLIMB_START
         val climbLastFrame = PlayerAnimations.CLIMB_END
@@ -1185,14 +1345,24 @@ class GameplayScene(
 
         // One gait cycle covers this much ground; measured off the plate so the feet stay planted.
         val walkCycleDistance = playerVisualHeight * PlayerAnimations.WALK_STRIDE_PER_HEIGHT
-        var walkCycleProgress = 0.0
+        walkCycleProgress = 0.0
+        // Same idea for the braced push stride. See PlayerAnimations.PUSH_STRIDE_PER_HEIGHT - it
+        // is measured off the LATE cycles of the plate, because the character accelerates through
+        // the raw footage and the early frames describe a load that has not started moving yet.
+        val pushCycleDistance = playerVisualHeight * PlayerAnimations.PUSH_STRIDE_PER_HEIGHT
+        val pushTransitionLastFrame = PlayerAnimations.PUSH_TRANSITION_LAST
+        pushCycleProgress = 0.0
+        pushStriding = false
+        pushLoopClipLoaded = false
+        pushFacingLeft = false
         val walkTransitionDuration = 0.28
-        var walkTransitionElapsed = 0.0
-        var walkInTransition = false
-        var walkTransitionStartFrame = PlayerAnimations.WALK_TRANSITION_START
-        var walkTransitionCurrentDuration = walkTransitionDuration
-        var stationaryElapsed = 0.20
-        var crouchStationaryElapsed = 0.25
+        walkTransitionElapsed = 0.0
+        walkInTransition = false
+        walkTransitionStartFrame = PlayerAnimations.WALK_TRANSITION_START
+        walkTransitionCurrentDuration = walkTransitionDuration
+        stationaryElapsed = 0.20
+        crouchStationaryElapsed = 0.25
+        tapWalkGraceTimer = 0.0
         val manualFrameTime = 1_000_000.milliseconds
 
         val bebasFont = SceneAssets.font("BebasNeue-Regular.ttf")
@@ -1221,11 +1391,11 @@ class GameplayScene(
         // Layered directly above worldView and below hudLayer / controlsContainer / dialogs
         // ==========================================
         val darknessVignetteSize = 640
-        var darknessVignetteImg: Image? = null
-        var darknessLeftRect: SolidRect? = null
-        var darknessRightRect: SolidRect? = null
-        var darknessTopRect: SolidRect? = null
-        var darknessBotRect: SolidRect? = null
+        darknessVignetteImg = null
+        darknessLeftRect = null
+        darknessRightRect = null
+        darknessTopRect = null
+        darknessBotRect = null
 
         if (levelData.hasDarknessVignette) {
             val darkBase = Colors["#05070A"]
@@ -1288,7 +1458,7 @@ class GameplayScene(
         // that used to occupy that gutter is gone. Worth knowing what that costs - the sky in
         // these levels is bright and the ground is black, light type has to survive both, and
         // there is nothing left to separate it from either.
-        val objPanel = hudLayer.container().xy(24.0, 20.0)
+        val objPanel = hudLayer.container().xy(24.0 + safeInsets.left, 20.0 + safeInsets.top)
 
         val objTitle = objPanel.text(
             "OBJECTIVES", textSize = 15.0, font = bebasFont, color = COLOR_PRIMARY
@@ -1342,8 +1512,8 @@ class GameplayScene(
 
         // 0 open, 1 met, 2 out of reach. Held so the shapes are rebuilt only when a marker
         // actually changes rather than on every frame, the same guard the powerup dock uses.
-        var objMainState = 0
-        var objOptState = 0
+        objMainState = 0
+        objOptState = 0
         fun setObjMark(mark: Graphics, state: Int) {
             val color = COLOR_PRIMARY
             mark.updateShape {
@@ -1368,7 +1538,11 @@ class GameplayScene(
         // a transparent rect the size of the old disc stays underneath, because hit-testing here
         // is geometric and two 5px bars would otherwise be all there is left to hit.
         val pauseRadius = 21.0
-        val pauseBtn = hudLayer.container().xy(canvasW - 14.0 - pauseRadius * 2.0, 20.0)
+        // The top-right HUD cluster (pause bars + gadget bolt) shares one right inset with the
+        // gadget slot below - keep the two in step if either moves.
+        val hudRightInset = 14.0 + safeInsets.right
+        val hudTopInset = 20.0 + safeInsets.top
+        val pauseBtn = hudLayer.container().xy(canvasW - hudRightInset - pauseRadius * 2.0, hudTopInset)
         pauseBtn.solidRect(pauseRadius * 2.0, pauseRadius * 2.0, Colors.TRANSPARENT)
         val pauseBg = pauseBtn.uiGraphics()
         // The bars are drawn off-centre toward the gadget slot's side of this box (not the
@@ -1478,11 +1652,12 @@ class GameplayScene(
         // ==========================================
         // TACTICAL MOBILE TOUCH CONTROLS (Modern GPU Vectors)
         // ==========================================
-        var touchLeft = false
-        var touchRight = false
-        var touchJump = false
-        var touchCrouch = false
-        var touchInteract = false
+        touchLeft = false
+        touchRight = false
+        touchRightTap = false
+        touchJump = false
+        touchCrouch = false
+        touchInteract = false
 
         val controlsContainer = container().xy(0.0, 0.0)
 
@@ -1547,6 +1722,16 @@ class GameplayScene(
                     }
                 }
             }
+            btn.mouse {
+                onDown {
+                    onTouchChange(true)
+                    drawState(true)
+                }
+                onUpAnywhere {
+                    onTouchChange(false)
+                    drawState(false)
+                }
+            }
             return btn
         }
 
@@ -1574,9 +1759,18 @@ class GameplayScene(
         //    Gaps between neighbouring buttons are 12px - tight enough that each cluster reads as
         //    one control surface, wide enough that a thumb pad landing between two of them still
         //    resolves to the one it is closest to.
+        //
+        // 3. The two edge insets are floors, not fixed values. 46 and 38 were picked against a
+        //    phone whose gesture strips the app could only guess at; where a host actually
+        //    reports a safe area (an iPhone's Dynamic Island sits on a SIDE in landscape and is
+        //    59pt wide - well past 46 - and its home indicator runs along the bottom), the
+        //    reported inset plus a small margin wins. On anything that reports nothing these stay
+        //    exactly the numbers they have always been.
         val isControlsSwapped = profileStorage.getProfile().controlsSwapped
-        val edgeInset = 46.0                      // clear of the side gesture strips
-        val bottomInset = 38.0                    // clear of the home indicator
+        val safeEdgeMargin = 12.0                 // breathing room past the reported cutout itself
+        val edgeInsetLeft = max(46.0, safeInsets.left + safeEdgeMargin)
+        val edgeInsetRight = max(46.0, safeInsets.right + safeEdgeMargin)
+        val bottomInset = max(38.0, safeInsets.bottom + safeEdgeMargin)
         val moveRadius = 54.0
         val actionRadius = 48.0                   // uniform size for jump/crouch/interact - the old crouch button's size
         val jumpRadius = actionRadius
@@ -1587,11 +1781,14 @@ class GameplayScene(
 
         val btnGap = 12.0
         val moveSpan = moveRadius * 2.0 + btnGap
-        val moveLeftX = if (isControlsSwapped) canvasW - edgeInset - moveRadius - moveSpan else edgeInset + moveRadius
-        val moveRightX = if (isControlsSwapped) canvasW - edgeInset - moveRadius else edgeInset + moveRadius + moveSpan
+        val moveLeftX = if (isControlsSwapped) canvasW - edgeInsetRight - moveRadius - moveSpan else edgeInsetLeft + moveRadius
+        val moveRightX = if (isControlsSwapped) canvasW - edgeInsetRight - moveRadius else edgeInsetLeft + moveRadius + moveSpan
 
-        // Jump is the hub; crouch and interact hang off it on one arc.
-        val jumpX = if (isControlsSwapped) 210.0 else canvasW - 210.0
+        // Jump is the hub; crouch and interact hang off it on one arc. 210 is its distance from
+        // whichever edge it sits against, measured from inside the safe area rather than from the
+        // physical edge - otherwise the cluster's outermost button (crouch, at jump +
+        // actionArcRadius) is the one that lands under a notch.
+        val jumpX = if (isControlsSwapped) edgeInsetLeft + 164.0 else canvasW - edgeInsetRight - 164.0
         val jumpY = canvasH - bottomInset - jumpRadius
         val outward = if (isControlsSwapped) -1.0 else 1.0
 
@@ -1623,6 +1820,10 @@ class GameplayScene(
                     endAnywhere { onTouch(false); img.alpha = 1.0 }
                     moveAnywhere { if (btn.hitTest(it.global) == null) { onTouch(false); img.alpha = 1.0 } }
                 }
+                btn.mouse {
+                    onDown { onTouch(true); img.alpha = 0.6 }
+                    onUpAnywhere { onTouch(false); img.alpha = 1.0 }
+                }
             } else {
                 createTouchBtn(cx, cy, radius, "", fallbackColor, fallbackDraw, onTouch)
             }
@@ -1633,6 +1834,7 @@ class GameplayScene(
         }
         createImgBtn(moveRightX, controlsY, moveRadius, rightBtnBitmap, COLOR_ACCENT_CYAN, { drawRightChevron(Colors.WHITE) }) {
             touchRight = it
+            if (it) touchRightTap = true
         }
 
         // Action Buttons: Jump, Crouch, Interact (Standard Mobile Action Arc)
@@ -1671,6 +1873,18 @@ class GameplayScene(
                     }
                 }
             }
+            btn.mouse {
+                onDown {
+                    if (world.canInteract) {
+                        touchInteract = true
+                        img.alpha = 0.6
+                    }
+                }
+                onUpAnywhere {
+                    touchInteract = false
+                    img.alpha = if (world.canInteract) 1.0 else translucentEffectAlpha
+                }
+            }
             interactBtnCont = btn
             interactBtnImg = img
         } else {
@@ -1684,38 +1898,50 @@ class GameplayScene(
         // --- Tutorial Tactical Callout & Action Guidance Overlay ----------------------------
         val tutorialSteps = levelData.tutorialSteps
         val tutorialLayer = container().xy(0.0, 0.0)
+        tutorialLayer.mouseEnabled = false
+        tutorialLayer.mouseChildren = false
         val tutorialDarkOverlay = tutorialLayer.uiGraphics()
+        tutorialDarkOverlay.mouseEnabled = false
 
         // Highlight container for rendering bright button textures above the dark scrim
         val tutorialHighlightContainer = tutorialLayer.container().xy(0.0, 0.0)
+        tutorialHighlightContainer.mouseEnabled = false
+        tutorialHighlightContainer.mouseChildren = false
         val hlLeftImg = if (leftBtnBitmap != null) tutorialHighlightContainer.image(leftBtnBitmap) {
             xy(moveLeftX - moveRadius, controlsY - moveRadius)
             size(moveRadius * 2.0, moveRadius * 2.0)
             visible = false
+            mouseEnabled = false
         } else null
         val hlRightImg = if (rightBtnBitmap != null) tutorialHighlightContainer.image(rightBtnBitmap) {
             xy(moveRightX - moveRadius, controlsY - moveRadius)
             size(moveRadius * 2.0, moveRadius * 2.0)
             visible = false
+            mouseEnabled = false
         } else null
         val hlJumpImg = if (jumpBtnBitmap != null) tutorialHighlightContainer.image(jumpBtnBitmap) {
             xy(jumpX - jumpRadius, jumpY - jumpRadius)
             size(jumpRadius * 2.0, jumpRadius * 2.0)
             visible = false
+            mouseEnabled = false
         } else null
         val hlCrouchImg = if (crouchBtnBitmap != null) tutorialHighlightContainer.image(crouchBtnBitmap) {
             xy(crouchX - crouchRadius, crouchY - crouchRadius)
             size(crouchRadius * 2.0, crouchRadius * 2.0)
             visible = false
+            mouseEnabled = false
         } else null
         val hlInteractImg = if (interactBtnBitmap != null) tutorialHighlightContainer.image(interactBtnBitmap) {
             xy(interactX - interactRadius, interactY - interactRadius)
             size(interactRadius * 2.0, interactRadius * 2.0)
             visible = false
+            mouseEnabled = false
         } else null
 
         val tutorialHighlightGraphics = tutorialLayer.uiGraphics()
+        tutorialHighlightGraphics.mouseEnabled = false
         val tutorialHandwrittenText = tutorialLayer.text("", textSize = 28.0, font = handwrittenFont, color = Colors.WHITE)
+        tutorialHandwrittenText.mouseEnabled = false
 
         tutorialLayer.alpha = 0.0
         tutorialLayer.visible = false
@@ -1767,8 +1993,8 @@ class GameplayScene(
         val slotSize = 42.0
         val slotIconSize = 30.0
         val slotGap = 3.0
-        val slotX = canvasW - 14.0 - pauseRadius * 2.0 - slotGap - slotSize
-        val slotY = 20.0
+        val slotX = canvasW - hudRightInset - pauseRadius * 2.0 - slotGap - slotSize
+        val slotY = hudTopInset
         val trayExpandSeconds = 0.17
 
         fun tryActivatePowerup(type: PowerupType) {
@@ -1788,11 +2014,11 @@ class GameplayScene(
         val gadgetLayer = controlsContainer.container()
 
         // --- The row -----------------------------------------------------------------------
-        var gadgetsShown = false
-        var trayExpand = 0.0
+        gadgetsShown = false
+        trayExpand = 0.0
         // Which gadgets the row was last built for, as a bitmask. Stock runs out during a level,
         // so the row has to re-pack when it does - but only then, not every frame.
-        var trayBuiltFor = -1
+        trayBuiltFor = -1
         val gadgetTray = gadgetLayer.container()
         gadgetTray.visible = false
 
@@ -2002,8 +2228,8 @@ class GameplayScene(
         // Redraw guards. The bolt only changes colour when something goes live or expires; the
         // drain bar only when its fraction has moved a visible step. updateShape re-tessellates
         // everything it is handed, so neither runs on a frame where it would come out identical.
-        var slotLastSpan = -2.0
-        var slotLastLive: Boolean? = null
+        slotLastSpan = -2.0
+        slotLastLive = null
 
         val gadgetKeys = listOf(Key.N1, Key.N2, Key.N3, Key.N4, Key.N5, Key.N6)
 
@@ -2150,8 +2376,8 @@ class GameplayScene(
             caughtOverlay.show(world.timeTaken, world.spottedCount, best, profileStorage.getProfile().coins, world.canContinue)
         }
 
-        var totalElapsedSeconds = 0.0
-        var conveyorElapsedSeconds = 0.0
+        totalElapsedSeconds = 0.0
+        conveyorElapsedSeconds = 0.0
 
         world.onConveyorFallOff = {
             isFirstCameraFrame = true
@@ -2178,9 +2404,15 @@ class GameplayScene(
             shieldFlareImage.visible = false
         }
 
-        var laserFlashTimer = 0.0
+        laserFlashTimer = 0.0
         world.onLaserHit = {
             laserFlashTimer = 0.25
+        }
+        world.onSteamPipeHit = {
+            laserFlashTimer = 0.25
+        }
+        world.onCameraBotDeactivated = { _ ->
+            sounds.toastSuccess.playSfx(sfxContext, GameAudio.TOAST_SUCCESS_GAIN, sfxVolume(), GameAudio.SfxFile.TOAST_SUCCESS)
         }
         world.onLaserShieldBlocked = {
             shieldDeflectFlashTimer = 0.15
@@ -2215,16 +2447,18 @@ class GameplayScene(
         }
 
         // Tutorial Controller State
-        var currentTutorialStep: TutorialStep? = null
-        val completedTutorialStepIds = mutableSetOf<String>()
-        var tutorialAlpha = 0.0
-        var isTutorialFadingIn = false
-        var isTutorialFadingOut = false
-        var tutorialPulseTimer = 0.0
-        var stepActionCompleted = false
-        var stepActionTimer = 0.0
-        var stepActivatedX = 0.0
-        var lastUsedKeyboard = false
+        currentTutorialStep = null
+        completedTutorialStepIds.clear()
+        tutorialAlpha = 0.0
+        isTutorialFadingIn = false
+        isTutorialFadingOut = false
+        tutorialPulseTimer = 0.0
+        stepActionCompleted = false
+        stepActionTimer = 0.0
+        stepActivatedX = 0.0
+        lastUsedKeyboard = false
+
+        prevRightPressed = false
 
         // Main game update loop
         addUpdater { dt ->
@@ -2306,6 +2540,10 @@ class GameplayScene(
             // Read Inputs (Merging Keyboard + On-Screen Touch Controls)
             val leftPressed = views.input.keys[Key.LEFT] || views.input.keys[Key.A] || touchLeft
             val rightPressed = views.input.keys[Key.RIGHT] || views.input.keys[Key.D] || touchRight
+            val tapFromTouch = touchRightTap
+            touchRightTap = false
+            val forwardTap = views.input.keys.justPressed(Key.RIGHT) || views.input.keys.justPressed(Key.D) || tapFromTouch || (rightPressed && !prevRightPressed)
+            prevRightPressed = rightPressed
             val jumpPressed = views.input.keys[Key.UP] || views.input.keys[Key.W] || views.input.keys[Key.SPACE] || touchJump
             val crouchPressed = views.input.keys[Key.DOWN] || views.input.keys[Key.S] || views.input.keys[Key.C] ||
                     views.input.keys[Key.LEFT_CONTROL] || views.input.keys[Key.RIGHT_CONTROL] || touchCrouch
@@ -2340,6 +2578,12 @@ class GameplayScene(
                 leftPressed && !rightPressed -> -1.0
                 rightPressed && !leftPressed -> 1.0
                 else -> 0.0
+            }
+
+            if (moveInput != 0.0 || forwardTap) {
+                tapWalkGraceTimer = 0.25
+            } else if (tapWalkGraceTimer > 0.0) {
+                tapWalkGraceTimer = (tapWalkGraceTimer - dtSec).coerceAtLeast(0.0)
             }
 
             // -----------------------------------------------------------------
@@ -2389,7 +2633,7 @@ class GameplayScene(
                             // early/late jump that misses the hook and falls short must not
                             // dismiss the prompt as if it had succeeded.
                             TutorialAction.SWING -> world.player.isSwinging || playerX > step.triggerMaxX
-                            TutorialAction.INTERACT -> interactPressed || world.levers.any { it.isActivated } || playerX > step.triggerMaxX
+                            TutorialAction.INTERACT -> interactPressed || world.levers.any { it.isActivated } || world.cameraBots.any { it.isDeactivated } || playerX > step.triggerMaxX
                         }
                         if (actionDone) {
                             stepActionCompleted = true
@@ -2708,7 +2952,7 @@ class GameplayScene(
             }
 
             // Update domain simulation (interact button activates mechanisms, jump button triggers jump/vault/climb/mantle)
-            world.update(dtSec, moveInput, jumpPressed, crouchPressed, interactPressed)
+            world.update(dtSec, moveInput, jumpPressed, crouchPressed, interactPressed, forwardTap = forwardTap)
 
             // Sync visual positions
             playerContainer.xy(world.player.x, world.player.y)
@@ -2789,16 +3033,22 @@ class GameplayScene(
                 val camFactor = (1.0 - kotlin.math.exp(-16.0 * dtSec)).coerceIn(0.0, 1.0)
                 worldView.x += (targetWorldViewX - worldView.x) * camFactor
             }
-            val baseWorldViewY = currentCanvasH - (baseGroundY + 70.0) * worldZoom
+            val baseWorldViewY = if (bgFileName == "bglvl7.png") {
+                val lvl7GroundY = world.platforms.firstOrNull { it.y >= 400.0 && it.width >= 1000.0 }?.y ?: 440.0
+                currentCanvasH * (488.0 / 724.0) - (lvl7GroundY * worldZoom)
+            } else {
+                currentCanvasH - (baseGroundY + 70.0) * worldZoom
+            }
             worldView.y = baseWorldViewY
 
-            if (levelData.hasDarknessVignette && darknessVignetteImg != null) {
+            val vignette = darknessVignetteImg
+            if (levelData.hasDarknessVignette && vignette != null) {
                 val pScreenX = (world.player.x + world.player.width / 2.0) * worldZoom + worldView.x
                 val pScreenY = (world.player.y + world.player.height / 2.0) * worldZoom + worldView.y
                 val halfSize = darknessVignetteSize / 2.0
                 val vx = pScreenX - halfSize
                 val vy = pScreenY - halfSize
-                darknessVignetteImg.xy(vx, vy)
+                vignette.xy(vx, vy)
                 darknessLeftRect?.xy(0.0, 0.0)?.size(max(0.0, vx), currentCanvasH)
                 darknessRightRect?.xy(vx + darknessVignetteSize, 0.0)?.size(max(0.0, currentCanvasW - (vx + darknessVignetteSize)), currentCanvasH)
                 darknessTopRect?.xy(max(0.0, vx), 0.0)?.size(min(currentCanvasW, vx + darknessVignetteSize) - max(0.0, vx), max(0.0, vy))
@@ -2823,6 +3073,15 @@ class GameplayScene(
             for (visual in laserVisuals) {
                 visual.update(totalElapsedSeconds, cullLeft, cullRight)
             }
+            for (visual in ventFanVisuals) {
+                visual.update(dtSec, totalElapsedSeconds, cullLeft, cullRight)
+            }
+            for (visual in cameraBotVisuals) {
+                visual.update(dtSec, totalElapsedSeconds, cullLeft, cullRight, world.occluders)
+            }
+            for (visual in steamPipeVisuals) {
+                visual.update(dtSec, totalElapsedSeconds, cullLeft, cullRight)
+            }
 
             if (laserFlashTimer > 0.0) {
                 laserFlashTimer = maxOf(0.0, laserFlashTimer - dtSec)
@@ -2831,10 +3090,10 @@ class GameplayScene(
                 laserFlashRect.alpha = 0.0
             }
 
-            // Background parallax: 1:1 lockstep for interior warehouse wall (metalbg.png), 0.2x rate for outdoor sky
+            // Background parallax: 1:1 lockstep for interior warehouse wall (metalbg.png) and vent shaft (bglvl7.png), 0.2x rate for outdoor sky
             if (bgmgImages.isNotEmpty()) {
                 val virtualCameraX = -worldView.x / worldZoom
-                val bgParallax = if (bgFileName == "metalbg.png") worldZoom else 0.2
+                val bgParallax = if (bgFileName == "metalbg.png" || bgFileName == "bglvl7.png") worldZoom else 0.2
                 val bgmgOffset = -virtualCameraX * bgParallax
                 var bgmgShift = bgmgOffset % bgmgTileW
                 if (bgmgShift > 0) bgmgShift -= bgmgTileW
@@ -2844,11 +3103,15 @@ class GameplayScene(
                 wallDecalsContainer.xy(bgmgOffset, 0.0)
             }
 
-            if (world.player.isMoving) {
+            val isWalkingOrTapping = world.player.isMoving || (tapWalkGraceTimer > 0.0 && !world.player.isCrouching)
+            if (isWalkingOrTapping) {
                 stationaryElapsed = 0.0
-                crouchStationaryElapsed = 0.0
             } else {
                 stationaryElapsed += dtSec
+            }
+            if (world.player.isMoving) {
+                crouchStationaryElapsed = 0.0
+            } else {
                 crouchStationaryElapsed += dtSec
             }
 
@@ -2887,7 +3150,87 @@ class GameplayScene(
                 }
                 val frame = climbFirstFrame + (world.player.climbPhase * climbFrameSpan).toInt()
                 playerSprite.setFrame(frame.coerceIn(climbFirstFrame, climbLastFrame))
+            } else if (!world.isPushStanceIdle) {
+                // Push stance machine. Sits up here with swing and climb because, like them, it
+                // owns the sprite outright for as long as it runs - GameWorld suppresses jump and
+                // crouch while braced, so none of the machines below have anything to say.
+                //
+                // Two clips off one number. GameWorld.pushStanceBlend runs 0 -> 1 leaning in and
+                // 1 -> 0 standing back up, so the transition clip is simply scrubbed by it in both
+                // directions (the crouch clip's own arrangement); only at a full 1.0 with the
+                // stance still held does the gait loop take over.
+                if (playerAnimState != "push") {
+                    playerAnimState = "push"
+                    landingAbsorb = false
+                    walkInTransition = false
+                    pushCycleProgress = 0.0
+                    pushStriding = false
+                    pushLoopClipLoaded = false
+                    pushFacingLeft = playerFacingLeft
+                    playerSprite.playAnimationLooped(playerAnimations.pushTransition, manualFrameTime)
+                }
+                val braced = world.isPushing
+                // Walking is what advances the stride; standing still holds the braced rest pose,
+                // exactly as walk hands back to idle and crouchwalk back to the held crouch.
+                val striding = braced && world.player.isMoving
+                if (striding) {
+                    if (!pushStriding) {
+                        // Always re-enter the loop at its first frame. The loop window was chosen
+                        // so that frame is the one closest to the braced rest pose (2.82 frames of
+                        // motion - see PlayerAnimations.PUSH_FRAMES), so a stop-start costs the
+                        // smallest pose step the footage can offer; an arbitrary phase would not.
+                        pushCycleProgress = 0.0
+                        pushStriding = true
+                    }
+                    val previousPhase = pushCycleProgress
+                    pushCycleProgress =
+                        (pushCycleProgress + abs(world.player.vx) * dtSec / pushCycleDistance) % 1.0
+                    if (!pushLoopClipLoaded) {
+                        playerSprite.playAnimationLooped(playerAnimations.push, manualFrameTime)
+                        pushLoopClipLoaded = true
+                    }
+                    val loopLength = PlayerAnimations.PUSH_LOOP_LENGTH
+                    playerSprite.setFrame(
+                        (pushCycleProgress * loopLength).toInt().coerceIn(0, loopLength - 1)
+                    )
+                    // Same crossing test the walk stride uses, against this gait's own contact
+                    // phases - see GameAudio.PUSH_STEP_PHASES.
+                    for (phase in GameAudio.PUSH_STEP_PHASES) {
+                        val crossed = if (pushCycleProgress >= previousPhase) {
+                            phase > previousPhase && phase <= pushCycleProgress
+                        } else {
+                            phase > previousPhase || phase <= pushCycleProgress
+                        }
+                        if (crossed && !world.activePowerups.isNoiseSuppressed) {
+                            val step = if (stepAlternate) sounds.stepB else sounds.stepA
+                            stepAlternate = !stepAlternate
+                            step.playSfx(
+                                sfxContext, GameAudio.STEP_GAIN, sfxVolume(),
+                                if (step === sounds.stepA) GameAudio.SfxFile.STEP_A else GameAudio.SfxFile.STEP_B
+                            )
+                        }
+                    }
+                } else {
+                    pushStriding = false
+                    if (pushLoopClipLoaded) {
+                        playerSprite.playAnimationLooped(playerAnimations.pushTransition, manualFrameTime)
+                        pushLoopClipLoaded = false
+                    }
+                    // Braced but not moving pins the transition's last frame - its settled brace -
+                    // rather than freezing the gait loop mid-step.
+                    val t = world.pushStanceBlend.coerceIn(0.0, 1.0)
+                    playerSprite.setFrame(
+                        (t * pushTransitionLastFrame).roundToInt().coerceIn(0, pushTransitionLastFrame)
+                    )
+                }
             } else {
+                if (playerAnimState == "push") {
+                    // Fully upright again: the transition's own frame 0 IS the standing pose, so
+                    // handing straight back to idle/walk below is a plain clip swap, not a pop.
+                    playerAnimState = "none"
+                    pushStriding = false
+                    pushCycleProgress = 0.0
+                }
                 if (playerAnimState == "swing") {
                     // The swing clip already carries its own complete landing absorption and standup
                     // over planted feet (frames 44.5 to 51). Hand over directly to walk or idle without
@@ -2904,6 +3247,19 @@ class GameplayScene(
                     // standing still played no sound at all.
                     playerAnimState = "none"
                     climbExitTimer = 0.20
+                    // A climb that ended crouched (Player.climbEndsCrouched - a ledge with a
+                    // ceiling over it) has already played its own settle, stopping at the clip
+                    // frame that matches this pose. Hand it the HELD crouch directly: letting the
+                    // crouch machine below see isCrouching turn true would start it at "entering",
+                    // i.e. from the clip's standing frame, snapping the character upright through
+                    // the ceiling he just ducked under and then lowering him back into it.
+                    if (world.player.isCrouching) {
+                        playerAnimState = "crouch"
+                        crouchPhase = "holding"
+                        crouchFrameProgress = crouchLastFrame.toDouble()
+                        playerSprite.playAnimationLooped(playerAnimations.crouch, manualFrameTime)
+                        playerSprite.setFrame(crouchLastFrame)
+                    }
                     val step = if (stepAlternate) sounds.stepB else sounds.stepA
                     stepAlternate = !stepAlternate
                     if (!world.activePowerups.isNoiseSuppressed) {
@@ -2913,19 +3269,50 @@ class GameplayScene(
                     climbExitTimer = maxOf(0.0, climbExitTimer - dtSec)
                 }
 
-                // Jump / Airborne animation machine
-                if (playerAnimState != "jump" && !world.player.isGrounded) {
+                // Jump / Airborne animation machine.
+                //
+                // A CROUCHED player is excluded: crouch-walking off a ledge kept the 56-unit
+                // crouch hitbox (nothing stands them up in mid-air) while this switched the sprite
+                // to the drop pose, which is drawn ~98 units tall - so the head shot up 40 units
+                // above where the body actually was. Under LEVEL_6_LAYOUT's boom that put the
+                // drawn character straight through the beam he was crawling under, reported as
+                // "when dropping while crouching, the player goes above that beam". A crouched
+                // fall keeps the crouched pose, which is what the hitbox says is happening.
+                if (playerAnimState != "jump" && !world.player.isGrounded && !world.player.isCrouching) {
                     val wasMoving = (playerAnimState == "walk") || world.player.isMoving || abs(world.player.vx) > 5.0
+                    // Depth the stance was actually at when the jump started: mid-descent from the
+                    // crouch machine's own progress, or the held pose if they were crouch-walking.
+                    val leftACrouchFrom = when (playerAnimState) {
+                        "crouch" -> crouchFrameProgress
+                        "crouchwalk" -> crouchLastFrame.toDouble()
+                        else -> -1.0
+                    }
                     playerAnimState = "jump"
                     landingAbsorb = false  // cancel any in-progress absorption
                     jumpStartY = world.player.y
                     jumpPhaseElapsed = 0.0
-                    playerSprite.playAnimationLooped(playerAnimations.jump, manualFrameTime)
+                    // Jumped straight out of a crouch - Player allows that wherever the body has
+                    // room to extend. Spring back out of the stance before the jump clip starts.
+                    if (leftACrouchFrom > 0.0 && world.player.vy < 0.0) {
+                        crouchJumpSpringElapsed = 0.0
+                        crouchJumpSpringFrom = leftACrouchFrom.coerceIn(0.0, crouchLastFrame.toDouble())
+                        playerSprite.playAnimationLooped(playerAnimations.crouch, manualFrameTime)
+                    } else {
+                        crouchJumpSpringElapsed = -1.0
+                        playerSprite.playAnimationLooped(playerAnimations.jump, manualFrameTime)
+                    }
                     // If moving upward, it's an intentional jump; if falling downwards, it's stepping/falling off a ledge
                     jumpPhase = if (world.player.vy < 0.0) "launch" else "drop"
                     dropFromWalk = wasMoving && jumpPhase == "drop"
                 } else if (playerAnimState == "jump") {
                     jumpPhaseElapsed += dtSec
+                    if (crouchJumpSpringElapsed >= 0.0) {
+                        crouchJumpSpringElapsed += dtSec
+                        if (crouchJumpSpringElapsed >= crouchJumpSpringDuration) {
+                            crouchJumpSpringElapsed = -1.0
+                            playerSprite.playAnimationLooped(playerAnimations.jump, manualFrameTime)
+                        }
+                    }
                     when (jumpPhase) {
                         "launch" -> if (jumpPhaseElapsed >= jumpLaunchDuration || world.player.vy >= 0.0) {
                             jumpPhase = "air"
@@ -2979,9 +3366,22 @@ class GameplayScene(
                     }
                 }
 
-                // Crouch animation machine: gated on grounded so an airborne crouch-input (edge
-                // case in the physics) still shows the jump animation rather than fighting it.
-                if (playerAnimState != "jump" && world.player.isGrounded) {
+                // Crouch animation machine: normally gated on grounded, so an airborne
+                // crouch-input (edge case in the physics) still shows the jump animation rather
+                // than fighting it - but a player who was ALREADY crouched when they left the
+                // ground keeps the stance and the pose the whole way down (see the jump machine
+                // just above). Their feet are moving through air, so the gait is held still.
+                val crouchedInTheAir = world.player.isCrouching && !world.player.isGrounded
+                val crouchMoving = world.player.isMoving && !crouchedInTheAir
+                if (crouchedInTheAir) {
+                    crouchFallAirborne = true
+                } else if (crouchFallAirborne && world.player.isGrounded) {
+                    crouchFallAirborne = false
+                    if (!world.activePowerups.isNoiseSuppressed) {
+                        sounds.impact.playSfx(sfxContext, GameAudio.LANDING_GAIN, sfxVolume(), GameAudio.SfxFile.IMPACT)
+                    }
+                }
+                if (playerAnimState != "jump" && (world.player.isGrounded || crouchedInTheAir)) {
                     if (world.player.isCrouching) {
                         if (playerAnimState != "crouch" && playerAnimState != "crouchwalk") {
                             playerAnimState = "crouch"
@@ -2991,7 +3391,7 @@ class GameplayScene(
                             crouchPhase = "entering"
                         }
                         
-                        if (playerAnimState == "crouch" && crouchPhase == "holding" && world.player.isMoving) {
+                        if (playerAnimState == "crouch" && crouchPhase == "holding" && crouchMoving) {
                             playerAnimState = "crouchwalk"
                             playerSprite.playAnimationLooped(playerAnimations.crouchwalk, manualFrameTime)
                             // Only restart the full 91-frame transition if starting from a sustained still crouch
@@ -3002,7 +3402,7 @@ class GameplayScene(
                             } else {
                                 crouchwalkInTransition = false
                             }
-                        } else if (playerAnimState == "crouchwalk" && !world.player.isMoving && crouchStationaryElapsed >= 0.10) {
+                        } else if (playerAnimState == "crouchwalk" && !crouchMoving && crouchStationaryElapsed >= 0.10) {
                             playerAnimState = "crouch"
                             crouchPhase = "holding"
                             playerSprite.playAnimationLooped(playerAnimations.crouch, manualFrameTime)
@@ -3088,8 +3488,9 @@ class GameplayScene(
 
             if (!landingAbsorb && playerAnimState != "jump" && playerAnimState != "crouch"
                 && playerAnimState != "crouchwalk" && playerAnimState != "climb"
-                && playerAnimState != "swing" && playerAnimState != "landAbsorb") {
-                val wantsWalk = world.player.isMoving
+                && playerAnimState != "swing" && playerAnimState != "landAbsorb"
+                && playerAnimState != "push") {
+                val wantsWalk = world.player.isMoving || (tapWalkGraceTimer > 0.0 && !world.player.isCrouching)
                 if (wantsWalk) {
                     if (playerAnimState != "walk") {
                         val fromClimb = climbExitTimer > 0.0
@@ -3177,7 +3578,17 @@ class GameplayScene(
                     else -> 0.0
                 }
             }
-            if (playerAnimState == "jump") {
+            if (playerAnimState == "jump" && crouchJumpSpringElapsed >= 0.0) {
+                // The spring itself: the crouch clip run backwards from the depth the stance was
+                // at to standing, over crouchJumpSpringDuration. The body is already rising on
+                // physics by now, so this is deliberately fast - it is the extension, not a
+                // wind-up, and a slower one would read as floating up still folded.
+                val t = (crouchJumpSpringElapsed / crouchJumpSpringDuration).coerceIn(0.0, 1.0)
+                playerSprite.setFrame(
+                    (crouchJumpSpringFrom * (1.0 - t)).roundToInt().coerceIn(0, crouchLastFrame)
+                )
+                playerSprite.y += crouchFeetOffset
+            } else if (playerAnimState == "jump") {
                 val maxJumpHeight =
                     (world.player.jumpSpeed * world.player.jumpSpeed) / (2.0 * world.player.gravity)
 
@@ -3238,9 +3649,18 @@ class GameplayScene(
                     }
                 } else {
                     val previousPhase = walkCycleProgress
-                    if (world.player.isMoving) {
+                    val inWindZone = world.fans.any { it.isPlayerInWind(world.player) }
+                    val shouldAdvanceWalk = world.player.isMoving || (tapWalkGraceTimer > 0.0 && !world.player.isCrouching) || inWindZone
+                    if (shouldAdvanceWalk) {
+                        // When continuously pressing or tapping forward against headwind, ignore wind pushback
+                        // and play the natural, smooth walking stride animation at the player's full standard move speed!
+                        val strideSpeed = if (inWindZone || tapWalkGraceTimer > 0.0) {
+                            maxOf(abs(world.player.vx), world.player.moveSpeed)
+                        } else {
+                            abs(world.player.vx)
+                        }
                         walkCycleProgress =
-                            (walkCycleProgress + abs(world.player.vx) * dtSec / walkCycleDistance) % 1.0
+                            (walkCycleProgress + strideSpeed * dtSec / walkCycleDistance) % 1.0
                     }
                     val loopLength = PlayerAnimations.WALK_LOOP_LENGTH
                     playerSprite.setFrame(
@@ -3251,7 +3671,7 @@ class GameplayScene(
                     // A footstep for each contact phase the cycle passed this tick. Written as a
                     // crossing test rather than "is the phase near X" so it still fires exactly
                     // once at low frame rates or high speed, and survives the wrap at 1.0.
-                    if (world.player.isMoving) {
+                    if (shouldAdvanceWalk) {
                         for (phase in GameAudio.STEP_PHASES) {
                             val crossed = if (walkCycleProgress >= previousPhase) {
                                 phase > previousPhase && phase <= walkCycleProgress
@@ -3277,9 +3697,14 @@ class GameplayScene(
                 playerFacingLeft = world.player.facing < 0.0
             } else if (world.player.isClimbing) {
                 playerFacingLeft = world.player.facing < 0.0
+            } else if (playerAnimState == "push") {
+                // Held, not followed: the whole point of the stance is that he is braced against
+                // something in one direction. Walking the other way drags the load back rather
+                // than spinning the braced silhouette around on the spot.
+                playerFacingLeft = pushFacingLeft
             } else if (moveInput < 0) {
                 playerFacingLeft = true
-            } else if (moveInput > 0) {
+            } else if (moveInput > 0 || forwardTap) {
                 playerFacingLeft = false
             }
             playerSprite.scaleX = playerBaseScale * (if (playerFacingLeft) -1.0 else 1.0)
@@ -4056,7 +4481,8 @@ class GameplayScene(
             color = Colors.WHITE
         )
         loadingLabel.graphicsRenderer = GraphicsRenderer.GPU
-        loadingLabel.xy((canvasW - loadingLabel.width) / 2.0, loadingBarY + loadingBarHeight + canvasH * 0.035)
+        val labelW = try { loadingLabel.width } catch (_: Throwable) { 120.0 }
+        loadingLabel.xy((canvasW - labelW) / 2.0, loadingBarY + loadingBarHeight + canvasH * 0.035)
 
         val blinkPeriodSeconds = 2.2
         val blinkVisibleFraction = 0.88
@@ -4158,7 +4584,10 @@ class GameplayScene(
         val failBtnGroupW = failBtnW * 3.0 + failBtnGap * 2.0
         val failBtnL = (canvasW - failBtnGroupW) / 2.0
         val failBtnH = 62.0
-        val bottomMargin = 10.0
+        // Recomputed here rather than passed in: it is a pure function of the canvas, and these
+        // overlay builders already take the canvas. Keeps the button row off the home-indicator
+        // strip on a phone that reports one.
+        val bottomMargin = 10.0 + DeviceScreen.safeInsetsForCanvas(canvasW, canvasH).bottom
         val failBtnY = canvasH - bottomMargin - failBtnH
         val buttonGap = 10.0
         val topMargin = 8.0
@@ -4326,15 +4755,21 @@ class GameplayScene(
             1.50
         }
         val winCardFactor = 0.880
+        // The card and its button row are centred as one group. Centre them in the canvas MINUS
+        // the home-indicator strip rather than the whole canvas: when the group is tall enough to
+        // need the shrink below it ends up 12 units off the bottom edge, which on a phone that
+        // reports a bottom inset is underneath the indicator. Zero everywhere that reports none.
+        val winSafeBottom = DeviceScreen.safeInsetsForCanvas(canvasW, canvasH).bottom
+        val winUsableH = canvasH - winSafeBottom
         var winCardW = canvasW * 0.74
         var winCardH = winCardW / winCardAspect
         var totalDialogH = winCardH * winCardFactor + winBtnH
-        if (totalDialogH > canvasH - 24.0) {
-            winCardH = (canvasH - 24.0 - winBtnH) / winCardFactor
+        if (totalDialogH > winUsableH - 24.0) {
+            winCardH = (winUsableH - 24.0 - winBtnH) / winCardFactor
             winCardW = winCardH * winCardAspect
             totalDialogH = winCardH * winCardFactor + winBtnH
         }
-        val winCardY = (canvasH - totalDialogH) / 2.0
+        val winCardY = (winUsableH - totalDialogH) / 2.0
         val winBtnY = winCardY + winCardH * winCardFactor
 
         val winCardPivot = winContainer.container().xy(canvasW / 2.0, winCardY + winCardH / 2.0)
@@ -4688,6 +5123,8 @@ class GameplayScene(
         markLoadProgress()
         val l4endBitmap = SceneAssets.bitmap("l4end.png", minified = false)
         markLoadProgress()
+        val exitLvl7Bitmap = SceneAssets.bitmap("exitlvl7.png")
+        markLoadProgress()
         val leftBtnBitmap = SceneAssets.bitmap("left.png")
         markLoadProgress()
         val rightBtnBitmap = SceneAssets.bitmap("right.png")
@@ -4762,6 +5199,7 @@ class GameplayScene(
             entranceBitmap = entranceBitmap,
             exitFenceBitmap = exitFenceBitmap,
             l4endBitmap = l4endBitmap,
+            exitLvl7Bitmap = exitLvl7Bitmap,
             leftBtnBitmap = leftBtnBitmap,
             rightBtnBitmap = rightBtnBitmap,
             crouchBtnBitmap = crouchBtnBitmap,
@@ -4807,6 +5245,7 @@ class GameplayScene(
         val entranceBitmap: Bitmap?,
         val exitFenceBitmap: Bitmap?,
         val l4endBitmap: Bitmap?,
+        val exitLvl7Bitmap: Bitmap?,
         val leftBtnBitmap: Bitmap?,
         val rightBtnBitmap: Bitmap?,
         val crouchBtnBitmap: Bitmap?,

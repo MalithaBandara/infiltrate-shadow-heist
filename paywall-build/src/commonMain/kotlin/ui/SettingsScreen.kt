@@ -9,6 +9,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -27,6 +29,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -181,22 +184,35 @@ fun SettingsScreen(
             .fillMaxSize()
             .background(Color(0xFF0B0B0D))
     ) {
-        val screenHeight = maxHeight
-        val scale = (screenHeight / 720.dp).coerceIn(0.75f, 1.4f)
+        // Two-axis scale - ui/Responsive.kt. The old height-only version floored at 0.75, which
+        // on a landscape phone (~390dp tall) oversized the sidebar and every settings row by
+        // ~39% against the room available.
+        val metrics = menuMetrics(maxWidth, maxHeight)
+        val scale = metrics.scale
+        val safe = safeAreaPadding()
 
         Column(modifier = Modifier.fillMaxSize()) {
             // Top Bar
             MenuTopBar(
                 title = "SETTINGS",
                 font = bebasFont,
-                onBackClicked = onBackClicked
+                onBackClicked = onBackClicked,
+                scale = scale,
+                startInset = safe.calculateStartPadding(LocalLayoutDirection.current),
+                endInset = safe.calculateEndPadding(LocalLayoutDirection.current),
+                hideLogo = !metrics.showsTopBarLogo
             )
 
             // Content: Sidebar + Main Area
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = (24 * scale).dp, vertical = (16 * scale).dp),
+                    .padding(
+                        start = (24 * scale).dp + safe.calculateStartPadding(LocalLayoutDirection.current),
+                        end = (24 * scale).dp + safe.calculateEndPadding(LocalLayoutDirection.current),
+                        top = (16 * scale).dp,
+                        bottom = (16 * scale).dp + safe.calculateBottomPadding(),
+                    ),
                 horizontalArrangement = Arrangement.spacedBy((20 * scale).dp)
             ) {
                 // --- Sidebar ---

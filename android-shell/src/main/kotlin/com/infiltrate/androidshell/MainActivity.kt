@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -28,9 +29,11 @@ import com.sample.demo.ads.AndroidContinueAdBridgeState
 import com.sample.demo.audio.AndroidGameSfxOutputState
 import com.sample.demo.nav.AndroidLevelExitBridgeState
 import com.sample.demo.review.AndroidInAppReviewBridgeState
+import game.model.DeviceScreen
 import game.model.GameProfileStorage
 import game.model.LevelData
 import game.model.MapBackedGameProfileStorage
+import game.scene.DeviceViewport
 import game.scene.GameplayScene
 import korlibs.image.color.Colors
 import korlibs.io.async.launchImmediately
@@ -49,9 +52,13 @@ import kotlinx.coroutines.launch
 
 // Duplicated from src/main.kt (the desktop/JVM entry point), not imported: main.kt has no
 // package declaration, and Kotlin cannot import unnamed-package symbols from a file that does
-// have one. Keep these two in sync with main.kt if they ever change.
+// have one. Keep this in sync with main.kt if it ever changes.
+//
+// This is only the size hint KorGE starts from. The canvas it actually draws into comes from
+// DeviceScreen.viewport (game.model.ScreenLayout), which is derived from this device's real
+// screen below in publishScreenMetrics() - a fixed 1040x480 was letterboxed on every phone that
+// isn't the reference Galaxy S25 Ultra, and lost 38% of the screen to black bars on a 4:3 iPad.
 private val windowSize = Size(1560, 720)
-private val virtualSize = Size(480.0 * (windowSize.width / windowSize.height), 480.0)
 
 /**
  * Real Android host - the Android equivalent of ios-shell/Sources/AppDelegate.swift. Single
@@ -88,6 +95,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         PlatformStorage.init(this)
+        publishScreenMetrics()
+        observeSafeAreaInsets()
         // applicationContext, not this Activity - AndroidGameSfxOutputState is a long-lived
         // singleton (see GameSfxOutput's own doc comment), and this Activity is never recreated
         // in practice (single-Activity app, KorGE view never torn down), but there is no reason
@@ -169,16 +178,23 @@ class MainActivity : ComponentActivity() {
             val sc = activeSceneContainer
             if (sc != null) {
                 sc.stage?.launchImmediately {
+                    // Re-assert the device canvas before building the scene: the module is loaded
+                    // once and re-targeted for every later level, so this is what picks up a
+                    // window that changed shape since (a foldable opening, or Android 16 ignoring
+                    // the orientation lock on a large screen).
+                    DeviceViewport.apply(sc.views, sc)
                     sc.changeTo { GameplayScene(levelData) }
                 }
                 return
             }
         }
+        val viewport = DeviceScreen.viewport
         lifecycleScope.launch {
             view.loadModule(
                 KorgeConfig(
                     windowSize = windowSize,
-                    virtualSize = virtualSize,
+                    // This device's canvas, not a fixed 1040x480 - see game.model.ScreenLayout.
+                    virtualSize = Size(viewport.width, viewport.height),
                     // displayMode's own default (KorgeDisplayMode.DEFAULT = CENTER) is already
                     // ScaleMode.SHOW_ALL + Anchor.CENTER + clipBorders=true, matching main.kt's
                     // explicit scaleMode = ScaleMode.SHOW_ALL - that parameter name only exists
@@ -188,6 +204,7 @@ class MainActivity : ComponentActivity() {
                     main = {
                         val sc = sceneContainer()
                         activeSceneContainer = sc
+                        DeviceViewport.apply(views, sc)
                         sc.changeTo { GameplayScene(levelData) }
                     }
                 )
@@ -230,6 +247,59 @@ class MainActivity : ComponentActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemBars()
+    }
+
+    /**
+     * Tells the shared layout model (game.model.DeviceScreen) how big this device's screen is, in
+     * dp, so both halves of the app can size themselves to it: KorGE picks its virtual canvas
+     * from it (below, and game.scene.DeviceViewport), and Compose reads the same object for safe
+     * areas.
+     *
+     * `resources.displayMetrics` is the activity window's own size, which with the system bars
+     * hidden (hideSystemBars) is the full display minus any display cutout the platform refuses
+     * to lay out under. Publishing dp rather than pixels is what makes it comparable with iOS
+     * points and with the design canvas, where 1 unit is 1 dp on the reference phone.
+     */
+    private fun publishScreenMetrics() {
+        val dm = resources.displayMetrics
+        val density = if (dm.density > 0f) dm.density else 1f
+        DeviceScreen.publish(
+            widthDp = (dm.widthPixels / density).toDouble(),
+            heightDp = (dm.heightPixels / density).toDouble(),
+        )
+    }
+
+    /**
+     * Keeps the safe-area half of those metrics up to date. Cutout + mandatory gestures, and
+     * deliberately not the full `systemGestures()` set: the mandatory strip is the part an app is
+     * not allowed to consume (the home indicator, and the cutout itself), whereas the full
+     * gesture insets reserve ~20dp down both long edges of a gesture-navigation phone, which
+     * would push the D-pad and the jump cluster a visible distance inboard for no real gain -
+     * the HUD already insets itself from the edges by more than that (GameplayScene's
+     * `edgeInset`, which now takes the larger of its own value and this one).
+     *
+     * Insets arrive on the first layout pass, which is well before any level can be started, so
+     * the first GameplayScene already sees them.
+     */
+    private fun observeSafeAreaInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { v, insets ->
+            val dm = resources.displayMetrics
+            val density = if (dm.density > 0f) dm.density else 1f
+            val safe = insets.getInsets(
+                WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.mandatorySystemGestures()
+            )
+            DeviceScreen.publishSafeArea(
+                leftDp = (safe.left / density).toDouble(),
+                topDp = (safe.top / density).toDouble(),
+                rightDp = (safe.right / density).toDouble(),
+                bottomDp = (safe.bottom / density).toDouble(),
+            )
+            // Hand the insets on to the view's own implementation rather than returning them
+            // here: a listener on the decor view REPLACES its default onApplyWindowInsets, and
+            // returning early from it would stop the dispatch that reaches the Compose tree.
+            // This listener only reads.
+            ViewCompat.onApplyWindowInsets(v, insets)
+        }
     }
 
     // GameSfxOutput.kt's mixer thread/AudioTrack (see its own doc comment) runs forever once

@@ -45,6 +45,14 @@ private object IosMusicPlayer {
         player?.volume = volume.coerceIn(0f, 1f)
     }
 
+    fun pause() {
+        player?.pause()
+    }
+
+    fun resume() {
+        player?.play()
+    }
+
     fun stop() {
         player?.stop()
         player = null
@@ -66,5 +74,13 @@ actual fun MenuMusic(
         onDispose { IosMusicPlayer.stop() }
     }
 
-    LaunchedEffect(volume) { IosMusicPlayer.setVolume(volume) }
+    val isAdActive = com.infiltrate.ads.AdAudioCoordinator.isAdActive
+    LaunchedEffect(isAdActive, volume) {
+        if (isAdActive) {
+            IosMusicPlayer.pause()
+        } else {
+            IosMusicPlayer.setVolume(volume)
+            IosMusicPlayer.resume()
+        }
+    }
 }

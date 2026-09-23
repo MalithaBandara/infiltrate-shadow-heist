@@ -43,7 +43,14 @@ data class MovingPlatformDef(
     // LEVEL_6_LAYOUT's lever crate): missing the timing window costs that attempt, but once the
     // platform has eased all the way back to rest, whatever throws the matching lever (see
     // GameWorld's per-tick lever-reset check) can throw it again for another identical attempt.
-    val oneShot: Boolean = false
+    val oneShot: Boolean = false,
+    // When true, anything this platform catches UNDERNEATH it kills the player on contact - a
+    // swinging load, not a lift. Checked in GameWorld.update against the player's own box, and
+    // only from below (standing on top of one is still standing on a platform). LEVEL_6_LAYOUT's
+    // gantry crate is the only one: it hangs 30 above the ledge it gates, so the climb that times
+    // it wrong puts the player's head into the underside - "if he touches the bottom side of the
+    // crate it should be mission failed".
+    val crushesOnContact: Boolean = false
 )
 
 data class PlatformDisplacement(
@@ -72,7 +79,9 @@ class MovingPlatform(
     val initialY: Double = minY,
     val startsInactive: Boolean = false,
     val activationDelaySeconds: Double = 0.0,
-    val oneShot: Boolean = false
+    val oneShot: Boolean = false,
+    /** See [MovingPlatformDef.crushesOnContact]. */
+    val crushesOnContact: Boolean = false
 ) {
     constructor(
         id: String,
@@ -90,7 +99,8 @@ class MovingPlatform(
         initialY: Double = minY,
         startsInactive: Boolean = false,
         activationDelaySeconds: Double = 0.0,
-        oneShot: Boolean = false
+        oneShot: Boolean = false,
+        crushesOnContact: Boolean = false
     ) : this(
         id = id,
         width = width,
@@ -106,7 +116,8 @@ class MovingPlatform(
         initialY = initialY,
         startsInactive = startsInactive,
         activationDelaySeconds = activationDelaySeconds,
-        oneShot = oneShot
+        oneShot = oneShot,
+        crushesOnContact = crushesOnContact
     )
 
     var x: Double = initialX

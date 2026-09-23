@@ -117,7 +117,7 @@ actual object StoreBilling {
                     val msg = if (avail.isNotEmpty()) {
                         "Item '$packageId' not found in store offering. Available in RevenueCat: $avail"
                     } else {
-                        "Item '$packageId' not found in App Store products."
+                        "Item '$packageId' not found in App Store products. Please verify in App Store Connect that '$packageId' is Cleared for Sale, Pricing is set, and the Paid Applications Agreement is Active."
                     }
                     onResult(false, msg)
                 }

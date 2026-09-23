@@ -32,7 +32,10 @@ mounted guard/camera. `tablePlank`'s `rightLeg` and the camera beam's `cameraLeg
 `LevelData.kt`) are the pattern: a real, solid, sight-blocking obstacle (`boxes` +
 `LevelLayout.tableDecorations`), drawn with `table.png`'s own leg/brace crop, tucked up against the
 platform's underside (`legLift`) at the end away from wherever the player climbs or a guard/camera
-sits. Apply this to every new elevated platform in future levels, not just Level 3.
+sits. Apply this to every new elevated platform in future levels, not just Level 3. **The one
+standing exception is LEVEL_6_LAYOUT's section-5 platform**, which the owner asked to have nothing
+under it and then asked to have its chains removed as well ("remove the chain holding the floating
+platform") - see "Section 5" below before adding rigging back to it.
 
 Corollaries that keep recurring:
 - **JVM `Testing` CI green does NOT mean iOS is green.** Kotlin/JVM default-imports things
@@ -484,6 +487,80 @@ Tested and fully reverted. Stale (last real commit 2023), doesn't compile agains
 its iOS backend is an empty stub that falls back to a fake generated video. If video is wanted,
 re-encode as a low-fps PNG/JPEG frame sequence or sprite sheet through KorGE's normal APIs.
 
+## Responsive layout: one canvas rule for every device (2026-09-24)
+
+Both halves of the app used to be pinned to the reference phone. Gameplay ran in a fixed
+1040x480 virtual canvas under `ScaleMode.SHOW_ALL`, which letterboxes anything that is not that
+2.167 aspect - 8% of a 16:9 phone and **38% of a 4:3 iPad** went to black bars. Every Compose
+screen scaled itself off `(maxHeight / 720.dp).coerceIn(0.75f, 1.4f)`, and `MenuTopBar` did not
+scale at all (a hard 74dp with 26sp type - a fifth of a landscape phone's height).
+
+**`src/game/model/ScreenLayout.kt` (pure Kotlin, shared with `paywall-build`) is the one rule:
+the virtual canvas carries the DEVICE's aspect and always CONTAINS the authored 1040x480.**
+Wider than 2.167 keeps the 480 height and grows the width; squarer keeps the 1040 width and grows
+the height. So **no device ever sees less of a level than the reference phone** - a wide screen
+sees a little more level width, a tablet sees more sky - and level pacing tuned against ~770
+visible world units (level 6's "the crane fills the frame from the lever", level 3's overwatch
+pair) still holds. 4:3 works out to 1040x780. `GameplayScene` needed no camera change for this:
+it already pinned the ground near the bottom of whatever canvas it was given and tiled the
+background to `canvasH`. The rejected alternative was keeping the height and letting the width
+follow the aspect, which hands a 4:3 iPad a 640x480 canvas and silently cuts the visible level
+width by a third.
+
+- **Who sets it, and when.** `DeviceScreen` (same file) holds what the host measured; every host
+  publishes and then `game.scene.DeviceViewport.apply(views, sceneContainer)` re-asserts it
+  **before** `changeTo` (a `Scene` copies `sceneContainer.size` once, when it is built - applying
+  it after does nothing until the next scene). Desktop knows its window up front, Android knows
+  in `onCreate`, **iOS does not**: `gameMain()` runs from inside
+  `ShellAppDelegate.applicationDidFinishLaunching`, which Swift calls as the first statement of
+  its own `didFinishLaunchingWithOptions`, before any window is laid out.
+- **Swift measures on iOS, deliberately.** `UIScreen.mainScreen.bounds` from Kotlin/Native is a
+  `CValue<CGRect>` needing `useContents` + `ExperimentalForeignApi`, and iOS is the one target
+  that cannot be compile-checked here. `GameScreenMetricsBridge` (`src@ios`) and
+  `MenuScreenMetricsBridge` (`paywall-build/src/iosMain`) take four plain `Double`s instead.
+  **Both are needed**: `GameMain` and `PaywallModule` each compile their own copy of
+  `src/game/model`, so there are TWO `DeviceScreen` objects in the process and a publish reaches
+  only one. `AppDelegate.swift` calls both, at launch and again on every switch into gameplay.
+  Android has one process-wide copy and publishes once in `MainActivity`.
+- **Landscape is assumed, defensively.** `viewportFor` normalises its inputs with max/min rather
+  than trusting which is "width" (iOS reports portrait-shaped bounds during the first moments of
+  launch; Android 16 ignores orientation locks on large screens) and clamps the aspect to
+  0.75..3.0 so a genuinely portrait window degrades into a tall canvas rather than something
+  absurd.
+- **Safe areas are now real, not guessed.** `GameplayScene`'s `edgeInset`/`bottomInset` (46/38)
+  are floors now: where a host reports an inset, the reported value plus a 12-unit margin wins.
+  An iPhone's Dynamic Island is 59pt wide and sits on a SIDE in landscape - wider than 46 - so
+  the left D-pad really was partly underneath it. The objectives block, the pause/gadget cluster
+  and both end-of-run cards take the same insets. Android reports `displayCutout() |
+  mandatorySystemGestures()`, NOT the full `systemGestures()` set (that reserves ~20dp down both
+  long edges for no real gain here), and its decor-view listener forwards via
+  `ViewCompat.onApplyWindowInsets` rather than returning early, or the dispatch never reaches
+  Compose.
+
+**Compose: `paywall-build/src/commonMain/kotlin/ui/Responsive.kt`.** `menuMetrics(maxWidth,
+maxHeight)` gives one `scale = min(h/720, w/1280)` clamped 0.62..1.45, so the *smaller* axis
+limits. At the reference 1560x720 it is exactly 1.0 - the desktop/reference look is unchanged,
+which matters because these screens have been through many rounds of the owner's own feedback and
+this was not a redesign. **The main menu keeps its own lower floor** (`MAIN_MENU_MIN_SCALE` =
+0.55): its four stacked 84dp buttons plus the 158dp logo come to ~396dp at 0.62 against a
+390dp-tall phone and SETTINGS falls off the bottom - measured, not estimated, and 0.62 was tried
+first and does exactly that. Where scaling alone cannot fit a screen, `metrics.isShort` (height <
+520dp, i.e. every phone in landscape and nothing else) trims decoration instead of shrinking type
+further: a shorter chapter row, two description lines instead of three, no top-bar wordmark.
+`MenuTopBar`/`StatPill`/`CoinPill` all take `scale` now, defaulting to 1f.
+
+**Verification, and what is NOT verified.** Desktop stands in for device aspects:
+`./gradlew runJvm -PwindowSize=1024x768` (iPad), `1280x720`, `1120x480` (21:9), and
+`./gradlew :paywall-build:run -PwindowSize=844x390` for the menus - both read the env var the same
+way `startLevel` already did. Screenshot recipe as always (`SetProcessDPIAware()` first), and
+**capture the CLIENT rect, not `GetWindowRect`**, which includes the invisible resize border and
+shows the desktop behind the window. Checked this way: gameplay at 4:3 / 16:9 / 21:9 on levels 1,
+4 (vignette) and 7 (its `canvasH * 488/724` background anchoring holds), and MainMenu / Missions /
+Store at 844x390 and 1024x768. `jvmTest` 187 green, `:paywall-build:jvmTest` 14 green,
+`android-shell:compileReleaseKotlin` clean. **Nothing here has run on a real device or simulator,
+and the safe-area plumbing in particular has never seen a non-zero inset** - desktop reports none.
+iOS is not even compile-checked (CI only).
+
 ## Non-gameplay UI in Compose - status
 
 MainMenu, LevelSelect, Store, Settings are real Compose screens in `paywall-build`. KorGE is entered
@@ -514,9 +591,10 @@ surface (bug #7), so the Compose menu draws opaquely on top of an always-visible
   barrel-wall + hook-swing stub, see "The swing move"), `06: Missing Container` (`LEVEL_6_LAYOUT` -
   lever-crate swing, pit crossing, crane crossing; see its own section), `07: Stolen Manifest`
   (`LEVEL_7_LAYOUT` - linear vent crawling gauntlet, exhaust fans, camera bots, steam pipes; see its
-  own section), `08: Hidden Archive` .. `09: Old Signature` (no layout of their own, `GameWorld.createDefault`
-  with a per-level `guardSpeed`). Other levels' backgrounds rotate through `bgmg2/3/4` via
-  `LevelData.resolvedBackgroundImage`.
+  own section), `08: Hidden Archive` .. `12: Hidden Cargo` (no layout of their own, `GameWorld.createDefault`
+  with a per-level `guardSpeed`), `13: Final Proof` (`LEVEL_13_LAYOUT` - deliberately EMPTY, the
+  push-animation stage; see its own section). Other levels' backgrounds rotate through `bgmg2/3/4`
+  via `LevelData.resolvedBackgroundImage`.
 
 ## End-of-run dossier sheets (MISSION FAILED / HEIST COMPLETE)
 
@@ -1197,7 +1275,9 @@ crate more to the left"). `testLevel6GantryCrateNeverSweepsIntoTheMachineOrOverI
 both halves of that.
 
 **It is still not visible from the lever, and cannot be.** The camera shows 1040/1.35 = ~770 world
-units, so standing at `lever_3` the view ends at ~3330 - and the crane's own cab ends at 3303. The
+units - the authored canvas width, which the responsive viewport rule guarantees is the NARROWEST
+any device gets (a screen wider than 2.167 sees a little more; nothing ever sees less) - so
+standing at `lever_3` the view ends at ~3330, and the crane's own cab ends at 3303. The
 machine fills the frame from the lever to the right edge. Moving the load any further left is the
 one thing the paragraph above forbids. If that has to change, the options are moving the crane
 itself right (which re-tunes section 3's boom, and the boom's height is pinned to the tallBlock
@@ -1212,37 +1292,140 @@ rigging as `LEVEL_2_LAYOUT`'s `hangingCrate1`), on request: "use the hanging cra
 Verified in the running game, not just the model: thrown from the lever, crossed, timed, climbed,
 walked out and extracted.
 
-### Section 5: the plank, the switch and the laser curtain (2026-09-23)
+### The crane's top: denied the mantle, and NOT made jumpable (2026-09-24)
+
+"he should not be able to climb this" -> "he should be able to climb this but not to the top part
+from the crane" -> "if this is jumpable height, let the player jump onto it but just not climb" ->
+"he is floating here now. YOU DONT HAVE TO MAKE THIS JUMPABLE. MAKE IT JUMPABLE ONLY IF IT IS."
+
+The machine is crossed one way: in off the boom from tallBlock (96, a climb), east along it, **down**
+onto the rear deck (52.4), **down** onto the platform (91.6). The deck is still climbable from the
+platform beside it. The machine's top is not reachable from the deck at all.
+
+**`LevelLayout.unclimbableBoxes`** (carried through `GameWorld` into `Player.findClimbTarget`, which
+skips any box in it) denies the **mantle only** - the box still collides, is still landed on, and is
+still jumped onto if the rise is inside jump height. Level 6 lists `crane.bodyBounds`.
+
+**Why the deny list rather than geometry.** `Player.climbMinHeight` IS `Player.maxJumpHeight`
+(51.2), so climbing and jumping are complementary: inside jump range a ledge is jumped and never
+mantled, above it a ledge is mantled and never jumped. The deck-to-top rise is 52.4 - just over the
+line, so it read as a climb. Lifting the deck's collision 6 units off its drawn roof to buy the jump
+**was tried and rejected**: the deck's art is flat all the way across, so the player simply floats
+above it. **Do not bend collision off the art to change which move applies** - deny the move and let
+the ledge be out of reach.
+
+**`maxJumpHeight` is the analytic apex, not what a jump clears.** Stepping at 1/60s the feet peak
+about **48.5** above the take-off, so a rise of 48.4 "fits" on paper and in practice scrapes the lip
+and drops back (measured). Leave a few units under 48.5, not under 51.2, whenever a jump has to land.
+
+**A climb is a jump PRESS against a face** (`Player.updateStep` consults `findClimbTarget` when the
+jump is consumed), not a walk into it. A simulation driving `moveInput` into a wall with
+`jumpInput = false` never climbs and proves nothing, and a HELD press is consumed on the first frame
+- pulse it. `testLevel6CraneTopIsNeitherClimbedNorJumpedFromItsOwnRearDeck` covers all of it.
+
+### Section 5: the hanging platform, the switch and the laser curtain (2026-09-23)
 
 "after that section, continue that platform and add a crate at the end. after that add a hanging
 platform from level 3. there should be a lever on top and a guard after that moving left and right.
 the lever turns off 3 lasers that are there from the hanging platform to the ground. the bottom is
-the only path out." `gateBlock` runs on (460 wide) and ends in a step crate; the plank is level 3's
-own arrangement rebuilt here - same 96-unit climb off a crate, same `floatingClimbTargets`
-exemption, same `table.png` art via `tableParts`/`tableDecorations`.
+the only path out." Reworked twice the same day. Current shape, after the second pass ("lift the
+floating platform to the level of the top of the crate on the edge of the platform before it",
+"move the crate to the edge of the platform", "reduce the size of the laser emittors and
+receivers", "remove the chain holding the floating platform", "move the lasers to the left", "move
+the floating platform to the right"):
 
-**The way back DOWN is the duck, and it is what places everything.** From the crate's top the
-plank's underside is 66 up: a standing body (96) is stopped by it, a crouched one (56) goes under,
-off the block's last lip and into the corridor. That is why the plank's support leg is
-**decoration only** (unlike level 3's, which are solid): it stands on those last 30 units of block,
-directly under the plank's climb end, and a solid post there would seal the quiet way down and
-leave only the walk past the guard. The corridor itself is completely clear - no leg, no crate,
-nothing on the floor between the block and extraction - because it is the only path out.
+**The step crate is the crossing.** `endCrate` (68x48) stands flush with `gateBlock`'s far lip and
+the platform hangs past the gap at the CRATE's top, not the block's. So the block is walked to its
+end, the crate is jumped (48 is inside `maxJumpHeight`'s 51.2), and the jump across leaves from the
+crate's lip and lands level. Everything in the section is derived from `gateBlock.right`, so the
+whole arrangement moves together if the block ever does.
 
-**The lasers are a door, not a timing puzzle.** Three beams hung off the plank's underside to the
-floor, `isAlwaysActive`, all carrying `mechanismId = "lvl6_exit_lasers"`; `lever_4` on the plank
-matches it and `GameWorld.triggerLever` calls `Laser.disable()` on every one - permanent for the
-run (`Laser.isDisabled`, cleared only by `reset()`). This is the first switched laser in the game;
-everything before it only cycles.
+**The 65-unit gap between the crate and the platform is the section's hinge, and it does two jobs.**
+(45, then 55, then 65 - "move the floating platform to the right", then "increase gap between the
+platform and floating thing".) The ceiling is physics: `jumpSpeed` 320 against `gravity` 1000 is
+0.64s of flight, `moveSpeed` 132 carries the body **84.5** units in that time, and the landing
+spends about 6.5 of them getting a foot onto the far lip - so **~78 is impossible** and everything
+below it is margin for pressing jump early. 65 leaves ~13 units of margin, 70 leaves 8, and the test
+measures that margin rather than trusting arithmetic. It is also wider than the player's own 36, so
+simply WALKING off the lip drops them to the corridor instead ("he should be able to drop down to
+reach the place with lasers"). Jump across for the switch; walk off for the way out.
 
-**The third beam hangs off the plank's own far END on purpose.** Without it the plank is its own
-bypass: walk to the tip, step off, land past every beam with the switch never thrown. At the tip,
-stepping off drops the player straight through it.
+**An earlier version of this note said the ceiling was 61, from a stale "needs `gap + 18` to land"
+figure.** That was wrong and cost a round of guessing; the 84.5/6.5 numbers above are measured by
+simulation in `testLevel6HangingPlatformIsLevelWithTheCrateAndDropsIntoTheCorridor`, which scans how
+early the jump may be taken and still land. **A probe like that has to use a `<=` threshold, not a
+1-unit window**: the body moves 2.2 units per frame, so a narrow window is stepped straight over and
+the probe reports a false "no margin".
 
-**The guard patrols the plank past the lever**, which is the section's actual ask: there is no
-cover up there, so the climb has to happen while he is walking away, and the quiet exit is back
-down the duck rather than along the plank past him. `testLevel6SecondSectionCrossesPitAndReachesExit`
-drives exactly that (it waits for `facing > 0` before going up).
+**Nothing may stand in that chute**, and this was tried twice before settling: a prop there has to
+be climbable from the corridor floor AND leave a body-width lane beside it, which does not fit - and
+worse, the platform's near face pins a standing body on top of anything 48 tall in the chute with no
+way down at all (Player's horizontal pass pushes it back on rather than letting it fall). The drop
+is therefore **one-way**, which is what the checkpoint on the platform is for: a player who goes
+down before throwing the switch walks into the curtain, dies, and respawns up top to try again.
+
+**Nothing is drawn holding the platform up either.** It was briefly hung from the hanging crates'
+chain art (`LevelLayout.suspendedTableParts`, since deleted along with its `GameWorld` field and the
+`GameplayScene` branch) - "remove the chain holding the floating platform" took that back out, so
+this platform is a deliberate, asked-for exception to the "nothing floats with no structure under
+it" rule. Do not re-add rigging to it without being asked.
+
+**The lasers stand 45 apart at the platform's far end** ("put the 3 lasers close together"), hung
+from its underside to the floor, `isAlwaysActive`, all carrying `mechanismId = "lvl6_exit_lasers"`.
+`lever_4` on the platform matches it and `GameWorld.triggerLever` calls `Laser.disable()` on every
+one - permanent for the run (`Laser.isDisabled`, cleared only by `reset()`). This is the first
+switched laser in the game; everything before it only cycles. **The third beam hangs off the
+platform's own tip on purpose**: anywhere else and the platform is its own bypass - walk to the tip,
+step off, land past every beam with the switch never thrown. That is why "move the lasers to the
+left" was done by **shortening the platform** (420 -> 370) rather than sliding the bank inwards: the
+beams hang off the tip and travel with it.
+
+**`LaserDef.emitterScale`** (new, 1.0 everywhere else, 0.55 on this curtain): scales the drawn
+emitter/receiver housings only - `LaserVisual`'s `unitLength`. Collision is still `beamThickness`
+and does not move with it. "Reduce the size of the laser emittors and receivers", and it is per-beam
+rather than global so the other levels' hazards are untouched.
+
+**The guard patrols the platform past the lever**, which is the section's actual ask: there is no
+cover up there, so the jump across has to happen while he is walking away, and the way out is back
+down the chute rather than along the platform past him. His beat runs **170 units** now, opened up
+at both ends on request ("increase the length of the path of guard from either side"), and
+`lever_4` sits 24 from the platform's near end rather than 46 ("take the lever little more to
+left"), so the switch is under the body almost as the jump lands.
+
+**Lengthening that beat moved where the player can wait.** With his near turn at `plank.left + 110`
+he can see a body standing on the step crate (the crate's top is level with the platform, well
+inside his 220 of vision), so the whole approach is now one burst from the block below: wait a
+body-length short of the crate's face, then hop the crate and jump the chute while he walks away.
+`testLevel6SecondSectionCrossesPitAndReachesExit` drives exactly that, and it is the reason that
+test failed when the beat was first lengthened - the autopilot was still waiting up on the crate.
+
+**The exit is `exitlvl7.png`**, level 6 only: one silhouette carrying the shed and its yard fence,
+instead of the shared `entrance.png` booth + `exitfence.png` pair. Authored size 1505x809 (the
+source drop's own file, cropped to its alpha bounds); on disk it is the 1024x512 POT resample of
+that, which is why the aspect is written out as a literal rather than read off the bitmap.
+
+**Its box lives in the level, not the scene** - `LevelLayout.exitStructure` (new; `GameplayScene`
+just draws it, and falls back to the booth + fence pair when a level has none). It has to, because
+this building is placed against the level's own geometry rather than against `exitZone`: **401 tall
+standing on `groundY`** (200, then 335, then this - "increase size of the building at end and make
+sure it is on the floor", then "you can increase its size"), with its left edge tucked 8 units under
+the hanging platform's far tip. The height is what does the connecting - the art's own balcony deck
+starts 0.5215 of the way down from its roof, so `440 - 0.4785 * 401` puts that deck's **top surface
+flush with the platform's own top**, and the platform reads as a walkway running off the building's
+balcony ("the middle part should be connected to the balcony"), which is also what stops it reading
+as a slab hanging in mid-air now that its chains are gone. Past ~400 the extra height is only roof
+that the camera's 356-unit window cannot show while the player is down on the corridor floor.
+`worldWidth` is 5300 to cover the building's far edge, and `exitZone` sits 53 units INSIDE the
+silhouette rather than flush with its left edge, so on this level the player walks into the building
+rather than touching its corner.
+
+**It hung 12 units off the floor for a round, and the cause is worth knowing: `PIL.Image.getbbox()`
+is not an alpha crop.** It bounds every channel, so it kept 27 rows of fully transparent pixels that
+still carried RGB under the building - invisible in the file, 3.3% of dead space at the bottom of
+the draw box, and the taller the art is drawn the bigger the gap gets. **Crop art on `alpha > 0`
+explicitly** (`np.nonzero(alpha > 8)`), then POT-resample; check afterwards that the silhouette
+reaches the last row. exitlvl7.png's authored size is 1501x780 after a proper alpha crop (it was
+recorded as 1505x809).
 
 **`MovingPlatformDef.crushesOnContact`** (new, and so far only section 4's gantry crate): "when
 trying to climb if he touches the bottom side of the crate it should be mission failed". A mistimed
@@ -1371,6 +1554,79 @@ duct:
   `testLevel7CameraBotPatrolAndDeactivationFromBehind`, `testLevel7SteamPipeHazardsAndLaserShieldDeflection`,
   and full end-to-end traversal `testLevel7SimulationPlayableWalkthrough`.
 
+## The push stance (`resources/player/push{,transition}`) - built 2026-09-24, live on level 13
+
+Two clips cut by `tools/art/prep_push.py` from `Downloads/charAnimations/push` (144 raw frames) and
+`pushtransition` (96), both 360x640 half-res plates. **That script's header is the source of truth
+for every cut and the crop geometry - re-run and paste, don't hand-edit the Kotlin**, same rule as
+`prep_guard.py`. Currently a stance with nothing to push: `INTERACT` toggles it, level 13 is the
+bare stage it is tried out on, and a real pushable prop would gate it on range the way levers do.
+
+- **These plates are framed ~6.4% smaller than every other clip** - standing measures 484 rows
+  against crouch's 517 and swing's 503 on plates of the identical size. The scale that maps them to
+  the shared sprite size is this clip's own `244.36 / 484`. Get that wrong and the character changes
+  size the moment he braces; both clips come out with idle's own 245px standing silhouette, and
+  `pushtransition` frame 0 IS the standing pose (2.7% silhouette disagreement against idle frame 0),
+  which is what makes the handover in and out of idle free.
+- **Frames are 180x256, cropped symmetric about the STANDING body centre** (raw column 173), not
+  about the union bbox. The sprite is anchored at the frame's horizontal centre, so keeping the
+  standing centre means entering the stance shifts the character by nothing; the braced pose then
+  leans out over the collision box's front edge with its feet planted behind it, which is what
+  pushing looks like. Same idea as climb's 200-wide frames.
+- **The loop keeps EVERY raw frame while the transition is halved, and that is about the move's
+  slowness, not the footage.** The loop is distance-driven, so the braced move speed sets its
+  display rate: 56.6 world units per cycle at ~53 u/s is 1.07 **seconds**, so 20 frames would be
+  19fps and read as a flick-book, where the full 40 is 37fps - walk's own 36. This is the swing
+  clip's lesson arriving from the opposite direction (there, halving hurt because the action was
+  fast). **Redo that arithmetic rather than reusing the conclusion if `PUSH_MOVE_FACTOR` moves.**
+- **`PUSH_STRIDE_PER_HEIGHT` = 0.59, and getting it took four goes.** Measure it by sub-pixel phase
+  correlation of the ground-contact alpha profile between consecutive frames of the **processed**
+  output, pooled over both feet: 3.629 +/- 0.039 sprite px/frame, i.e. 0.594 +/- 0.006. What does
+  NOT work, each tried first: integer bbox edges on the raw plates over short partial stances (gave
+  0.58 - the ends of a stance are the foot rolling heel-to-toe, not the body translating); a
+  least-squares fit of one foot's contact centroid (gave 0.61, while the other foot on the same
+  frames gave 0.58 - a centroid moves with the patch's shape and the two boots differ); and
+  anything measured at the wrong end of the raw clip, since **the character accelerates through the
+  footage** (2.8 px/frame over the opening cycle against 7.4 late, because it opens with him
+  leaning into a load that is not moving yet). The in-game check below can only resolve this to
+  +/-5%, so it confirms the number but cannot pick between candidates.
+- The loop window is raw 94..133. Start 88 has the tightest seam (0.53 of an adjacent frame) but
+  the worst entry from the braced rest pose (5.7 frames of motion); 94 trades that for a 1.09 seam
+  and a 2.82 entry, which is the right way round - the seam is crossed every cycle, the entry only
+  when the player starts moving. `GameplayScene` therefore always re-enters the loop at frame 0.
+- `GameAudio.PUSH_STEP_PHASES` = `[0.33, 0.90]`, measured by a contact-band scan of the shipped
+  frames. **Not** walk's `STEP_PHASES` - this gait's stance/swing split is different.
+- The state machine is split the usual way: `GameWorld` owns `isPushStanceHeld` / `pushStanceBlend`
+  (0..1, running both directions so one clip serves the lean-in and the stand-up, exactly as the
+  crouch clip does) and suppresses jump/crouch and scales movement to `PUSH_MOVE_FACTOR` while
+  braced; `GameplayScene` owns which frame that draws as. **The toggle is edge-detected inside
+  `GameWorld`** because the scene hands over the raw button LEVEL, not an edge - reading it directly
+  flips the stance every frame of one press. `canInteract` is forced true in a `pushStanceDemo`
+  level, otherwise the scene's own `interactPressed` gate swallows the press before the world sees
+  it. Facing is **locked** for the whole stance (walking backwards drags the load, it does not spin
+  the braced silhouette around).
+- Verified by `jvmTest` (`testPushStance*`, `testLevel13*`) and on JVM desktop end to end: idle ->
+  lean -> braced -> push forward -> push backward with the facing held -> jump and crouch both
+  refused -> stand up -> idle -> normal walk and jump restored. The planted foot was measured
+  against the ground in the running game by screenshot burst (the camera is locked to the player, so
+  a planted foot must slide backwards at exactly the player's own speed) and it does, within the
+  +/-5% that method resolves. **Not on Android or iOS.**
+
+## Level 13 ("13: Final Proof") - `LEVEL_13_LAYOUT`, the push stage
+
+Deliberately **empty**: flat ground wall to wall, no guards, cameras, boxes, hazards, start fences
+or anything hanging. It used to be a `GameWorld.createDefault` level with a patrolling guard and a
+corridor derived from `guardPatrolMinX/MaxX`; that was cleared out so the push animation can be
+watched with nothing walking into frame or killing the player mid-stance.
+`LevelLayout.pushStanceDemo = true` is what makes INTERACT a stance toggle, and **nothing else in
+the game sets that flag** - a test pins that.
+
+`playerStartX = 560`, not near the left wall: at 160 the camera clamps against the world edge and
+the whole lean-in played underneath the on-screen D-pad, which on a stage whose only job is to show
+the animation is the one thing that must not happen. The camera window is ~770 world units, so the
+spawn has to be at least half of that from 0. The exit is still at the far end so the level remains
+completable - a long walk at the braced ~53 u/s, which is the point.
+
 ## Guard sprite (`GuardAnimations.kt`, `resources/guard/{idle,walk}/`) - replaced 2026-09-14
 
 Copy of `PlayerAnimations`' recipe (own 2048x2048 atlas, cached per process, feet-anchored, scaled so
@@ -1452,7 +1708,9 @@ dumpsys gfxinfo com.infiltrate.androidshell framestats` before trusting any rank
 1. **The player atlas is the biggest memory consumer.** `MutableAtlas(2048, 2048)` adds a whole page
    at a time: 16.8MB heap + 16.8MB texture per page. Trimming unreachable frames (climb's raw 1-69
    run-up - `CLIMB_START` clamps to raw 70; crouchwalk's raw 145-192 tail) took it 26.2M -> 20.3M px;
-   the swing clip put it at ~22.5M (accepted). **Adding frames is not free** - see the ATLAS BUDGET
+   the swing clip put it at ~22.5M and the two push clips at **26.4M** (84 frames at 180x256,
+   roughly one more page of heap and one of texture - accepted, see "The push stance").
+   **Adding frames is not free** - see the ATLAS BUDGET
    comment on `load()`. Climb START/END constants are in loaded-index space (`loadAnimation(firstFile
    = ...)`).
 2. **Textures authored 10-26x larger than drawn, and `bitmap.mipmaps(true)` is a SILENT no-op on
@@ -1544,9 +1802,10 @@ literals with comments naming the authored size. `GameWorld.kt`'s `barrelWidth =
 ### Adding new art: shrink it on the way in - a standing rule
 
 1. Find the size it is **drawn** at in virtual units (`size(w, h)` or its `Rect`), not painted at.
-2. **Multiply by 3** - the virtual canvas is 1040x480 (`main.kt`/`MainActivity.kt`); a 1440p phone
-   renders at 3x (2.25x on 1080p). Sizing from virtual numbers gives a third of the needed resolution;
-   it looks fine on desktop and mushy on the phone.
+2. **Multiply by 3** - the authored canvas is 1040x480 (`ScreenLayout.DESIGN_WIDTH/HEIGHT`; the
+   real canvas now carries the device's aspect and is never smaller than that - see "Responsive
+   layout"); a 1440p phone renders at 3x (2.25x on 1080p). Sizing from virtual numbers gives a
+   third of the needed resolution; it looks fine on desktop and mushy on the phone.
 3. **Round to a power of two** in both dimensions (up, unless within a couple of percent of the lower).
 4. **Resample, never pad** - transparent padding is stretched into the draw box with the art.
 5. `python tools/art/pot_resize.py resources/newthing.png 512 512` - premultiplied-alpha LANCZOS,
@@ -1556,6 +1815,12 @@ literals with comments naming the authored size. `GameWorld.kt`'s `barrelWidth =
    POT) or `minified = false` for anything drawn ~1:1 or larger and anything **sub-sliced** (mip
    levels bleed across slices).
 
+**Crop new art on ALPHA, not `Image.getbbox()`** - that helper bounds every channel, so a source
+whose transparent margin still carries RGB (most exports do) keeps an invisible border that becomes
+dead space inside the draw box. `exitlvl7.png` was cropped that way and the building floated 12
+units off the ground; `np.nonzero(np.array(im)[:,:,3] > 8)` is the crop that matters, and the check
+is that the silhouette reaches the first and last row of the finished file.
+
 **Aspect ratio is NOT a concern for stretch-to-box assets** (stated backwards twice before) - every
 draw is `size(box.width, box.height)`, the file's aspect never reaches the screen. **Never derive a
 drawn size from a loaded bitmap's dimensions** - write a literal naming the authored size. Use a
@@ -1564,8 +1829,11 @@ are pre-mirrored - a tool that normalises orientation would undo bug #8's fix.
 
 **The guardrail**: `SceneAssets.warnIfNotPowerOfTwo` prints one line per offending asset per run:
 `[SceneAssets] 'hook.png' is 154x2136 - NOT power-of-two, so mipmaps are silently skipped for it.`
-**Expected output: exactly that one line** (`hook.png`'s extreme aspect rounds badly, win ~1 MB). A
-second line means something new needs sizing.
+**Expected output as of 2026-09-23: 15 lines** - `hook.png` (extreme aspect, rounds badly),
+`woodcrate2`, `pole`, `lever_bottom`, `lever_top`, `newrope` and the nine `rope_dissolve_*` frames,
+all of which arrived with the lever/rope work and have not been resized. A **sixteenth** line means
+something new needs sizing; the list itself is worth shortening when someone is in the art pipeline
+anyway.
 
 ## Asset prep techniques
 
@@ -1579,6 +1847,14 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
   falloff** matched the shipped set. Wrap-edge diffs on `bgmg2-5` sit around mean 0.7-2.7, max 16-138 -
   a sanity check, not a target. `bgmg6.png` = `darkbg3.png` at native 2172x724 (an earlier `darkbg2`
   version was replaced before commit; no trace).
+- **Character animation plates** (`tools/art/prep_guard.py`, `tools/art/prep_push.py`): crop one
+  shared box per clip, symmetric about the character's own body centre so a horizontal flip does
+  not shift him, feet pinned per frame to the bottom edge, resampled premultiplied. **Measure this
+  plate's own standing silhouette rather than reusing another clip's scale** - the push plates are
+  framed 6.4% smaller than the crouch plates at the identical file size, and the climb plates dolly
+  mid-shot. Pick loop windows by autocorrelation plus a seam scan, and measure any
+  `*_STRIDE_PER_HEIGHT` by phase-correlating the ground-contact profile of the **processed output**
+  (see "The push stance" for the three ways of measuring it that are wrong).
 - **Tight-crop a silhouette to its alpha bounds** before stretching it into a box (dead margin
   stretches too); re-derive box width from the cropped aspect at the fixed height.
 - **Wood crates (`woodcrate2.png`)**: 1536x1024 silhouette crate with rustic horizontal planks (replaced

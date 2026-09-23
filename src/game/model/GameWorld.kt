@@ -37,6 +37,8 @@ data class GameWorld(
     val tableDecorations: List<Rect> = emptyList(),
     /** Boxes climbable despite being a floating ledge - see LevelLayout.floatingClimbTargets. */
     val floatingClimbTargets: List<Rect> = emptyList(),
+    /** Boxes the player may not mantle onto at all - see LevelLayout.unclimbableBoxes. */
+    val unclimbableBoxes: List<Rect> = emptyList(),
     // Jump-crate gap crossings, tagged by which of the two hanging-crate art variants each box
     // renders with - see LevelLayout.hangingCrateVariant1/2 and GameplayScene.kt's box loop.
     val staticHangingCrateVariant1: List<Rect> = emptyList(),
@@ -50,6 +52,10 @@ data class GameWorld(
     val conveyors: List<ConveyorDef> = emptyList(),
     val conveyorCrates: List<ConveyorCrate> = emptyList(),
     val lasers: List<Laser> = emptyList(),
+    val fans: List<VentFan> = emptyList(),
+    val cameraBots: List<CameraBot> = emptyList(),
+    val steamPipes: List<SteamPipe> = emptyList(),
+    val playerStartCrouched: Boolean = false,
     /** Union of [truckParts] (front+middle+back) - the footprint the truck image is drawn into. */
     val truck: Rect? = null,
     /** Truck collision split into 3 tiers matching its silhouette: hood (front, low), cab roof
@@ -68,14 +74,23 @@ data class GameWorld(
     var onLaserHit: (() -> Unit)? = null,
     var onHangingCrateHit: (() -> Unit)? = null,
     var onLaserShieldBlocked: (() -> Unit)? = null,
+    var onSteamPipeHit: (() -> Unit)? = null,
+    var onCameraBotDeactivated: ((CameraBot) -> Unit)? = null,
     var onCheckpointAutoRespawn: (() -> Unit)? = null,
     var spawnGraceTimer: Double = 0.0,
     val conveyorsStartOnMove: Boolean = false,
     val canClimb: Boolean = true,
-    val manualCheckpoints: List<Checkpoint> = emptyList()
+    val manualCheckpoints: List<Checkpoint> = emptyList(),
+    /** See LevelLayout.pushStanceDemo - level 13 only. */
+    val pushStanceDemo: Boolean = false
 ) {
     val canInteract: Boolean
-        get() = levers.any { !it.isActivated && it.isPlayerInRange(player) }
+        get() = levers.any { !it.isActivated && it.isPlayerInRange(player) } ||
+                cameraBots.any { !it.isDeactivated && it.canDeactivate(player) } ||
+                // Nothing to be in range of in the push-stance level, so the button is simply
+                // always live there; without this the scene's own `interactPressed` is gated
+                // off by canInteract before the toggle below ever sees it.
+                (pushStanceDemo && !isGameOver && !isLevelComplete)
     val hangingCrateVariant1: List<Rect>
         get() = staticHangingCrateVariant1 + conveyorCrates.filter { it.isHanging && it.isVariant1 }.map { it.bounds }
     val hangingCrateVariant2: List<Rect>
@@ -106,6 +121,7 @@ data class GameWorld(
         tableParts: List<Rect> = emptyList(),
         tableDecorations: List<Rect> = emptyList(),
         floatingClimbTargets: List<Rect> = emptyList(),
+        unclimbableBoxes: List<Rect> = emptyList(),
         hangingCrateVariant1: List<Rect> = emptyList(),
         hangingCrateVariant2: List<Rect> = emptyList(),
         movingPlatforms: List<MovingPlatform> = emptyList(),
@@ -121,7 +137,12 @@ data class GameWorld(
         restartOnConveyorFallOff: Boolean = false,
         conveyorsStartOnMove: Boolean = false,
         canClimb: Boolean = true,
-        manualCheckpoints: List<Checkpoint> = emptyList()
+        manualCheckpoints: List<Checkpoint> = emptyList(),
+        fans: List<VentFan> = emptyList(),
+        cameraBots: List<CameraBot> = emptyList(),
+        steamPipes: List<SteamPipe> = emptyList(),
+        playerStartCrouched: Boolean = false,
+        pushStanceDemo: Boolean = false
     ) : this(
         player = player,
         guard = guard,
@@ -147,6 +168,7 @@ data class GameWorld(
         tableParts = tableParts,
         tableDecorations = tableDecorations,
         floatingClimbTargets = floatingClimbTargets,
+        unclimbableBoxes = unclimbableBoxes,
         staticHangingCrateVariant1 = hangingCrateVariant1,
         staticHangingCrateVariant2 = hangingCrateVariant2,
         movingPlatforms = movingPlatforms,
@@ -156,13 +178,18 @@ data class GameWorld(
         conveyors = conveyors,
         conveyorCrates = conveyorCrates,
         lasers = lasers,
+        fans = fans,
+        cameraBots = cameraBots,
+        steamPipes = steamPipes,
+        playerStartCrouched = playerStartCrouched,
         truck = truck,
         truckParts = truckParts,
         hasNoGuards = hasNoGuards,
         restartOnConveyorFallOff = restartOnConveyorFallOff,
         conveyorsStartOnMove = conveyorsStartOnMove,
         canClimb = canClimb,
-        manualCheckpoints = manualCheckpoints
+        manualCheckpoints = manualCheckpoints,
+        pushStanceDemo = pushStanceDemo
     )
     var conveyorsActive: Boolean = !conveyorsStartOnMove
     /** Every guard in the level. Single-guard levels simply have no [extraGuards]. Guardless levels set [hasNoGuards] = true. */
@@ -210,10 +237,45 @@ data class GameWorld(
     var totalElapsedSeconds: Double = 0.0
         private set
     var laserGraceTimer: Double = 0.0
+    var fanPushbackDampenTimer: Double = 0.0
 
     /** Desktop-only debug cheat (see GameplayScene's F1 handler, gated on Platform.isJvm): free
      *  flight through the level, ignoring gravity/collision/detection, for level-layout inspection. */
     var noclipFlying: Boolean = false
+
+    // ---- push stance (pushStanceDemo levels only - see LevelLayout.pushStanceDemo) ----------
+    //
+    // The whole stance lives here rather than in GameplayScene so it is testable without a
+    // KorGE canvas, the same split every other move uses: the model owns when the character is
+    // braced and how far through the brace he is, the scene owns which frame that draws as.
+    //
+    // pushStanceBlend is the shared clock for both directions: it runs 0 -> 1 while leaning in
+    // and 1 -> 0 while standing back up, so the scene can play one clip forward and the same
+    // clip in reverse off a single number. That is the crouch clip's own arrangement, and it is
+    // why standing up out of a half-finished lean-in starts from where the lean actually got to
+    // instead of snapping to the braced pose first.
+
+    /** True from the moment INTERACT is pressed until it is pressed again. */
+    var isPushStanceHeld: Boolean = false
+        private set
+
+    /** 0 = upright, 1 = fully braced. Drives both directions of the transition clip. */
+    var pushStanceBlend: Double = 0.0
+        private set
+
+    /** Only once fully braced does the push gait run - before that he is still leaning in. */
+    val isPushing: Boolean get() = isPushStanceHeld && pushStanceBlend >= 1.0
+
+    /** Nothing at all is happening with the stance: the scene hands back to idle/walk. */
+    val isPushStanceIdle: Boolean get() = !isPushStanceHeld && pushStanceBlend <= 0.0
+
+    private var pushInteractWasDown: Boolean = false
+
+    private fun resetPushStance() {
+        isPushStanceHeld = false
+        pushStanceBlend = 0.0
+        pushInteractWasDown = false
+    }
 
     var continueCount: Int = 0
         private set
@@ -248,9 +310,15 @@ data class GameWorld(
         for (laser in lasers) laser.reset()
         for (lever in levers) lever.reset()
         for (hc in hookCrates) hc.reset()
+        for (b in cameraBots) b.reset()
+        for (f in fans) f.reset()
+        for (p in steamPipes) p.reset()
         activePowerups.invisibilityTimer = 3.0
         laserGraceTimer = 3.0
         spawnGraceTimer = 3.0
+        fanPushbackDampenTimer = 0.0
+        resetPushStance()
+        if (playerStartCrouched) player.isCrouching = true
         return true
     }
 
@@ -288,9 +356,34 @@ data class GameWorld(
         for (laser in lasers) laser.reset()
         for (lever in levers) lever.reset()
         for (hc in hookCrates) hc.reset()
+        for (b in cameraBots) b.reset()
+        for (f in fans) f.reset()
+        for (p in steamPipes) p.reset()
         activePowerups.invisibilityTimer = 0.0
         laserGraceTimer = 0.0
+        fanPushbackDampenTimer = 0.0
+        resetPushStance()
+        if (playerStartCrouched) player.isCrouching = true
         conveyorsActive = !conveyorsStartOnMove
+    }
+
+    /**
+     * INTERACT toggles the braced push stance, and [pushStanceBlend] runs between the two poses.
+     *
+     * Edge-detected here rather than in the scene because the scene passes the raw button LEVEL
+     * (`interactPressed` is `keys[E] && canInteract`, true for every frame the key is down), the
+     * same value the lever and camera-bot loops above consume - those are idempotent, a toggle
+     * is not, and reading the level directly would flip the stance every frame of one press.
+     */
+    private fun updatePushStance(dt: Double, interactInput: Boolean) {
+        if (!pushStanceDemo) return
+        if (interactInput && !pushInteractWasDown) {
+            isPushStanceHeld = !isPushStanceHeld
+        }
+        pushInteractWasDown = interactInput
+
+        val rate = if (isPushStanceHeld) dt / PUSH_STANCE_ENTER_SECONDS else -dt / PUSH_STANCE_EXIT_SECONDS
+        pushStanceBlend = (pushStanceBlend + rate).coerceIn(0.0, 1.0)
     }
 
     private val recentlySeeingGuards = LinkedHashSet<Guard>()
@@ -308,6 +401,14 @@ data class GameWorld(
             for (mp in movingPlatforms) {
                 if (mp.id == lever.targetMechanismId) {
                     mp.activate()
+                }
+            }
+            // A laser carrying this mechanism id is cut for the rest of the run - see
+            // LaserDef.mechanismId. Several beams share one id on purpose: LEVEL_6_LAYOUT's exit
+            // curtain is three lasers and one switch.
+            for (laser in lasers) {
+                if (laser.mechanismId == lever.targetMechanismId) {
+                    laser.disable()
                 }
             }
         }
@@ -371,7 +472,14 @@ data class GameWorld(
         update(dt, moveInput, jumpInput, crouchInput = crouchInput, interactInput = false)
     }
 
-    fun update(dt: Double, moveInput: Double, jumpInput: Boolean, crouchInput: Boolean, interactInput: Boolean) {
+    fun update(
+        dt: Double,
+        moveInput: Double,
+        jumpInput: Boolean,
+        crouchInput: Boolean,
+        interactInput: Boolean,
+        forwardTap: Boolean = false
+    ) {
         if (isLevelComplete || isGameOver) return
 
         if (noclipFlying) {
@@ -395,12 +503,42 @@ data class GameWorld(
             spawnGraceTimer = (spawnGraceTimer - dt).coerceAtLeast(0.0)
         }
 
+        if (fanPushbackDampenTimer > 0.0) {
+            fanPushbackDampenTimer = (fanPushbackDampenTimer - dt).coerceAtLeast(0.0)
+        }
+
         if (interactInput) {
             for (lever in levers) {
                 if (!lever.isActivated && lever.isPlayerInRange(player)) {
                     triggerLever(lever)
                 }
             }
+            for (bot in cameraBots) {
+                if (!bot.isDeactivated && bot.canDeactivate(player)) {
+                    bot.deactivate()
+                    onCameraBotDeactivated?.invoke(bot)
+                }
+            }
+        }
+
+        updatePushStance(dt, interactInput)
+
+        for (fan in fans) {
+            fan.update(dt)
+            if (fan.isPlayerInWind(player)) {
+                if (forwardTap) {
+                    val impulseDir = if (fan.windDirection < 0.0) 1.0 else -1.0
+                    player.x = (player.x + impulseDir * fan.fanImpulse).coerceIn(0.0, worldWidth - player.width)
+                    fanPushbackDampenTimer = 0.10
+                }
+                val pushFactor = if (fanPushbackDampenTimer > 0.0) 0.45 else 1.0
+                val pushDx = fan.windPushSpeed * dt * fan.windDirection * pushFactor
+                player.x = (player.x + pushDx).coerceIn(0.0, worldWidth - player.width)
+            }
+        }
+
+        for (bot in cameraBots) {
+            bot.update(dt)
         }
 
         val groundY = platforms.firstOrNull { it.y > 300.0 }?.y ?: 440.0
@@ -419,7 +557,7 @@ data class GameWorld(
         // Update active powerup timers
         activePowerups.update(dt)
 
-        // Check every guard and camera's vision cone; the closest one with eyes on the player fills the alert.
+        // Check every guard, camera, and camera bot's vision cone; the closest one with eyes on the player fills the alert.
         val previousAlert = alertProgress
         val seeingGuards = ArrayList<Guard>(allGuards.size)
         val seeingCameras = ArrayList<Camera>(cameras.size)
@@ -452,6 +590,24 @@ data class GameWorld(
                         if (spottedDist == null || d < spottedDist) {
                             spottedDist = d
                             detectorRange = c.visionRange
+                        }
+                    }
+                }
+                for (b in cameraBots) {
+                    if (!b.isDeactivated) {
+                        val d = VisionSystem.getPlayerSpottedDistance(
+                            eye = b.eyePosition,
+                            facingAngle = b.facingAngle,
+                            visionRange = b.visionRange,
+                            visionFov = b.visionFov,
+                            player = player,
+                            occluders = occluders
+                        )
+                        if (d != null) {
+                            if (spottedDist == null || d < spottedDist) {
+                                spottedDist = d
+                                detectorRange = b.visionRange
+                            }
                         }
                     }
                 }
@@ -551,6 +707,23 @@ data class GameWorld(
             if (onThisPlatform) {
                 player.x += delta.dx
                 player.y += delta.dy
+            }
+        }
+
+        // A swinging load kills whatever it catches under it - see
+        // MovingPlatformDef.crushesOnContact. Only from below: the player's feet have to be under
+        // the crate's own underside, so standing on top of a platform is still standing on a
+        // platform. Same presentation as the conveyor crates' crush below.
+        if (!isGameOver && !isLevelComplete) {
+            val pBounds = player.bounds
+            for (mp in movingPlatforms) {
+                if (!mp.crushesOnContact) continue
+                if (pBounds.intersects(mp.bounds) && pBounds.bottom > mp.bounds.bottom) {
+                    isGameOver = true
+                    onGameOver?.invoke()
+                    onHangingCrateHit?.invoke()
+                    return
+                }
             }
         }
 
@@ -656,7 +829,18 @@ data class GameWorld(
         val activeSwingHooks = if (hookCrates.isEmpty()) swingHooks else swingHooks.filter { hook ->
             hookCrates.none { !it.isDetached && it.hook == hook }
         }
-        player.update(dt, moveInput, jumpInput, crouchInput, playerPlatformsScratch, climbTargets, activeSwingHooks, climbFloatingTargets)
+        // A braced body cannot jump, duck or sprint. Suppressing the other two inputs outright
+        // (rather than letting them cancel the stance) is what keeps the scene's animation
+        // machine honest: every other stance change would otherwise be able to start on a frame
+        // where the push clip is still on screen. INTERACT is the only way out.
+        val pushActive = pushStanceDemo && !isPushStanceIdle
+        val effectiveMoveInput = if (pushActive) moveInput * PUSH_MOVE_FACTOR else moveInput
+        val effectiveJumpInput = jumpInput && !pushActive
+        val effectiveCrouchInput = crouchInput && !pushActive
+        player.update(
+            dt, effectiveMoveInput, effectiveJumpInput, effectiveCrouchInput, playerPlatformsScratch,
+            climbTargets, activeSwingHooks, climbFloatingTargets, unclimbableBoxes
+        )
 
         // Check Exit / Win condition
         if (player.bounds.intersects(exitZone)) {
@@ -720,6 +904,32 @@ data class GameWorld(
             }
         }
 
+        // Check Steam Pipe Collisions (touching active steam triggers Mission Failed, deflectable by Laser Shield)
+        if (!isGameOver && !isLevelComplete) {
+            for (pipe in steamPipes) {
+                pipe.update(totalElapsedSeconds)
+            }
+            if (laserGraceTimer <= 0.0) {
+                for (pipe in steamPipes) {
+                    if (!activePowerups.isInvisibilityActive && pipe.intersectsPlayer(player.bounds)) {
+                        if (activePowerups.isLaserShieldActive) {
+                            activePowerups.consumeLaserShield()
+                            laserGraceTimer = 1.2
+                            onLaserShieldBlocked?.invoke()
+                            break
+                        }
+                        spottedCount++
+                        isSpotted = true
+                        isGameOver = true
+                        onGameOver?.invoke()
+                        onLaserHit?.invoke()
+                        onSteamPipeHit?.invoke()
+                        return
+                    }
+                }
+            }
+        }
+
         // Check Movement Noise Detection (blocked by solid occluders, same as vision line-of-sight)
         // Level-duration Noise Suppression keeps movement completely silent regardless of walk/crouch
         val effectiveNoiseRadius = if (activePowerups.isNoiseSuppressed) 0.0 else player.currentNoiseRadius
@@ -756,6 +966,24 @@ data class GameWorld(
     }
 
     companion object {
+        /**
+         * How long the lean-in and the stand-up take. The raw footage runs ~1.45s at the plate's
+         * own rate, which is a long time to be committed to a pose in a platformer, so it is
+         * played about 1.7x faster than shot - still visibly weighty next to the crouch's 0.22s,
+         * and 44 frames over 0.85s is ~52fps of display, so nothing is skipped to get there.
+         * Standing back up is quicker than going down, matching crouch's own 0.22/0.18 split.
+         */
+        const val PUSH_STANCE_ENTER_SECONDS = 0.85
+        const val PUSH_STANCE_EXIT_SECONDS = 0.60
+
+        /**
+         * Fraction of [Player.moveSpeed] a braced player travels at: 132 * 0.4 = ~53 u/s, a touch
+         * under the 65 of a crouch shuffle. The push gait is driven by distance travelled
+         * (PlayerAnimations.PUSH_STRIDE_PER_HEIGHT), so this is what sets the cadence too - the
+         * feet plant correctly at any speed, but this is the speed the footage was shot at.
+         */
+        const val PUSH_MOVE_FACTOR = 0.4
+
         fun createDefault(levelData: LevelData = LevelData.DEFAULT_LEVEL_1): GameWorld {
             val layout = levelData.layout
             if (layout != null) return createFromLayout(levelData, layout)
@@ -1053,7 +1281,8 @@ data class GameWorld(
                     initialY = def.initialY,
                     startsInactive = def.startsInactive,
                     activationDelaySeconds = def.activationDelaySeconds,
-                    oneShot = def.oneShot
+                    oneShot = def.oneShot,
+                    crushesOnContact = def.crushesOnContact
                 )
             }
 
@@ -1090,9 +1319,15 @@ data class GameWorld(
                     activeDuration = def.activeDuration,
                     inactiveDuration = def.inactiveDuration,
                     phaseOffsetSeconds = def.phaseOffsetSeconds,
-                    isAlwaysActive = def.isAlwaysActive
+                    isAlwaysActive = def.isAlwaysActive,
+                    emitterScale = def.emitterScale,
+                    mechanismId = def.mechanismId
                 )
             }
+
+            val fans = layout.fans.map { VentFan(it) }
+            val cameraBots = layout.cameraBots.map { CameraBot(it) }
+            val steamPipes = layout.steamPipes.map { SteamPipe(it) }
 
             val world = GameWorld(
                 player = player,
@@ -1120,6 +1355,7 @@ data class GameWorld(
                 tableParts = layout.tableParts,
                 tableDecorations = layout.tableDecorations,
                 floatingClimbTargets = layout.floatingClimbTargets,
+                unclimbableBoxes = layout.unclimbableBoxes,
                 movingPlatforms = movingPlatforms,
                 swingHooks = layout.swingHooks,
                 // Fresh copies, not the LevelLayout singleton's own shared instances: layout.levers/
@@ -1135,12 +1371,20 @@ data class GameWorld(
                 conveyors = layout.conveyors,
                 conveyorCrates = conveyorCrates,
                 lasers = lasers,
+                fans = fans,
+                cameraBots = cameraBots,
+                steamPipes = steamPipes,
                 hasNoGuards = guards.isEmpty(),
                 restartOnConveyorFallOff = layout.restartOnConveyorFallOff,
                 conveyorsStartOnMove = layout.conveyorsStartOnMove,
                 canClimb = layout.canClimb,
-                manualCheckpoints = layout.manualCheckpoints
+                manualCheckpoints = layout.manualCheckpoints,
+                playerStartCrouched = layout.playerStartCrouched,
+                pushStanceDemo = layout.pushStanceDemo
             )
+            if (layout.playerStartCrouched) {
+                world.player.isCrouching = true
+            }
             if (levelData.playerCrouchForwardSpeedMultiplier != 1.0) {
                 world.player.crouchForwardSpeed = world.player.crouchSpeed * levelData.playerCrouchForwardSpeedMultiplier
             }

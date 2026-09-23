@@ -42,6 +42,10 @@ private object DesktopMusicPlayer {
         try { player?.volume = volume.toDouble().coerceIn(0.0, 1.0) } catch (_: Throwable) {}
     }
 
+    fun pause() {
+        try { player?.pause() } catch (_: Throwable) {}
+    }
+
     fun stop() {
         try { player?.stop() } catch (_: Throwable) {}
         try { player?.dispose() } catch (_: Throwable) {}
@@ -76,7 +80,13 @@ actual fun MenuMusic(
         onDispose { DesktopMusicPlayer.stop() }
     }
 
-    // Volume changes come from the settings slider while the track is already playing, so they
-    // are applied in place rather than by restarting it.
-    LaunchedEffect(volume) { DesktopMusicPlayer.setVolume(volume) }
+    val isAdActive = com.infiltrate.ads.AdAudioCoordinator.isAdActive
+    LaunchedEffect(isAdActive, volume) {
+        if (isAdActive) {
+            DesktopMusicPlayer.pause()
+        } else {
+            DesktopMusicPlayer.setVolume(volume)
+            if (trackFile != null) DesktopMusicPlayer.start(trackFile, volume)
+        }
+    }
 }

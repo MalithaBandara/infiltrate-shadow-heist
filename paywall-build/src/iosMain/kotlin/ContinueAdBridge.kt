@@ -1,6 +1,7 @@
 package com.infiltrate.ads
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -86,6 +87,10 @@ fun ContinueAdContent() {
         },
     )
     if (ContinueAdTrigger.showRequested.value) {
+        DisposableEffect(Unit) {
+            AdAudioCoordinator.onAdStarted()
+            onDispose { AdAudioCoordinator.onAdDismissed() }
+        }
         when (ad.state) {
             AdState.READY -> {
                 ad.setListeners(

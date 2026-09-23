@@ -107,5 +107,13 @@ actual fun MenuMusic(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(volume) { AndroidMusicPlayer.setVolume(volume) }
+    val isAdActive = com.infiltrate.ads.AdAudioCoordinator.isAdActive
+    LaunchedEffect(isAdActive, volume) {
+        if (isAdActive) {
+            AndroidMusicPlayer.pause()
+        } else {
+            AndroidMusicPlayer.setVolume(volume)
+            AndroidMusicPlayer.start(context, trackName, trackExtension, volume)
+        }
+    }
 }

@@ -62,14 +62,33 @@ fun MenuTopBar(
     font: FontFamily,
     onBackClicked: () -> Unit,
     modifier: Modifier = Modifier,
+    // Every number in this bar used to be absolute: 74dp tall with 26sp type and a 180x48 logo on
+    // a 390dp-tall landscape phone (a fifth of the screen, before the screen below it had drawn
+    // anything) and the same sliver on a 1024dp iPad. It takes the screen's scale now - see
+    // ui/Responsive.kt. Default 1f, so an un-updated caller renders exactly as it always did.
+    scale: Float = 1f,
+    // Extra start/end padding for a landscape notch, from the host's reported safe area.
+    startInset: Dp = 0.dp,
+    endInset: Dp = 0.dp,
+    hideLogo: Boolean = false,
     statPills: @Composable () -> Unit = {}
 ) {
+    // The back button is the one thing here that must not scale below the touch minimum: at the
+    // 0.62 floor a scaled 46dp box is 28dp, well under the 44dp every platform's guidance asks
+    // for, and this is the only way out of the screen.
+    val backSize = (46 * scale).dp.coerceAtLeast(44.dp)
+    val barHeight = ((74 * scale).dp).coerceAtLeast(backSize + 8.dp)
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(74.dp)
+            .height(barHeight)
             .background(Color(0xFF0B0B0D))
-            .padding(horizontal = 24.dp, vertical = 10.dp)
+            .padding(
+                start = (24 * scale).dp + startInset,
+                end = (24 * scale).dp + endInset,
+                top = (10 * scale).dp,
+                bottom = (10 * scale).dp,
+            )
     ) {
         // Left: Back Button + Branding
         Row(
@@ -82,7 +101,7 @@ fun MenuTopBar(
 
             Box(
                 modifier = Modifier
-                    .size(46.dp)
+                    .size(backSize)
                     .background(if (isPressed) Color(0xFF242428) else Color(0xFF18181B), RoundedCornerShape(8.dp))
                     .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
                     .clickable(
@@ -92,31 +111,35 @@ fun MenuTopBar(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Canvas(modifier = Modifier.size(16.dp)) {
+                Canvas(modifier = Modifier.size((16 * scale).dp.coerceAtLeast(14.dp))) {
                     drawBackChevron(Color.White)
                 }
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width((16 * scale).dp))
 
-            // Graphic Logo Mark (enlarged for high clarity and visibility)
-            Image(
-                painter = painterResource(Res.drawable.logo_main),
-                contentDescription = "Infiltrate: Shadow Heist",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .height(48.dp)
-                    .width(180.dp)
-            )
+            // Graphic Logo Mark (enlarged for high clarity and visibility). Dropped on a narrow
+            // screen: the centred screen title is what names the page, and on a phone the logo
+            // was crowding it hard enough to overlap.
+            if (!hideLogo) {
+                Image(
+                    painter = painterResource(Res.drawable.logo_main),
+                    contentDescription = "Infiltrate: Shadow Heist",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .height((48 * scale).dp)
+                        .width((180 * scale).dp)
+                )
+            }
         }
 
         // Center: Screen Title
         Text(
             text = title,
             color = Color.White,
-            fontSize = 26.sp,
+            fontSize = (26 * scale).sp,
             fontFamily = font,
-            letterSpacing = 2.sp,
+            letterSpacing = (2 * scale).sp,
             modifier = Modifier.align(Alignment.Center)
         )
 
@@ -124,7 +147,7 @@ fun MenuTopBar(
         Row(
             modifier = Modifier.align(Alignment.CenterEnd),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy((10 * scale).dp)
         ) {
             statPills()
         }
@@ -139,28 +162,29 @@ fun StatPill(
     icon: DrawScope.() -> Unit,
     modifier: Modifier = Modifier,
     pillWidth: Dp = 100.dp,
-    pillHeight: Dp = 34.dp
+    pillHeight: Dp = 34.dp,
+    scale: Float = 1f
 ) {
     Box(
         modifier = modifier
-            .width(pillWidth)
-            .height(pillHeight)
+            .width(pillWidth * scale)
+            .height(pillHeight * scale)
             .background(Color(0xFF18181B), RoundedCornerShape(8.dp))
             .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
-            .padding(horizontal = 10.dp),
+            .padding(horizontal = (10 * scale).dp),
         contentAlignment = Alignment.CenterStart
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy((8 * scale).dp)
         ) {
-            Canvas(modifier = Modifier.size(16.dp)) {
+            Canvas(modifier = Modifier.size((16 * scale).dp)) {
                 icon()
             }
             Text(
                 text = label,
                 color = Color.White,
-                fontSize = 14.sp,
+                fontSize = (14 * scale).sp,
                 fontWeight = FontWeight.SemiBold
             )
         }
@@ -174,7 +198,8 @@ fun CoinPill(
     coins: Int,
     onPlusClicked: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
-    pillHeight: Dp = 34.dp
+    pillHeight: Dp = 34.dp,
+    scale: Float = 1f
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -183,7 +208,7 @@ fun CoinPill(
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
-            .height(pillHeight)
+            .height(pillHeight * scale)
             .background(
                 if (isPressed && onPlusClicked != null) Color(0xFF242428) else Color(0xFF18181B),
                 RoundedCornerShape(8.dp)
@@ -198,31 +223,31 @@ fun CoinPill(
                     )
                 } else it
             }
-            .padding(horizontal = 10.dp)
+            .padding(horizontal = (10 * scale).dp)
     ) {
-        Canvas(modifier = Modifier.size(16.dp)) {
+        Canvas(modifier = Modifier.size((16 * scale).dp)) {
             drawCoinIcon(Color(0xFFFFD54F))
         }
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width((8 * scale).dp))
         Text(
             text = "$coins",
             color = Color.White,
-            fontSize = 14.sp,
+            fontSize = (14 * scale).sp,
             fontWeight = FontWeight.SemiBold
         )
         if (onPlusClicked != null) {
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width((8 * scale).dp))
             Box(
                 modifier = Modifier
                     .width(1.dp)
-                    .height(14.dp)
+                    .height((14 * scale).dp)
                     .background(Color.White.copy(alpha = 0.12f))
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width((8 * scale).dp))
             Text(
                 text = "+",
                 color = Color(0xFFFFD54F),
-                fontSize = 16.sp,
+                fontSize = (16 * scale).sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.offset(y = (-1).dp)
             )

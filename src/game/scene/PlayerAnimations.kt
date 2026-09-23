@@ -14,7 +14,9 @@ class PlayerAnimationSet(
     val crouch: SpriteAnimation,
     val crouchwalk: SpriteAnimation,
     val climb: SpriteAnimation,
-    val swing: SpriteAnimation
+    val swing: SpriteAnimation,
+    val pushTransition: SpriteAnimation,
+    val push: SpriteAnimation
 )
 
 /**
@@ -275,6 +277,89 @@ object PlayerAnimations {
     /** Raw 153: feet back down. GameplayScene hands over to the landing-absorb cushion here. */
     const val SWING_END = SWING_FRAMES - 1
 
+    // ---- push ------------------------------------------------------------------------------
+    // Two clips, cut by `tools/art/prep_push.py` from `push` (144 raw frames) and
+    // `pushtransition` (96) in the source drop. That script's header carries the full
+    // reasoning for every cut and the crop geometry - re-run and paste, don't hand-edit these.
+    //
+    // The plates are 360x640 half-res like crouch/crouchwalk/swing, but the character is
+    // framed ~6.4% SMALLER in them (standing measures 484 rows against crouch's 517), so
+    // prep_push.py scales by this clip's own 244.36/484. Both clips still come out with a
+    // 245px standing silhouette, i.e. exactly idle's, which is what lets the handover in and
+    // out of idle happen without the character changing size.
+    //
+    // Frames are 180x256 rather than idle's 140x256: the braced stance reaches from a fist
+    // planted well ahead of the body to a trailing boot well behind it, and the crop stays
+    // symmetric about the STANDING body centre so entering the stance from idle does not
+    // shift the character sideways. The pixel scale is the same as every other clip.
+
+    /**
+     * Raw 10..96 every 2nd: upright, leaning in, stepping the trailing leg back, settling
+     * into a braced stance. Played once forward on entering the stance and once in reverse
+     * on leaving it, the same way the crouch clip is used.
+     *
+     * Raw 1-9 are a dead hold on the standing pose (frame 10 is the same pose to within
+     * 0.13 of one sampled step), so they are not loaded. That means frame 0 here IS the
+     * standing pose and meets idle's own first frame - measured at 211px of silhouette
+     * disagreement against 7954px of silhouette, i.e. 2.7%.
+     */
+    private const val PUSH_TRANSITION_FRAMES = 44
+
+    /** Fully braced, both hands planted. The pose the push loop starts from. */
+    const val PUSH_TRANSITION_LAST = PUSH_TRANSITION_FRAMES - 1
+
+    /**
+     * Raw 94..133, every frame: one complete push-stride gait cycle, both steps.
+     *
+     * The period is 40 raw frames, from autocorrelation over the whole plate (22 is the
+     * half-cycle - one step - and looping on it would make both legs the same leg). Of every
+     * start position at that period, 88 has the tightest seam (0.53 of an adjacent frame) but
+     * the worst entry from the braced rest pose (5.7 frames of motion); 94 trades that for a
+     * 1.09 seam and a 2.82 entry, and the entry is paid once when the player starts moving
+     * while the seam is crossed on every cycle.
+     *
+     * EVERY frame is kept while the transition next door is halved, and that is about the
+     * push's slowness, not the footage. This loop is distance-driven, so the braced move speed
+     * sets its display rate: 56.6 world units of cycle at ~53 u/s is 1.07 SECONDS, which at 20
+     * frames would be 19fps and read as a flick-book. Whole, it is 37fps - walk's own 36. The
+     * swing clip learned the same lesson from the opposite end (halving hurt there because the
+     * action was fast). Redo that arithmetic rather than reusing this conclusion if
+     * GameWorld.PUSH_MOVE_FACTOR changes.
+     */
+    private const val PUSH_FRAMES = 40
+    const val PUSH_LOOP_LENGTH = PUSH_FRAMES
+
+    /**
+     * Ground covered by one push cycle, as a multiple of the character's on-screen height -
+     * same units as WALK_STRIDE_PER_HEIGHT, and used the same way (GameplayScene drives the
+     * loop from distance travelled so the planted foot does not slide).
+     *
+     * Measured on the PROCESSED frames under `resources/player/push`, not on the raw plates,
+     * by sub-pixel phase correlation of the ground-contact alpha profile between consecutive
+     * frames, pooled over both feet's stances (27 frame pairs): 3.629 +/- 0.039 sprite px per
+     * frame, so one 40-frame cycle advances the body 57.0 world units against a 96-unit
+     * character. That is 0.594 +/- 0.006, rounded here to 0.59.
+     *
+     * Three ways to measure this that all disagree, which is why the method above is the one
+     * quoted - each of the others was tried first and is off by more than the real tolerance:
+     *  - Integer bbox edges on the RAW plates over short partial stances gave 0.58. The ends
+     *    of a stance are the foot rolling heel-to-toe rather than the body translating, so a
+     *    short run measures the roll as much as the travel.
+     *  - A least-squares fit of one foot's contact centroid gave 0.61, and the OTHER foot's
+     *    gave 0.58 on the same frames. A centroid moves with the patch's shape, and the two
+     *    boots are not the same shape, so neither number is the treadmill rate on its own.
+     *  - The character ACCELERATES through the raw clip: the same measurement over its
+     *    opening cycle gives 2.8 px/frame against the late cycles' 7.4, because the footage
+     *    starts with him leaning into a load that is not moving yet. A number taken from the
+     *    wrong end of the plate is off by more than 2x.
+     *
+     * Checked in the running game as well, though only coarsely: with the camera locked to
+     * the player, a planted foot has to slide backwards across the screen at exactly the
+     * player's own speed, and a screenshot burst puts it within the +/-5% that method can
+     * resolve. It cannot separate 0.58 from 0.61 - the frame measurement above is what does.
+     */
+    const val PUSH_STRIDE_PER_HEIGHT = 0.59
+
     // ---- source geometry ----------------------------------------------------------------
     /** Frames are 256 tall. */
     const val SOURCE_FRAME_HEIGHT = 256.0
@@ -359,11 +444,17 @@ object PlayerAnimations {
         // ATLAS BUDGET - this is the single biggest memory consumer in the game, so keep an eye
         // on it. GrowMethod.NEW_IMAGES adds a whole 2048x2048 page (16.8MB as a Bitmap32 on the
         // heap, and again as a GPU texture) each time the current one fills, so cost goes up in
-        // 16.8MB steps, not smoothly. The clips below total 20.3M pixels - at least 5 pages, more
+        // 16.8MB steps, not smoothly. The clips below total 26.4M pixels - at least 7 pages, more
         // with packing waste. Before the unreachable climb run-up (raw 1-69) and crouchwalk tail
-        // (raw 145-192) were dropped it was 26.2M, i.e. at least 7 pages: ~34MB of heap and ~34MB
-        // of texture memory spent on frames nothing could ever display. Adding frames here is not
-        // free - climb alone is 155 frames at 200x300, 9.3M pixels, over two pages alone.
+        // (raw 145-192) were dropped it was 26.2M for a strictly smaller set of clips, i.e. ~34MB
+        // of heap and ~34MB of texture memory spent on frames nothing could ever display.
+        //
+        // Adding frames here is not free. Climb is 155 frames at 200x300 (9.3M px, over two pages
+        // on its own); the two push clips are 84 frames at 180x256 (3.9M px), and they are what
+        // took the total from 22.6M to 26.4M - roughly one more page of heap and one more of
+        // texture. Both push clips are already cut to the minimum that reads correctly and the
+        // reasoning for every cut is in tools/art/prep_push.py, so a future saving has to come
+        // from somewhere else rather than from trimming them again.
         val atlas = MutableAtlas<Unit>(2048, 2048, growMethod = MutableAtlas.GrowMethod.NEW_IMAGES)
 
         // Only idle runs on its own timer. GameplayScene drives walk frame-by-frame from distance
@@ -376,7 +467,9 @@ object PlayerAnimations {
             crouch = loadAnimation(atlas, "crouch", CROUCH_FRAMES, frameTimeMs = 33),
             crouchwalk = loadAnimation(atlas, "crouchwalk", CROUCHWALK_FRAMES, frameTimeMs = 40),
             climb = loadAnimation(atlas, "climb", CLIMB_FRAMES, frameTimeMs = 33, firstFile = CLIMB_FILE_START),
-            swing = loadAnimation(atlas, "swing", SWING_FRAMES, frameTimeMs = 33)
+            swing = loadAnimation(atlas, "swing", SWING_FRAMES, frameTimeMs = 33),
+            pushTransition = loadAnimation(atlas, "pushtransition", PUSH_TRANSITION_FRAMES, frameTimeMs = 33),
+            push = loadAnimation(atlas, "push", PUSH_FRAMES, frameTimeMs = 40)
         )
         cached = set
         return set
