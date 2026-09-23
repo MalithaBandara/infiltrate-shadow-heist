@@ -41,11 +41,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
         composeVC = compose
         window.rootViewController = compose
+        window.makeKeyAndVisible()
 
         // Automated verification sequence for CI:
         // MainMenu renders -> Switch to KorGE gameplay -> Dwell -> Return to MainMenu.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            self?.runAutomatedLevelTransition()
+        // Gated behind -ci-test flag so it never auto-transitions on real devices or TestFlight.
+        if CommandLine.arguments.contains("-ci-test") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                self?.runAutomatedLevelTransition()
+            }
         }
 
         return true
@@ -103,6 +107,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // of a final result.
         writeTextFile("korge_visible.txt", "\(Date())")
         window.rootViewController = korge
+        window.makeKeyAndVisible()
         startObservingLevelEnd()
     }
 
@@ -110,6 +115,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         guard let window = self.shellWindow, let compose = self.composeVC else { return }
         print("SHELL: Swapping to Compose (MainMenu)")
         window.rootViewController = compose
+        window.makeKeyAndVisible()
         stopObservingLevelEnd()
     }
 

@@ -417,6 +417,7 @@ fun StoreScreen(
                                     if (item.isAd) {
                                         if (gadgetAdLimiter.canWatch()) {
                                             pendingGadgetType = mysteryGadgetPool.random()
+                                            showToast("LOADING AD...", true)
                                             showGadgetRewardAd = true
                                         } else {
                                             showToast("DAILY AD LIMIT REACHED - COME BACK TOMORROW", false)
@@ -442,6 +443,7 @@ fun StoreScreen(
                                     if (pack.isAd) {
                                         if (coinsAdLimiter.canWatch()) {
                                             pendingCoinsAdAmount = pack.amount
+                                            showToast("LOADING AD...", true)
                                             showCoinsRewardAd = true
                                         } else {
                                             showToast("DAILY AD LIMIT REACHED - COME BACK TOMORROW", false)

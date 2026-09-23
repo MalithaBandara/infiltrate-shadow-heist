@@ -6,7 +6,7 @@ on:
       build_number:
         description: "App Store build number (CFBundleVersion)"
         required: false
-        default: "12"
+        default: "13"
   push:
     tags:
       - "v*"

@@ -50,6 +50,81 @@ actual object StoreBilling {
         return false
     }
 
+    private fun formatError(error: com.revenuecat.purchases.kmp.models.PurchasesError): String {
+        val underlying = error.underlyingErrorMessage
+        return if (!underlying.isNullOrBlank()) {
+            "${error.message} ($underlying)"
+        } else {
+            error.message
+        }
+    }
+
+    private fun purchaseDirectProduct(
+        packageId: String,
+        allPackages: List<com.revenuecat.purchases.kmp.models.Package> = emptyList(),
+        onResult: (success: Boolean, error: String?) -> Unit
+    ) {
+        val candidateProductIds = if (isRemoveAdsKey(packageId)) {
+            listOf(
+                packageId,
+                "remove_ads",
+                "no_ads",
+                "noads",
+                "com.infiltrate.shadowheist.remove_ads",
+                "com.infiltrate.shadowheist.no_ads"
+            ).distinct()
+        } else {
+            listOf(packageId, "com.infiltrate.shadowheist.$packageId").distinct()
+        }
+
+        Purchases.sharedInstance.getProducts(
+            productIds = candidateProductIds,
+            onError = { prodErr ->
+                val avail = allPackages.map { "${it.identifier} (${it.storeProduct.id})" }
+                val underlying = prodErr.underlyingErrorMessage
+                val msg = if (!underlying.isNullOrBlank()) {
+                    "${prodErr.message} ($underlying)"
+                } else if (avail.isNotEmpty()) {
+                    "Item '$packageId' not found in store offering. Available packages in RevenueCat: $avail"
+                } else {
+                    "Item '$packageId' not found: ${prodErr.message}"
+                }
+                onResult(false, msg)
+            },
+            onSuccess = { products ->
+                val prod = products.find { p ->
+                    p.id.equals(packageId, ignoreCase = true) ||
+                    p.id.startsWith("$packageId:", ignoreCase = true) ||
+                    (isRemoveAdsKey(packageId) && (isRemoveAdsKey(p.id) || p.id.contains("remove", ignoreCase = true)))
+                } ?: products.firstOrNull()
+
+                if (prod != null) {
+                    Purchases.sharedInstance.purchase(
+                        storeProduct = prod,
+                        onError = { error, userCancelled ->
+                            if (userCancelled) {
+                                onResult(false, "PURCHASE CANCELLED")
+                            } else {
+                                onResult(false, formatError(error))
+                            }
+                        },
+                        onSuccess = { _, _ ->
+                            onResult(true, null)
+                        }
+                    )
+                } else {
+                    val avail = allPackages.map { "${it.identifier} (${it.storeProduct.id})" }
+                    val msg = if (avail.isNotEmpty()) {
+                        "Item '$packageId' not found in store offering. Available in RevenueCat: $avail"
+                    } else {
+                        "Item '$packageId' not found in App Store products."
+                    }
+                    onResult(false, msg)
+                }
+            }
+        )
+    }
+
     actual fun purchase(packageId: String, onResult: (success: Boolean, error: String?) -> Unit) {
         if (!Purchases.isConfigured) {
             initialize(DEFAULT_APPLE_API_KEY)
@@ -61,7 +136,7 @@ actual object StoreBilling {
 
         Purchases.sharedInstance.getOfferings(
             onError = { error ->
-                onResult(false, error.message)
+                purchaseDirectProduct(packageId, onResult = onResult)
             },
             onSuccess = { offerings ->
                 val allPackages = offerings.all.values.flatMap { it.availablePackages }
@@ -71,7 +146,7 @@ actual object StoreBilling {
                     ?: allPackages.find { packageMatches(it, packageId) }
 
                 if (pkg == null) {
-                    onResult(false, "Item not found in store offering")
+                    purchaseDirectProduct(packageId, allPackages, onResult)
                     return@getOfferings
                 }
 
@@ -81,7 +156,7 @@ actual object StoreBilling {
                         if (userCancelled) {
                             onResult(false, "PURCHASE CANCELLED")
                         } else {
-                            onResult(false, error.message)
+                            onResult(false, formatError(error))
                         }
                     },
                     onSuccess = { _, _ ->
@@ -103,7 +178,7 @@ actual object StoreBilling {
 
         Purchases.sharedInstance.restorePurchases(
             onError = { error ->
-                onResult(false, error.message)
+                onResult(false, formatError(error))
             },
             onSuccess = { customerInfo ->
                 val hasPurchases = customerInfo.entitlements.all.values.any { it.isActive }
@@ -138,7 +213,12 @@ object RevenueCatVerifyBridge {
         Purchases.sharedInstance.getOfferings(
             onError = { error ->
                 success = false
-                resultText = "FAIL:${error.message}"
+                val underlying = error.underlyingErrorMessage
+                resultText = if (!underlying.isNullOrBlank()) {
+                    "FAIL:${error.message}:underlying=$underlying"
+                } else {
+                    "FAIL:${error.message}"
+                }
                 checkFinished = true
             },
             onSuccess = { offerings ->

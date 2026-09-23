@@ -182,7 +182,7 @@ jobs:
           # checked directly rather than assumed). --console-pty attaches to the process's real
           # stdout/stderr instead. Backgrounded (&) so the script doesn't block on it - it keeps
           # streaming into the file for the life of the process, read back further down.
-          xcrun simctl launch --console-pty "$DEVICE_ID" "$BUNDLE_ID" > /tmp/shellapp_console.log 2>&1 &
+          xcrun simctl launch --console-pty "$DEVICE_ID" "$BUNDLE_ID" -ci-test > /tmp/shellapp_console.log 2>&1 &
           CONSOLE_PID=$!
 
           mkdir -p ios-shell/spike-screenshots
@@ -253,7 +253,7 @@ jobs:
           fi
           RESULT=$(cat "$RESULT_FILE")
           echo "Storage bridge result: $RESULT"
-          if [[ "$RESULT" != OK:coins=350:unlocked=level_1;level_2;level_4* ]]; then
+          if [[ "$RESULT" != "OK:coins=350:unlocked=level_1;level_2;level_4"* ]]; then
             echo "Storage bridge round-trip FAILED on-device (expected real profile data match): $RESULT"
             exit 1
           fi

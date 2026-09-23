@@ -44,7 +44,7 @@ targets:
       properties:
         CFBundleDisplayName: Shadow Heist
         CFBundleShortVersionString: "0.0.9"
-        CFBundleVersion: "12"
+        CFBundleVersion: "13"
         ITSAppUsesNonExemptEncryption: false
         UIRequiresFullScreen: true
         UILaunchScreen: {}
@@ -90,6 +90,8 @@ targets:
         # (unlike a real *ad unit* ID, the App ID alone doesn't cause invalid-traffic risk; the
         # CI spike still only ever requests basic-ads' test ad unit constants, never a real one).
         GADApplicationIdentifier: "ca-app-pub-7912148730700666~1768074863"
+        SKAdNetworkItems:
+          - SKAdNetworkIdentifier: "cstr6suwn9.skadnetwork"
     dependencies:
       - framework: Frameworks/GameMain.framework
         embed: true
