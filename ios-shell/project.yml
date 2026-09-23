@@ -46,6 +46,7 @@ targets:
         CFBundleShortVersionString: "0.0.9"
         CFBundleVersion: "12"
         ITSAppUsesNonExemptEncryption: false
+        UIRequiresFullScreen: true
         UILaunchScreen: {}
         # This is a side-scrolling stealth game - both KorGE gameplay and the Compose menu/
         # Store/Settings screens are laid out assuming a landscape-wide canvas (see e.g.
