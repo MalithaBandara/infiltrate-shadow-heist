@@ -1775,12 +1775,12 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
 - **Web presence (`site/`, Netlify, e.g. `infiltrate.saysplit.app`)**: `index.html`, `support/`
   (App Store Guideline 1.5 page, Netlify Form with Name/Email/Category/Message, no visible email, no
   FAQ), `privacy/` (on-device storage, AdMob/UMP consent, RevenueCat, COPPA/GDPR/CCPA), `styles.css`,
-  `_redirects`, `netlify.toml`. **Two unresolved compliance gaps**: the privacy policy's purchase-data
-  paragraph now matches Android's real RevenueCat flow but iOS billing isn't wired; and **Apple's App
-  Tracking Transparency prompt is not implemented** while AdMob can serve personalized ads - decide
-  (add ATT, or force non-personalized on iOS) before submission. A `/delete` page was built and
-  reverted the same day - the game holds no server data (local-only, deleted by uninstalling); the
-  owner answers Play Console's deletion question "No".
+  `_redirects`, `netlify.toml`. iOS RevenueCat in-app purchase billing is wired (`com.infiltrate.shadowheist`,
+  Apple Distribution codesigning & automated TestFlight release workflow in `.github/workflows/ios-testflight.yml`).
+  One remaining compliance item: **Apple's App Tracking Transparency prompt is not implemented** while
+  AdMob can serve personalized ads - decide (add ATT, or force non-personalized on iOS) before App Store submission.
+  A `/delete` page was built and reverted the same day - the game holds no server data (local-only, deleted
+  by uninstalling); the owner answers Play Console's deletion question "No".
 
 ## Keep this file up to date
 

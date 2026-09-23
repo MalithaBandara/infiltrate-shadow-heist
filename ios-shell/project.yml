@@ -23,29 +23,18 @@ targets:
         buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.infiltrate.shellapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.infiltrate.shadowheist
+        DEVELOPMENT_TEAM: AGLKGW9XC9
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        # GameMain.framework and PaywallModule.framework are both built from the Kotlin/Native
-        # iosSimulatorArm64 target only (arm64, no x86_64 slice). Without this, a plain
-        # `xcodebuild -sdk iphonesimulator` build (no -destination given) defaults to building
-        # BOTH arm64 and x86_64 simulator slices, and the x86_64 link fails with "Undefined
-        # symbols" because ld just ignores the arm64-only .framework files for that arch -
-        # confirmed exactly this way in CI on 2026-08-31. This is the standard fix for an
-        # Apple-Silicon-only binary framework, independent of whatever -destination gets picked.
+        # GameMain.framework and PaywallModule.framework are both built from Kotlin/Native
+        # (iosSimulatorArm64 for simulator, iosArm64 for physical device / TestFlight).
         EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
         FRAMEWORK_SEARCH_PATHS:
           - "$(inherited)"
+          - "$(PROJECT_DIR)/Frameworks"
           - "$(PROJECT_DIR)/../build/bin/iosSimulatorArm64/debugFramework"
-          # NOT debugFramework: paywall-build's framework is now declared via
-          # cocoapods { framework { ... } } (see .junie/guidelines.md "AdMob (basic-ads)
-          # feasibility spike", attempt 3), which reconfigures the plugin's own auto-created
-          # binary - Gradle-internal name "podDebugFramework" for the debug build (confirmed
-          # from Kotlin's own NativeBinary.outputDirectoryProperty source:
-          # build/bin/<target>/<binary.name>, and binary.name here literally is
-          # "podDebugFramework" - matches the linkPodDebugFrameworkIosSimulatorArm64 task name
-          # exactly). The old plain "debugFramework" directory no longer exists at all.
           - "$(PROJECT_DIR)/../paywall-build/build/bin/iosSimulatorArm64/podDebugFramework"
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
@@ -53,7 +42,10 @@ targets:
     info:
       path: Generated/Info.plist
       properties:
-        CFBundleDisplayName: Shadow Heist Shell
+        CFBundleDisplayName: Shadow Heist
+        CFBundleShortVersionString: "0.0.9"
+        CFBundleVersion: "12"
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         # This is a side-scrolling stealth game - both KorGE gameplay and the Compose menu/
         # Store/Settings screens are laid out assuming a landscape-wide canvas (see e.g.
@@ -98,17 +90,12 @@ targets:
         # CI spike still only ever requests basic-ads' test ad unit constants, never a real one).
         GADApplicationIdentifier: "ca-app-pub-7912148730700666~1768074863"
     dependencies:
-      # Paths are relative to this file (ios-shell/project.yml). :game's GameMain.framework path
-      # is confirmed against a real CI log (see .junie/guidelines.md, "LOCKED WORKING
-      # CONFIGURATION"); paywall-build's PaywallModule.framework path is the cocoapods-plugin
-      # output location (see the FRAMEWORK_SEARCH_PATHS comment above for why it's
-      # "podDebugFramework", not the default "debugFramework").
-      - framework: ../build/bin/iosSimulatorArm64/debugFramework/GameMain.framework
+      - framework: Frameworks/GameMain.framework
         embed: true
-        codeSign: false
-      - framework: ../paywall-build/build/bin/iosSimulatorArm64/podDebugFramework/PaywallModule.framework
+        codeSign: true
+      - framework: Frameworks/PaywallModule.framework
         embed: true
-        codeSign: false
+        codeSign: true
       - sdk: StoreKit.framework
     postbuildScripts:
       # Real bug found via the console diagnostic added to GameplayScene.kt's asset-loading

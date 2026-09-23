@@ -134,6 +134,9 @@ jobs:
       - name: "Shell app: generate Xcode project from ios-shell/project.yml"
         continue-on-error: true
         run: |
+          mkdir -p ios-shell/Frameworks
+          cp -R build/bin/iosSimulatorArm64/debugFramework/GameMain.framework ios-shell/Frameworks/
+          cp -R paywall-build/build/bin/iosSimulatorArm64/podDebugFramework/PaywallModule.framework ios-shell/Frameworks/
           cd ios-shell
           xcodegen generate --spec project.yml
 
@@ -142,6 +145,7 @@ jobs:
         run: |
           xcodebuild -project ios-shell/ShellApp.xcodeproj -scheme ShellApp \
             -sdk iphonesimulator -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
             -derivedDataPath ios-shell/build build
 
       - name: "Shell app: boot simulator, install, launch, verify on-device storage bridge"
@@ -155,7 +159,7 @@ jobs:
           fi
           echo "Found app at: $APP_PATH"
 
-          BUNDLE_ID="com.infiltrate.shellapp"
+          BUNDLE_ID="com.infiltrate.shadowheist"
           # Plain-text simctl output, not -j/JSON, specifically to avoid embedding a Python
           # script inside this YAML block (a leading-indented python3 -c heredoc throws
           # IndentationError on its first line - caught locally, not risking it in CI).
@@ -261,7 +265,7 @@ jobs:
         continue-on-error: true
         run: |
           DEVICE_ID="${{ steps.boot_shell.outputs.device_id }}"
-          BUNDLE_ID="com.infiltrate.shellapp"
+          BUNDLE_ID="com.infiltrate.shadowheist"
 
           CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" data)
           RESULT_FILE="$CONTAINER/Documents/transition_test_result.txt"
@@ -280,7 +284,7 @@ jobs:
           done
 
           echo "===== simctl launchctl list (is ShellApp still running / did it exit?) ====="
-          xcrun simctl spawn "$DEVICE_ID" launchctl list 2>&1 | grep -i shellapp || echo "com.infiltrate.shellapp not found in launchctl list"
+          xcrun simctl spawn "$DEVICE_ID" launchctl list 2>&1 | grep -i shadowheist || echo "com.infiltrate.shadowheist not found in launchctl list"
 
           echo "===== ShellApp real console output (stdout+stderr via --console-pty, started in the previous step) ====="
           cat /tmp/shellapp_console.log 2>/dev/null || echo "(no console output file found - background process may not have survived the step boundary)"
@@ -316,7 +320,7 @@ jobs:
         continue-on-error: true
         run: |
           DEVICE_ID="${{ steps.boot_shell.outputs.device_id }}"
-          BUNDLE_ID="com.infiltrate.shellapp"
+          BUNDLE_ID="com.infiltrate.shadowheist"
 
           CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" data)
           RESULT_FILE="$CONTAINER/Documents/admob_verify_result.txt"
@@ -342,7 +346,7 @@ jobs:
         continue-on-error: true
         run: |
           DEVICE_ID="${{ steps.boot_shell.outputs.device_id }}"
-          BUNDLE_ID="com.infiltrate.shellapp"
+          BUNDLE_ID="com.infiltrate.shadowheist"
 
           CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" data)
           RESULT_FILE="$CONTAINER/Documents/revenuecat_verify_result.txt"

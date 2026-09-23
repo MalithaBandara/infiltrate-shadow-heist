@@ -1,5 +1,6 @@
 package com.infiltrate.billing
 
+import com.revenuecat.purchases.kmp.LogLevel
 import com.revenuecat.purchases.kmp.Purchases
 import com.revenuecat.purchases.kmp.PurchasesConfiguration
 import kotlin.native.ObjCName
@@ -16,6 +17,7 @@ actual object StoreBilling {
         val key = apiKey.trim().ifBlank { DEFAULT_APPLE_API_KEY }
         if (key.isBlank()) return
         if (!Purchases.isConfigured) {
+            Purchases.logLevel = LogLevel.DEBUG
             Purchases.configure(PurchasesConfiguration.Builder(key).build())
         }
     }
