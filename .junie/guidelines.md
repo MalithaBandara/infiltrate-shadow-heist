@@ -561,6 +561,47 @@ Store at 844x390 and 1024x768. `jvmTest` 187 green, `:paywall-build:jvmTest` 14 
 and the safe-area plumbing in particular has never seen a non-zero inset** - desktop reports none.
 iOS is not even compile-checked (CI only).
 
+### Three follow-ups from the owner's own iPad (2026-09-24)
+
+The canvas rule above is necessary but not sufficient: a few screens were still sized as a share
+of one axis, which is only a constant share of the screen on devices of one aspect. All three are
+pinned by tests in `ResponsiveTest`, and all three leave the reference phone and the desktop
+window byte-identical - that was the constraint, not an accident.
+
+**The splash sizes off HEIGHT, unlike the rest of `GameplayScene`** (`splashScale`,
+`setupLoadingScreen`). The logo held 34% of the *width* on every device, which is a quarter of the
+reference phone's height but only a seventh of a 4:3 iPad's, with the rest left as dead margin -
+"the logo is too small and the loading bar is too short". `canvasH / ScreenLayout.DESIGN_HEIGHT`
+(capped 1.6, a guard for a canvas squarer than any real device - a 4:3 iPad lands at 1.625 and
+gives up 1.5%) holds the share of height constant instead, which is what the eye measures against
+on a splash. The pieces are also centred as one block at `canvasH * 0.474` rather than each
+pinned to its own fraction, because fractions spread them apart as the canvas grows; 0.474 is
+where the reference stack's centre already sat, so a 1040x480 canvas still renders what it did
+(logo top 125.0 vs 124.8, bar top 277.9 vs 278.4). The bar's *width* drives its height so it keeps
+its flat proportion. `loadingbg.png` is deliberately still stretched, not cropped: it is an
+abstract grunge texture with no subject, so nothing in it reads as distorted.
+
+**The menu video fills the HEIGHT and overflows left** (`videoBoxFor` in `ui/VideoBackground.kt`,
+used by all three actuals so they cannot drift). It used to fit the width on a screen squarer than
+16:9, which left the bottom **37%** of a 4:3 iPad as a black bar under the menu. Now the surface
+is always `screenHeight * videoAspect` wide, pinned `TopEnd`, so a squarer screen runs the left of
+the frame off the edge and keeps the right - where the composition's subject (the figure on the
+roof) is. On a screen *wider* than the video nothing changes: the surface is narrower than the
+screen and the band it leaves on the left sits under the opaque end of the menu's dark gradient.
+Two mechanics matter: the caller must use **`requiredWidth`/`requiredHeight`** (plain
+`width`/`height` clamp to the incoming constraints and would silently fit instead of overflow),
+and the container must `clipToBounds()`.
+
+**The dossier card has two ceilings** (`dossierCardWidthFor`). `DOSSIER_HEIGHT_FRACTION` = 0.37 of
+the height is a quarter of the width on a ~2:1 phone or desktop window, but 42% on a 4:3 iPad and
+568dp on a 12.9" - a hand-sized sheet of paper reading as a poster.
+`DOSSIER_MAX_WIDTH_FRACTION` = 0.35 is set just above where every phone and desktop window already
+lands (the widest is 0.26), so it binds on tablets only; `DOSSIER_MAX_SCALE` = 1.0 additionally
+refuses to upscale the artwork past the 462dp it was drawn at, which only a 12.9" iPad reaches.
+
+Verified the same way as above, at 4:3 and at the reference aspect, with before/after captures of
+both the splash and the menu. Still not verified on a device: the same caveat applies.
+
 ## Non-gameplay UI in Compose - status
 
 MainMenu, LevelSelect, Store, Settings are real Compose screens in `paywall-build`. KorGE is entered
@@ -711,6 +752,22 @@ category as the earlier `takeoff.wav` removal. Only one copy exists.
 11. **Settings sliders had no live effect on the Settings screen** - `NavigationRoot` re-read volume
     only on screen change. Volume state lifted into `NavigationRoot` as `mutableStateOf` with
     `onXChange` callbacks.
+12. **`View.size(w, h)` is MULTIPLICATIVE - calling it every frame shrinks a sprite to nothing.**
+    `View.unscaledSize`'s setter is `scaleXY *= value / currentSize` (korge 6.0 `View.kt:399`), so
+    every call re-scales relative to the sprite's *current* size. Once at creation is correct; in an
+    updater it is a decay loop. Level 7's steam particles called `p.size(currentSize, currentSize)`
+    per frame against a 48px source drawn at ~20-45, so their `scaledWidth` reached **~1e-72 within
+    a second of the level starting** - which is the whole reason the steam pipes looked like they
+    were not rendering at all, after several wrong theories about blend modes and z-order.
+    **`SolidRect` overrides `unscaledSize` with a plain backing field and IS safe** (GameplayScene's
+    darkness-vignette rects depend on that); `Image` does not. In a frame loop write the transform
+    directly: `img.scaleX = w / sourceWidth`. Checked repo-wide - `VentFxAssets` was the only site.
+13. **`Bitmap32(w, h)` is flagged PREMULTIPLIED**, so whatever RGB is written is what the renderer
+    blends - it never divides the colour back out by alpha. Every procedural particle texture in
+    `VentFxAssets.kt` used to write straight-alpha colour into one, which makes a feathered edge as
+    bright as its core: that is why level 7's wind read as hard glowing scratches instead of air.
+    Write `RGBA(r * a / 255, g * a / 255, b * a / 255, a)` (`VentFxAssets.premul`). korim's PNG
+    decoder already premultiplies, so only hand-built bitmaps are affected.
 
 **Lesson**: the grey-screen symptom had two unrelated real causes (#5 dominant, #6) after three
 wrong audio theories. What broke the loop was adding on-screen exception diagnostics to `sceneMain()`
@@ -1544,11 +1601,32 @@ duct:
 - **Sequencing & decoupled hazard zones**: Obstacles are decoupled into clean, distinct stages so
   fans do not blow the player into active steam pipes or drones. Safe recovery and staging zones
   (100..300px) separate every hazard, housing 6 manual checkpoints.
-- **Visuals and performance discipline**: Procedural textures (`steamParticleBitmap`, `windStreakBitmap`,
-  `botEyeGlowBitmap`), volumetric vision cones, nozzle LED indicators, and duct frame structures are
-  housed in `VentFxAssets.kt` to protect `GameplayScene.sceneMain` against the JVM 64KB bytecode limit.
+- **Visuals and performance discipline**: procedural textures, volumetric vision cones, nozzle LED
+  indicators and duct frame structures are housed in `VentFxAssets.kt` to protect
+  `GameplayScene.sceneMain` against the JVM 64KB bytecode limit.
   `src/game/model/VentObstacles.kt` remains 100% pure Kotlin with zero `korlibs.*` imports, verified
-  by `ZeroKorlibsLintTest`.
+  by `ZeroKorlibsLintTest`. Every emitter culls itself (`update` returns early when its zone is off
+  camera), which is what keeps the particle counts affordable: at most one fan and a couple of pipes
+  are ever simulated or drawn.
+- **The wind and the steam were rebuilt 2026-09-24** (reported simply as "not realistic").
+  `VentFanVisual` and `SteamPipeVisual`'s own doc comments carry the reasoning per decision - read
+  them before touching either. The headline facts:
+  - **The steam was not visible at all in play**, and had not been for as long as the level existed.
+    Gotcha #12 above is why (a per-frame `size()` collapsed every particle to ~1e-72 units wide);
+    additive blending over `bglvl7.png`'s brightly lit steel wall would barely have shown it even at
+    the right size. Both effects now blend normally and OCCLUDE the wall.
+  - Particles have real lifetimes and are re-seeded on death (lane, speed, reach, spread, sway,
+    brightness) instead of cycling `% span` in fixed lanes; the jet and the wind both decelerate
+    with distance; steam curls upward on buoyancy at the tail and bursts out of the nozzle on the
+    rising edge of each cycle; the ~2-5 Hz sine strobes on brightness and position are gone.
+  - Textures are one 128x128 four-puff page shared by both effects plus a 96x40 two-row wisp sheet.
+    Variants are **baked** rather than made with a negative `scaleX` (bug #8) or a runtime rotation.
+  - **The plume must span the full corridor.** `SteamPipe.bounds` kills across the whole
+    `topY..bottomY` and a fixed `jetWidth`, so `reach` stays at 0.86..1.06 of the span - never tune
+    the visual shorter than the box that kills.
+  - Verified on JVM desktop against real screenshots (top, bottom and paired nozzles, plus a fan's
+    wind zone) and `jvmTest` 194 green, `android-shell:compileReleaseKotlin` clean. **Not on Android
+    or iOS.**
 - Verified by unit tests in `GameplayModelTest.kt`: `testLevel7LayoutStructureAndProperties`,
   `testLevel7VentCeilingEnforcesContinuousCrouch`, `testLevel7VentFanPushbackAndSpamTapForwardImpulse`,
   `testLevel7CameraBotPatrolAndDeactivationFromBehind`, `testLevel7SteamPipeHazardsAndLaserShieldDeflection`,

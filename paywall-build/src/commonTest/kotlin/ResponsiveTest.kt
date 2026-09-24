@@ -1,6 +1,9 @@
 package com.infiltrate.test
 
+import androidx.compose.ui.unit.dp
 import com.infiltrate.ui.MenuMetrics
+import com.infiltrate.ui.dossierCardWidthFor
+import com.infiltrate.ui.videoBoxFor
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -68,5 +71,42 @@ class ResponsiveTest {
         assertEquals(MenuMetrics.MAX_SCALE, MenuMetrics.scaleFor(4000f, 3000f), 0.001f)
         // A box with no size yet (first composition) must not produce 0 or NaN.
         assertEquals(1f, MenuMetrics.scaleFor(0f, 0f), 0.001f)
+    }
+
+    @Test
+    fun testVideoFillsTheHeightAndOverflowsLeftOnASquarerScreen() {
+        // The 4:3 iPad case. Fitting the width instead left the bottom fifth of the screen as a
+        // black bar; filling the height puts the overflow off the leading edge, where the video's
+        // subject is not.
+        val pad = videoBoxFor(1024.dp, 768.dp)
+        assertEquals(768f, pad.height.value, 0.01f)
+        assertTrue(pad.width.value > 1024f, "must overflow the screen, was ${pad.width}")
+        assertEquals(768f * 16f / 9f, pad.width.value, 0.01f)
+
+        // ...and on a screen wider than the video it stays inside, leaving the band on the left
+        // that the main menu's dark gradient covers.
+        val desktop = videoBoxFor(1560.dp, 720.dp)
+        assertEquals(720f, desktop.height.value, 0.01f)
+        assertTrue(desktop.width.value < 1560f, "must fit inside, was ${desktop.width}")
+
+        // A box with no size yet must not produce a NaN or a negative.
+        assertEquals(0f, videoBoxFor(0.dp, 0.dp).height.value, 0.001f)
+    }
+
+    @Test
+    fun testDossierCardIsCappedOnTabletsAndUnchangedEverywhereElse() {
+        // Desktop and phone are the sizes the card was signed off at - neither ceiling may bind.
+        assertEquals(720f * 0.37f * 1.5f, dossierCardWidthFor(1560.dp, 720.dp).value, 0.01f)
+        assertEquals(390f * 0.37f * 1.5f, dossierCardWidthFor(844.dp, 390.dp).value, 0.01f)
+
+        // A 4:3 iPad: the height fraction alone spans 42% of the width. The width ceiling pulls
+        // it back to 35%, nearer the quarter of the width it holds on every phone.
+        val ipad = dossierCardWidthFor(1024.dp, 768.dp)
+        assertTrue(ipad.value < 768f * 0.37f * 1.5f, "the ceiling must bind, was $ipad")
+        assertEquals(1024f * 0.35f, ipad.value, 0.01f)
+
+        // A 12.9" iPad has the width for 478dp, but the sheet is only drawn 462 wide and
+        // upscaling it softens the tear.
+        assertEquals(462f, dossierCardWidthFor(1366.dp, 1024.dp).value, 0.01f)
     }
 }

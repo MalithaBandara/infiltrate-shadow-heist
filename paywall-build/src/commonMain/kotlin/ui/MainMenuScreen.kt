@@ -185,13 +185,9 @@ fun MainMenuScreen(
         // around 7sp, which is deliberate: holding the proportion was chosen over holding a
         // readable size on small screens.
         //
-        // The width term is a safety guard, not part of the design: on a screen tall relative to
-        // its width (a portrait desktop window) a purely height-driven card would come out wider
-        // than the display. On every landscape device - desktop, phone and the 4:3-ish iPhone SE -
-        // the height term is the smaller of the two, so the guard never binds.
-        val dossierCardHeight = screenHeight * DOSSIER_HEIGHT_FRACTION
-        val dossierCardWidth = (dossierCardHeight * DOSSIER_ASPECT).coerceAtMost(screenWidth * 0.62f)
-        val dossierScale = dossierCardWidth / DOSSIER_BASE_WIDTH.dp
+        // Two ceilings sit on top of the fraction, and on a phone or on desktop neither binds -
+        // see DOSSIER_MAX_WIDTH_FRACTION and DOSSIER_MAX_SCALE for why a tablet needs them.
+        val dossierScale = dossierCardWidthFor(screenWidth, screenHeight) / DOSSIER_BASE_WIDTH.dp
 
         // 1. Looping Video Background (bg1080p.mp4) with bg12.png fallback
         LoopingVideoBackground(
@@ -438,6 +434,34 @@ private const val DOSSIER_BASE_WIDTH = 462f
  * note without redesigning it.
  */
 private const val DOSSIER_HEIGHT_FRACTION = 0.37f
+
+/**
+ * The card's widest, as a share of the screen's width.
+ *
+ * A pure share of HEIGHT is only a constant share of the screen on devices of one aspect. A phone
+ * and a desktop window are both around 2:1, where 0.37 of the height works out at a quarter of the
+ * width and the note sits in its corner. A tablet is not: a 4:3 iPad is 1024x768dp, where the same
+ * fraction spans 42% of the width, and a 12.9" is 1366x1024dp, where the note comes out 568dp wide
+ * - a hand-sized sheet of paper reading as a poster, and the "don't let the notepad get too large"
+ * report.
+ *
+ * 0.35 is set just above where every phone and desktop window already lands (the widest is the
+ * 16:9 reference at 0.26), so this ceiling binds on tablets only and nothing else moves.
+ */
+private const val DOSSIER_MAX_WIDTH_FRACTION = 0.35f
+
+/**
+ * And an absolute ceiling: never render the sheet larger than the [DOSSIER_BASE_WIDTH] it was
+ * drawn at. Past 1.0 the artwork is being upscaled, so the tear and the paper grain soften at
+ * exactly the screen sizes with the pixels to show them off. Only a 12.9" iPad reaches it.
+ */
+private const val DOSSIER_MAX_SCALE = 1.0f
+
+/** The card's rendered width for a screen of this size. Pure - unit-tested in ResponsiveTest. */
+internal fun dossierCardWidthFor(screenWidth: Dp, screenHeight: Dp): Dp =
+    (screenHeight * DOSSIER_HEIGHT_FRACTION * DOSSIER_ASPECT)
+        .coerceAtMost(screenWidth * DOSSIER_MAX_WIDTH_FRACTION)
+        .coerceAtMost((DOSSIER_BASE_WIDTH * DOSSIER_MAX_SCALE).dp)
 
 // Bottom-Right Dossier Card Component
 /**

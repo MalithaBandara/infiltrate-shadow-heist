@@ -46,10 +46,12 @@ private object IosMusicPlayer {
     }
 
     fun pause() {
+        player?.volume = 0f
         player?.pause()
     }
 
-    fun resume() {
+    fun resume(volume: Float) {
+        setVolume(volume)
         player?.play()
     }
 
@@ -79,8 +81,7 @@ actual fun MenuMusic(
         if (isAdActive) {
             IosMusicPlayer.pause()
         } else {
-            IosMusicPlayer.setVolume(volume)
-            IosMusicPlayer.resume()
+            IosMusicPlayer.resume(volume)
         }
     }
 }

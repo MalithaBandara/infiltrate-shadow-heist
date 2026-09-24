@@ -44,7 +44,7 @@ targets:
       properties:
         CFBundleDisplayName: Shadow Heist
         CFBundleShortVersionString: "0.0.10"
-        CFBundleVersion: "14"
+        CFBundleVersion: "15"
         ITSAppUsesNonExemptEncryption: false
         UIRequiresFullScreen: true
         UILaunchScreen: {}

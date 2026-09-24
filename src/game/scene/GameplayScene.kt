@@ -4442,17 +4442,52 @@ class GameplayScene(
             loadingRoot.solidRect(canvasW, canvasH, Colors.BLACK)
         }
 
-        val loadingLogoWidth = canvasW * 0.34
+        // The splash is sized off the canvas HEIGHT, unlike everything else on this screen.
+        //
+        // The gameplay rule (game.model.ScreenLayout) keeps the authored 1040x480 rect and grows
+        // the canvas around it, so a squarer screen gets extra sky rather than a bigger world.
+        // That is right for a level and wrong for a title card: sized as a share of width, the
+        // logo holds 34% of the width everywhere but falls from a quarter of the reference
+        // phone's height to a seventh of a 4:3 iPad's, with the difference left as dead margin -
+        // which is the "logo too small, bar too short on iPad" report. Scaling by
+        // canvasH / DESIGN_HEIGHT instead holds the share of HEIGHT constant, which is what the
+        // eye is actually measuring against.
+        //
+        // The ceiling guards a canvas squarer than any real device (ScreenLayout clamps at 1:1,
+        // where this would otherwise reach 2.17). A 4:3 iPad lands at 1.625 and gives up 1.5%.
+        val splashScale = (canvasH / ScreenLayout.DESIGN_HEIGHT).coerceIn(1.0, 1.6)
+
+        val loadingLogoWidth = canvasW * 0.34 * splashScale
+        val loadingLogoHeight = if (loadingLogoBitmap != null) {
+            loadingLogoWidth * loadingLogoBitmap.height / loadingLogoBitmap.width
+        } else {
+            0.0
+        }
+        val loadingBarWidth = canvasW * 0.30 * splashScale
+        // The bar's width drives its height so it keeps the flat sliver proportion it was drawn
+        // with instead of thickening on a taller canvas. 14.4 is the reference 312 x 21.6.
+        val loadingBarHeight = loadingBarWidth / 14.4
+        val loadingLogoGap = 35.0 * splashScale
+        val loadingLabelGap = 17.0 * splashScale
+        val loadingLabelHeight = loadingBarHeight * 0.62
+
+        // Centre the stack as one block instead of pinning each piece to its own fraction of the
+        // height - fractions push the pieces apart as the canvas grows, which is the other half
+        // of why this read as small and scattered on an iPad. 0.474 is where the reference
+        // stack's centre already sat, so a 1040x480 canvas still renders what it always did
+        // (logo top 125.0 vs 124.8, bar top 277.9 vs 278.4).
+        val loadingBlockHeight = loadingLogoHeight + loadingLogoGap + loadingBarHeight +
+            loadingLabelGap + loadingLabelHeight
+        val loadingBlockTop = canvasH * 0.474 - loadingBlockHeight / 2.0
+
         if (loadingLogoBitmap != null) {
             val logoScale = loadingLogoWidth / loadingLogoBitmap.width
             loadingRoot.image(loadingLogoBitmap) { scale(logoScale) }
-                .xy((canvasW - loadingLogoBitmap.width * logoScale) / 2.0, canvasH * 0.26)
+                .xy((canvasW - loadingLogoWidth) / 2.0, loadingBlockTop)
         }
 
-        val loadingBarWidth = canvasW * 0.30
-        val loadingBarHeight = canvasH * 0.045
         val loadingBarX = (canvasW - loadingBarWidth) / 2.0
-        val loadingBarY = canvasH * 0.58
+        val loadingBarY = loadingBlockTop + loadingLogoHeight + loadingLogoGap
 
         val loadingBarFillContainer = loadingRoot.container().xy(loadingBarX, loadingBarY)
         var loadingBarFillView: View? = null
@@ -4476,13 +4511,13 @@ class GameplayScene(
 
         val loadingLabel = loadingRoot.text(
             "L O A D I N G . . .",
-            textSize = loadingBarHeight * 0.62,
+            textSize = loadingLabelHeight,
             font = loadingFont,
             color = Colors.WHITE
         )
         loadingLabel.graphicsRenderer = GraphicsRenderer.GPU
         val labelW = try { loadingLabel.width } catch (_: Throwable) { 120.0 }
-        loadingLabel.xy((canvasW - labelW) / 2.0, loadingBarY + loadingBarHeight + canvasH * 0.035)
+        loadingLabel.xy((canvasW - labelW) / 2.0, loadingBarY + loadingBarHeight + loadingLabelGap)
 
         val blinkPeriodSeconds = 2.2
         val blinkVisibleFraction = 0.88
@@ -5124,6 +5159,8 @@ class GameplayScene(
         val l4endBitmap = SceneAssets.bitmap("l4end.png", minified = false)
         markLoadProgress()
         val exitLvl7Bitmap = SceneAssets.bitmap("exitlvl7.png")
+        val fanBladeBitmap = SceneAssets.bitmap("fan_blade.png") ?: SceneAssets.bitmap("fan.png")
+        val fanCoverBitmap = SceneAssets.bitmap("fan_cover.png") ?: SceneAssets.bitmap("fan.png")
         markLoadProgress()
         val leftBtnBitmap = SceneAssets.bitmap("left.png")
         markLoadProgress()
@@ -5200,6 +5237,8 @@ class GameplayScene(
             exitFenceBitmap = exitFenceBitmap,
             l4endBitmap = l4endBitmap,
             exitLvl7Bitmap = exitLvl7Bitmap,
+            fanBladeBitmap = fanBladeBitmap,
+            fanCoverBitmap = fanCoverBitmap,
             leftBtnBitmap = leftBtnBitmap,
             rightBtnBitmap = rightBtnBitmap,
             crouchBtnBitmap = crouchBtnBitmap,
@@ -5246,6 +5285,8 @@ class GameplayScene(
         val exitFenceBitmap: Bitmap?,
         val l4endBitmap: Bitmap?,
         val exitLvl7Bitmap: Bitmap?,
+        val fanBladeBitmap: Bitmap? = null,
+        val fanCoverBitmap: Bitmap? = null,
         val leftBtnBitmap: Bitmap?,
         val rightBtnBitmap: Bitmap?,
         val crouchBtnBitmap: Bitmap?,

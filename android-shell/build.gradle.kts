@@ -52,7 +52,7 @@ android {
         // Must be >= paywall-build's own minSdk (24) - AGP fails the merge otherwise.
         minSdk = 24
         targetSdk = 37
-        versionCode = 14
+        versionCode = 15
         versionName = "0.0.10"
 
         val revenueCatKey = localProperties.getProperty("REVENUECAT_GOOGLE_KEY")

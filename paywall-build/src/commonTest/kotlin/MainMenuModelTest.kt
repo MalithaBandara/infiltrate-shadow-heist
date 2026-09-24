@@ -25,7 +25,7 @@ class MainMenuModelTest {
 
         val profile = initialStorage.getProfile()
         // Verify standard defaults
-        assertEquals(100, profile.coins, "Default coins should be 100")
+        assertEquals(50, profile.coins, "Default coins should be 50")
         assertTrue(profile.unlockedLevelIds.contains("level_1"), "level_1 should be unlocked by default")
         assertTrue(profile.unlockedLevelIds.contains("level_5"), "level_5 should be unlocked by default")
         assertEquals(false, profile.isPremium, "Default isPremium should be false")
@@ -40,7 +40,7 @@ class MainMenuModelTest {
         initialStorage.setLanguage("en")
 
         // Verify discrete keys were written to rawStore
-        assertEquals("350", rawStore["user_coins"])
+        assertEquals("300", rawStore["user_coins"])
         assertTrue(rawStore["user_unlocked_levels"]?.contains("level_2") == true)
         assertEquals("0.5", rawStore["user_music_vol"])
         assertEquals("true", rawStore["user_controls_swapped"])
@@ -52,7 +52,7 @@ class MainMenuModelTest {
             setRaw = { k, v -> rawStore[k] = v }
         )
         val reloadedProfile = reloadedStorage.getProfile()
-        assertEquals(350, reloadedProfile.coins)
+        assertEquals(300, reloadedProfile.coins)
         assertTrue(reloadedProfile.unlockedLevelIds.containsAll(listOf("level_1", "level_5", "level_2")))
         assertEquals(0.5f, reloadedProfile.musicVolume)
         assertEquals(true, reloadedProfile.controlsSwapped)
@@ -119,7 +119,7 @@ class MainMenuModelTest {
         storage.incrementLevelsCompleted()
 
         val modified = storage.getProfile()
-        assertEquals(2600, modified.coins) // 100 + 500 + 2000 (premium)
+        assertEquals(2550, modified.coins) // 50 + 500 + 2000 (premium)
         assertTrue(modified.isPremium)
         assertEquals(1, modified.totalLevelsCompleted)
 
@@ -127,7 +127,7 @@ class MainMenuModelTest {
         storage.resetProgress(preservePremium = true)
 
         val resetProfile = storage.getProfile()
-        assertEquals(100, resetProfile.coins, "Coins should be reset to default 100")
+        assertEquals(50, resetProfile.coins, "Coins should be reset to default 50")
         assertTrue(resetProfile.isPremium, "Premium status should be preserved")
         assertEquals(0, resetProfile.totalLevelsCompleted, "Total levels completed should be 0")
         assertEquals(mutableSetOf("level_1", "level_5"), resetProfile.unlockedLevelIds, "Unlocked levels should reset to defaults")
@@ -135,7 +135,7 @@ class MainMenuModelTest {
         assertEquals(1.0f, resetProfile.sfxVolume, "SFX volume should reset to 1.0")
         assertEquals(false, resetProfile.controlsSwapped, "Controls should reset to false")
         assertEquals("en", resetProfile.language, "Language should reset to en")
-        assertEquals(2, resetProfile.powerupInventory["camera_jammer"], "Powerup inventory should reset to starter values")
+        assertEquals(1, resetProfile.powerupInventory["invisibility"], "Powerup inventory should reset to starter values")
 
         // Also test fresh load from persistent rawStore
         val reloadedStorage: GameProfileStorage = MapBackedGameProfileStorage(
@@ -143,7 +143,7 @@ class MainMenuModelTest {
             setRaw = { k, v -> rawStore[k] = v }
         )
         val reloaded = reloadedStorage.getProfile()
-        assertEquals(100, reloaded.coins)
+        assertEquals(50, reloaded.coins)
         assertTrue(reloaded.isPremium)
         assertEquals(0, reloaded.totalLevelsCompleted)
     }

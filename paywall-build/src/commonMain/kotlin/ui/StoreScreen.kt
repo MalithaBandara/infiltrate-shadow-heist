@@ -529,6 +529,11 @@ fun StoreScreen(
                                             showToast(errorMsg ?: "RESTORE FAILED", false)
                                         }
                                     }
+                                },
+                                onDeactivate = {
+                                    profileStorage.deactivatePremium()
+                                    refreshProfile()
+                                    showToast("REMOVE ADS DEACTIVATED", true)
                                 }
                             )
                         }
@@ -1165,7 +1170,8 @@ private fun RemoveAdsSection(
     scale: Float,
     isPurchasing: Boolean = false,
     onPurchase: () -> Unit,
-    onRestore: () -> Unit = {}
+    onRestore: () -> Unit = {},
+    onDeactivate: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -1336,21 +1342,47 @@ private fun RemoveAdsSection(
 
                 // Action / Purchase Button
                 if (isPremium) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFF00E5FF), RoundedCornerShape(5.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(5.dp))
-                            .padding(vertical = (10 * scale).dp),
-                        contentAlignment = Alignment.Center
+                    val click = LocalUiClick.current
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy((8 * scale).dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "✓ ALL ADS REMOVED — LIFETIME PASS ACTIVE",
-                            color = Color(0xFF0A0A0C),
-                            fontSize = (13 * scale).sp,
-                            fontFamily = font,
-                            letterSpacing = 1.sp
-                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(Color(0xFF00E5FF), RoundedCornerShape(5.dp))
+                                .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(5.dp))
+                                .padding(vertical = (10 * scale).dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "✓ ALL ADS REMOVED — LIFETIME PASS ACTIVE",
+                                color = Color(0xFF0A0A0C),
+                                fontSize = (13 * scale).sp,
+                                fontFamily = font,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFF242428), RoundedCornerShape(5.dp))
+                                .border(1.dp, Color(0xFFFF5252).copy(alpha = 0.4f), RoundedCornerShape(5.dp))
+                                .clickable {
+                                    click()
+                                    onDeactivate()
+                                }
+                                .padding(horizontal = (12 * scale).dp, vertical = (10 * scale).dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "RESET",
+                                color = Color(0xFFFF5252),
+                                fontSize = (12 * scale).sp,
+                                fontFamily = font,
+                                letterSpacing = 1.sp
+                            )
+                        }
                     }
                 } else {
                     val interactionSource = remember { MutableInteractionSource() }

@@ -1,7 +1,7 @@
 package game.model
 
 data class GameProfile(
-    var coins: Int = 100,
+    var coins: Int = 50,
     var isPremium: Boolean = false,
     var musicVolume: Float = 0.8f,
     var sfxVolume: Float = 1.0f,
@@ -15,18 +15,7 @@ data class GameProfile(
     // played without first clearing the earlier single-screen levels.
     val unlockedLevelIds: MutableSet<String> = mutableSetOf("level_1", "level_5"),
     val powerupInventory: MutableMap<String, Int> = mutableMapOf(
-        "camera_jammer" to 2,
-        "smoke_screen" to 2,
-        "smoke_bomb" to 1,
-        "laser_shield" to 2,
-        "sleep_darts" to 2,
-        "phantom_cloak" to 2,
-        "invisibility" to 2,
-        "noise_suppression" to 2,
-        "stealth_boots" to 0,
-        "radar_booster" to 0,
-        "checkpoints" to 1,
-        "remote_trigger" to 1
+        "invisibility" to 1
     )
 ) {
     fun getPowerupCount(type: PowerupType): Int {
@@ -105,6 +94,7 @@ interface GameProfileStorage {
     fun consumePowerup(powerupId: String): Boolean
     fun grantDebugPowerups(amount: Int = 3)
     fun activatePremium()
+    fun deactivatePremium()
     fun incrementLevelsCompleted(): Int
     fun resetProgress(preservePremium: Boolean = true)
 }
@@ -208,6 +198,10 @@ class InMemoryGameProfileStorage(
             profile.isPremium = true
             addCoins(2000)
         }
+    }
+
+    override fun deactivatePremium() {
+        profile.isPremium = false
     }
 
     override fun incrementLevelsCompleted(): Int {
@@ -361,6 +355,11 @@ class MapBackedGameProfileStorage(
 
     override fun activatePremium() {
         inMemoryFallback.activatePremium()
+        persist()
+    }
+
+    override fun deactivatePremium() {
+        inMemoryFallback.deactivatePremium()
         persist()
     }
 

@@ -805,13 +805,13 @@ class GameplayModelTest {
         val boughtSmoke = storage.buyPowerup("smoke_bomb", 100)
         assertTrue(boughtSmoke)
         assertEquals(250, storage.getProfile().coins)
-        assertEquals(2, storage.getProfile().powerupInventory["smoke_bomb"])
+        assertEquals(1, storage.getProfile().powerupInventory["smoke_bomb"])
 
         // Buy powerup with insufficient coins
         val boughtExpensive = storage.buyPowerup("radar_booster", 500)
         assertFalse(boughtExpensive)
         assertEquals(250, storage.getProfile().coins)
-        assertEquals(0, storage.getProfile().powerupInventory["radar_booster"])
+        assertEquals(0, storage.getProfile().getPowerupCount("radar_booster"))
     }
 
     @Test
@@ -2355,15 +2355,15 @@ class GameplayModelTest {
         )
 
         val profile = profileStorage.getProfile()
-        assertTrue(profile.getPowerupCount(PowerupType.SMOKE_SCREEN) >= 1)
-        assertTrue(profile.getPowerupCount(PowerupType.LASER_SHIELD) >= 1)
-        assertTrue(profile.getPowerupCount(PowerupType.INVISIBILITY) >= 1)
-        assertTrue(profile.getPowerupCount(PowerupType.NOISE_SUPPRESSION) >= 1)
+        assertEquals(1, profile.getPowerupCount(PowerupType.INVISIBILITY))
+        assertEquals(0, profile.getPowerupCount(PowerupType.SMOKE_SCREEN))
+        assertEquals(0, profile.getPowerupCount(PowerupType.LASER_SHIELD))
+        assertEquals(0, profile.getPowerupCount(PowerupType.NOISE_SUPPRESSION))
 
-        val initialSmoke = profile.getPowerupCount(PowerupType.SMOKE_SCREEN)
-        val consumed = profileStorage.consumePowerup(PowerupType.SMOKE_SCREEN)
+        val initialInvis = profile.getPowerupCount(PowerupType.INVISIBILITY)
+        val consumed = profileStorage.consumePowerup(PowerupType.INVISIBILITY)
         assertTrue(consumed)
-        assertEquals(initialSmoke - 1, profileStorage.getProfile().getPowerupCount(PowerupType.SMOKE_SCREEN))
+        assertEquals(initialInvis - 1, profileStorage.getProfile().getPowerupCount(PowerupType.INVISIBILITY))
 
         // Verify persistence to storage map
         assertTrue(storageMap.containsKey("user_powerups"))
@@ -2374,19 +2374,19 @@ class GameplayModelTest {
             setRaw = { k, v -> storageMap[k] = v }
         )
         assertEquals(
-            initialSmoke - 1,
-            reloadedStorage.getProfile().getPowerupCount(PowerupType.SMOKE_SCREEN),
+            initialInvis - 1,
+            reloadedStorage.getProfile().getPowerupCount(PowerupType.INVISIBILITY),
             "Powerup count should persist across storage reloads"
         )
 
         // Grant debug powerups
         reloadedStorage.grantDebugPowerups(5)
-        assertEquals(initialSmoke - 1 + 5, reloadedStorage.getProfile().getPowerupCount(PowerupType.SMOKE_SCREEN))
+        assertEquals(initialInvis - 1 + 5, reloadedStorage.getProfile().getPowerupCount(PowerupType.INVISIBILITY))
     }
 
     @Test
     fun testPowerupRemoteTriggerInventoryAndConsume() {
-        val profile = GameProfile()
+        val profile = GameProfile(powerupInventory = mutableMapOf("remote_trigger" to 1))
         assertEquals(1, profile.getPowerupCount(PowerupType.REMOTE_TRIGGER))
 
         // Consume remote trigger
