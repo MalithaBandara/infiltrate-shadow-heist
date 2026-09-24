@@ -41,6 +41,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.infiltrate.storage.PlatformStorage
@@ -49,8 +50,11 @@ import game.model.GameProfileStorage
 import game.model.LevelData
 import game.model.LevelResult
 import game.model.LevelStorage
+import game.model.Localization
 import game.model.MapBackedGameProfileStorage
 import game.model.MapBackedLevelStorage
+import game.model.localizedDescription
+import game.model.localizedName
 import androidx.compose.ui.draw.clip
 import org.jetbrains.compose.resources.Font
 import org.jetbrains.compose.resources.painterResource
@@ -86,7 +90,9 @@ fun LevelSelectScreen(
         allResults = levelStorage.getAllResults()
     }
 
-    val levels = LevelData.DEFAULT_LEVELS
+    // Temporarily hide levels 8 to 12 for Google Play production approval.
+    // LevelData.DEFAULT_LEVELS has 12 levels; only levels 1 to 7 are active and shipped.
+    val levels = LevelData.DEFAULT_LEVELS.take(7)
     val bebasFont = FontFamily(Font(Res.font.bebas_neue_regular))
 
     val completedCount = levels.count { allResults[it.id]?.completed == true }
@@ -106,6 +112,7 @@ fun LevelSelectScreen(
         // Two-axis scale (ui/Responsive.kt). The old height-only version floored at 0.75, which on
         // a 390dp-tall landscape phone inflated everything ~39% past the room available and pushed
         // the mission grid off the bottom - the screen was only reachable by scrolling.
+        val language = LocalAppLanguage.current
         val metrics = menuMetrics(maxWidth, maxHeight)
         val scale = metrics.scale
         val safe = safeAreaPadding()
@@ -113,7 +120,7 @@ fun LevelSelectScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             // Top Bar
             MenuTopBar(
-                title = "MISSIONS",
+                title = Localization.missions(language),
                 font = bebasFont,
                 onBackClicked = onBackClicked,
                 scale = scale,
@@ -159,16 +166,18 @@ fun LevelSelectScreen(
                         .height(chapterRowHeight),
                     horizontalArrangement = Arrangement.spacedBy((16 * scale).dp)
                 ) {
-                    for (i in 0 until 4) {
-                        val isReal = (i == 0)
-                        ChapterCard(
-                            title = if (isReal) "THE SHIPYARD" else "COMING SOON",
-                            isUnlocked = isReal,
-                            starsText = "$starsEarned/$starsMax",
-                            font = bebasFont,
-                            scale = scale,
-                            modifier = Modifier.weight(1f)
-                        )
+                    ChapterCard(
+                        title = Localization.theShipyard(language),
+                        isUnlocked = true,
+                        starsText = "$starsEarned/$starsMax",
+                        font = bebasFont,
+                        scale = scale,
+                        modifier = Modifier.weight(1f)
+                    )
+                    // Temporarily hide coming soon chapter boxes (Chapters 2-4) for Google Play production approval.
+                    // Three spacers maintain the 4-column alignment with the mission grid below.
+                    repeat(3) {
+                        Spacer(modifier = Modifier.weight(1f))
                     }
                 }
 
@@ -180,7 +189,7 @@ fun LevelSelectScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "THE SHIPYARD",
+                        text = Localization.theShipyard(language),
                         color = Color.White,
                         fontSize = (18 * scale).sp,
                         fontFamily = bebasFont,
@@ -203,7 +212,7 @@ fun LevelSelectScreen(
                 // content (IntrinsicSize.Min) rather than weight(1f) filling the rest of the
                 // screen - a weight inside a scrollable parent has no bounded height to distribute
                 // and Compose rejects it.
-                val cardsPerRow = 4
+                val cardsPerRow = MISSION_CARDS_PER_ROW
                 for (rowLevels in levels.withIndex().toList().chunked(cardsPerRow)) {
                     Row(
                         modifier = Modifier
@@ -229,10 +238,7 @@ fun LevelSelectScreen(
                                 canPlay = canPlay,
                                 font = bebasFont,
                                 scale = scale,
-                                // Two lines of briefing on a phone in landscape, three where
-                                // there is room. The third line is the first thing that pushes a
-                                // row past the fold.
-                                descriptionLines = if (metrics.isShort) 2 else 3,
+                                descriptionLines = MISSION_CARD_BRIEFING_LINES,
                                 onClick = { if (canPlay) onStartMission(levelData) else toastError() },
                                 modifier = Modifier
                                     .weight(1f)
@@ -334,6 +340,72 @@ private fun ChapterCard(
     }
 }
 
+/** Mission cards per grid row. Matches the four chapter cards in the row above them. */
+internal const val MISSION_CARDS_PER_ROW = 4
+
+/** The briefing's type size on a mission card, before [MenuMetrics.scale]. */
+internal const val MISSION_CARD_BRIEFING_SP = 11f
+
+/**
+ * Lines of briefing on a mission card - three, on every screen.
+ *
+ * This used to be `if (isShort) 2 else 3`, dropping a landscape phone to two lines because the
+ * third was what pushed a grid row past the fold. Two things retire that: the grid scrolls now, so
+ * a row past the fold is reachable rather than lost, and two lines is not enough to hold a
+ * briefing. Every description in `LevelData.DEFAULT_LEVELS` is at least 91 characters, and the
+ * narrowest card a phone can produce fits about 36 per line - so two lines ellipsized all twelve
+ * of them on every phone. See [missionCardBriefingColumnsFor] for the budget three lines buys.
+ *
+ * Build 11 and earlier shipped a flat `maxLines = 3`, so this is also what the owner's own S25
+ * Ultra has been showing all along.
+ */
+internal const val MISSION_CARD_BRIEFING_LINES = 3
+
+/**
+ * The width the briefing actually gets inside one mission card, for a screen of this size.
+ *
+ * The card is not a fixed size and not a fixed fraction of the screen either: its width comes from
+ * the screen's, less the page gutters and the safe-area inset, split [MISSION_CARDS_PER_ROW] ways
+ * with `16 * scale` between cards, then less the card's own `16 * scale` padding on each side. The
+ * type inside it is sized off `scale` instead. Those two do not move together - `scale` floors at
+ * [MenuMetrics.MIN_SCALE] on every phone while the card keeps narrowing with the screen - which is
+ * why the character budget is a per-device number here rather than the one constant the main
+ * menu's dossier gets. Pure - unit-tested in ResponsiveTest.
+ */
+internal fun missionCardBriefingWidthFor(
+    screenWidth: Dp,
+    screenHeight: Dp,
+    safeHorizontal: Dp = 0.dp,
+): Dp {
+    val metrics = menuMetrics(screenWidth, screenHeight)
+    val inset = (16 * metrics.scale).dp
+    val content = screenWidth - metrics.gutter * 2 - safeHorizontal
+    val cardWidth = (content - inset * (MISSION_CARDS_PER_ROW - 1)) / MISSION_CARDS_PER_ROW
+    return cardWidth - inset * 2
+}
+
+/**
+ * About how many characters of briefing fit on one line of a mission card.
+ *
+ * [advanceEm] is the average advance width of the body face as a share of its type size. The
+ * briefing is set in the platform's default sans, which is Roboto or near enough to it everywhere
+ * this ships; mixed-case English prose in Roboto averages close to 0.50em, and the 0.55 default
+ * here is deliberately pessimistic so the budget holds on whichever platform turns out to have the
+ * widest metrics. This is an estimate, not a measurement - Compose's own text measurement is the
+ * only exact answer and it is not reachable from a pure function.
+ */
+internal fun missionCardBriefingColumnsFor(
+    screenWidth: Dp,
+    screenHeight: Dp,
+    safeHorizontal: Dp = 0.dp,
+    advanceEm: Float = 0.55f,
+): Int {
+    val scale = menuMetrics(screenWidth, screenHeight).scale
+    val em = MISSION_CARD_BRIEFING_SP * scale * advanceEm
+    if (em <= 0f) return 0
+    return (missionCardBriefingWidthFor(screenWidth, screenHeight, safeHorizontal).value / em).toInt()
+}
+
 @Composable
 private fun MissionCard(
     index: Int,
@@ -350,7 +422,8 @@ private fun MissionCard(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
 
-    val title = levelData.name.replaceFirst(Regex("^\\d+:\\s*"), "").uppercase()
+    val language = LocalAppLanguage.current
+    val title = levelData.localizedName(language).replaceFirst(Regex("^\\d+:\\s*"), "").uppercase()
     val click = LocalUiClick.current
 
     Box(
@@ -399,9 +472,9 @@ private fun MissionCard(
                     Spacer(modifier = Modifier.height((6 * scale).dp))
 
                     Text(
-                        text = levelData.description,
+                        text = levelData.localizedDescription(language),
                         color = Color.White.copy(alpha = 0.55f),
-                        fontSize = (11 * scale).sp,
+                        fontSize = (MISSION_CARD_BRIEFING_SP * scale).sp,
                         lineHeight = (14 * scale).sp,
                         maxLines = descriptionLines,
                         overflow = TextOverflow.Ellipsis
@@ -441,14 +514,14 @@ private fun MissionCard(
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "LOCKED",
+                        text = Localization.locked(language),
                         color = Color.White.copy(alpha = 0.45f),
                         fontSize = (14 * scale).sp,
                         fontFamily = font,
                         letterSpacing = 1.sp
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    val reason = if (!isUnlocked) "Complete previous mission" else "Shadow Pass required"
+                    val reason = if (!isUnlocked) Localization.completePreviousMission(language) else Localization.shadowPassRequired(language)
                     Text(
                         text = reason,
                         color = Color(0xFF6E6E72),

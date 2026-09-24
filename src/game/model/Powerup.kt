@@ -16,7 +16,7 @@ enum class PowerupType(
     ),
     LASER_SHIELD(
         id = "laser_shield",
-        displayName = "LASER SHIELD",
+        displayName = "GUARD SHIELD",
         shortName = "SHIELD",
         duration = -1.0, // Level-duration until consumed by 1 hit
         defaultCost = 500
@@ -76,7 +76,7 @@ enum class PowerupType(
         fun fromId(id: String): PowerupType? {
             return when (id.lowercase().trim()) {
                 "camera_jammer", "jammer", "smoke_screen", "smoke_bomb", "camera_disable", "smoke" -> SMOKE_SCREEN
-                "laser_shield", "laser_guard", "shield", "guard", "sleep_darts", "sleep_dart", "darts", "phantom_cloak", "guard_sleep", "cloak" -> LASER_SHIELD
+                "guard_shield", "laser_shield", "laser_guard", "shield", "guard", "sleep_darts", "sleep_dart", "darts", "phantom_cloak", "guard_sleep", "cloak" -> LASER_SHIELD
                 "invisibility", "invisibility_cloak", "invis" -> INVISIBILITY
                 "noise_suppression", "stealth_boots", "silence", "boots", "stealth" -> NOISE_SUPPRESSION
                 "checkpoints", "checkpoint", "tactical_checkpoint" -> CHECKPOINTS

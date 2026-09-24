@@ -36,8 +36,8 @@ data class VentFanDef(
     fun isPlayerInWind(player: Player): Boolean {
         val minX = minOf(windMinX, windMaxX)
         val maxX = maxOf(windMinX, windMaxX)
-        val minY = y - 10.0
-        val maxY = y + height + 10.0
+        val minY = minOf(y - 10.0, 300.0)
+        val maxY = maxOf(y + height + 10.0, 450.0)
         val p = player.bounds
         return p.right >= minX && p.left <= maxX && p.bottom >= minY && p.top <= maxY
     }
@@ -68,15 +68,15 @@ class VentFan(
     fun isPlayerInWind(player: Player): Boolean {
         val minX = minOf(windMinX, windMaxX)
         val maxX = maxOf(windMinX, windMaxX)
-        val minY = y - 10.0
-        val maxY = y + height + 10.0
+        val minY = minOf(y - 10.0, 300.0)
+        val maxY = maxOf(y + height + 10.0, 450.0)
         val p = player.bounds
         return p.right >= minX && p.left <= maxX && p.bottom >= minY && p.top <= maxY
     }
 
     fun update(dt: Double) {
-        // Fast spinning visual rotation (e.g. 18 rad/s)
-        bladeRotationAngle = (bladeRotationAngle + 18.0 * dt) % (2.0 * PI)
+        // Measured industrial turbine rotation (8.0 rad/s ≈ 1.27 rev/s)
+        bladeRotationAngle = (bladeRotationAngle + 8.0 * dt) % (2.0 * PI)
     }
 
     fun reset() {
@@ -151,7 +151,7 @@ class CameraBot(
     val eyePosition: Vec2d
         get() {
             val eyeX = if (facing > 0.0) x + width + 2.0 else x - 2.0
-            val eyeY = y + height * 0.45
+            val eyeY = y + height * EYE_HEIGHT_FRACTION
             return Vec2d(eyeX, eyeY)
         }
 
@@ -226,6 +226,22 @@ class CameraBot(
         visionFov = def.visionFov,
         deactivationRange = def.deactivationRange
     )
+
+    companion object {
+        /**
+         * How far below the top of the bot's box its lens sits, as a fraction of [height], and so
+         * where the surveillance cone starts.
+         *
+         * Was 0.45 - mid-box - for the old procedural crawler, whose turret was a stub on top of a
+         * squat hull. The rover art that replaced it carries its sensor on a boom held out over the
+         * front wheel, and the front of the box at mid-height is empty air, so the cone used to
+         * leave from beside the machine rather than from anything on it. This lifts it to the
+         * boom's tip. The cone is horizontal and 40 degrees wide over 120 units, so at full range
+         * it still covers most of a standing player either way; what changes is that a player
+         * crouched right under the boom is a little safer and one on a crate a little less so.
+         */
+        const val EYE_HEIGHT_FRACTION: Double = 0.20
+    }
 }
 
 /**
@@ -240,7 +256,9 @@ enum class PipeMountType {
 /**
  * Declarative definition of a pressurized steam/air pipe hazard in the vent.
  *
- * Cycles periodically between active (blasting lethal pressurized steam) and inactive.
+ * Cycles between active (blasting lethal pressurized steam), dormant (inactive), and warning.
+ * Warning window is exactly 1.0s where the green sign LED is displayed before steam erupts.
+ * Gas emission active durations and rest intervals vary per cycle (non-constant, non-periodic).
  * Touching active steam triggers instant Mission Failed (blockable once with Laser Shield).
  */
 data class SteamPipeDef(
@@ -269,36 +287,120 @@ class SteamPipe(
     val inactiveDuration: Double = 2.0,
     val phaseOffsetSeconds: Double = 0.0
 ) {
+    data class Cycle(
+        val start: Double,
+        val activeEnd: Double,
+        val dormantEnd: Double,
+        val end: Double
+    ) {
+        val activeDuration: Double get() = activeEnd - start
+        val dormantDuration: Double get() = dormantEnd - activeEnd
+        val warningDuration: Double get() = end - dormantEnd // exactly 1.0s
+    }
+
+    val cycles: List<Cycle> = generateCycles()
+    val loopDuration: Double = cycles.last().end
+
+    private fun generateCycles(): List<Cycle> {
+        val list = ArrayList<Cycle>(64)
+        var t = 0.0
+        // Deterministic pseudo-random seed unique to this pipe instance
+        var rng = id.hashCode() xor 0x5a5a5a5a
+
+        fun nextRandom(): Double {
+            rng = rng * 1664525 + 1013904223
+            return (((rng ushr 8) and 0xFFFFFF).toDouble()) / 16777216.0
+        }
+
+        for (i in 0 until 64) {
+            val act = if (i == 0) {
+                activeDuration
+            } else {
+                // Non-constant gas emission duration: varies around activeDuration (~2.2s - 3.8s)
+                val variation = 0.85 + 0.65 * nextRandom()
+                (activeDuration * variation).coerceIn(2.2, 3.8)
+            }
+            val dormant = if (i == 0) {
+                inactiveDuration.coerceIn(0.8, 1.8)
+            } else {
+                // Non-constant dormant rest duration (shorter deactive interval: ~0.8s - 1.8s + 1s warning)
+                val variation = 0.80 + 0.70 * nextRandom()
+                (inactiveDuration * variation).coerceIn(0.8, 1.8)
+            }
+            val warn = 1.0 // Warning phase with green sign is exactly 1.0 second
+            val activeEnd = t + act
+            val dormantEnd = activeEnd + dormant
+            val cycleEnd = dormantEnd + warn
+            list.add(Cycle(t, activeEnd, dormantEnd, cycleEnd))
+            t = cycleEnd
+        }
+        return list
+    }
+
     var isActive: Boolean = false
         private set
 
-    /** 0..1 warning indicator progress right before steam erupts (last 0.4s of inactive phase). */
-    var warningProgress: Double = 0.0
+    var isWarning: Boolean = false
         private set
 
-    val isWarning: Boolean get() = warningProgress > 0.0
+    /** 0..1 warning indicator progress right before steam erupts (green sign on for 1.0s). */
+    var warningProgress: Double = 0.0
+        private set
 
     val bounds: Rect
         get() = Rect(x - jetWidth / 2.0, topY, jetWidth, bottomY - topY)
 
     fun update(totalElapsedSeconds: Double) {
-        val cycle = activeDuration + inactiveDuration
-        if (cycle <= 0.0) {
+        if (loopDuration <= 0.0) {
             isActive = true
+            isWarning = false
             warningProgress = 0.0
             return
         }
-        val phase = ((totalElapsedSeconds + phaseOffsetSeconds) % cycle)
-        val normalizedPhase = if (phase < 0.0) phase + cycle else phase
-
-        isActive = normalizedPhase < activeDuration
-
-        val warningWindow = 0.45
-        if (!isActive && normalizedPhase >= (cycle - warningWindow)) {
-            warningProgress = ((normalizedPhase - (cycle - warningWindow)) / warningWindow).coerceIn(0.0, 1.0)
+        val effectiveTime = totalElapsedSeconds + phaseOffsetSeconds
+        val normalizedTime = if (effectiveTime >= 0.0) {
+            effectiveTime % loopDuration
         } else {
-            warningProgress = 0.0
+            val mod = effectiveTime % loopDuration
+            if (mod < 0.0) mod + loopDuration else mod
         }
+
+        val cycle = findCycle(normalizedTime)
+        when {
+            normalizedTime < cycle.activeEnd -> {
+                isActive = true
+                isWarning = false
+                warningProgress = 0.0
+            }
+            normalizedTime < cycle.dormantEnd -> {
+                isActive = false
+                isWarning = false
+                warningProgress = 0.0
+            }
+            else -> {
+                isActive = false
+                isWarning = true
+                val warnTime = normalizedTime - cycle.dormantEnd
+                warningProgress = (warnTime / 1.0).coerceIn(0.0, 1.0)
+            }
+        }
+    }
+
+    private fun findCycle(t: Double): Cycle {
+        var low = 0
+        var high = cycles.size - 1
+        while (low <= high) {
+            val mid = (low + high) ushr 1
+            val c = cycles[mid]
+            if (t < c.start) {
+                high = mid - 1
+            } else if (t >= c.end) {
+                low = mid + 1
+            } else {
+                return c
+            }
+        }
+        return cycles[low.coerceIn(0, cycles.size - 1)]
     }
 
     fun intersectsPlayer(playerBounds: Rect): Boolean {
@@ -308,19 +410,26 @@ class SteamPipe(
 
     /** Seconds until steam erupts again if currently inactive, or 0.0 if currently active. */
     fun remainingInactiveTime(totalElapsedSeconds: Double): Double {
-        val cycle = activeDuration + inactiveDuration
-        if (cycle <= 0.0) return 0.0
-        val phase = ((totalElapsedSeconds + phaseOffsetSeconds) % cycle)
-        val normalizedPhase = if (phase < 0.0) phase + cycle else phase
-        return if (normalizedPhase >= activeDuration) {
-            cycle - normalizedPhase
+        if (loopDuration <= 0.0) return 0.0
+        val effectiveTime = totalElapsedSeconds + phaseOffsetSeconds
+        val normalizedTime = if (effectiveTime >= 0.0) {
+            effectiveTime % loopDuration
         } else {
+            val mod = effectiveTime % loopDuration
+            if (mod < 0.0) mod + loopDuration else mod
+        }
+
+        val cycle = findCycle(normalizedTime)
+        return if (normalizedTime < cycle.activeEnd) {
             0.0
+        } else {
+            cycle.end - normalizedTime
         }
     }
 
     fun reset() {
         isActive = false
+        isWarning = false
         warningProgress = 0.0
     }
 

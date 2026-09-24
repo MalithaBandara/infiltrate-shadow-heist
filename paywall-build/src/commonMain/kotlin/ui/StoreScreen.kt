@@ -63,6 +63,7 @@ import com.infiltrate.billing.StoreBilling
 import com.infiltrate.storage.PlatformStorage
 import game.model.GameProfile
 import game.model.GameProfileStorage
+import game.model.Localization
 import game.model.MapBackedGameProfileStorage
 import game.model.PowerupType
 import kotlinx.coroutines.delay
@@ -190,28 +191,30 @@ fun StoreScreen(
         if (isSuccess) toastSuccessSound() else toastErrorSound()
     }
 
-    val basePowerupItems = remember {
+    val language = LocalAppLanguage.current
+
+    val basePowerupItems = remember(language) {
         listOf(
-            PowerupItem(PowerupType.INVISIBILITY, "INVISIBILITY CLOAK", "Become invisible to guards and cameras for 10 seconds.", 350, Res.drawable.gadget_invis, 86),
-            PowerupItem(PowerupType.NOISE_SUPPRESSION, "STEALTH BOOTS", "Silent movement for entire mission.", 400, Res.drawable.gadget_boots, 86),
-            PowerupItem(PowerupType.LASER_SHIELD, "LASER SHIELD", "Protects from 1 laser hazard contact.", 500, Res.drawable.gadget_lasershield, 86),
-            PowerupItem(PowerupType.REMOTE_TRIGGER, "REMOTE TRIGGER", "Triggers closest mechanism without needing to find its switch.", 600, Res.drawable.gadget_checkpoint, 86),
-            PowerupItem(PowerupType.CHECKPOINTS, "CHECKPOINTS", "Respawn at activated checkpoints after being caught or restarting", 750, Res.drawable.gadget_checkpoints, 86)
+            PowerupItem(PowerupType.INVISIBILITY, Localization.powerupName(PowerupType.INVISIBILITY, language), Localization.powerupDescription(PowerupType.INVISIBILITY, language), 350, Res.drawable.gadget_invis, 86),
+            PowerupItem(PowerupType.NOISE_SUPPRESSION, Localization.powerupName(PowerupType.NOISE_SUPPRESSION, language), Localization.powerupDescription(PowerupType.NOISE_SUPPRESSION, language), 400, Res.drawable.gadget_boots, 86),
+            PowerupItem(PowerupType.LASER_SHIELD, Localization.powerupName(PowerupType.LASER_SHIELD, language), Localization.powerupDescription(PowerupType.LASER_SHIELD, language), 500, Res.drawable.gadget_lasershield, 86),
+            PowerupItem(PowerupType.REMOTE_TRIGGER, Localization.powerupName(PowerupType.REMOTE_TRIGGER, language), Localization.powerupDescription(PowerupType.REMOTE_TRIGGER, language), 600, Res.drawable.gadget_checkpoint, 86),
+            PowerupItem(PowerupType.CHECKPOINTS, Localization.powerupName(PowerupType.CHECKPOINTS, language), Localization.powerupDescription(PowerupType.CHECKPOINTS, language), 750, Res.drawable.gadget_checkpoints, 86)
         )
     }
 
     // Every gadget above is an equally-likely outcome of the "watch ad" card below - a plain
     // uniform List.random() pick, made at ad-request time (not at reward time), see onBuy below.
-    val mysteryGadgetPool = remember { basePowerupItems.map { it.type } }
+    val mysteryGadgetPool = remember(basePowerupItems) { basePowerupItems.map { it.type } }
 
-    val powerupItems = remember {
+    val powerupItems = remember(language, basePowerupItems) {
         listOf(
             // Unused placeholder - the actually-granted type is chosen from mysteryGadgetPool
             // when the ad is requested, not from this field.
             PowerupItem(
                 type = PowerupType.INVISIBILITY,
-                title = "MYSTERY GADGET",
-                description = "Get 1 random gadget. Every gadget has an equal chance of appearing.",
+                title = Localization.mysteryGadgetName(language),
+                description = Localization.mysteryGadgetDescription(language),
                 cost = 0,
                 imageRes = Res.drawable.gadget_mystery,
                 isAd = true
@@ -219,30 +222,30 @@ fun StoreScreen(
         ) + basePowerupItems
     }
 
-    val inventoryItems = remember {
+    val inventoryItems = remember(language) {
         listOf(
-            InventoryItem(PowerupType.INVISIBILITY, "INVISIBILITY CLOAK", Res.drawable.gadget_invis),
-            InventoryItem(PowerupType.NOISE_SUPPRESSION, "STEALTH BOOTS", Res.drawable.gadget_boots),
-            InventoryItem(PowerupType.LASER_SHIELD, "LASER SHIELD", Res.drawable.gadget_lasershield),
-            InventoryItem(PowerupType.REMOTE_TRIGGER, "REMOTE TRIGGER", Res.drawable.gadget_checkpoint),
-            InventoryItem(PowerupType.CHECKPOINTS, "CHECKPOINTS", Res.drawable.gadget_checkpoints)
+            InventoryItem(PowerupType.INVISIBILITY, Localization.powerupName(PowerupType.INVISIBILITY, language), Res.drawable.gadget_invis),
+            InventoryItem(PowerupType.NOISE_SUPPRESSION, Localization.powerupName(PowerupType.NOISE_SUPPRESSION, language), Res.drawable.gadget_boots),
+            InventoryItem(PowerupType.LASER_SHIELD, Localization.powerupName(PowerupType.LASER_SHIELD, language), Res.drawable.gadget_lasershield),
+            InventoryItem(PowerupType.REMOTE_TRIGGER, Localization.powerupName(PowerupType.REMOTE_TRIGGER, language), Res.drawable.gadget_checkpoint),
+            InventoryItem(PowerupType.CHECKPOINTS, Localization.powerupName(PowerupType.CHECKPOINTS, language), Res.drawable.gadget_checkpoints)
         )
     }
 
-    val coinPacks = remember {
+    val coinPacks = remember(language) {
         listOf(
             CoinPackItem(
                 id = "coins_ad",
-                title = "LOOSE COINS",
+                title = Localization.coinPackName("coins_loose", language),
                 amount = 250,
-                price = "WATCH AD",
+                price = Localization.watchAd(language),
                 imageRes = Res.drawable.store_ad,
                 imageSizeDp = 78,
                 isAd = true
             ),
             CoinPackItem(
                 id = "coins_tier_1",
-                title = "SMUGGLER'S POUCH",
+                title = Localization.coinPackName("coins_pouch", language),
                 amount = 1000,
                 price = "$0.99",
                 imageRes = Res.drawable.store_pouch,
@@ -250,7 +253,7 @@ fun StoreScreen(
             ),
             CoinPackItem(
                 id = "coins_tier_2",
-                title = "TACTICAL BRIEFCASE",
+                title = Localization.coinPackName("coins_briefcase", language),
                 amount = 2500,
                 price = "$1.99",
                 imageRes = Res.drawable.store_briefcase,
@@ -258,7 +261,7 @@ fun StoreScreen(
             ),
             CoinPackItem(
                 id = "coins_tier_3",
-                title = "OPERATIVE STASH",
+                title = Localization.coinPackName("coins_stash", language),
                 amount = 4000,
                 price = "$2.99",
                 imageRes = Res.drawable.store_stash,
@@ -266,7 +269,7 @@ fun StoreScreen(
             ),
             CoinPackItem(
                 id = "coins_tier_4",
-                title = "HEIST DUFFLE BAG",
+                title = Localization.coinPackName("coins_duffle", language),
                 amount = 7500,
                 price = "$4.99",
                 imageRes = Res.drawable.store_duffle,
@@ -274,7 +277,7 @@ fun StoreScreen(
             ),
             CoinPackItem(
                 id = "coins_tier_5",
-                title = "BLACK MARKET VAULT",
+                title = Localization.coinPackName("coins_vault", language),
                 amount = 20000,
                 price = "$9.99",
                 imageRes = Res.drawable.store_vault,
@@ -298,7 +301,7 @@ fun StoreScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             // Top Bar
             MenuTopBar(
-                title = "STORE",
+                title = Localization.store(language),
                 font = bebasFont,
                 onBackClicked = onBackClicked,
                 scale = scale,
@@ -335,7 +338,7 @@ fun StoreScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     TexturedSidebarTab(
-                        text = "POWER-UPS",
+                        text = Localization.powerupsTab(language),
                         isSelected = currentTab == StoreTab.POWER_UPS,
                         texture = Res.drawable.button1,
                         font = bebasFont,
@@ -345,7 +348,7 @@ fun StoreScreen(
                     )
 
                     TexturedSidebarTab(
-                        text = "COINS",
+                        text = Localization.coinsTab(language),
                         isSelected = currentTab == StoreTab.COINS,
                         texture = Res.drawable.button2,
                         font = bebasFont,
@@ -355,7 +358,7 @@ fun StoreScreen(
                     )
 
                     TexturedSidebarTab(
-                        text = "REMOVE ADS",
+                        text = Localization.removeAdsTab(language),
                         isSelected = currentTab == StoreTab.REMOVE_ADS,
                         texture = Res.drawable.button3,
                         font = bebasFont,
@@ -370,7 +373,7 @@ fun StoreScreen(
 
                     // Inventory Summary
                     Text(
-                        text = "INVENTORY",
+                        text = Localization.inventory(language),
                         color = Color(0xFF6E6E72),
                         fontSize = (13 * scale).sp,
                         fontFamily = bebasFont,
@@ -435,16 +438,16 @@ fun StoreScreen(
                                     if (item.isAd) {
                                         if (gadgetAdLimiter.canWatch()) {
                                             pendingGadgetType = mysteryGadgetPool.random()
-                                            showToast("LOADING AD...", true)
+                                            showToast(if (Localization.isFrench(language)) "CHARGEMENT DE LA PUB..." else "LOADING AD...", true)
                                             showGadgetRewardAd = true
                                         } else {
-                                            showToast("DAILY AD LIMIT REACHED - COME BACK TOMORROW", false)
+                                            showToast(Localization.dailyLimitReached(language), false)
                                         }
                                     } else if (profileStorage.buyPowerup(item.type.id, item.cost)) {
                                         refreshProfile()
-                                        showToast("ACQUIRED ${item.title}", true)
+                                        showToast(Localization.purchased(item.title, language), true)
                                     } else {
-                                        showToast("INSUFFICIENT COINS", false)
+                                        showToast(Localization.notEnoughCoins(language), false)
                                     }
                                 }
                             )
@@ -461,10 +464,10 @@ fun StoreScreen(
                                     if (pack.isAd) {
                                         if (coinsAdLimiter.canWatch()) {
                                             pendingCoinsAdAmount = pack.amount
-                                            showToast("LOADING AD...", true)
+                                            showToast(if (Localization.isFrench(language)) "CHARGEMENT DE LA PUB..." else "LOADING AD...", true)
                                             showCoinsRewardAd = true
                                         } else {
-                                            showToast("DAILY AD LIMIT REACHED - COME BACK TOMORROW", false)
+                                            showToast(Localization.dailyLimitReached(language), false)
                                         }
                                     } else {
                                         if (isPurchasing) return@CoinsGrid
@@ -474,9 +477,9 @@ fun StoreScreen(
                                             if (success) {
                                                 profileStorage.addCoins(pack.amount)
                                                 refreshProfile()
-                                                showToast("+${pack.amount} COINS TRANSFERRED", true)
+                                                showToast(Localization.adWatchedCoins(pack.amount, language), true)
                                             } else {
-                                                showToast(errorMsg ?: "PURCHASE CANCELLED", false)
+                                                showToast(errorMsg ?: (if (Localization.isFrench(language)) "ACHAT ANNULÉ" else "PURCHASE CANCELLED"), false)
                                             }
                                         }
                                     }
@@ -488,9 +491,9 @@ fun StoreScreen(
                                         isPurchasing = false
                                         if (success) {
                                             refreshProfile()
-                                            showToast("PURCHASES RESTORED", true)
+                                            showToast(Localization.purchasesRestored(language), true)
                                         } else {
-                                            showToast(errorMsg ?: "RESTORE FAILED", false)
+                                            showToast(errorMsg ?: (if (Localization.isFrench(language)) "ÉCHEC DE LA RESTAURATION" else "RESTORE FAILED"), false)
                                         }
                                     }
                                 }
@@ -510,9 +513,9 @@ fun StoreScreen(
                                         if (success) {
                                             profileStorage.activatePremium()
                                             refreshProfile()
-                                            showToast("ADS REMOVED PERMANENTLY", true)
+                                            showToast(if (Localization.isFrench(language)) "PUBS SUPPRIMÉES DÉFINITIVEMENT" else "ADS REMOVED PERMANENTLY", true)
                                         } else {
-                                            showToast(errorMsg ?: "PURCHASE CANCELLED", false)
+                                            showToast(errorMsg ?: (if (Localization.isFrench(language)) "ACHAT ANNULÉ" else "PURCHASE CANCELLED"), false)
                                         }
                                     }
                                 },
@@ -524,16 +527,16 @@ fun StoreScreen(
                                         if (success) {
                                             profileStorage.activatePremium()
                                             refreshProfile()
-                                            showToast("PURCHASES RESTORED", true)
+                                            showToast(Localization.purchasesRestored(language), true)
                                         } else {
-                                            showToast(errorMsg ?: "RESTORE FAILED", false)
+                                            showToast(errorMsg ?: (if (Localization.isFrench(language)) "ÉCHEC DE LA RESTAURATION" else "RESTORE FAILED"), false)
                                         }
                                     }
                                 },
                                 onDeactivate = {
                                     profileStorage.deactivatePremium()
                                     refreshProfile()
-                                    showToast("REMOVE ADS DEACTIVATED", true)
+                                    showToast(if (Localization.isFrench(language)) "SUPPRESSION DES PUBS DÉSACTIVÉE" else "REMOVE ADS DEACTIVATED", true)
                                 }
                             )
                         }
@@ -589,7 +592,7 @@ fun StoreScreen(
                 onDismissed = { showCoinsRewardAd = false },
                 onFailure = {
                     showCoinsRewardAd = false
-                    showToast("AD NOT AVAILABLE - TRY AGAIN LATER", false)
+                    showToast(Localization.adNotReady(language), false)
                 },
             )
         }
@@ -612,7 +615,7 @@ fun StoreScreen(
                         gadgetAdLimiter.recordWatch()
                         gadgetAdWatchesRemaining = gadgetAdLimiter.watchesRemainingToday()
                         refreshProfile()
-                        showToast("ACQUIRED ${grantedType.displayName}", true)
+                        showToast(Localization.adWatchedGadget(Localization.powerupName(grantedType, language), language), true)
                     }
                     pendingGadgetType = null
                 },
@@ -620,7 +623,7 @@ fun StoreScreen(
                 onFailure = {
                     showGadgetRewardAd = false
                     pendingGadgetType = null
-                    showToast("AD NOT AVAILABLE - TRY AGAIN LATER", false)
+                    showToast(Localization.adNotReady(language), false)
                 },
             )
         }
@@ -648,8 +651,9 @@ private fun PowerupsGrid(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val language = LocalAppLanguage.current
             Text(
-                text = "GADGETS & EQUIPMENT",
+                text = Localization.gadgetsAndEquipment(language),
                 color = Color.White,
                 fontSize = (18 * scale).sp,
                 fontFamily = font,
@@ -783,6 +787,7 @@ private fun PowerupCard(
             // Price / Buy Action Button (matches CoinPackCard full-width button)
             val interactionSource = remember { MutableInteractionSource() }
             val click = LocalUiClick.current
+            val language = LocalAppLanguage.current
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -803,7 +808,7 @@ private fun PowerupCard(
             ) {
                 if (adLimitReached) {
                     Text(
-                        text = "AVAILABLE IN ${formatCountdown(secondsUntilAvailable)}",
+                        text = Localization.availableIn(formatCountdown(secondsUntilAvailable), language),
                         color = Color(0xFF6E6E72),
                         fontSize = (11 * scale).sp,
                         fontFamily = font,
@@ -825,7 +830,7 @@ private fun PowerupCard(
                         }
                         Spacer(modifier = Modifier.width((5 * scale).dp))
                         Text(
-                            text = "WATCH AD",
+                            text = Localization.watchAd(language),
                             color = Color(0xFF0A0A0C),
                             fontSize = (13 * scale).sp,
                             fontFamily = font,
@@ -846,7 +851,7 @@ private fun PowerupCard(
                         }
                         Spacer(modifier = Modifier.width((5 * scale).dp))
                         Text(
-                            text = "${item.cost} COINS",
+                            text = Localization.coinsAmount(item.cost, language),
                             color = if (canAfford) Color(0xFF0A0A0C) else Color(0xFF6E6E72),
                             fontSize = (13 * scale).sp,
                             fontFamily = font,
@@ -877,12 +882,13 @@ private fun CoinsGrid(
         verticalArrangement = Arrangement.spacedBy((10 * scale).dp)
     ) {
         // Section Header
+        val language = LocalAppLanguage.current
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "COIN PACKS",
+                text = Localization.coinPacks(language),
                 color = Color.White,
                 fontSize = (18 * scale).sp,
                 fontFamily = font,
@@ -899,7 +905,7 @@ private fun CoinsGrid(
             val restoreInteraction = remember { MutableInteractionSource() }
             val click = LocalUiClick.current
             Text(
-                text = if (isPurchasing) "CONNECTING..." else "RESTORE",
+                text = if (isPurchasing) (if (Localization.isFrench(language)) "CONNEXION..." else "CONNECTING...") else Localization.restorePurchases(language),
                 color = if (isPurchasing) Color(0xFF6E6E72) else Color(0xFFB7B7BC),
                 fontSize = (11 * scale).sp,
                 fontFamily = font,
@@ -1014,9 +1020,10 @@ private fun CoinPackCard(
                     letterSpacing = 0.5.sp,
                     maxLines = 1
                 )
+                val language = LocalAppLanguage.current
                 Spacer(modifier = Modifier.height((2 * scale).dp))
                 Text(
-                    text = "${pack.amount} COINS",
+                    text = Localization.coinsAmount(pack.amount, language),
                     color = Color.White,
                     fontSize = (15 * scale).sp,
                     fontFamily = font,
@@ -1027,6 +1034,7 @@ private fun CoinPackCard(
             // Price / Action Button
             val interactionSource = remember { MutableInteractionSource() }
             val click = LocalUiClick.current
+            val language = LocalAppLanguage.current
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1048,7 +1056,7 @@ private fun CoinPackCard(
             ) {
                 if (adLimitReached) {
                     Text(
-                        text = "AVAILABLE IN ${formatCountdown(secondsUntilAvailable)}",
+                        text = Localization.availableIn(formatCountdown(secondsUntilAvailable), language),
                         color = Color(0xFF6E6E72),
                         fontSize = (11 * scale).sp,
                         fontFamily = font,
@@ -1058,7 +1066,7 @@ private fun CoinPackCard(
                     )
                 } else if (isPurchasing && !pack.isAd) {
                     Text(
-                        text = "WAIT...",
+                        text = if (Localization.isFrench(language)) "VEUILLEZ PATIENTER..." else "WAIT...",
                         color = Color(0xFF6E6E72),
                         fontSize = (13 * scale).sp,
                         fontFamily = font,
@@ -1077,8 +1085,13 @@ private fun CoinPackCard(
                             drawAdClapperIcon(Color(0xFF0A0A0C), Color(0xFF00E5FF))
                         }
                         Spacer(modifier = Modifier.width((5 * scale).dp))
+                        val adText = if (adWatchesRemaining > 0) {
+                            Localization.watchAdLeft(adWatchesRemaining, language)
+                        } else {
+                            Localization.comeBackTomorrow(language)
+                        }
                         Text(
-                            text = pack.price,
+                            text = adText,
                             color = Color(0xFF0A0A0C),
                             fontSize = (13 * scale).sp,
                             fontFamily = font,
@@ -1179,13 +1192,14 @@ private fun RemoveAdsSection(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy((12 * scale).dp)
     ) {
+        val language = LocalAppLanguage.current
         // Section Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "REMOVE ADS",
+                text = Localization.removeAdsTab(language),
                 color = Color.White,
                 fontSize = (18 * scale).sp,
                 fontFamily = font,
@@ -1202,7 +1216,7 @@ private fun RemoveAdsSection(
             val restoreInteraction = remember { MutableInteractionSource() }
             val click = LocalUiClick.current
             Text(
-                text = if (isPurchasing) "CONNECTING..." else "RESTORE",
+                text = if (isPurchasing) (if (Localization.isFrench(language)) "CONNEXION..." else "CONNECTING...") else Localization.restorePurchases(language),
                 color = if (isPurchasing) Color(0xFF6E6E72) else Color(0xFFB7B7BC),
                 fontSize = (11 * scale).sp,
                 fontFamily = font,
@@ -1253,7 +1267,7 @@ private fun RemoveAdsSection(
                             horizontalArrangement = Arrangement.spacedBy((8 * scale).dp)
                         ) {
                             Text(
-                                text = "LIFETIME PASS",
+                                text = Localization.lifetimePass(language),
                                 color = if (isPremium) Color(0xFF00E5FF) else Color(0xFFB7B7BC),
                                 fontSize = (10 * scale).sp,
                                 fontWeight = FontWeight.Bold,
@@ -1266,7 +1280,7 @@ private fun RemoveAdsSection(
                                         .padding(horizontal = (6 * scale).dp, vertical = (1 * scale).dp)
                                 ) {
                                     Text(
-                                        text = "ACTIVE",
+                                        text = Localization.active(language),
                                         color = Color(0xFF00E5FF),
                                         fontSize = (9 * scale).sp,
                                         fontWeight = FontWeight.Bold
@@ -1276,14 +1290,14 @@ private fun RemoveAdsSection(
                         }
                         Spacer(modifier = Modifier.height((2 * scale).dp))
                         Text(
-                            text = "PERMANENT AD REMOVAL",
+                            text = Localization.permanentAdRemoval(language),
                             color = Color.White,
                             fontSize = (18 * scale).sp,
                             fontFamily = font,
                             letterSpacing = 1.sp
                         )
                         Text(
-                            text = "One-time purchase. Enjoy seamless stealth infiltration forever.",
+                            text = Localization.lifetimeDesc(language),
                             color = Color(0xFFB7B7BC),
                             fontSize = (11 * scale).sp,
                             fontWeight = FontWeight.Medium
@@ -1303,9 +1317,9 @@ private fun RemoveAdsSection(
                     verticalArrangement = Arrangement.spacedBy((8 * scale).dp)
                 ) {
                     val perks = listOf(
-                        "ZERO ADS" to "Completely removes all interstitial advertisements.",
-                        "2X HEIST BOUNTY" to "Permanently doubles all coin payouts for 1-star, 2-star, and 3-star level clears.",
-                        "+2,000 BONUS COINS" to "Immediate injection of 2,000 gold coins into your operative balance."
+                        Localization.zeroAds(language) to Localization.zeroAdsDesc(language),
+                        Localization.doubleBounty(language) to Localization.doubleBountyDesc(language),
+                        Localization.bonusCoins(language) to Localization.bonusCoinsDesc(language)
                     )
                     for ((title, desc) in perks) {
                         Row(
@@ -1348,37 +1362,19 @@ private fun RemoveAdsSection(
                         horizontalArrangement = Arrangement.spacedBy((8 * scale).dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Temporarily hide the dev RESET (deactivate Remove Ads) button for Google Play production approval.
                         Box(
                             modifier = Modifier
-                                .weight(1f)
+                                .fillMaxWidth()
                                 .background(Color(0xFF00E5FF), RoundedCornerShape(5.dp))
                                 .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(5.dp))
                                 .padding(vertical = (10 * scale).dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "✓ ALL ADS REMOVED — LIFETIME PASS ACTIVE",
+                                text = Localization.allAdsRemoved(language),
                                 color = Color(0xFF0A0A0C),
                                 fontSize = (13 * scale).sp,
-                                fontFamily = font,
-                                letterSpacing = 1.sp
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .background(Color(0xFF242428), RoundedCornerShape(5.dp))
-                                .border(1.dp, Color(0xFFFF5252).copy(alpha = 0.4f), RoundedCornerShape(5.dp))
-                                .clickable {
-                                    click()
-                                    onDeactivate()
-                                }
-                                .padding(horizontal = (12 * scale).dp, vertical = (10 * scale).dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "RESET",
-                                color = Color(0xFFFF5252),
-                                fontSize = (12 * scale).sp,
                                 fontFamily = font,
                                 letterSpacing = 1.sp
                             )
@@ -1404,7 +1400,7 @@ private fun RemoveAdsSection(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (isPurchasing) "CONNECTING..." else "REMOVE ADS — $2.99",
+                            text = if (isPurchasing) (if (Localization.isFrench(language)) "CONNEXION..." else "CONNECTING...") else Localization.purchaseLifetimePass(language),
                             color = if (isPurchasing) Color(0xFF6E6E72) else Color(0xFF0A0A0C),
                             fontSize = (14 * scale).sp,
                             fontFamily = font,

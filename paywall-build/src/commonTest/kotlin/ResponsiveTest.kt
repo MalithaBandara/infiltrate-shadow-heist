@@ -1,8 +1,10 @@
 package com.infiltrate.test
 
 import androidx.compose.ui.unit.dp
+import com.infiltrate.ui.MISSION_CARD_BRIEFING_LINES
 import com.infiltrate.ui.MenuMetrics
 import com.infiltrate.ui.dossierCardWidthFor
+import com.infiltrate.ui.missionCardBriefingColumnsFor
 import com.infiltrate.ui.videoBoxFor
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -75,22 +77,58 @@ class ResponsiveTest {
 
     @Test
     fun testVideoFillsTheHeightAndOverflowsLeftOnASquarerScreen() {
-        // The 4:3 iPad case. Fitting the width instead left the bottom fifth of the screen as a
-        // black bar; filling the height puts the overflow off the leading edge, where the video's
-        // subject is not.
+        // 4:3 iPad: taller than 16:9, so the surface is wider than the screen and has to overflow.
         val pad = videoBoxFor(1024.dp, 768.dp)
         assertEquals(768f, pad.height.value, 0.01f)
-        assertTrue(pad.width.value > 1024f, "must overflow the screen, was ${pad.width}")
         assertEquals(768f * 16f / 9f, pad.width.value, 0.01f)
+        assertTrue(pad.width.value > 1024f, "must overflow the screen, was ${pad.width}")
+        assertTrue(pad.offsetX.value < 0f, "the overflow must run off the LEFT, was ${pad.offsetX}")
 
-        // ...and on a screen wider than the video it stays inside, leaving the band on the left
-        // that the main menu's dark gradient covers.
+        // Desktop is wider than 16:9: the surface fits, and sits flush against the right edge so
+        // the leftover band falls under the menu's gradient.
         val desktop = videoBoxFor(1560.dp, 720.dp)
         assertEquals(720f, desktop.height.value, 0.01f)
         assertTrue(desktop.width.value < 1560f, "must fit inside, was ${desktop.width}")
+        assertEquals(1560f - desktop.width.value, desktop.offsetX.value, 0.01f, "flush right")
 
-        // A box with no size yet must not produce a NaN or a negative.
         assertEquals(0f, videoBoxFor(0.dp, 0.dp).height.value, 0.001f)
+    }
+
+    @Test
+    fun testTheSilhouetteStaysOnScreenAtEveryAspect() {
+        // Measured off bg1080p.mp4 - see SUBJECT_TRAILING_EDGE. If the art is ever recut, these
+        // two numbers move with it.
+        val subjectLeft = 0.78f
+        val subjectRight = 0.87f
+
+        // Widest current phone through to squarer than any shipping device.
+        for (aspect in listOf(2.33f, 2.17f, 2.0f, 16f / 9f, 1.7f, 1.6f, 1.5f, 4f / 3f, 1.16f, 1.0f)) {
+            val height = 800f
+            val screenWidth = height * aspect
+            val box = videoBoxFor(screenWidth.dp, height.dp)
+
+            val left = box.offsetX.value + subjectLeft * box.width.value
+            val right = box.offsetX.value + subjectRight * box.width.value
+            assertTrue(left > 0f, "aspect $aspect: silhouette starts off the left edge at $left")
+            assertTrue(
+                right < screenWidth,
+                "aspect $aspect: silhouette is cut by the right edge ($right of $screenWidth)"
+            )
+            // And it keeps real breathing room there rather than just scraping in.
+            assertTrue(
+                screenWidth - right > 0.02f * screenWidth,
+                "aspect $aspect: silhouette is jammed against the right edge"
+            )
+            // The video may never leave a gap: it either fills the width or overflows it.
+            assertTrue(
+                box.offsetX.value <= 0.01f || box.width.value <= screenWidth,
+                "aspect $aspect: a surface that overflows must not also leave a gap on the left"
+            )
+            assertTrue(
+                box.offsetX.value + box.width.value >= screenWidth - 0.01f,
+                "aspect $aspect: gap on the right edge"
+            )
+        }
     }
 
     @Test
@@ -108,5 +146,51 @@ class ResponsiveTest {
         // A 12.9" iPad has the width for 478dp, but the sheet is only drawn 462 wide and
         // upscaling it softens the tear.
         assertEquals(462f, dossierCardWidthFor(1366.dp, 1024.dp).value, 0.01f)
+    }
+
+    /**
+     * The owner's budget: a 100-character briefing has to fit a mission card on **any** phone,
+     * with no ellipsis.
+     *
+     * Three lines is what buys it, and the margin is thinnest on the smallest 16:9 phone, where
+     * four cards to a row leaves each one about 131dp of text column. The check is on columns
+     * rather than on the descriptions themselves, so writing a longer one is a content decision
+     * that this test does not veto - what it does veto is a layout change that quietly takes the
+     * budget away, which is exactly what the `isShort -> 2 lines` rule did.
+     *
+     * 34 columns is the floor because greedy wrapping does not fill a line: the three current
+     * descriptions nearest 100 characters need 34 to hold three lines, and 36 gives them 107.
+     */
+    @Test
+    fun testEveryPhoneFitsAHundredCharacterBriefingOnAMissionCard() {
+        val phones = listOf(
+            "16:9, the narrowest cards a phone can make" to (667f to 375f),
+            "iPhone 13 mini" to (780f to 375f),
+            "iPhone 15" to (852f to 393f),
+            "21:9 phone" to (932f to 400f),
+            "S25 Ultra reference" to (1040f to 480f),
+        )
+        for ((label, size) in phones) {
+            val (w, h) = size
+            val columns = missionCardBriefingColumnsFor(w.dp, h.dp)
+            assertTrue(
+                columns >= 34,
+                "$label: $columns columns x $MISSION_CARD_BRIEFING_LINES lines cannot hold 100 " +
+                    "characters once wrapping is paid for"
+            )
+        }
+        assertTrue(MISSION_CARD_BRIEFING_LINES >= 3, "two lines never held a briefing")
+
+        // The Dynamic Island is the worst inset any of these carries, and it comes off the row's
+        // width before the cards split it. The narrowest phone still has to clear the floor.
+        assertTrue(
+            missionCardBriefingColumnsFor(852.dp, 393.dp, safeHorizontal = 59.dp) >= 34,
+            "an iPhone 15's notch must not eat the budget"
+        )
+
+        // A tablet is wider but its type is larger too, so it is not automatically safer - and on
+        // a 12.9" iPad the scale ceiling means the card grows faster than the type.
+        assertTrue(missionCardBriefingColumnsFor(1366.dp, 1024.dp) >= 34)
+        assertTrue(missionCardBriefingColumnsFor(823.dp, 707.dp) >= 34, "Z Fold 6 unfolded")
     }
 }

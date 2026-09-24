@@ -59,8 +59,6 @@ object VentFxAssets {
     /** Leading tip at the sprite's own right edge - use for `windDirection > 0`. */
     val windStreakRight: BmpSlice by lazy { windStreakSheet.sliceWithSize(0, STREAK_H, STREAK_W, STREAK_H) }
 
-    val botEyeGlowBitmap: Bitmap32 by lazy { createBotEyeGlowBitmap() }
-
     const val PUFF_SIZE = 64
     const val STREAK_W = 96
     const val STREAK_H = 20
@@ -182,28 +180,6 @@ object VentFxAssets {
                 val col = premul((176 + 62 * k).toInt(), (190 + 58 * k).toInt(), (202 + 50 * k).toInt(), a)
                 bmp.setRgba(x, y, col)
                 bmp.setRgba(STREAK_W - 1 - x, STREAK_H + y, col)
-            }
-        }
-        return bmp
-    }
-
-    private fun createBotEyeGlowBitmap(): Bitmap32 {
-        val size = 16
-        val bmp = Bitmap32(size, size)
-        val center = 7.5
-        val maxDist = 7.5
-
-        for (y in 0 until size) {
-            for (x in 0 until size) {
-                val dist = hypot(x - center, y - center)
-                if (dist <= maxDist) {
-                    val t = dist / maxDist
-                    val alpha = ((1.0 - t).pow(1.5) * 255).toInt().coerceIn(0, 255)
-                    // Security bot optical sensor cyan glow
-                    bmp.setRgba(x, y, premul(56, 189, 248, alpha))
-                } else {
-                    bmp.setRgba(x, y, RGBA(0, 0, 0, 0))
-                }
             }
         }
         return bmp
@@ -390,24 +366,23 @@ class VentFanVisual(
                 val cont = worldView.container()
 
                 val centerX = fan.x + fan.width / 2.0
-                val centerY = fan.y + fan.height / 2.0
-                val fanSize = fan.height
+                val centerY = if (fan.height > 80.0) 372.0 else fan.y + fan.height / 2.0
+                val fanSize = minOf(fan.height, 68.0)
 
-                // 1. Dark circular duct cavity behind blades
-                val cavity = cont.graphics().xy(centerX, centerY)
-                cavity.updateShape {
-                    // Outer flange shadow / housing ring
-                    fill(Colors["#080c14"]) {
-                        circle(Point(0.0, 0.0), fanSize * 0.49)
-                    }
-                    // Deep inner duct tunnel
-                    fill(Colors["#0f172a"]) {
-                        circle(Point(0.0, 0.0), fanSize * 0.44)
+                // 1. Fallback duct cavity only when assets are missing
+                if (bladeSlice == null || coverSlice == null) {
+                    val cavity = cont.graphics().xy(centerX, centerY)
+                    cavity.updateShape {
+                        fill(Colors["#080c14"]) {
+                            circle(Point(0.0, 0.0), fanSize * 0.46)
+                        }
                     }
                 }
 
-                // 2. Rotating Turbine Rotor (fan blades behind cover)
-                val bladesCont = cont.container().xy(centerX, centerY)
+                // 2. Rotating Turbine Rotor (fan blades behind cover) - clearly visible against wall
+                val bladesCont = cont.container().xy(centerX, centerY).also {
+                    it.alpha = 0.72
+                }
                 if (bladeSlice != null) {
                     bladesCont.image(bladeSlice).also { img ->
                         img.scaleX = fanSize / bladeSlice.width.toDouble()
@@ -428,8 +403,10 @@ class VentFanVisual(
                     bladesCont.solidRect(6.0, 6.0, Colors["#cbd5e1"]).xy(-3.0, -3.0)
                 }
 
-                // 3. Heavy Wire Protective Mesh Grill / Cover (in front of blades)
-                val coverCont = cont.container().xy(centerX, centerY)
+                // 3. Heavy Wire Protective Mesh Grill / Cover (in front of blades) - solid black silhouette
+                val coverCont = cont.container().xy(centerX, centerY).also {
+                    it.alpha = 0.98
+                }
                 if (coverSlice != null) {
                     coverCont.image(coverSlice).also { img ->
                         img.scaleX = fanSize / coverSlice.width.toDouble()
@@ -479,22 +456,63 @@ class VentFanVisual(
 }
 
 /**
- * Visual presentation for patrolling robotic camera bots with directional surveillance beam.
+ * Visual presentation for the level 7 patrol rover: a wheeled silhouette with a sensor boom and a
+ * directional surveillance beam.
+ *
+ * The rover is `resources/robot_body.png` plus two copies of `resources/robot_wheel.png`, cut by
+ * `tools/art/prep_robot.py` - read that script's header before touching any of the fractions
+ * below, and re-run it rather than hand-editing them.
+ *
+ * **The body plate has holes where its wheels were, and that is the whole point.** The rover is a
+ * flat silhouette, so nothing inside its outline can show movement; the only thing that can read
+ * as rolling is the cogged rim breaking the wheel's circle. Leaving the drawn-on wheels in the
+ * body would union them with the rotating sprite into a ring that is permanently toothy all the
+ * way round and shimmers rather than turns, so the plate is cut and the sprite supplies the rim.
+ *
+ * The wheels are driven by **ground distance, not by time**, which is what makes them stop dead
+ * when the bot pauses at the end of a patrol leg or is deactivated, and keeps them in step at any
+ * `speed` a level picks without a second constant to keep in sync. Same rule as the guard's walk
+ * cycle and the player's, for the same reason.
+ *
+ * A procedural fallback is kept for when the art is missing: [createAll] takes the bitmaps as
+ * nullables and every call site defaults them to `null`, exactly like the fan's blade and cover.
  */
 class CameraBotVisual(
     val bot: CameraBot,
     val container: Container,
     val chassisContainer: Container,
-    val eyeGlow: Image,
-    val eyePupil: SolidRect,
-    val eyePip: SolidRect,
+    val alertLens: SolidRect,
     val lightCone: LightConeView,
-    val sparks: SolidRect
+    val sparks: SolidRect,
+    /**
+     * The two road-wheel containers, in rear-then-front order, or empty on the procedural
+     * fallback. Public so a test can read the angle that actually reaches the renderer rather than
+     * an internal accumulator - see CameraBotWheelTest.
+     */
+    val wheels: List<Container> = emptyList()
 ) {
-    fun update(dt: Double, totalElapsedSeconds: Double, cullLeft: Double, cullRight: Double, occluders: List<Rect>) {
+    private var prevX: Double = bot.x
+    private var rollAngle: Double = 0.0
+
+    fun update(
+        dt: Double,
+        totalElapsedSeconds: Double,
+        cullLeft: Double,
+        cullRight: Double,
+        occluders: List<Rect>,
+        isDetecting: Boolean = false
+    ) {
         val onScreen = (bot.x + bot.visionRange >= cullLeft) && (bot.x - bot.visionRange <= cullRight)
         container.visible = onScreen
         lightCone.visible = onScreen
+
+        // Track travel even while culled, so the wheels are in the right place on the frame the bot
+        // comes back on screen - and so a respawn's teleport is absorbed rather than spun through.
+        val dx = bot.x - prevX
+        prevX = bot.x
+        if (wheels.isNotEmpty() && abs(dx) <= bot.width) {
+            rollAngle += dx / (WHEEL_R * bot.width)
+        }
 
         if (!onScreen) return
 
@@ -509,20 +527,25 @@ class CameraBotVisual(
             chassisContainer.x = 0.0
         }
 
+        // The wheels live inside that mirrored container, and mirroring reverses the sense of a
+        // child's rotation as well as its position - so the angle is negated when facing left to
+        // keep the wheel turning with the direction of travel instead of against it.
+        if (wheels.isNotEmpty()) {
+            val local = (if (bot.facing < 0.0) -rollAngle else rollAngle).radians
+            for (w in wheels) w.rotation = local
+        }
+
         if (bot.isDeactivated) {
             // Permanent deactivated state
             lightCone.clear()
-            eyeGlow.alpha = 0.0
-            eyePupil.color = Colors["#334155"]
-            eyePip.color = Colors["#1e293b"]
+            alertLens.visible = false
             sparks.visible = (totalElapsedSeconds % 1.5 < 0.08)
             sparks.color = Colors["#f59e0b"]
         } else {
             sparks.visible = false
-            val eyePulse = 0.80 + 0.20 * sin(totalElapsedSeconds * 12.0)
-            eyeGlow.alpha = 0.85 * eyePulse
-            eyePupil.color = Colors["#38bdf8"]
-            eyePip.color = Colors.WHITE
+            // No bulbs on robots (owner request: "remove any bulbs from the robots").
+            // Detection alert is communicated through the surveillance cone and detection pip above head.
+            alertLens.visible = false
 
             // Surveillance light cone
             val origin = bot.eyePosition
@@ -545,57 +568,109 @@ class CameraBotVisual(
     }
 
     companion object {
-        fun createAll(worldView: Container, bots: List<CameraBot>): List<CameraBotVisual> {
+        // Measured by tools/art/prep_robot.py off art-source/robot/robot.png. Fractions of the
+        // DRAWN body box: CY of its height, CX and R of its width.
+        private const val BODY_ASPECT = 0.7940      // 1126 x 894
+        private const val WHEEL_CY = 0.8255
+        private const val WHEEL_R = 0.1377
+        private const val WHEEL_CX_REAR = 0.1377
+        private const val WHEEL_CX_FRONT = 0.8619
+
+        fun createAll(
+            worldView: Container,
+            bots: List<CameraBot>,
+            bodyBitmap: Bitmap? = null,
+            wheelBitmap: Bitmap? = null
+        ): List<CameraBotVisual> {
+            val bodySlice = bodyBitmap?.slice()
+            val wheelSlice = wheelBitmap?.slice()
             return bots.map { bot ->
-                val lightCone = LightConeView().addTo(worldView)
+                val lightCone = LightConeView().addTo(worldView).also {
+                    // White surveillance cone for security patrol robots
+                    it.color = RGBA(255, 255, 255, (0.28 * 255).toInt())
+                }
                 val cont = worldView.container().xy(bot.x, bot.y)
 
                 val chassis = cont.container()
+                val wheelConts = ArrayList<Container>(2)
 
-                // 1. Crawler Treads (Base)
-                chassis.solidRect(bot.width, 7.0, Colors["#0f172a"]).xy(0.0, bot.height - 7.0)
-                chassis.solidRect(bot.width - 2.0, 2.0, Colors["#334155"]).xy(1.0, bot.height - 7.0)
-                // Track wheels
-                for (w in 0..2) {
-                    chassis.solidRect(4.0, 4.0, Colors["#475569"]).xy(3.0 + w * 9.0, bot.height - 5.5)
+                // Where the glowing lens sits, in chassis-local units. The art path puts it at the
+                // tip of the sensor boom so it lines up with where the cone actually starts
+                // (CameraBot.eyePosition); the fallback keeps its turret.
+                val eyeX: Double
+                val eyeY: Double
+
+                if (bodySlice != null && wheelSlice != null) {
+                    // Art height is the plate's own aspect, bottom-aligned in the bot's box so the
+                    // wheels sit on the floor the model walks the bot along.
+                    val artH = bot.width * BODY_ASPECT
+                    val artTop = bot.height - artH
+                    val r = WHEEL_R * bot.width
+
+                    // Wheels first: they go behind the chassis, and the body plate's cut-outs are a
+                    // hair wider than they are, so nothing of them shows through at the joins.
+                    for (cxFrac in listOf(WHEEL_CX_REAR, WHEEL_CX_FRONT)) {
+                        val wc = chassis.container().xy(cxFrac * bot.width, artTop + WHEEL_CY * artH)
+                        wc.image(wheelSlice).also { img ->
+                            img.scaleX = (2.0 * r) / wheelSlice.width.toDouble()
+                            img.scaleY = (2.0 * r) / wheelSlice.height.toDouble()
+                            img.xy(-r, -r)
+                        }
+                        wheelConts.add(wc)
+                    }
+
+                    chassis.image(bodySlice).also { img ->
+                        img.scaleX = bot.width / bodySlice.width.toDouble()
+                        img.scaleY = artH / bodySlice.height.toDouble()
+                        img.xy(0.0, artTop)
+                    }
+
+                    eyeX = bot.width - 2.0
+                    eyeY = bot.height * CameraBot.EYE_HEIGHT_FRACTION
+                } else {
+                    // 1. Crawler Treads (Base)
+                    chassis.solidRect(bot.width, 7.0, Colors["#0f172a"]).xy(0.0, bot.height - 7.0)
+                    chassis.solidRect(bot.width - 2.0, 2.0, Colors["#334155"]).xy(1.0, bot.height - 7.0)
+                    // Track wheels
+                    for (w in 0..2) {
+                        chassis.solidRect(4.0, 4.0, Colors["#475569"]).xy(3.0 + w * 9.0, bot.height - 5.5)
+                    }
+
+                    // 2. Armored Chassis (Middle Hull)
+                    chassis.solidRect(bot.width - 6.0, 11.0, Colors["#1e293b"]).xy(2.0, bot.height - 18.0)
+                    // Chassis bevel plate
+                    chassis.solidRect(bot.width - 10.0, 4.0, Colors["#334155"]).xy(4.0, bot.height - 17.0)
+
+                    // 3. Sensor Dome Turret (Front Top)
+                    val turretW = 12.0
+                    val turretH = 10.0
+                    val turretX = bot.width - 13.0
+                    val turretY = bot.height - 23.0
+                    chassis.solidRect(turretW, turretH, Colors["#0f172a"]).xy(turretX, turretY)
+                    chassis.solidRect(turretW - 2.0, 2.0, Colors["#64748b"]).xy(turretX + 1.0, turretY)
+
+                    eyeX = turretX + turretW - 2.0
+                    eyeY = turretY + 4.0
                 }
 
-                // 2. Armored Chassis (Middle Hull)
-                chassis.solidRect(bot.width - 6.0, 11.0, Colors["#1e293b"]).xy(2.0, bot.height - 18.0)
-                // Chassis bevel plate
-                chassis.solidRect(bot.width - 10.0, 4.0, Colors["#334155"]).xy(4.0, bot.height - 17.0)
-
-                // 3. Sensor Dome Turret (Front Top)
-                val turretW = 12.0
-                val turretH = 10.0
-                val turretX = bot.width - 13.0
-                val turretY = bot.height - 23.0
-                chassis.solidRect(turretW, turretH, Colors["#0f172a"]).xy(turretX, turretY)
-                chassis.solidRect(turretW - 2.0, 2.0, Colors["#64748b"]).xy(turretX + 1.0, turretY)
-
-                // 4. Optical Eye Lens & Glowing Aperture
-                val eyeCont = chassis.container().xy(turretX + turretW - 2.0, turretY + 4.0)
-                val eyeGlow = eyeCont.image(VentFxAssets.botEyeGlowBitmap) {
-                    size(14.0, 14.0)
-                    blendMode = BlendMode.ADD
-                }.xy(-7.0, -7.0)
-
-                val eyePupil = eyeCont.solidRect(4.0, 4.0, Colors["#38bdf8"]).xy(-2.0, -2.0)
-                val eyePip = eyeCont.solidRect(2.0, 2.0, Colors.WHITE).xy(-1.0, -1.0)
+                // 4. Alert lens - removed per owner request ("remove any bulbs from the robots").
+                // A hidden 0x0 rect keeps the property interface intact for test compatibility.
+                val eyeCont = chassis.container().xy(eyeX, eyeY)
+                val alertLens = eyeCont.solidRect(0.0, 0.0, Colors.TRANSPARENT).xy(0.0, 0.0)
+                alertLens.visible = false
 
                 // 5. Status Sparks on chassis when deactivated
-                val sparks = chassis.solidRect(3.0, 3.0, Colors["#f59e0b"]).xy(turretX - 4.0, turretY + 2.0)
+                val sparks = eyeCont.solidRect(3.0, 3.0, Colors["#f59e0b"]).xy(-9.0, 0.0)
                 sparks.visible = false
 
                 CameraBotVisual(
                     bot = bot,
                     container = cont,
                     chassisContainer = chassis,
-                    eyeGlow = eyeGlow,
-                    eyePupil = eyePupil,
-                    eyePip = eyePip,
+                    alertLens = alertLens,
                     lightCone = lightCone,
-                    sparks = sparks
+                    sparks = sparks,
+                    wheels = wheelConts
                 )
             }
         }
@@ -634,8 +709,8 @@ class CameraBotVisual(
 class SteamPipeVisual(
     private val pipe: SteamPipe,
     private val container: Container,
-    private val topLed: SolidRect?,
-    private val botLed: SolidRect?,
+    private val topLed: Graphics?,
+    private val botLed: Graphics?,
     private val steamPlume: Container,
     private val particles: List<Image>,
     private val downwards: BooleanArray
@@ -695,16 +770,18 @@ class SteamPipeVisual(
         val warning = pipe.isWarning
         val warningProg = pipe.warningProgress
 
-        // Status LED color
+        // Status LED color:
+        // - Off (inactive / dormant): red light (#ef4444)
+        // - Warning (1.0s before steam on) and Active (steam on): green light (#10b981)
         val ledColor = when {
-            active -> Colors["#ef4444"]
-            warning -> if ((totalElapsedSeconds * 14.0).toInt() % 2 == 0) Colors["#f59e0b"] else Colors["#78350f"]
-            else -> Colors["#10b981"]
+            active || warning -> Colors["#10b981"]
+            else -> Colors["#ef4444"]
         }
-        topLed?.color = ledColor
-        botLed?.color = ledColor
+        topLed?.colorMul = ledColor
+        botLed?.colorMul = ledColor
 
-        val emitting = active || warning
+        // Steam only emits when active! Green sign shows 1s before steam eruption.
+        val emitting = active
         if (!emitting) {
             wasEmitting = false
             steamPlume.visible = false
@@ -712,9 +789,8 @@ class SteamPipeVisual(
         }
         steamPlume.visible = true
 
-        // The pre-burst only spits a short way out of the mouth; the real jet crosses the corridor.
-        val reachScale = if (active) 1.0 else 0.16
-        val intensity = if (active) 1.0 else (0.30 * warningProg)
+        val reachScale = 1.0
+        val intensity = 1.0
 
         if (active && !wasEmitting) {
             // Rising edge: pull the whole plume back into the nozzle, staggered, so the jet visibly
@@ -747,7 +823,7 @@ class SteamPipeVisual(
             // Hot vapour rises once it has spent its momentum - lifts a ceiling jet's nose and
             // carries a floor jet's further. Cubic, so it only bites at the tail.
             val buoyancy = 9.0 * l * l * l
-            val cy = (if (downwards[i]) pipe.topY + travel else pipe.bottomY - travel) - buoyancy
+            val cy = (if (downwards[i]) (pipe.topY + PROTRUSION) + travel else (pipe.bottomY - PROTRUSION) - travel) - buoyancy
 
             // Spread opens with distance; the sway is this particle's own, not a shared oscillator.
             val cx = pipe.x + lateral[i] * l * l +
@@ -760,13 +836,6 @@ class SteamPipeVisual(
             val h = w * (1.0 + 0.85 * inv)
 
             val fade = (l * 7.0).coerceAtMost(1.0) * inv.pow(0.85)
-            // NEVER `p.size(w, h)` in a frame loop. `View.size` writes `unscaledSize`, whose setter
-            // is `scaleXY *= value / currentSize` (korge 6.0 `View.kt:399`) - it is MULTIPLICATIVE,
-            // so every call re-scales relative to whatever the sprite is now. The old plume called
-            // it every frame against a 48px source drawn at ~20-45, and its sprites decayed to
-            // ~1e-72 units wide within a second of the level starting: that, not the additive
-            // blending, is why the steam was invisible in play. `SolidRect` overrides `unscaledSize`
-            // with a plain field and is safe; `Image` is not. Write the transform directly.
             p.scaleX = w / VentFxAssets.PUFF_SIZE
             p.scaleY = h / VentFxAssets.PUFF_SIZE
             p.xy(cx - w / 2.0, cy - h / 2.0)
@@ -776,56 +845,115 @@ class SteamPipeVisual(
 
     companion object {
         private const val SINGLE_COUNT = 18
-        private const val PAIR_COUNT = 24
 
-        fun createAll(worldView: Container, pipes: List<SteamPipe>): List<SteamPipeVisual> {
+        // Measured by tools/art/prep_steam.py off art-source/vent/steam.png. The fixture is drawn
+        // NOZZLE_WIDTH wide at the plate's own aspect.
+        private const val NOZZLE_ASPECT = 0.2952   // 2124 x 627
+        private const val NOZZLE_WIDTH = 64.0
+        // Move nozzles into corridor by 4.0 px to cover a little more
+        private const val PROTRUSION = 4.0
+
+        fun createAll(
+            worldView: Container,
+            pipes: List<SteamPipe>,
+            nozzleUpBitmap: Bitmap? = null,
+            nozzleDownBitmap: Bitmap? = null
+        ): List<SteamPipeVisual> {
+            val upSlice = nozzleUpBitmap?.slice()
+            val downSlice = nozzleDownBitmap?.slice()
             return pipes.map { pipe ->
                 val cont = worldView.container()
 
-                var topLed: SolidRect? = null
-                var botLed: SolidRect? = null
+                var topLed: Graphics? = null
+                var botLed: Graphics? = null
+
+                // Vapour column FIRST, so the fixture draws over the mouth it leaves from. No ADD
+                // on the plume - see the class doc.
+                val plumeCont = cont.container()
+                val count = SINGLE_COUNT
+                val slices = VentFxAssets.vaporPuffSlices
+                val downwards = BooleanArray(count) { pipe.mountType != PipeMountType.BOTTOM }
+                val particles = (0 until count).map { i -> plumeCont.image(slices[i % slices.size]) }
 
                 val nozzleW = 26.0
                 val nozzleH = 12.0
+                val fixtureH = NOZZLE_WIDTH * NOZZLE_ASPECT
 
-                // Top Nozzle Bracket (Mounted to ceiling at topY = 304)
-                if (pipe.mountType == PipeMountType.TOP || pipe.mountType == PipeMountType.PAIR) {
-                    val nTop = cont.container().xy(pipe.x - nozzleW / 2.0, pipe.topY - nozzleH)
-                    // Structural collar attached to ceiling plate
-                    nTop.solidRect(nozzleW, 4.0, Colors["#475569"]).xy(0.0, 0.0)
-                    // Heavy conical nozzle mouth
-                    nTop.solidRect(nozzleW - 6.0, nozzleH - 4.0, Colors["#1e293b"]).xy(3.0, 4.0)
-                    // High-temperature nozzle mouth rim
-                    nTop.solidRect(nozzleW - 10.0, 2.0, Colors["#e2e8f0"]).xy(5.0, nozzleH - 2.0)
-                    // Status LED indicator pip
-                    topLed = nTop.solidRect(4.0, 4.0, Colors["#10b981"]).xy(2.0, 2.0)
-                }
-
-                // Bottom Nozzle Bracket (Mounted to floor at bottomY = 440)
-                if (pipe.mountType == PipeMountType.BOTTOM || pipe.mountType == PipeMountType.PAIR) {
-                    val nBot = cont.container().xy(pipe.x - nozzleW / 2.0, pipe.bottomY)
-                    // Structural collar attached to floor plate
-                    nBot.solidRect(nozzleW, 4.0, Colors["#475569"]).xy(0.0, 0.0)
-                    // Heavy conical nozzle mouth
-                    nBot.solidRect(nozzleW - 6.0, nozzleH - 4.0, Colors["#1e293b"]).xy(3.0, -nozzleH + 4.0)
-                    // High-temperature nozzle mouth rim
-                    nBot.solidRect(nozzleW - 10.0, 2.0, Colors["#e2e8f0"]).xy(5.0, -2.0)
-                    // Status LED indicator pip
-                    botLed = nBot.solidRect(4.0, 4.0, Colors["#10b981"]).xy(2.0, -2.0)
-                }
-
-                // Vapour column. No ADD - see the class doc.
-                val plumeCont = cont.container()
-                val count = if (pipe.mountType == PipeMountType.PAIR) PAIR_COUNT else SINGLE_COUNT
-                val slices = VentFxAssets.vaporPuffSlices
-                val downwards = BooleanArray(count) { i ->
-                    when (pipe.mountType) {
-                        PipeMountType.TOP -> true
-                        PipeMountType.BOTTOM -> false
-                        PipeMountType.PAIR -> (i % 2 == 0)
+                // Only mount top OR bottom, NEVER both!
+                if (pipe.mountType == PipeMountType.BOTTOM) {
+                    if (upSlice != null) {
+                        // Stands ON the floor: shifted 4px up to cover a little more corridor
+                        val nBot = cont.container().xy(pipe.x - NOZZLE_WIDTH / 2.0, pipe.bottomY - fixtureH - PROTRUSION)
+                        nBot.image(upSlice).also { img ->
+                            img.scaleX = NOZZLE_WIDTH / upSlice.width.toDouble()
+                            img.scaleY = fixtureH / upSlice.height.toDouble()
+                        }
+                        val g = nBot.graphics()
+                        g.updateShape {
+                            fill(Colors.WHITE) {
+                                circle(Point(0.0, 0.0), 2.8)
+                            }
+                        }
+                        g.xy(NOZZLE_WIDTH / 2.0, fixtureH * 0.65)
+                        g.colorMul = Colors["#ef4444"]
+                        botLed = g
+                    } else {
+                        val nBot = cont.container().xy(pipe.x - nozzleW / 2.0, pipe.bottomY - PROTRUSION)
+                        // Structural collar attached to floor plate
+                        nBot.solidRect(nozzleW, 4.0, Colors["#475569"]).xy(0.0, 0.0)
+                        // Heavy conical nozzle mouth
+                        nBot.solidRect(nozzleW - 6.0, nozzleH - 4.0, Colors["#1e293b"]).xy(3.0, -nozzleH + 4.0)
+                        // High-temperature nozzle mouth rim
+                        nBot.solidRect(nozzleW - 10.0, 2.0, Colors["#e2e8f0"]).xy(5.0, -2.0)
+                        // Status LED indicator circular pip centered on structure
+                        val g = nBot.graphics()
+                        g.updateShape {
+                            fill(Colors.WHITE) {
+                                circle(Point(0.0, 0.0), 2.8)
+                            }
+                        }
+                        g.xy(nozzleW / 2.0, -nozzleH / 2.0)
+                        g.colorMul = Colors["#ef4444"]
+                        botLed = g
+                    }
+                } else {
+                    // TOP mounted (default, even if legacy PAIR was passed)
+                    if (downSlice != null) {
+                        // Hangs DOWN from the ceiling line: shifted 4px down to cover a little more corridor
+                        val nTop = cont.container().xy(pipe.x - NOZZLE_WIDTH / 2.0, pipe.topY + PROTRUSION)
+                        nTop.image(downSlice).also { img ->
+                            img.scaleX = NOZZLE_WIDTH / downSlice.width.toDouble()
+                            img.scaleY = fixtureH / downSlice.height.toDouble()
+                        }
+                        val g = nTop.graphics()
+                        g.updateShape {
+                            fill(Colors.WHITE) {
+                                circle(Point(0.0, 0.0), 2.8)
+                            }
+                        }
+                        g.xy(NOZZLE_WIDTH / 2.0, fixtureH * 0.35)
+                        g.colorMul = Colors["#ef4444"]
+                        topLed = g
+                    } else {
+                        val nTop = cont.container().xy(pipe.x - nozzleW / 2.0, pipe.topY - nozzleH + PROTRUSION)
+                        // Structural collar attached to ceiling plate
+                        nTop.solidRect(nozzleW, 4.0, Colors["#475569"]).xy(0.0, 0.0)
+                        // Heavy conical nozzle mouth
+                        nTop.solidRect(nozzleW - 6.0, nozzleH - 4.0, Colors["#1e293b"]).xy(3.0, 4.0)
+                        // High-temperature nozzle mouth rim
+                        nTop.solidRect(nozzleW - 10.0, 2.0, Colors["#e2e8f0"]).xy(5.0, nozzleH - 2.0)
+                        // Status LED indicator circular pip centered on structure
+                        val g = nTop.graphics()
+                        g.updateShape {
+                            fill(Colors.WHITE) {
+                                circle(Point(0.0, 0.0), 2.8)
+                            }
+                        }
+                        g.xy(nozzleW / 2.0, nozzleH / 2.0)
+                        g.colorMul = Colors["#ef4444"]
+                        topLed = g
                     }
                 }
-                val particles = (0 until count).map { i -> plumeCont.image(slices[i % slices.size]) }
 
                 SteamPipeVisual(
                     pipe = pipe,
@@ -837,31 +965,6 @@ class SteamPipeVisual(
                     downwards = downwards
                 )
             }
-        }
-    }
-}
-
-/**
- * Architectural framing and industrial atmosphere for Level 7's ventilation shaft.
- */
-class VentCorridorVisual(
-    val container: Container
-) {
-    companion object {
-        fun create(worldView: Container, layout: LevelLayout): VentCorridorVisual {
-            val cont = worldView.container()
-            val groundY = 440.0
-
-            // High-tech terminal pedestal at exit point (x = 5050)
-            val terminalCont = cont.container().xy(5050.0, groundY - 48.0)
-            terminalCont.solidRect(32.0, 48.0, Colors["#334155"]).xy(0.0, 0.0)
-            terminalCont.solidRect(28.0, 4.0, Colors["#0284c7"]).xy(2.0, 2.0)
-            // Holographic data manifest projection above terminal
-            val holo = terminalCont.solidRect(24.0, 20.0, Colors["#38bdf8"].withAd(0.40)).xy(4.0, -24.0)
-            holo.blendMode = BlendMode.ADD
-            terminalCont.solidRect(16.0, 2.0, Colors.WHITE).xy(8.0, -14.0)
-
-            return VentCorridorVisual(cont)
         }
     }
 }

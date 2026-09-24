@@ -21,7 +21,7 @@ data class GameProfile(
     fun getPowerupCount(type: PowerupType): Int {
         val aliases = when (type) {
             PowerupType.SMOKE_SCREEN -> listOf("camera_jammer", "smoke_screen", "smoke_bomb", "camera_disable")
-            PowerupType.LASER_SHIELD -> listOf("laser_shield", "shield", "laser_guard", "sleep_darts", "sleep_dart", "phantom_cloak", "guard_sleep")
+            PowerupType.LASER_SHIELD -> listOf("guard_shield", "laser_shield", "shield", "laser_guard", "sleep_darts", "sleep_dart", "phantom_cloak", "guard_sleep")
             PowerupType.INVISIBILITY -> listOf("invisibility", "invisibility_cloak")
             PowerupType.NOISE_SUPPRESSION -> listOf("noise_suppression", "stealth_boots", "stealth", "boots")
             PowerupType.CHECKPOINTS -> listOf("checkpoints", "checkpoint", "tactical_checkpoint")
@@ -39,7 +39,7 @@ data class GameProfile(
     fun consumePowerup(type: PowerupType): Boolean {
         val aliases = when (type) {
             PowerupType.SMOKE_SCREEN -> listOf("camera_jammer", "smoke_screen", "smoke_bomb", "camera_disable")
-            PowerupType.LASER_SHIELD -> listOf("laser_shield", "shield", "laser_guard", "sleep_darts", "sleep_dart", "phantom_cloak", "guard_sleep")
+            PowerupType.LASER_SHIELD -> listOf("guard_shield", "laser_shield", "shield", "laser_guard", "sleep_darts", "sleep_dart", "phantom_cloak", "guard_sleep")
             PowerupType.INVISIBILITY -> listOf("invisibility", "invisibility_cloak")
             PowerupType.NOISE_SUPPRESSION -> listOf("noise_suppression", "stealth_boots", "stealth", "boots")
             PowerupType.CHECKPOINTS -> listOf("checkpoints", "checkpoint", "tactical_checkpoint")

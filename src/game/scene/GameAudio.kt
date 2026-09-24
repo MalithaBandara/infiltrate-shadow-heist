@@ -43,7 +43,8 @@ class GameSounds(
     val guardInvestigate: Sound?,
     val toastSuccess: Sound?,
     val cameraDetect: Sound?,
-    val bgMusic: Sound?
+    val bgMusic: Sound?,
+    val thunder: Sound? = null
 ) {
     /**
      * Plays every loaded clip once at zero volume, immediately, then stops it - this is a
@@ -67,7 +68,7 @@ class GameSounds(
      */
     fun primeAll(context: CoroutineContext) {
         gameSfxOutput?.prepare(GameAudio.SfxFile.ALL)
-        for (sound in listOf(stepA, stepB, impact, climb, uiClick, guardInvestigate, toastSuccess, cameraDetect)) {
+        for (sound in listOf(stepA, stepB, impact, climb, uiClick, guardInvestigate, toastSuccess, cameraDetect, thunder)) {
             try {
                 sound?.play(context, PlaybackParameters(volume = 0.0))?.stop()
             } catch (_: Throwable) {
@@ -147,6 +148,11 @@ object GameAudio {
     const val BG_MUSIC_GAIN = 0.65
 
     /**
+     * Atmospheric thunder rumble/crack gain, played with realistic acoustic delay after lightning.
+     */
+    const val THUNDER_GAIN = 0.90
+
+    /**
      * How fast `GameplayScene.kt`'s `syncBgMusicVolume` ramps toward a changed target volume,
      * in volume-units-per-second (full 0..1 sweep in 1/5s = 0.2s). See that function's own doc
      * comment - this replaced an instant step, which on pause's baseVol -> baseVol*0.35 change
@@ -169,7 +175,8 @@ object GameAudio {
         const val GUARD_INVESTIGATE = "sfx/guard_investigate.wav"
         const val TOAST_SUCCESS = "sfx/toast_success.wav"
         const val CAMERA_DETECT = "sfx/camera_detect.wav"
-        val ALL = listOf(STEP_A, STEP_B, IMPACT, CLIMB, UI_CLICK, GUARD_INVESTIGATE, TOAST_SUCCESS, CAMERA_DETECT)
+        const val THUNDER = "sfx/thunder.wav"
+        val ALL = listOf(STEP_A, STEP_B, IMPACT, CLIMB, UI_CLICK, GUARD_INVESTIGATE, TOAST_SUCCESS, CAMERA_DETECT, THUNDER)
     }
 
     /**
@@ -250,7 +257,8 @@ object GameAudio {
             guardInvestigate = clip("guard_investigate"),
             toastSuccess = clip("toast_success"),
             cameraDetect = clip("camera_detect"),
-            bgMusic = music("bgmusic")
+            bgMusic = music("bgmusic"),
+            thunder = clip("thunder")
         )
         if (!audioPrimed) {
             audioPrimed = true

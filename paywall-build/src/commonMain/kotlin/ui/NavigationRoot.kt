@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -17,6 +18,8 @@ import com.infiltrate.storage.PlatformStorage
 import game.model.GameProfileStorage
 import game.model.LevelData
 import game.model.MapBackedGameProfileStorage
+
+val LocalAppLanguage = compositionLocalOf { "en" }
 
 enum class AppScreen {
     MainMenu,
@@ -52,6 +55,7 @@ fun NavigationRoot(
     // rememberUiClick on the same frame instead of waiting for a screen change.
     var musicVolume by remember { mutableStateOf(profileStorage.getProfile().musicVolume) }
     var sfxVolume by remember { mutableStateOf(profileStorage.getProfile().sfxVolume) }
+    var currentLanguage by remember { mutableStateOf(profileStorage.getProfile().language) }
     MenuMusic(volume = musicVolume)
 
     // The click is provided here, alongside the music, and for the same reason: every menu
@@ -65,7 +69,8 @@ fun NavigationRoot(
     CompositionLocalProvider(
         LocalUiClick provides uiClick,
         LocalToastSuccess provides toastSuccess,
-        LocalToastError provides toastError
+        LocalToastError provides toastError,
+        LocalAppLanguage provides currentLanguage
     ) {
         ShadowHeistTheme {
             Box(
@@ -129,6 +134,7 @@ fun NavigationRoot(
                                     initialTab = settingsInitialTab,
                                     musicVolume = musicVolume,
                                     sfxVolume = sfxVolume,
+                                    language = currentLanguage,
                                     onMusicVolumeChange = {
                                         musicVolume = it
                                         profileStorage.setMusicVolume(it)
@@ -136,6 +142,10 @@ fun NavigationRoot(
                                     onSfxVolumeChange = {
                                         sfxVolume = it
                                         profileStorage.setSfxVolume(it)
+                                    },
+                                    onLanguageChange = {
+                                        currentLanguage = it
+                                        profileStorage.setLanguage(it)
                                     },
                                     onBackClicked = { currentScreen = AppScreen.MainMenu },
                                     onStoreShortcutClicked = {

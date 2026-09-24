@@ -113,6 +113,14 @@ class GameplayScene(
     /** Facing is locked for the whole stance: a braced body drags the load back, it does not
      *  turn around. Captured when the lean-in starts. */
     private var pushFacingLeft: Boolean = false
+    /** Phase through the wind-walk gait loop, 0..1 - driven by ground distance, like push. */
+    private var windCycleProgress: Double = 0.0
+    /** True while the wind gait is running, so a stop-start re-enters it at its first frame. */
+    private var windStriding: Boolean = false
+    /** Which of the two wind clips the sprite currently holds - swapping costs a rebind. */
+    private var windLoopClipLoaded: Boolean = false
+    /** The wind stance has set this frame's sprite; the frame driver must keep its hands off. */
+    private var windOwnsSprite: Boolean = false
     private var walkCycleProgress: Double = 0.0
     private var walkTransitionElapsed: Double = 0.0
     private var walkInTransition: Boolean = false
@@ -151,7 +159,6 @@ class GameplayScene(
     // Timers & FX
     private var shieldDeflectFlashTimer: Double = 0.0
     private var shieldFlareTimer: Double = 0.0
-    private var laserFlashTimer: Double = 0.0
     private var bgMusicAppliedVolume: Double = -1.0
     private var cachedProfile: GameProfile = GameProfile()
 
@@ -193,6 +200,7 @@ class GameplayScene(
         // a cutout, and whenever no host has published anything - in which case every inset below
         // falls back to the number it has always had.
         val safeInsets = DeviceScreen.safeInsetsForCanvas(canvasW, canvasH)
+        val currentLanguage = (try { views.storage["user_language"] } catch (_: Throwable) { null }) ?: "en"
 
         // --- Loading screen -------------------------------------------------------------
         val loadingBgBitmap = SceneAssets.bitmap("loadingbg.png", minified = false)
@@ -201,7 +209,7 @@ class GameplayScene(
         val loadingFont = SceneAssets.font("BebasNeue-Regular.ttf")
 
         val loadingScreen = setupLoadingScreen(
-            canvasW, canvasH, loadingBgBitmap, loadingLogoBitmap, loadingBarTextureBitmap, loadingFont
+            canvasW, canvasH, loadingBgBitmap, loadingLogoBitmap, loadingBarTextureBitmap, loadingFont, currentLanguage
         )
 
         // One full frame so the loading screen is actually painted before the loads below
@@ -935,14 +943,18 @@ class GameplayScene(
         val laserVisuals = LaserVisual.createAll(worldView, world.lasers, laserEmitterBitmap)
 
         // Level 7 Vent Infiltration: duct corridor framing, exhaust fans, camera bots, and steam pipes
-        val isL7 = levelData.id == "level_7"
-        val l7Layout = levelData.layout
-        val ventCorridorVisual = if (isL7 && l7Layout != null) {
-            VentCorridorVisual.create(worldView, l7Layout)
-        } else null
-        val ventFanVisuals = VentFanVisual.createAll(worldView, world.fans)
-        val cameraBotVisuals = CameraBotVisual.createAll(worldView, world.cameraBots)
-        val steamPipeVisuals = SteamPipeVisual.createAll(worldView, world.steamPipes)
+        val ventFanVisuals = VentFanVisual.createAll(
+            worldView, world.fans,
+            bitmaps.fanBladeBitmap, bitmaps.fanCoverBitmap
+        )
+        val cameraBotVisuals = CameraBotVisual.createAll(
+            worldView, world.cameraBots,
+            bitmaps.robotBodyBitmap, bitmaps.robotWheelBitmap
+        )
+        val steamPipeVisuals = SteamPipeVisual.createAll(
+            worldView, world.steamPipes,
+            bitmaps.steamNozzleUpBitmap, bitmaps.steamNozzleDownBitmap
+        )
 
         // Conveyors: infinite-repeating conveyor belt cut from middle of conveyor.png,
         // animated with top layer moving forward and bottom layer moving in reverse.
@@ -1355,6 +1367,15 @@ class GameplayScene(
         pushStriding = false
         pushLoopClipLoaded = false
         pushFacingLeft = false
+        // Same again for the wind stride. Unlike walk and push this one is a cadence knob rather
+        // than a foot-planting constraint - see PlayerAnimations.WIND_STRIDE_PER_HEIGHT.
+        val windCycleDistance = playerVisualHeight * PlayerAnimations.WIND_STRIDE_PER_HEIGHT
+        val windTransitionLastFrame = PlayerAnimations.WIND_TRANSITION_LAST
+        // See windCycleProgress below - turns the tap surge into a believable stride cadence.
+        val WIND_GAIT_EFFORT_SCALE = 0.55
+        windCycleProgress = 0.0
+        windStriding = false
+        windLoopClipLoaded = false
         val walkTransitionDuration = 0.28
         walkTransitionElapsed = 0.0
         walkInTransition = false
@@ -1377,9 +1398,16 @@ class GameplayScene(
         // HEADS-UP LAYER
         // ==========================================
         // Deliberately chrome-free. There is no top bar, and nothing here is permanent: every
-        // element is either transient (the mission toast, the spotted flash) or diegetic (the
-        // detection pip, which rides on the operative in world space). A clean run therefore
-        // shows no HUD at all over the action, which is the point of the genre.
+        // element is either transient (the mission toast) or diegetic (the detection pip, which
+        // rides on the operative in world space). A clean run therefore shows no HUD at all over
+        // the action, which is the point of the genre.
+        //
+        // There is also no full-screen wash on a lethal hit any more (owner request 2026-09-25).
+        // A #ff0033 rect used to cover the canvas at 0.45 alpha for 0.25s whenever `onLaserHit` or
+        // `onSteamPipeHit` fired. It was hooked to the shared GameWorld callbacks, so it appeared
+        // on every level with a laser or a steam pipe, and it fired on the same tick as the game
+        // over - painting red over the last frame the player gets to read before the MISSION
+        // FAILED card, which is the frame that tells them what killed them.
         //
         // The run timer was removed from the screen, not from the game: it still runs and still
         // decides the third star, and it is reported on the results card at the end. A tenths-
@@ -1433,8 +1461,15 @@ class GameplayScene(
             darknessBotRect = darknessContainer.solidRect(1.0, 1.0, darkColor)
         }
 
-        val laserFlashRect = solidRect(sceneWidth, sceneHeight, Colors["#ff0033"])
-        laserFlashRect.alpha = 0.0
+
+        val rainEffect = if (levelData.hasRain) {
+            RainEffect(
+                bgLayer = bgmgContainer,
+                fgLayer = this,
+                initialCanvasW = canvasW,
+                initialCanvasH = canvasH
+            )
+        } else null
 
         val hudLayer = container()
 
@@ -1461,7 +1496,7 @@ class GameplayScene(
         val objPanel = hudLayer.container().xy(24.0 + safeInsets.left, 20.0 + safeInsets.top)
 
         val objTitle = objPanel.text(
-            "OBJECTIVES", textSize = 15.0, font = bebasFont, color = COLOR_PRIMARY
+            Localization.objectives(currentLanguage), textSize = 15.0, font = bebasFont, color = COLOR_PRIMARY
         )
         objTitle.graphicsRenderer = GraphicsRenderer.GPU
         objTitle.xy(0.0, 4.0)
@@ -1477,7 +1512,7 @@ class GameplayScene(
         val objMarkR = 5.4
 
         val objMainText = objPanel.text(
-            levelData.objectiveHint.uppercase(), textSize = 12.5, font = bebasFont, color = COLOR_TEXT_LIGHT
+            levelData.localizedObjectiveHint(currentLanguage).uppercase(), textSize = 12.5, font = bebasFont, color = COLOR_TEXT_LIGHT
         )
         objMainText.graphicsRenderer = GraphicsRenderer.GPU
         objMainText.xy(objTextX, objRow1Y)
@@ -1486,13 +1521,13 @@ class GameplayScene(
         // still a separate view rather than one string because the gap after it is set from its
         // measured width, and because the qualifier may yet want its own treatment.
         val objOptTag = objPanel.text(
-            "(OPTIONAL)", textSize = 12.5, font = bebasFont, color = COLOR_TEXT_LIGHT
+            Localization.optional(currentLanguage), textSize = 12.5, font = bebasFont, color = COLOR_TEXT_LIGHT
         )
         objOptTag.graphicsRenderer = GraphicsRenderer.GPU
         objOptTag.xy(objTextX, objRow2Y)
 
         val objOptText = objPanel.text(
-            "FINISH UNDER ${clockText(levelData.timeTargetSeconds)}",
+            Localization.finishUnder(clockText(levelData.timeTargetSeconds), currentLanguage),
             textSize = 12.5, font = bebasFont, color = COLOR_TEXT_LIGHT
         )
         objOptText.graphicsRenderer = GraphicsRenderer.GPU
@@ -1649,6 +1684,10 @@ class GameplayScene(
         val cameraPips = world.cameras.mapIndexed { i, c ->
             cameraContainers[i].uiGraphics().xy(c.width / 2.0, -14.0).also { it.visible = false }
         }
+        val cameraBotPips = cameraBotVisuals.map { visual ->
+            visual.container.uiGraphics().xy(visual.bot.width / 2.0, -14.0).also { it.visible = false }
+        }
+        val cameraBotWasDetecting = BooleanArray(cameraBotVisuals.size)
         // ==========================================
         // TACTICAL MOBILE TOUCH CONTROLS (Modern GPU Vectors)
         // ==========================================
@@ -2239,11 +2278,12 @@ class GameplayScene(
         val pauseOverlay = setupPauseOverlay(
             canvasW = canvasW,
             canvasH = canvasH,
-            levelName = levelData.name,
+            levelName = levelData.localizedName(currentLanguage),
             bebasFont = bebasFont,
             paperBtnBitmaps = paperBtnBitmaps,
             paperInk = paperInk,
             playClick = playClick,
+            currentLanguage = currentLanguage,
             onResume = {
                 isPaused = false
             },
@@ -2264,7 +2304,9 @@ class GameplayScene(
             }
         )
 
-        val allLevels = LevelData.DEFAULT_LEVELS
+        // Temporarily restrict to the 7 active levels for Google Play production approval,
+        // so completing Level 7 shows ALL CLEAR / returns to menu instead of advancing to Level 8.
+        val allLevels = LevelData.DEFAULT_LEVELS.take(7)
         val currentLevelIndex = allLevels.indexOfFirst { it.id == levelData.id }
         val nextLevel = if (currentLevelIndex >= 0 && currentLevelIndex + 1 < allLevels.size) allLevels[currentLevelIndex + 1] else null
 
@@ -2279,6 +2321,7 @@ class GameplayScene(
             bebasFont = bebasFont,
             paperInk = paperInk,
             playClick = playClick,
+            currentLanguage = currentLanguage,
             onRequestContinueAd = {
                 getContinueAdBridge().requestContinueAd()
             },
@@ -2312,6 +2355,7 @@ class GameplayScene(
             nextLevel = nextLevel,
             paperInk = paperInk,
             playClick = playClick,
+            currentLanguage = currentLanguage,
             onRetry = {
                 stopBgMusic()
                 sceneContainer.changeTo { GameplayScene(levelData) }
@@ -2404,13 +2448,6 @@ class GameplayScene(
             shieldFlareImage.visible = false
         }
 
-        laserFlashTimer = 0.0
-        world.onLaserHit = {
-            laserFlashTimer = 0.25
-        }
-        world.onSteamPipeHit = {
-            laserFlashTimer = 0.25
-        }
         world.onCameraBotDeactivated = { _ ->
             sounds.toastSuccess.playSfx(sfxContext, GameAudio.TOAST_SUCCESS_GAIN, sfxVolume(), GameAudio.SfxFile.TOAST_SUCCESS)
         }
@@ -2443,7 +2480,6 @@ class GameplayScene(
             shieldDeflectFlashTimer = 0.0
             shieldFlareTimer = 0.0
             shieldFlareImage.visible = false
-            laserFlashTimer = 0.0
         }
 
         // Tutorial Controller State
@@ -2459,6 +2495,7 @@ class GameplayScene(
         lastUsedKeyboard = false
 
         prevRightPressed = false
+        var debugLevelCheckTimer = 0.0
 
         // Main game update loop
         addUpdater { dt ->
@@ -2489,7 +2526,6 @@ class GameplayScene(
                 shieldDeflectFlashTimer = 0.0
                 shieldFlareTimer = 0.0
                 shieldFlareImage.visible = false
-                laserFlashTimer = 0.0
                 return@addUpdater
             }
 
@@ -2517,6 +2553,27 @@ class GameplayScene(
             if (Platform.isJvm && views.input.keys.justPressed(Key.F2)) {
                 profileStorage.grantDebugPowerups(3)
                 refreshProfile()
+            }
+
+            if (Platform.isJvm) {
+                debugLevelCheckTimer += dtSec
+                if (debugLevelCheckTimer >= 0.15) {
+                    debugLevelCheckTimer = 0.0
+                    launchImmediately {
+                        try {
+                            val debugFile = localCurrentDirVfs[".debug_level"]
+                            if (debugFile.exists()) {
+                                val targetId = debugFile.readString().trim()
+                                debugFile.delete()
+                                val targetLevel = LevelData.DEFAULT_LEVELS.firstOrNull { it.id == targetId }
+                                if (targetLevel != null) {
+                                    stopBgMusic()
+                                    sceneContainer.changeTo { GameplayScene(targetLevel) }
+                                }
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                }
             }
 
             pauseOverlay.visible = isPaused
@@ -2616,7 +2673,13 @@ class GameplayScene(
                 if (step != null) {
                     if (!stepActionCompleted && !isTutorialFadingOut) {
                         val actionDone = when (step.targetAction) {
-                            TutorialAction.MOVE -> (moveInput != 0.0 && playerX >= stepActivatedX + 30.0) || playerX > step.triggerMaxX
+                            TutorialAction.MOVE -> {
+                                if (step.id == "step_spam_fan") {
+                                    (world.isWindSpamming && (playerX >= stepActivatedX + 35.0 || playerX >= 420.0)) || playerX > step.triggerMaxX
+                                } else {
+                                    (moveInput != 0.0 && playerX >= stepActivatedX + 30.0) || playerX > step.triggerMaxX
+                                }
+                            }
                             TutorialAction.JUMP_VAULT -> jumpPressed || world.player.isJumping || world.player.isClimbing || (world.player.y < baseGroundY - 96.0 - 20.0) || playerX > step.triggerMaxX
                             TutorialAction.CROUCH -> crouchPressed || world.player.isCrouching ||
                                 // Also done if the player mantles up onto the very crate they'd
@@ -2728,7 +2791,44 @@ class GameplayScene(
                             clear()
 
                             when (highlight) {
-                                TutorialControlHighlight.MOVE, TutorialControlHighlight.MOVE_RIGHT -> {
+                                TutorialControlHighlight.MOVE_RIGHT -> {
+                                    val targetX = moveRightX
+                                    val targetY = controlsY - moveRadius - 8.0
+                                    if (!isControlsSwapped) {
+                                        val startX = textX + 60.0.coerceAtMost(tutorialHandwrittenText.width * 0.35)
+                                        val startY = textY + 36.0
+                                        val ctrlX = (startX + targetX) / 2.0 - 10.0
+                                        val ctrlY = startY + (targetY - startY) * 0.50
+                                        drawCurvedArrow(
+                                            startX = startX,
+                                            startY = startY,
+                                            ctrlX = ctrlX,
+                                            ctrlY = ctrlY,
+                                            endX = targetX,
+                                            endY = targetY,
+                                            arrowColor = Colors.WHITE.withAd(tutorialAlpha),
+                                            thickness = 2.6,
+                                            headLength = 16.0
+                                        )
+                                    } else {
+                                        val startX = textX + tutorialHandwrittenText.width - 60.0.coerceAtMost(tutorialHandwrittenText.width * 0.35)
+                                        val startY = textY + 36.0
+                                        val ctrlX = (startX + targetX) / 2.0 + 10.0
+                                        val ctrlY = startY + (targetY - startY) * 0.50
+                                        drawCurvedArrow(
+                                            startX = startX,
+                                            startY = startY,
+                                            ctrlX = ctrlX,
+                                            ctrlY = ctrlY,
+                                            endX = targetX,
+                                            endY = targetY,
+                                            arrowColor = Colors.WHITE.withAd(tutorialAlpha),
+                                            thickness = 2.6,
+                                            headLength = 16.0
+                                        )
+                                    }
+                                }
+                                TutorialControlHighlight.MOVE -> {
                                     if (!isControlsSwapped) {
                                         val startX = textX + 30.0
                                         val startY = textY + 36.0
@@ -3077,18 +3177,28 @@ class GameplayScene(
                 visual.update(dtSec, totalElapsedSeconds, cullLeft, cullRight)
             }
             for (visual in cameraBotVisuals) {
-                visual.update(dtSec, totalElapsedSeconds, cullLeft, cullRight, world.occluders)
+                visual.update(
+                    dtSec,
+                    totalElapsedSeconds,
+                    cullLeft,
+                    cullRight,
+                    world.occluders,
+                    isDetecting = visual.bot in world.detectingCameraBots
+                )
             }
             for (visual in steamPipeVisuals) {
                 visual.update(dtSec, totalElapsedSeconds, cullLeft, cullRight)
             }
 
-            if (laserFlashTimer > 0.0) {
-                laserFlashTimer = maxOf(0.0, laserFlashTimer - dtSec)
-                laserFlashRect.alpha = (laserFlashTimer / 0.25) * 0.45
-            } else {
-                laserFlashRect.alpha = 0.0
-            }
+            rainEffect?.update(
+                dtSec = dtSec,
+                canvasW = currentCanvasW,
+                canvasH = currentCanvasH,
+                worldViewX = worldView.x,
+                sounds = sounds,
+                sfxVolume = sfxVolume(),
+                coroutineContext = sfxContext
+            )
 
             // Background parallax: 1:1 lockstep for interior warehouse wall (metalbg.png) and vent shaft (bglvl7.png), 0.2x rate for outdoor sky
             if (bgmgImages.isNotEmpty()) {
@@ -3119,6 +3229,7 @@ class GameplayScene(
             // Player.isSwinging drives x/y from the clip's own grip curves (Player.advanceSwing),
             // so every machine below would otherwise fight it - isGrounded is false throughout.
             if (world.player.isSwinging) {
+                windOwnsSprite = false
                 if (playerAnimState != "swing") {
                     playerAnimState = "swing"
                     landingAbsorb = false
@@ -3141,6 +3252,7 @@ class GameplayScene(
                     (world.player.swingPhase * swingFrameSpan).toInt().coerceIn(0, swingFrameSpan)
                 )
             } else if (world.player.isClimbing) {
+                windOwnsSprite = false
                 if (playerAnimState != "climb") {
                     playerAnimState = "climb"
                     if (!world.activePowerups.isNoiseSuppressed) {
@@ -3150,7 +3262,88 @@ class GameplayScene(
                 }
                 val frame = climbFirstFrame + (world.player.climbPhase * climbFrameSpan).toInt()
                 playerSprite.setFrame(frame.coerceIn(climbFirstFrame, climbLastFrame))
+            } else if (!world.isWindStanceIdle && world.player.isGrounded && !world.player.isCrouching) {
+                windOwnsSprite = true
+                // Wind stance machine (level 7's exhaust fans). Built exactly like the push one
+                // next door: two clips off one number, GameWorld.windStanceBlend running 0 -> 1
+                // as the body folds into the gale and 1 -> 0 as it straightens back up, so the
+                // transition clip is scrubbed by it in both directions and only at a full 1.0
+                // does the gait loop take over.
+                //
+                // Unlike push this one does NOT own the sprite outright - jumping and crouching
+                // stay legal in a wind zone (the duct's ceiling means crouching is often the
+                // point), so those two are checked above and hand straight down to the machines
+                // below. The blend keeps running underneath, so coming out of a crouch inside
+                // the wind picks the lean back up where it was rather than restarting it.
+                if (playerAnimState != "wind") {
+                    playerAnimState = "wind"
+                    landingAbsorb = false
+                    walkInTransition = false
+                    windCycleProgress = 0.0
+                    windStriding = false
+                    windLoopClipLoaded = false
+                    playerSprite.playAnimationLooped(playerAnimations.windTransition, manualFrameTime)
+                }
+                // Standing in the airflow HOLDS the braced pose - no gait at all.
+                // In air flow parts normal mechanics do not work. Pressing forward once or long-pressing
+                // does nothing. Only spam clicking front starts forward movement in normal wind walk animation.
+                val isPushingForwardInWind = world.isWindSpamming
+                val striding = (world.windStanceBlend >= 0.25 || world.isWindBraced) && isPushingForwardInWind
+                if (striding) {
+                    if (!windStriding) {
+                        // Always re-enter at frame 0: the loop window was chosen so that frame is
+                        // the closest one to the braced lean the transition ends on (2.18 frames
+                        // of motion - see PlayerAnimations.WIND_WALK_FRAMES), so a stop-start
+                        // costs the smallest pose step this footage offers.
+                        windCycleProgress = 0.0
+                        windStriding = true
+                    }
+                    val previousPhase = windCycleProgress
+                    // Normal wind walk animation playing at normal steady speed (1.0 cycle per second = 2 steps per second)
+                    val cycleRate = 1.0
+                    windCycleProgress = (windCycleProgress + cycleRate * dtSec) % 1.0
+                    if (!windLoopClipLoaded) {
+                        playerSprite.playAnimationLooped(playerAnimations.windWalk, manualFrameTime)
+                        windLoopClipLoaded = true
+                    }
+                    val loopLength = PlayerAnimations.WIND_WALK_LOOP_LENGTH
+                    playerSprite.setFrame(
+                        (windCycleProgress * loopLength).toInt().coerceIn(0, loopLength - 1)
+                    )
+                    // Same crossing test the other gaits use. Reuses walk's own contact phases:
+                    // this clip's stance/swing split was not separately measured, and a footstep
+                    // a few hundredths early inside a roaring fan is not audible.
+                    for (phase in GameAudio.STEP_PHASES) {
+                        val crossed = if (windCycleProgress >= previousPhase) {
+                            phase > previousPhase && phase <= windCycleProgress
+                         } else {
+                            phase > previousPhase || phase <= windCycleProgress
+                        }
+                        if (crossed && !world.activePowerups.isNoiseSuppressed) {
+                            val step = if (stepAlternate) sounds.stepB else sounds.stepA
+                            stepAlternate = !stepAlternate
+                            step.playSfx(
+                                sfxContext, GameAudio.STEP_GAIN, sfxVolume(),
+                                if (step === sounds.stepA) GameAudio.SfxFile.STEP_A else GameAudio.SfxFile.STEP_B
+                            )
+                        }
+                    }
+                } else {
+                    windStriding = false
+                    if (windLoopClipLoaded) {
+                        playerSprite.playAnimationLooped(playerAnimations.windTransition, manualFrameTime)
+                        windLoopClipLoaded = false
+                    }
+                    // Fast responsive transition from walk into braced wind pose:
+                    // immediately begins active forward lean upon touching airflow.
+                    val t = world.windStanceBlend.coerceIn(0.0, 1.0)
+                    val blendProgress = if (t <= 0.0) 0.0 else (0.28 + 0.72 * t).coerceIn(0.0, 1.0)
+                    playerSprite.setFrame(
+                        (blendProgress * windTransitionLastFrame).roundToInt().coerceIn(0, windTransitionLastFrame)
+                    )
+                }
             } else if (!world.isPushStanceIdle) {
+                windOwnsSprite = false
                 // Push stance machine. Sits up here with swing and climb because, like them, it
                 // owns the sprite outright for as long as it runs - GameWorld suppresses jump and
                 // crouch while braced, so none of the machines below have anything to say.
@@ -3224,12 +3417,19 @@ class GameplayScene(
                     )
                 }
             } else {
+                windOwnsSprite = false
                 if (playerAnimState == "push") {
                     // Fully upright again: the transition's own frame 0 IS the standing pose, so
                     // handing straight back to idle/walk below is a plain clip swap, not a pop.
                     playerAnimState = "none"
                     pushStriding = false
                     pushCycleProgress = 0.0
+                }
+                if (playerAnimState == "wind") {
+                    // Same free handover as push: windtransition frame 0 IS the standing pose.
+                    playerAnimState = "none"
+                    windStriding = false
+                    windCycleProgress = 0.0
                 }
                 if (playerAnimState == "swing") {
                     // The swing clip already carries its own complete landing absorption and standup
@@ -3489,7 +3689,7 @@ class GameplayScene(
             if (!landingAbsorb && playerAnimState != "jump" && playerAnimState != "crouch"
                 && playerAnimState != "crouchwalk" && playerAnimState != "climb"
                 && playerAnimState != "swing" && playerAnimState != "landAbsorb"
-                && playerAnimState != "push") {
+                && playerAnimState != "push" && playerAnimState != "wind") {
                 val wantsWalk = world.player.isMoving || (tapWalkGraceTimer > 0.0 && !world.player.isCrouching)
                 if (wantsWalk) {
                     if (playerAnimState != "walk") {
@@ -3578,7 +3778,15 @@ class GameplayScene(
                     else -> 0.0
                 }
             }
-            if (playerAnimState == "jump" && crouchJumpSpringElapsed >= 0.0) {
+            // The wind stance sets its own frame up in the state machine, and it has to say so
+            // here explicitly rather than rely on playerAnimState: the frame driver below is a
+            // second pass keyed off that same string, and something else in this updater puts it
+            // back to "walk" before the pass runs, so the walk gait was overwriting the wind clip
+            // every frame. Traced frame by frame in the running game - the state machine really
+            // did set "wind" and the driver really did read "walk" in the same frame.
+            if (windOwnsSprite) {
+                // nothing: the wind branch above already picked the frame
+            } else if (playerAnimState == "jump" && crouchJumpSpringElapsed >= 0.0) {
                 // The spring itself: the crouch clip run backwards from the depth the stance was
                 // at to standing, over crouchJumpSpringDuration. The body is already rising on
                 // physics by now, so this is deliberately fast - it is the extension, not a
@@ -3649,12 +3857,9 @@ class GameplayScene(
                     }
                 } else {
                     val previousPhase = walkCycleProgress
-                    val inWindZone = world.fans.any { it.isPlayerInWind(world.player) }
-                    val shouldAdvanceWalk = world.player.isMoving || (tapWalkGraceTimer > 0.0 && !world.player.isCrouching) || inWindZone
+                    val shouldAdvanceWalk = world.player.isMoving || (tapWalkGraceTimer > 0.0 && !world.player.isCrouching)
                     if (shouldAdvanceWalk) {
-                        // When continuously pressing or tapping forward against headwind, ignore wind pushback
-                        // and play the natural, smooth walking stride animation at the player's full standard move speed!
-                        val strideSpeed = if (inWindZone || tapWalkGraceTimer > 0.0) {
+                        val strideSpeed = if (tapWalkGraceTimer > 0.0) {
                             maxOf(abs(world.player.vx), world.player.moveSpeed)
                         } else {
                             abs(world.player.vx)
@@ -3702,6 +3907,8 @@ class GameplayScene(
                 // something in one direction. Walking the other way drags the load back rather
                 // than spinning the braced silhouette around on the spot.
                 playerFacingLeft = pushFacingLeft
+            } else if (playerAnimState == "wind") {
+                playerFacingLeft = moveInput < 0.0
             } else if (moveInput < 0) {
                 playerFacingLeft = true
             } else if (moveInput > 0 || forwardTap) {
@@ -4023,6 +4230,19 @@ class GameplayScene(
                     cameraPips[i].visible = false
                 } else {
                     paintPip(cameraPips[i], isDetecting, investigating = false)
+                }
+            }
+            for (i in cameraBotVisuals.indices) {
+                val bot = cameraBotVisuals[i].bot
+                val isDetecting = bot in world.detectingCameraBots
+                if (isDetecting && !cameraBotWasDetecting[i]) {
+                    sounds.cameraDetect.playSfx(sfxContext, GameAudio.CAMERA_DETECT_GAIN, sfxVolume(), GameAudio.SfxFile.CAMERA_DETECT)
+                }
+                cameraBotWasDetecting[i] = isDetecting
+                if (world.activePowerups.isSmokeScreenActive || bot.isDeactivated) {
+                    cameraBotPips[i].visible = false
+                } else {
+                    paintPip(cameraBotPips[i], isDetecting, investigating = false)
                 }
             }
         }
@@ -4433,7 +4653,8 @@ class GameplayScene(
         loadingBgBitmap: Bitmap?,
         loadingLogoBitmap: Bitmap?,
         loadingBarTextureBitmap: Bitmap?,
-        loadingFont: Font
+        loadingFont: Font,
+        currentLanguage: String = "en"
     ): LoadingScreenHandle {
         val loadingRoot = container()
         if (loadingBgBitmap != null) {
@@ -4455,7 +4676,14 @@ class GameplayScene(
         //
         // The ceiling guards a canvas squarer than any real device (ScreenLayout clamps at 1:1,
         // where this would otherwise reach 2.17). A 4:3 iPad lands at 1.625 and gives up 1.5%.
-        val splashScale = (canvasH / ScreenLayout.DESIGN_HEIGHT).coerceIn(1.0, 1.6)
+        //
+        // Written as an aspect ratio rather than as canvasH / DESIGN_HEIGHT, which is the same
+        // number only while the canvas is exactly the design rect grown to fit. ScreenLayout's
+        // zoom cap broke that identity - a 4:3 canvas is now 800x600, not 1040x780 - and the
+        // height-only form silently shrank the logo back to 43% of the screen on a tablet, undoing
+        // the fix above. This form holds the share of height constant whatever canvas it is handed.
+        val splashScale =
+            (ScreenLayout.DESIGN_ASPECT * canvasH / canvasW).coerceIn(1.0, 1.6)
 
         val loadingLogoWidth = canvasW * 0.34 * splashScale
         val loadingLogoHeight = if (loadingLogoBitmap != null) {
@@ -4510,7 +4738,7 @@ class GameplayScene(
         }
 
         val loadingLabel = loadingRoot.text(
-            "L O A D I N G . . .",
+            Localization.loading(currentLanguage),
             textSize = loadingLabelHeight,
             font = loadingFont,
             color = Colors.WHITE
@@ -4545,6 +4773,7 @@ class GameplayScene(
         paperBtnBitmaps: List<Bitmap?>,
         paperInk: RGBA,
         playClick: (Double) -> Unit,
+        currentLanguage: String = "en",
         onResume: () -> Unit,
         onRestart: suspend () -> Unit,
         onQuit: suspend () -> Unit
@@ -4559,7 +4788,7 @@ class GameplayScene(
         val pauseBlockTop = (canvasH - pauseBlockH) / 2.0
         val pauseBtnX = (canvasW - pauseBtnW) / 2.0
 
-        val pauseTitle = pauseOverlay.text("PAUSED", textSize = 52.0, font = bebasFont, color = Colors["#F6F4EE"])
+        val pauseTitle = pauseOverlay.text(Localization.paused(currentLanguage), textSize = 52.0, font = bebasFont, color = Colors["#F6F4EE"])
         pauseTitle.graphicsRenderer = GraphicsRenderer.GPU
         pauseTitle.xy((canvasW - pauseTitle.width) / 2.0, pauseBlockTop)
 
@@ -4572,7 +4801,7 @@ class GameplayScene(
         val pauseBtnY0 = pauseBlockTop + 52.0 + 8.0 + 18.0 + 30.0
 
         pauseOverlay.createPaperMenuBtn(
-            "RESUME", paperBtnBitmaps[0], pauseBtnW, pauseBtnH, pauseBtnX, pauseBtnY0,
+            Localization.resume(currentLanguage), paperBtnBitmaps[0], pauseBtnW, pauseBtnH, pauseBtnX, pauseBtnY0,
             bebasFont, paperInk, playClick = playClick,
             iconDrawer = { drawPlayIcon(false) }
         ) {
@@ -4581,7 +4810,7 @@ class GameplayScene(
         }
 
         pauseOverlay.createPaperMenuBtn(
-            "RESTART", paperBtnBitmaps[1], pauseBtnW, pauseBtnH, pauseBtnX, pauseBtnY0 + pauseBtnH + pauseBtnGap,
+            Localization.restart(currentLanguage), paperBtnBitmaps[1], pauseBtnW, pauseBtnH, pauseBtnX, pauseBtnY0 + pauseBtnH + pauseBtnGap,
             bebasFont, paperInk, playClick = playClick,
             iconDrawer = { drawRestartIcon(paperInk) }
         ) {
@@ -4590,7 +4819,7 @@ class GameplayScene(
         }
 
         pauseOverlay.createPaperMenuBtn(
-            "QUIT", paperBtnBitmaps[2], pauseBtnW, pauseBtnH, pauseBtnX, pauseBtnY0 + 2 * (pauseBtnH + pauseBtnGap),
+            Localization.quit(currentLanguage), paperBtnBitmaps[2], pauseBtnW, pauseBtnH, pauseBtnX, pauseBtnY0 + 2 * (pauseBtnH + pauseBtnGap),
             bebasFont, paperInk, playClick = playClick,
             iconDrawer = { drawQuitIcon(false) }
         ) { onQuit() }
@@ -4607,6 +4836,7 @@ class GameplayScene(
         bebasFont: Font,
         paperInk: RGBA,
         playClick: (Double) -> Unit,
+        currentLanguage: String = "en",
         onRequestContinueAd: () -> Unit,
         onRetry: suspend () -> Unit,
         onReturnToMenu: suspend () -> Unit
@@ -4671,19 +4901,19 @@ class GameplayScene(
         val failBtnTextSize = failBtnH * 0.36
 
         val continueBtn = failButtons.createPaperMenuBtn(
-            "CONTINUE", failedBtnBitmaps.getOrNull(0), failBtnW, failBtnH, failBtnL, failBtnY,
+            Localization.continueGame(currentLanguage), failedBtnBitmaps.getOrNull(0), failBtnW, failBtnH, failBtnL, failBtnY,
             bebasFont, paperInk, centered = true, textSize = failBtnTextSize, playClick = playClick,
             iconDrawer = { drawWatchAdIcon(paperInk) }
         ) { onRequestContinueAd() }
 
         val retryBtn = failButtons.createPaperMenuBtn(
-            "RETRY", failedBtnBitmaps.getOrNull(1), failBtnW, failBtnH, failBtnL + failBtnW + failBtnGap, failBtnY,
+            Localization.retry(currentLanguage), failedBtnBitmaps.getOrNull(1), failBtnW, failBtnH, failBtnL + failBtnW + failBtnGap, failBtnY,
             bebasFont, paperInk, centered = true, textSize = failBtnTextSize, playClick = playClick,
             iconDrawer = { drawRestartIcon(paperInk) }
         ) { onRetry() }
 
         val menuBtn = failButtons.createPaperMenuBtn(
-            "MAIN MENU", failedBtnBitmaps.getOrNull(2), failBtnW, failBtnH,
+            Localization.mainMenu(currentLanguage), failedBtnBitmaps.getOrNull(2), failBtnW, failBtnH,
             failBtnL + 2.0 * (failBtnW + failBtnGap), failBtnY,
             bebasFont, paperInk, centered = true, textSize = failBtnTextSize, playClick = playClick,
             iconDrawer = { drawMainMenuHomeIcon(paperInk) }
@@ -4764,6 +4994,7 @@ class GameplayScene(
         nextLevel: LevelData?,
         paperInk: RGBA,
         playClick: (Double) -> Unit,
+        currentLanguage: String = "en",
         onRetry: suspend () -> Unit,
         onReturnToMenu: suspend () -> Unit,
         onNextMission: suspend () -> Unit
@@ -4854,12 +5085,13 @@ class GameplayScene(
         val WIN_BUTTONS_AT = 1.74
         val WIN_ANIM_END = WIN_BUTTONS_AT + WIN_REVEAL_DUR
 
-        val missionFileNo = (Regex("^(\\d+)").find(levelData.name)?.groupValues?.get(1)
+        val localizedLevelName = levelData.localizedName(currentLanguage)
+        val missionFileNo = (Regex("^(\\d+)").find(localizedLevelName)?.groupValues?.get(1)
             ?: levelData.id.filter { it.isDigit() }.ifEmpty { "1" }).padStart(2, '0')
-        val missionTitleText = levelData.name.replaceFirst(Regex("^\\d+:\\s*"), "").uppercase()
+        val missionTitleText = localizedLevelName.replaceFirst(Regex("^\\d+:\\s*"), "").uppercase()
 
         winCard.container().xy(winCx, winTop).also { holder ->
-            val t = holder.winText("MISSION $missionFileNo - $missionTitleText", 12.0, inkFaint, 0.0, 0.0)
+            val t = holder.winText("${Localization.missionLabel(currentLanguage)} $missionFileNo - $missionTitleText", 12.0, inkFaint, 0.0, 0.0)
             t.xy(-t.width / 2.0, 0.0)
         }.revealAt(0.22)
 
@@ -4905,9 +5137,9 @@ class GameplayScene(
         val winListTop = winTop + 88.0 * WS
         val winMarkR = 8.0 * WS
         val winRowLabels = listOf(
-            levelData.objectiveHint.uppercase(),
-            "NO ALERTS RAISED",
-            "TARGET TIME ${clockText(levelData.timeTargetSeconds)}"
+            levelData.localizedObjectiveHint(currentLanguage).uppercase(),
+            Localization.noAlertsRaised(currentLanguage),
+            Localization.targetTime(clockText(levelData.timeTargetSeconds), currentLanguage)
         )
         val winRows = (0 until 3).map { i ->
             winCard.container().xy(winTextL, winListTop + i * winRowH)
@@ -4924,7 +5156,7 @@ class GameplayScene(
         winPayoutRow.uiGraphics().updateShape {
             fill(inkRuleColor) { rect(0.0, 0.0, winTextW, 1.6 * WS) }
         }
-        val winBountyCaption = winPayoutRow.winText("BOUNTY", 11.0, inkFaint, 0.0, 8.0 * WS)
+        val winBountyCaption = winPayoutRow.winText(Localization.bounty(currentLanguage), 11.0, inkFaint, 0.0, 8.0 * WS)
         winBountyCaption.xy((winTextW - winBountyCaption.width) / 2.0, winBountyCaption.y)
         val winCoinR = 7.5 * WS
         val winCoinGap = 6.0 * WS
@@ -4934,17 +5166,17 @@ class GameplayScene(
         winPayoutRow.revealAt(WIN_PAYOUT_AT)
 
         val winButtons = winContainer.container()
-        val winNextLabel = if (nextLevel != null) "NEXT MISSION" else "ALL CLEAR!"
+        val winNextLabel = if (nextLevel != null) Localization.nextMission(currentLanguage) else Localization.allClear(currentLanguage)
         val winBtnTextSize = winBtnH * 0.40
 
         winButtons.createPaperMenuBtn(
-            "RETRY", victoryBtnBitmaps.getOrNull(0), winBtnW, winBtnH, winBtnL, winBtnY,
+            Localization.retry(currentLanguage), victoryBtnBitmaps.getOrNull(0), winBtnW, winBtnH, winBtnL, winBtnY,
             bebasFont, paperInk, centered = true, textSize = winBtnTextSize, playClick = playClick,
             iconDrawer = { drawRestartIcon(paperInk) }
         ) { onRetry() }
 
         winButtons.createPaperMenuBtn(
-            "MAIN MENU", victoryBtnBitmaps.getOrNull(1), winBtnW, winBtnH, winBtnL + winBtnW + winBtnGap, winBtnY,
+            Localization.mainMenu(currentLanguage), victoryBtnBitmaps.getOrNull(1), winBtnW, winBtnH, winBtnL + winBtnW + winBtnGap, winBtnY,
             bebasFont, paperInk, centered = true, textSize = winBtnTextSize, playClick = playClick,
             iconDrawer = { drawMainMenuHomeIcon(paperInk) }
         ) { onReturnToMenu() }
@@ -5159,8 +5391,12 @@ class GameplayScene(
         val l4endBitmap = SceneAssets.bitmap("l4end.png", minified = false)
         markLoadProgress()
         val exitLvl7Bitmap = SceneAssets.bitmap("exitlvl7.png")
-        val fanBladeBitmap = SceneAssets.bitmap("fan_blade.png") ?: SceneAssets.bitmap("fan.png")
-        val fanCoverBitmap = SceneAssets.bitmap("fan_cover.png") ?: SceneAssets.bitmap("fan.png")
+        val fanBladeBitmap = SceneAssets.bitmap("fan2_blade.png") ?: SceneAssets.bitmap("fan_blade.png") ?: SceneAssets.bitmap("fan2.png") ?: SceneAssets.bitmap("fan.png")
+        val fanCoverBitmap = SceneAssets.bitmap("fan2_cover.png") ?: SceneAssets.bitmap("fan_cover.png") ?: SceneAssets.bitmap("fan2.png") ?: SceneAssets.bitmap("fan.png")
+        val robotBodyBitmap = SceneAssets.bitmap("robot_body.png")
+        val robotWheelBitmap = SceneAssets.bitmap("robot_wheel.png")
+        val steamNozzleUpBitmap = SceneAssets.bitmap("steam_nozzle_up.png")
+        val steamNozzleDownBitmap = SceneAssets.bitmap("steam_nozzle_down.png")
         markLoadProgress()
         val leftBtnBitmap = SceneAssets.bitmap("left.png")
         markLoadProgress()
@@ -5239,6 +5475,10 @@ class GameplayScene(
             exitLvl7Bitmap = exitLvl7Bitmap,
             fanBladeBitmap = fanBladeBitmap,
             fanCoverBitmap = fanCoverBitmap,
+            robotBodyBitmap = robotBodyBitmap,
+            robotWheelBitmap = robotWheelBitmap,
+            steamNozzleUpBitmap = steamNozzleUpBitmap,
+            steamNozzleDownBitmap = steamNozzleDownBitmap,
             leftBtnBitmap = leftBtnBitmap,
             rightBtnBitmap = rightBtnBitmap,
             crouchBtnBitmap = crouchBtnBitmap,
@@ -5287,6 +5527,10 @@ class GameplayScene(
         val exitLvl7Bitmap: Bitmap?,
         val fanBladeBitmap: Bitmap? = null,
         val fanCoverBitmap: Bitmap? = null,
+        val robotBodyBitmap: Bitmap? = null,
+        val robotWheelBitmap: Bitmap? = null,
+        val steamNozzleUpBitmap: Bitmap? = null,
+        val steamNozzleDownBitmap: Bitmap? = null,
         val leftBtnBitmap: Bitmap?,
         val rightBtnBitmap: Bitmap?,
         val crouchBtnBitmap: Bitmap?,

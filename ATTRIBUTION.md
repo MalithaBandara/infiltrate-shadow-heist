@@ -31,6 +31,7 @@ tell at a glance which sounds are ours and which are not.
 | `ios-shell/Resources/mainmenu.mp3` | Same, iOS menu bus | Same file as above, duplicated for bundling | Nikita Kondrashev | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
 | `resources/sfx/alert_guard.wav` | Guard detects player | ["Huh 5"](https://freesound.org/s/812300/) | Sadiquecat | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | `resources/sfx/alert_camera.wav` | Camera detects player | ["Missile Lock Detected"](https://freesound.org/s/165504/) | ryanconway | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `resources/sfx/thunder.wav` | Atmospheric thunder clap / rumble | Procedural synthesis | This project | Own work |
 | `resources/missionmusic.mp3` | In-mission background music | [Track](https://pixabay.com/music/) via Pixabay | DELOSound | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
 
 ### Notes on the plate cuts

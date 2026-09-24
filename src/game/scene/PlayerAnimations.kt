@@ -16,7 +16,9 @@ class PlayerAnimationSet(
     val climb: SpriteAnimation,
     val swing: SpriteAnimation,
     val pushTransition: SpriteAnimation,
-    val push: SpriteAnimation
+    val push: SpriteAnimation,
+    val windTransition: SpriteAnimation,
+    val windWalk: SpriteAnimation
 )
 
 /**
@@ -360,6 +362,64 @@ object PlayerAnimations {
      */
     const val PUSH_STRIDE_PER_HEIGHT = 0.59
 
+    /**
+     * Raw 10..96 every 3rd: upright, leaning into the gale, planting the feet, settling into a
+     * braced forward lean. Played once forward on entering a fan's wind zone and once in reverse
+     * on leaving it - the crouch clip's own arrangement, off GameWorld.windStanceBlend.
+     *
+     * These plates are framed EXACTLY as the push plates are: a 484-row standing silhouette
+     * centred on raw column 173.0, the same pair prep_push.py measured. So they share push's
+     * scale and body centre, and frame 0 here IS the standing pose - 29 frames after raw 1-9,
+     * which are an ease-in so slow it is a hold (0.29 of one mean step over nine frames). That
+     * makes the handover in and out of idle free, the same as push's.
+     *
+     * Step 3 rather than push's step 2: the blend runs over GameWorld.WIND_STANCE_ENTER_SECONDS
+     * (0.5s), so 29 frames is already ~58fps of display and step 2 would buy 15 more frames of
+     * atlas for nothing. All the reasoning is in tools/art/prep_wind.py - re-run and paste.
+     */
+    private const val WIND_TRANSITION_FRAMES = 29
+
+    /** The settled lean. The pose the wind-walk loop starts from. */
+    const val WIND_TRANSITION_LAST = WIND_TRANSITION_FRAMES - 1
+
+    /**
+     * Raw 55..104 every 2nd: one complete wind-stride gait cycle, both steps.
+     *
+     * The period is 50 raw frames (self-similarity over the whole plate; 26 is the half-cycle,
+     * and looping on it would make both legs the same leg). Start 55 was picked over the
+     * tightest-seam candidates at 66/67 because those enter from the braced lean with a 6.2-step
+     * pose jump against 55's 2.18, and over start 1 - which has the best entry of all, being
+     * literally the frame after the transition ends - because start 1's seam is 2.55 and raw
+     * frame 6 runs off the left edge of the plate.
+     *
+     * HALVED where push keeps every frame, and push's own note says to redo that arithmetic
+     * rather than reuse the conclusion, so: this loop is distance-driven from the player's net
+     * ground speed and one cycle covers 32 world units. A human 4 Hz tap nets ~40 u/s through a
+     * fan zone, so a cycle is ~0.8s - 31fps at 25 frames, near walk's own 36, against 62fps at
+     * 50, which is past the panel.
+     */
+    private const val WIND_WALK_FRAMES = 25
+    const val WIND_WALK_LOOP_LENGTH = WIND_WALK_FRAMES
+
+    /**
+     * Ground covered by one wind-stride cycle, as a multiple of the character's on-screen
+     * height - same units as WALK_STRIDE_PER_HEIGHT and used the same way.
+     *
+     * Measured by tools/art/prep_wind.py at the plate's own full rate over exactly one period:
+     * the per-frame contact-profile shift sums to 81.6 sprite px, i.e. 32.1 world units on a
+     * 96-unit character. At the plate's 24fps that cycle takes 2.08s, so the actor is straining
+     * along at 15.4 u/s - a third of the speed the player moves, which is why the loop displays
+     * at about 3x the rate it was shot at.
+     *
+     * ONE DIFFERENCE FROM WALK AND PUSH, and it changes how much this number has to be trusted:
+     * those drive their loops from ground distance so a planted foot does NOT slide, and being
+     * wrong shows up at once as skating. Here the feet are MEANT to slide - the gale drags the
+     * character backwards while he strides forward - so this is a cadence knob rather than a
+     * foot-planting constraint. The three estimators in prep_wind.py bracket 0.31..0.39 and
+     * anywhere in there reads fine; it is tuned on screen, not to the third decimal.
+     */
+    const val WIND_STRIDE_PER_HEIGHT = 0.33
+
     // ---- source geometry ----------------------------------------------------------------
     /** Frames are 256 tall. */
     const val SOURCE_FRAME_HEIGHT = 256.0
@@ -455,6 +515,12 @@ object PlayerAnimations {
         // texture. Both push clips are already cut to the minimum that reads correctly and the
         // reasoning for every cut is in tools/art/prep_push.py, so a future saving has to come
         // from somewhere else rather than from trimming them again.
+        //
+        // The two wind clips (54 frames at 192x256 - wider than push's 180 because the wind
+        // walk's leading fist would otherwise sit on the frame edge; see prep_wind.py) add
+        // 2.65M px on top, taking the total to 29.1M. They are already the tightest cut the
+        // footage allows: the transition is sampled at step 3 and the gait loop is halved,
+        // both justified frame by frame in prep_wind.py.
         val atlas = MutableAtlas<Unit>(2048, 2048, growMethod = MutableAtlas.GrowMethod.NEW_IMAGES)
 
         // Only idle runs on its own timer. GameplayScene drives walk frame-by-frame from distance
@@ -469,7 +535,9 @@ object PlayerAnimations {
             climb = loadAnimation(atlas, "climb", CLIMB_FRAMES, frameTimeMs = 33, firstFile = CLIMB_FILE_START),
             swing = loadAnimation(atlas, "swing", SWING_FRAMES, frameTimeMs = 33),
             pushTransition = loadAnimation(atlas, "pushtransition", PUSH_TRANSITION_FRAMES, frameTimeMs = 33),
-            push = loadAnimation(atlas, "push", PUSH_FRAMES, frameTimeMs = 40)
+            push = loadAnimation(atlas, "push", PUSH_FRAMES, frameTimeMs = 40),
+            windTransition = loadAnimation(atlas, "windtransition", WIND_TRANSITION_FRAMES, frameTimeMs = 33),
+            windWalk = loadAnimation(atlas, "windwalk", WIND_WALK_FRAMES, frameTimeMs = 40)
         )
         cached = set
         return set

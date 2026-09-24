@@ -43,6 +43,24 @@ class GameplaySceneTest : ViewsForTesting() {
     }
 
     @Test
+    fun testLevel7ExhaustFanAssetsLoadedAndRendered() = viewsTest {
+        val blade = game.scene.SceneAssets.bitmap("fan_blade.png")
+        assertNotNull(blade, "fan_blade.png must load")
+        assertEquals(512, blade.width)
+        assertEquals(512, blade.height)
+
+        val cover = game.scene.SceneAssets.bitmap("fan_cover.png")
+        assertNotNull(cover, "fan_cover.png must load")
+        assertEquals(512, cover.width)
+        assertEquals(512, cover.height)
+
+        val sceneContainer = sceneContainer()
+        sceneContainer.changeTo { GameplayScene(game.model.LevelData.DEFAULT_LEVEL_7) }
+        assertNotNull(sceneContainer.currentScene)
+        views.update(16.milliseconds)
+    }
+
+    @Test
     fun testPlayerFootPlantingWhileWalkingOnTruckAndCrates() = viewsTest {
         val sceneContainer = sceneContainer()
         sceneContainer.changeTo { GameplayScene(game.model.LevelData.DEFAULT_LEVEL_1) }

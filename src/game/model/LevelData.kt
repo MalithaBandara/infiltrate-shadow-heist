@@ -299,7 +299,7 @@ data class LevelLayout(
     val steamPipes: List<SteamPipeDef> = emptyList(),
     val playerStartCrouched: Boolean = false,
     // Turns INTERACT into a push-stance toggle anywhere in the level, with no object to push
-    // and nothing to be in range of. Only LEVEL_13_LAYOUT sets it: level 13 is the bare stage
+    // and nothing to be in range of. Only LEVEL_8_LAYOUT sets it: level 8 is the bare stage
     // the push animation is tried out on, so the trigger is deliberately the plain button
     // rather than proximity to anything. A real pushable prop would gate this on range the way
     // levers and camera bots do, and would leave this flag alone.
@@ -364,7 +364,8 @@ data class LevelData(
     val backgroundImage: String? = null,
     val tutorialSteps: List<TutorialStep> = emptyList(),
     val hasDarknessVignette: Boolean = false,
-    val playerCrouchForwardSpeedMultiplier: Double = 1.0
+    val playerCrouchForwardSpeedMultiplier: Double = 1.0,
+    val hasRain: Boolean = false
 ) {
     val resolvedBackgroundImage: String
         get() {
@@ -407,7 +408,7 @@ data class LevelData(
             id = "level_1",
             name = "01: Night Arrival",
             timeTargetSeconds = 30.0f,
-            description = "Follow the robbery trail to the shipyard and find a way inside to begin your investigation.",
+            description = "Reach the shipyard under cover of darkness and find a way inside.",
             objectiveHint = "Find the Shipyard Entrance",
             guardSpeed = 60.0,
             guardPatrolMinX = 2955.0,
@@ -720,10 +721,12 @@ data class LevelData(
             id = "level_2",
             name = "02: Cargo Yard",
             timeTargetSeconds = 70.0f,
-            description = "Search the outer yard for clues and find a route toward the areas connected to the stolen cargo.",
+            description = "Cross the empty container yard and reach the restricted section.",
             objectiveHint = "Find a Way Through the Yard",
             layout = LEVEL_2_LAYOUT,
-            backgroundImage = "bgmg5.png"
+            backgroundImage = "bgmg5.png",
+            // Temporarily disabled rain for Google Play production approval
+            hasRain = false
         )
 
         /**
@@ -1664,8 +1667,9 @@ data class LevelData(
 
         val DEFAULT_LEVEL_3 = LevelData(
             id = "level_3",
-            name = "03: New Level",
+            name = "03: First Contact",
             timeTargetSeconds = 25.0f,
+            description = "Security is active. Avoid guards and cameras to reach the conveyor belt.",
             layout = LEVEL_3_LAYOUT,
             tutorialSteps = listOf(
                 TutorialStep(
@@ -1697,9 +1701,9 @@ data class LevelData(
 
         val DEFAULT_LEVEL_4 = LevelData(
             id = "level_4",
-            name = "04: Blind Spot",
+            name = "04: Moving Target",
             timeTargetSeconds = 115.0f,
-            description = "The cargo express conveyor is running in reverse. Vault over oncoming crates, duck under low-hanging cargo, and reach the secure facility.",
+            description = "Search the moving conveyor belt for Container 17 while avoiding lasers.",
             objectiveHint = "Traverse the Conveyor Line",
             layout = LEVEL_4_LAYOUT,
             backgroundImage = "metalbg.png",
@@ -1898,9 +1902,9 @@ data class LevelData(
 
         val SIDE_SCROLL_LEVEL = LevelData(
             id = "level_5",
-            name = "05: Restricted Zone",
+            name = "05: The Crane Yard",
             timeTargetSeconds = 60.0f,
-            description = "The trail leads into a guarded cargo section. Get inside and discover what they are protecting.",
+            description = "Container 17 is gone. Search the crane yard for signs of where it went.",
             objectiveHint = "Get Into the Restricted Area",
             coinRewardBase = 90,
             coinRewardPerStar = 40,
@@ -2664,9 +2668,9 @@ data class LevelData(
 
         val DEFAULT_LEVEL_6 = LevelData(
             id = "level_6",
-            name = "06: Missing Container",
+            name = "06: Stolen Manifest",
             timeTargetSeconds = 45.0f,
-            description = "Container 17 appears in the records from your crew's final job. Find it and learn where it went.",
+            description = "Break into the office and recover records revealing Container 17’s location.",
             objectiveHint = "Find Container 17",
             layout = LEVEL_6_LAYOUT
         )
@@ -2698,10 +2702,10 @@ data class LevelData(
             val fans = listOf(
                 VentFanDef(
                     id = "lvl7_fan_1",
-                    x = 850.0,
-                    y = ceilingBottomY,
-                    width = 44.0,
-                    height = groundY - ceilingBottomY,
+                    x = 753.0,
+                    y = 338.0,
+                    width = 36.0,
+                    height = 68.0,
                     windRange = 360.0,
                     windPushSpeed = 135.0,
                     windDirection = -1.0,
@@ -2709,22 +2713,22 @@ data class LevelData(
                 ),
                 VentFanDef(
                     id = "lvl7_fan_2",
-                    x = 2600.0,
-                    y = ceilingBottomY,
-                    width = 44.0,
-                    height = groundY - ceilingBottomY,
-                    windRange = 300.0,
+                    x = 2886.0,
+                    y = 338.0,
+                    width = 36.0,
+                    height = 68.0,
+                    windRange = 260.0,
                     windPushSpeed = 140.0,
                     windDirection = -1.0,
                     fanImpulse = 10.0
                 ),
                 VentFanDef(
                     id = "lvl7_fan_3",
-                    x = 4150.0,
-                    y = ceilingBottomY,
-                    width = 44.0,
-                    height = groundY - ceilingBottomY,
-                    windRange = 300.0,
+                    x = 3953.0,
+                    y = 338.0,
+                    width = 36.0,
+                    height = 68.0,
+                    windRange = 160.0,
                     windPushSpeed = 145.0,
                     windDirection = -1.0,
                     fanImpulse = 10.0
@@ -2738,8 +2742,8 @@ data class LevelData(
                     topY = ceilingBottomY,
                     bottomY = groundY,
                     mountType = PipeMountType.TOP,
-                    activeDuration = 1.4,
-                    inactiveDuration = 2.2,
+                    activeDuration = 2.8,
+                    inactiveDuration = 1.2,
                     phaseOffsetSeconds = 0.0
                 ),
                 SteamPipeDef(
@@ -2748,8 +2752,8 @@ data class LevelData(
                     topY = ceilingBottomY,
                     bottomY = groundY,
                     mountType = PipeMountType.BOTTOM,
-                    activeDuration = 1.4,
-                    inactiveDuration = 2.2,
+                    activeDuration = 2.8,
+                    inactiveDuration = 1.2,
                     phaseOffsetSeconds = 1.8
                 ),
                 SteamPipeDef(
@@ -2757,19 +2761,19 @@ data class LevelData(
                     x = 1800.0,
                     topY = ceilingBottomY,
                     bottomY = groundY,
-                    mountType = PipeMountType.PAIR,
-                    activeDuration = 1.5,
-                    inactiveDuration = 2.5,
+                    mountType = PipeMountType.TOP,
+                    activeDuration = 2.9,
+                    inactiveDuration = 1.3,
                     phaseOffsetSeconds = 0.5
                 ),
                 SteamPipeDef(
                     id = "lvl7_pipe_4",
-                    x = 2850.0,
+                    x = 2480.0,
                     topY = ceilingBottomY,
                     bottomY = groundY,
-                    mountType = PipeMountType.TOP,
-                    activeDuration = 1.3,
-                    inactiveDuration = 2.5,
+                    mountType = PipeMountType.BOTTOM,
+                    activeDuration = 2.7,
+                    inactiveDuration = 1.2,
                     phaseOffsetSeconds = 1.0
                 ),
                 SteamPipeDef(
@@ -2777,29 +2781,29 @@ data class LevelData(
                     x = 3200.0,
                     topY = ceilingBottomY,
                     bottomY = groundY,
-                    mountType = PipeMountType.BOTTOM,
-                    activeDuration = 1.4,
-                    inactiveDuration = 2.0,
+                    mountType = PipeMountType.TOP,
+                    activeDuration = 2.8,
+                    inactiveDuration = 1.2,
                     phaseOffsetSeconds = 0.0
                 ),
                 SteamPipeDef(
                     id = "lvl7_pipe_6",
-                    x = 3800.0,
+                    x = 4220.0,
                     topY = ceilingBottomY,
                     bottomY = groundY,
-                    mountType = PipeMountType.PAIR,
-                    activeDuration = 1.5,
-                    inactiveDuration = 2.3,
+                    mountType = PipeMountType.BOTTOM,
+                    activeDuration = 2.9,
+                    inactiveDuration = 1.3,
                     phaseOffsetSeconds = 1.2
                 ),
                 SteamPipeDef(
                     id = "lvl7_pipe_7",
-                    x = 4350.0,
+                    x = 4450.0,
                     topY = ceilingBottomY,
                     bottomY = groundY,
                     mountType = PipeMountType.TOP,
-                    activeDuration = 1.3,
-                    inactiveDuration = 2.0,
+                    activeDuration = 2.7,
+                    inactiveDuration = 1.2,
                     phaseOffsetSeconds = 0.4
                 ),
                 SteamPipeDef(
@@ -2808,8 +2812,8 @@ data class LevelData(
                     topY = ceilingBottomY,
                     bottomY = groundY,
                     mountType = PipeMountType.BOTTOM,
-                    activeDuration = 1.3,
-                    inactiveDuration = 2.0,
+                    activeDuration = 2.8,
+                    inactiveDuration = 1.2,
                     phaseOffsetSeconds = 1.5
                 )
             )
@@ -2850,9 +2854,9 @@ data class LevelData(
             val checkpoints = listOf(
                 Checkpoint(
                     id = "lvl7_cp1_fan1",
-                    x = 950.0,
+                    x = 840.0,
                     y = groundY - 96.0,
-                    triggerZone = Rect(930.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
+                    triggerZone = Rect(820.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
                 ),
                 Checkpoint(
                     id = "lvl7_cp2_pipes",
@@ -2868,21 +2872,21 @@ data class LevelData(
                 ),
                 Checkpoint(
                     id = "lvl7_cp4_fan2",
-                    x = 2700.0,
+                    x = 2980.0,
                     y = groundY - 96.0,
-                    triggerZone = Rect(2680.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
+                    triggerZone = Rect(2960.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
                 ),
                 Checkpoint(
                     id = "lvl7_cp5_bot2",
-                    x = 3700.0,
+                    x = 3660.0,
                     y = groundY - 96.0,
-                    triggerZone = Rect(3680.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
+                    triggerZone = Rect(3640.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
                 ),
                 Checkpoint(
                     id = "lvl7_cp6_fan3",
-                    x = 4250.0,
+                    x = 4050.0,
                     y = groundY - 96.0,
-                    triggerZone = Rect(4230.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
+                    triggerZone = Rect(4030.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
                 )
             )
 
@@ -2908,9 +2912,9 @@ data class LevelData(
 
         val DEFAULT_LEVEL_7 = LevelData(
             id = "level_7",
-            name = "07: Stolen Manifest",
+            name = "07: Service Tunnel",
             timeTargetSeconds = 85.0f,
-            description = "Infiltrate the secure facility through the maintenance corridor. Push through turbine exhausts, disable patrol drones from behind, and time your passage past pressurized steam vents.",
+            description = "Avoid the heavily guarded security room through the underground service tunnel.",
             objectiveHint = "Infiltrate Facility",
             layout = LEVEL_7_LAYOUT,
             backgroundImage = "bglvl7.png",
@@ -2918,8 +2922,8 @@ data class LevelData(
             tutorialSteps = listOf(
                 TutorialStep(
                     id = "step_spam_fan",
-                    triggerMinX = 500.0,
-                    triggerMaxX = 850.0,
+                    triggerMinX = 340.0,
+                    triggerMaxX = 750.0,
                     title = "TURBINE EXHAUST",
                     instructionTouch = "Continuously tap RIGHT to push through the headwind!",
                     instructionDesktop = "Continuously tap [D] or [RIGHT] to push through the headwind!",
@@ -2941,63 +2945,8 @@ data class LevelData(
             )
         )
 
-        val DEFAULT_LEVEL_8 = LevelData(
-            id = "level_8",
-            name = "08: Cold Trail",
-            timeTargetSeconds = 24.0f,
-            description = "The records point deeper into the shipyard. Follow the trail and uncover evidence of recent activity.",
-            objectiveHint = "Follow the Cargo Trail",
-            guardSpeed = 90.0,
-            guardPatrolMinX = 2600.0,
-            guardPatrolMaxX = 3100.0
-        )
-
-        val DEFAULT_LEVEL_9 = LevelData(
-            id = "level_9",
-            name = "09: Old Signature",
-            timeTargetSeconds = 23.0f,
-            description = "You find your crew's signature at the shipyard. Follow the clues to prove someone from the crew survived.",
-            objectiveHint = "Find Your Crew's Mark",
-            guardSpeed = 95.0,
-            guardPatrolMinX = 2600.0,
-            guardPatrolMaxX = 3080.0
-        )
-
-        val DEFAULT_LEVEL_10 = LevelData(
-            id = "level_10",
-            name = "10: Open Yard",
-            timeTargetSeconds = 24.0f,
-            description = "The trail continues across an exposed yard. Cross it unseen and stay close to the evidence.",
-            objectiveHint = "Cross the Yard Undetected",
-            guardSpeed = 100.0,
-            guardPatrolMinX = 2550.0,
-            guardPatrolMaxX = 3050.0
-        )
-
-        val DEFAULT_LEVEL_11 = LevelData(
-            id = "level_11",
-            name = "11: Ghost Chase",
-            timeTargetSeconds = 23.0f,
-            description = "A mysterious figure appears ahead, moving like one of your old crew. Follow them before they vanish.",
-            objectiveHint = "Follow the Stranger",
-            guardSpeed = 105.0,
-            guardPatrolMinX = 2550.0,
-            guardPatrolMaxX = 3030.0
-        )
-
-        val DEFAULT_LEVEL_12 = LevelData(
-            id = "level_12",
-            name = "12: Hidden Cargo",
-            timeTargetSeconds = 22.0f,
-            description = "You finally reach Container 17. Open it and uncover what links the cargo to your crew's disappearance.",
-            objectiveHint = "Open Container 17",
-            guardSpeed = 110.0,
-            guardPatrolMinX = 2500.0,
-            guardPatrolMaxX = 3000.0
-        )
-
         /**
-         * Level 13: the push-stance stage ("13: Final Proof").
+         * Level 8: the push-stance stage ("08: Final Proof").
          *
          * Deliberately EMPTY - flat ground from wall to wall and nothing else. No guards, no
          * cameras, no boxes, no hazards, no start fences, no hanging anything. It used to be one
@@ -3015,7 +2964,7 @@ data class LevelData(
          * stance's ~53 u/s, which is the point: it is enough room to watch a full gait cycle
          * several times over.
          */
-        val LEVEL_13_LAYOUT = run {
+        val LEVEL_8_LAYOUT = run {
             val groundY = 440.0
             val worldWidth = 3600.0
             val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
@@ -3043,13 +2992,13 @@ data class LevelData(
             )
         }
 
-        val DEFAULT_LEVEL_13 = LevelData(
-            id = "level_13",
-            name = "13: Final Proof",
+        val DEFAULT_LEVEL_8 = LevelData(
+            id = "level_8",
+            name = "08: Relocation",
             timeTargetSeconds = 22.0f,
-            description = "An empty yard with nothing left in it. Press INTERACT to brace against the load, walk it along, and press INTERACT again to stand up.",
+            description = "The guards moved Container 17. Follow the trail to its new location.",
             objectiveHint = "Push the load to extraction",
-            layout = LEVEL_13_LAYOUT,
+            layout = LEVEL_8_LAYOUT,
             tutorialSteps = listOf(
                 TutorialStep(
                     id = "step_push_stance",
@@ -3065,6 +3014,50 @@ data class LevelData(
             )
         )
 
+        val DEFAULT_LEVEL_9 = LevelData(
+            id = "level_9",
+            name = "09: Déjà Vu",
+            timeTargetSeconds = 23.0f,
+            description = "The trail feels strangely familiar, as if you’ve done this before.",
+            objectiveHint = "Find Your Crew's Mark",
+            guardSpeed = 95.0,
+            guardPatrolMinX = 2600.0,
+            guardPatrolMaxX = 3080.0
+        )
+
+        val DEFAULT_LEVEL_10 = LevelData(
+            id = "level_10",
+            name = "10: Below the Yard",
+            timeTargetSeconds = 24.0f,
+            description = "Follow the underground tunnels in search of the person you were tracking.",
+            objectiveHint = "Cross the Yard Undetected",
+            guardSpeed = 100.0,
+            guardPatrolMinX = 2550.0,
+            guardPatrolMaxX = 3050.0
+        )
+
+        val DEFAULT_LEVEL_11 = LevelData(
+            id = "level_11",
+            name = "11: The Prisoner",
+            timeTargetSeconds = 23.0f,
+            description = "Rescue the prisoner and escort him to safety. Something about him feels familiar.",
+            objectiveHint = "Follow the Stranger",
+            guardSpeed = 105.0,
+            guardPatrolMinX = 2550.0,
+            guardPatrolMaxX = 3030.0
+        )
+
+        val DEFAULT_LEVEL_12 = LevelData(
+            id = "level_12",
+            name = "12: Final Escape",
+            timeTargetSeconds = 22.0f,
+            description = "Guards are closing in. Get the prisoner out of the shipyard before it’s too late.",
+            objectiveHint = "Open Container 17",
+            guardSpeed = 110.0,
+            guardPatrolMinX = 2500.0,
+            guardPatrolMaxX = 3000.0
+        )
+
         val DEFAULT_LEVELS: List<LevelData> = listOf(
             DEFAULT_LEVEL_1,
             DEFAULT_LEVEL_2,
@@ -3077,8 +3070,7 @@ data class LevelData(
             DEFAULT_LEVEL_9,
             DEFAULT_LEVEL_10,
             DEFAULT_LEVEL_11,
-            DEFAULT_LEVEL_12,
-            DEFAULT_LEVEL_13
+            DEFAULT_LEVEL_12
         )
     }
 }

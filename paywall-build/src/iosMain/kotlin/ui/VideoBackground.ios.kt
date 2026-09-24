@@ -5,8 +5,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -117,15 +119,16 @@ actual fun LoopingVideoBackground(
             .background(Color.Black)
             .clipToBounds()
     ) {
-        // ui/VideoBackground.kt: fill the height, keep the aspect, pin to the trailing edge -
-        // so a screen squarer than the video runs its left side off the edge rather than
-        // leaving a black bar along the bottom.
+        // ui/VideoBackground.kt: fill the height, keep the aspect, and slide it so the
+        // silhouette stays clear of the trailing edge - a screen squarer than the video runs its
+        // left side off the edge rather than leaving a black bar along the bottom.
         val box = videoBoxFor(maxWidth, maxHeight)
 
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.TopEnd
-        ) {
+        // The placement lives on the child, not on this Box: a Box reports
+        // max(minConstraint, childSize), so an oversized child makes the Box itself oversized and
+        // there is nothing left for contentAlignment to align against. wrapContentSize pins the
+        // wrapper back to the incoming constraints and places the overflowing child inside it.
+        Box(modifier = Modifier.fillMaxSize()) {
             UIKitView(
                 factory = {
                     PlayerContainerView(frame = CGRectZero.readValue()).apply {
@@ -141,6 +144,8 @@ actual fun LoopingVideoBackground(
                     view.playerLayer?.frame = view.bounds
                 },
                 modifier = Modifier
+                    .wrapContentSize(Alignment.TopStart, unbounded = true)
+                    .offset(x = box.offsetX)
                     .requiredWidth(box.width)
                     .requiredHeight(box.height)
             )

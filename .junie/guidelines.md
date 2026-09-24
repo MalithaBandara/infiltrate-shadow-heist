@@ -602,6 +602,64 @@ refuses to upscale the artwork past the 462dp it was drawn at, which only a 12.9
 Verified the same way as above, at 4:3 and at the reference aspect, with before/after captures of
 both the splash and the menu. Still not verified on a device: the same caveat applies.
 
+### Two more from the owner's own iPad and foldable (2026-09-25)
+
+**The menu video was never actually pinned to the trailing edge** - the rule was right, the
+implementation was not, and it took a screenshot at 7:6 to see it. `Box(contentAlignment = TopEnd)`
+around an oversized child does nothing, because **a `Box` measures itself as
+`max(minConstraint, childSize)`**: a child wider than the box makes the *box* that wide, and a box
+exactly as wide as its child has nothing left to align. Worse, the oversized measurement propagates
+up - `fillMaxSize()` reports its child's size, not the constraint, so `clipToBounds()` clips to the
+oversized bounds too - until some ancestor centres the whole menu root. The video came out centred
+and the silhouette was sliced in half by the right edge.
+
+The fix is `wrapContentSize(align, unbounded = true)` on the **child**, which measures unbounded,
+reports the *constrained* size, and places the overflowing child inside it. Anything that has to
+overflow its parent in Compose needs this; `contentAlignment` is not a substitute. All three hosts
+had the same bug because all three were written from the same (wrong) sketch.
+
+**And the trailing edge was the wrong thing to pin anyway.** The silhouette spans 0.78..0.87 of
+`bg1080p.mp4`'s width; past ~0.91 it is just the rooftop mast and dish. Pinning the frame's own
+right edge spends that whole scenery strip on screen and pays for it by cutting more off the left.
+`videoBoxFor` now returns an `offsetX` as well as a size: the overflow takes the leading edge first
+and only spills past the trailing edge once it has eaten the `SUBJECT_TRAILING_EDGE` strip, so the
+silhouette keeps ~4% of the frame width clear of the screen edge at every aspect. `ResponsiveTest`
+walks 2.33 down to 1.0 and asserts the silhouette's own span stays on screen - if the art is ever
+recut, move the two fractions in that test with it.
+
+**The gameplay canvas now has a zoom cap, and the "never crop" rule has an exception.**
+Containing the design rect at every aspect handed a 4:3 iPad a 1040x780 canvas; the ground is
+pinned near the bottom and `worldZoom` is a fixed 1.35, so the action sat in the bottom third of a
+big screen with dead sky above it - the owner's words were "don't show too much extra sky in
+tablets, instead zoom in onto the game". There is no free lunch here: the ground has nothing below
+it to reveal, so the only way to fill more of a squarer screen is to magnify, and magnifying shows
+less width. `ScreenLayout` now caps the canvas height at `MAX_CANVAS_HEIGHT` (585, the height at
+which 1040 exactly fills a 16:9 screen) with `MIN_CANVAS_WIDTH` = 800 under it, so:
+
+| aspect | before | after | visible world width |
+| --- | --- | --- | --- |
+| 2.17 reference and wider | unchanged | unchanged | 770+ |
+| 16:9 (squarest phone) | 1040x585 | 1040x585 | 770 |
+| 16:10 tablet | 1040x650 | 936x585 | 693 |
+| 4:3 iPad | 1040x780 | **800x600** | 593 |
+| 7:6 foldable | 1040x893 | 800x687 | 593 |
+
+`FULL_WIDTH_ASPECT` is 16:9 exactly because that is the squarest a phone in landscape gets, so
+**no phone loses a unit of field of view** - the cap is a tablet-and-foldable concession only, and
+the level-pacing arguments above still hold on the devices they were reasoned against.
+`MIN_CANVAS_WIDTH` is deliberately the same 800 `GameplayScene` already clamps its own `canvasW`
+to, so the two floors cannot disagree; it is what actually binds at 4:3 and squarer.
+
+**Watch out:** the splash screen's `splashScale` was written as `canvasH / DESIGN_HEIGHT`, which is
+`DESIGN_ASPECT / aspect` *only while the canvas is the design rect grown to fit*. The zoom cap
+broke that identity and silently shrank the iPad logo from 54% of the screen back to 43%, undoing
+the fix above. It is now written as the aspect ratio directly. Any other constant derived from
+`canvasH` alone is suspect for the same reason.
+
+Verified with before/after captures of gameplay at 4:3 (`:runJvm -PwindowSize=1366x1024`, using
+`-PstartLevel` to land straight in a level), the reference aspect for comparison, the splash at
+4:3, and the menu at 7:6. Still not verified on a device.
+
 ## Non-gameplay UI in Compose - status
 
 MainMenu, LevelSelect, Store, Settings are real Compose screens in `paywall-build`. KorGE is entered
@@ -627,15 +685,15 @@ surface (bug #7), so the Compose menu draws opaquely on top of an always-visible
 - `dtSec` is clamped to 0.1s and `Player.update` sub-steps at 1/60, so a 100ms hitch runs six
   physics steps - slow frames make themselves slower.
 - Levels: `01: Night Arrival` (`DEFAULT_LEVEL_1`, tutorial), `02: Cargo Yard` (`LEVEL_2_LAYOUT`,
-  `bgmg5.png`), `03: New Level` (`LEVEL_3_LAYOUT`, WIP), `04: Blind Spot` (`LEVEL_4_LAYOUT`, conveyor,
-  `bgmg6.png`, darkness vignette), `05: Restricted Zone` (`SIDE_SCROLL_LEVEL_LAYOUT` - the recovered
-  barrel-wall + hook-swing stub, see "The swing move"), `06: Missing Container` (`LEVEL_6_LAYOUT` -
-  lever-crate swing, pit crossing, crane crossing; see its own section), `07: Stolen Manifest`
+  `bgmg5.png`, procedural rain, lightning & thunder weather system; see its own section), `03: First Contact` (`LEVEL_3_LAYOUT`, WIP), `04: Moving Target` (`LEVEL_4_LAYOUT`, conveyor,
+  `bgmg6.png`, darkness vignette), `05: The Crane Yard` (`SIDE_SCROLL_LEVEL_LAYOUT` - the recovered
+  barrel-wall + hook-swing stub, see "The swing move"), `06: Stolen Manifest` (`LEVEL_6_LAYOUT` -
+  lever-crate swing, pit crossing, crane crossing; see its own section), `07: Service Tunnel`
   (`LEVEL_7_LAYOUT` - linear vent crawling gauntlet, exhaust fans, camera bots, steam pipes; see its
-  own section), `08: Hidden Archive` .. `12: Hidden Cargo` (no layout of their own, `GameWorld.createDefault`
-  with a per-level `guardSpeed`), `13: Final Proof` (`LEVEL_13_LAYOUT` - deliberately EMPTY, the
-  push-animation stage; see its own section). Other levels' backgrounds rotate through `bgmg2/3/4`
-  via `LevelData.resolvedBackgroundImage`.
+  own section), `08: Relocation` (`LEVEL_8_LAYOUT` - deliberately EMPTY, the push-animation
+  stage; see its own section), `09: Déjà Vu` .. `12: Final Escape` (no layout of their own,
+  `GameWorld.createDefault` with a per-level `guardSpeed`). Other levels' backgrounds rotate through
+  `bgmg2/3/4` via `LevelData.resolvedBackgroundImage`.
 
 ## End-of-run dossier sheets (MISSION FAILED / HEIST COMPLETE)
 
@@ -671,8 +729,10 @@ Two systems sharing no code: **gameplay** (`GameAudio.kt`, KorGE, `resourcesVfs`
 4-voice `AVAudioPlayer` pool iOS, `SoundPool` Android, JavaFX `AudioClip` desktop - all
 overlap-capable). **Format: PCM s16le / 44.1kHz / mono WAV only** (iOS and JavaFX can't decode Ogg).
 Shared clips (`ui_click.wav`, toast sounds) are checked in twice: `resources/sfx/` and
-`ios-shell/Resources/`; Android's menu bus reads `assets/sfx/` (copied from `resources/`). Credits in
-`SOUND_CREDITS` (`SettingsScreen.kt`) kept in sync with `ATTRIBUTION.md` by hand.
+`ios-shell/Resources/`; Android's menu bus reads `assets/sfx/` (copied from `resources/`). Gameplay
+one-shots include steps, climb, impact, guard investigate, camera detect, and `thunder.wav` (2.8s low
+rumble/crack for Level 2 rain, `THUNDER_GAIN = 0.90`). Credits in `SOUND_CREDITS` (`SettingsScreen.kt`)
+kept in sync with `ATTRIBUTION.md` by hand.
 
 ### Android gameplay crackle - RESOLVED 2026-09-11 (Galaxy S25 Ultra)
 
@@ -865,7 +925,30 @@ populating its own `swingHooks`. What a future session needs:
   (`testSwingCarriesThePlayerOverLevel5sGapAndLandsThemOnIt`) drives a full player-input walkthrough
   of level 5 end to end and asserts `world.isLevelComplete` - not a point-sampled check.
 
-## Level 3 ("03: New Level", WIP) - `LEVEL_3_LAYOUT`
+## Level 2 ("02: Cargo Yard") - procedural rain, lightning & thunder (`RainEffect.kt`)
+
+Built 2026-09-24. Gated by `LevelData.hasRain = true` (only enabled on Level 2). Designed specifically
+for atmospheric stealth gameplay with zero per-frame garbage collector pressure and negligible mobile CPU/GPU cost:
+- **Zero per-frame allocations**: Pre-allocated sprite pool of 250 `Image` views sharing a single 6x48
+  procedural premultiplied drop texture slice (`RainAssets.dropSlice`, bright silver `#ebf5ff` with 2-3px solid core).
+- **Dual volumetric depth**: 110 background drops (scale 0.85, length 67px, alpha 0.38..0.55, speed 650..780 px/s,
+  parallax 0.20) layered in `bgLayer` behind crates and world geometry; 140 foreground drops (scale 1.1, length 96px,
+  alpha 0.70..0.92, speed 920..1150 px/s, parallax 0.85) layered in front of gameplay.
+- **Wind drift & viewport wrapping**: Particles fall angled at ~11.3 degrees (`WIND_SLOPE = 0.20`) with
+  wrap margins (`MARGIN_X = 100`, `MARGIN_Y = 120`) around the active camera window. Zero off-screen particles
+  are simulated or rendered regardless of level width.
+- **Multi-pulse lightning strobe**: Periodic atmospheric strikes (initial timer 2.5-4.5s, subsequent intervals
+  8-16s). Multi-pulse profile matches real lightning physics: initial flash (0.70 alpha, 50ms), dip (0.25,
+  30ms), main return stroke (0.92, 60ms), secondary flicker (0.40, 50ms), and smooth exponential fade (260ms).
+  Uses a `SolidRect` overlay layered above world geometry and below HUD.
+- **Sky lightning bolt**: 7 connected jagged line segments (width 3.5px) rendered in the sky during the strobe.
+- **Physics speed-of-sound thunder delay**: Acoustic propagation delay (0.4s to 0.9s) between the speed-of-light visual
+  flash and the arrival of the rolling thunder audio (`sfx/thunder.wav`, 2.8s PCM s16le / 44.1kHz mono WAV,
+  `THUNDER_GAIN = 0.90`).
+- Verified via `RainEffectTest` (6/6 tests passing: asset generation, lifecycle, frame updates, lightning/thunder cycle,
+  and diagnostic preview generation `level2_rain_preview.png`). Android compilation and `assembleDebug` fully clean.
+
+## Level 3 ("03: First Contact") - `LEVEL_3_LAYOUT`
 
 **The layout's doc comment and inline comments in `LevelData.kt` are the source of truth** - every
 constant carries its reasoning there. Summary of the current shape:
@@ -1198,7 +1281,7 @@ constant carries its reasoning there. Summary of the current shape:
 - Verified on JVM desktop screenshots in stages; **not on Android or iOS**. The uncommitted working
   tree is ahead of the last commit here - check `git status` before assuming which state is pushed.
 
-## Level 4 ("04: Blind Spot") - conveyor belt run, `LEVEL_4_LAYOUT`
+## Level 4 ("04: Moving Target") - conveyor belt run, `LEVEL_4_LAYOUT`
 
 Replaced the barrel-wall + hook-swing layout of the same name, later recovered from history as level 5
 (see "The swing move"). Current:
@@ -1232,7 +1315,7 @@ Replaced the barrel-wall + hook-swing layout of the same name, later recovered f
 - Verified: an end-to-end JVM playthrough of an earlier iteration reached MISSION SUCCESSFUL with the
   background tiling; the laser/bobbing version is in the uncommitted working tree. Not on device.
 
-## Level 6 ("06: Missing Container") - `LEVEL_6_LAYOUT`
+## Level 6 ("06: Stolen Manifest") - `LEVEL_6_LAYOUT`
 
 Five sections; the layout's own doc comments in `LevelData.kt` carry the reasoning, as with
 level 3. Section 1 is a lever-fired moving crate ridden into a swing hook; section 2 is a forced
@@ -1571,33 +1654,37 @@ Verified by a full walkthrough test that drives the real loop from `farTerrain` 
 the boom, plus JVM desktop screenshots of the three areas (boom tip over `tallBlock`, machine
 beside the lever, exit past the machine). **Not on Android or iOS.**
 
-## Level 7 ("07: Stolen Manifest") - `LEVEL_7_LAYOUT`
+## Level 7 ("07: Service Tunnel") - `LEVEL_7_LAYOUT`
 
 Designed 2026-09-23 as a high-tension linear crawling gauntlet similar in structure to Level 4's
 conveyor run. The player infiltrates the secure facility through a continuous 5200px ventilation
 duct:
 
-- **Enforced crouching**: `ventCeiling` at `y = 344.0..372.0` with `groundY = 440.0` leaves 68px
-  vertical clearance across the duct (player crouching height is 56px, standing is 96px). Standing
-  up is physically blocked throughout the entire shaft. `LevelLayout.playerStartCrouched = true`
-  spawns the player already crouched, and `Player.mustStayCrouched` ensures the player cannot stand
-  up while under the duct ceiling even if crouch input is released.
-- **Vent Fans (`VentFanDef` / `VentFan`, `src/game/model/VentObstacles.kt`)**: Industrial exhaust fans
-  blowing high-velocity backward air (-120..-130 px/s). Holding forward is pushed backward; the
-  player must spam-tap the forward button (`forwardTap`), delivering rhythmic forward stride
-  impulses (+48 px/tap) to muscle through the wind. To ensure human tapping rates (3–5 taps/sec)
-  reliably advance the player even when the forward button is released between taps, a
-  `fanPushbackDampenTimer` (0.22s) dampens pushback between successive presses, and `GameplayScene.kt`
-  latches `touchRightTap` so fast on-screen clicks/taps are never dropped across frame cycles.
-- **Camera Bots (`CameraBotDef` / `CameraBot`)**: Small wheeled/tracked surveillance drones that
-  patrol back and forth along the vent floor, casting a forward vision light cone (`visionRange = 120.0`,
+- **The duct is STANDING height, not a crawl** - this entry used to say otherwise and it was stale.
+  `ceilingBottomY = 304.0` against `groundY = 440.0` is 136 units of clearance, so a 96-tall
+  standing player fits with room to spare, and `LevelLayout.playerStartCrouched` is `false`.
+  `Player.mustStayCrouched` still exists for ducts that ARE tight; nothing in level 7 triggers it
+  at the current geometry. Check `LEVEL_7_LAYOUT` before writing a crouch-only beat into this level.
+- **Vent Fans (`VentFanDef` / `VentFan`, `src/game/model/VentObstacles.kt`)**: industrial exhaust
+  fans blowing 135-145 u/s of air back down the duct. Ordinary walking cannot beat it
+  (`GameWorld.WIND_WALK_FACTOR` cuts the player's own walk to 0.6 inside a zone, so 79 against 135);
+  spam-tapping forward is what moves you. **Rebuilt 2026-09-24** - see "The wind stance" below for
+  the mechanic's numbers, why they are what they are, and the three boundary bugs the rebuild
+  turned up. `GameplayScene.kt` latches `touchRightTap` so fast on-screen taps are never dropped
+  across frame cycles.
+- **Camera Bots (`CameraBotDef` / `CameraBot`)**: Small wheeled surveillance rovers that patrol
+  back and forth along the vent floor, casting a forward vision light cone (`visionRange = 120.0`,
   FOV 40 degrees). Walking into their vision cone raises an alert and triggers Mission Failed. The
   player must sneak up from behind within `deactivationRange = 52.0` and press the INTERACT button
-  to permanently deactivate the drone.
+  to permanently deactivate the drone. **Art replaced 2026-09-25** with the owner's rover plus a
+  rotating road wheel - see "The level 7 patrol rover" below, which also covers the one gameplay
+  number that moved with it (`EYE_HEIGHT_FRACTION`, where the cone starts).
 - **Pressurized Steam Pipes (`SteamPipeDef` / `SteamPipe`)**: Top-mounted, bottom-mounted, and paired
   nozzles blasting lethal pressurized steam on timed cycles (1.3..1.5s active, 2.0..2.5s inactive)
   with a 0.45s warning progress flare. Touching active steam causes instant Mission Failed,
-  deflectable once by the Laser Shield gadget (`activePowerups.isLaserShieldActive`).
+  deflectable once by the Laser Shield gadget (`activePowerups.isLaserShieldActive`). **Nozzle art
+  replaced 2026-09-25** - see "The level 7 fixtures pass" below, which also covers where the
+  full-screen red hit flash went and why its removal reaches every other level too.
 - **Sequencing & decoupled hazard zones**: Obstacles are decoupled into clean, distinct stages so
   fans do not blow the player into active steam pipes or drones. Safe recovery and staging zones
   (100..300px) separate every hazard, housing 6 manual checkpoints.
@@ -1632,12 +1719,243 @@ duct:
   `testLevel7CameraBotPatrolAndDeactivationFromBehind`, `testLevel7SteamPipeHazardsAndLaserShieldDeflection`,
   and full end-to-end traversal `testLevel7SimulationPlayableWalkthrough`.
 
-## The push stance (`resources/player/push{,transition}`) - built 2026-09-24, live on level 13
+## The level 7 patrol rover (`resources/robot_{body,wheel}.png`) - replaced 2026-09-25
+
+The camera bots were rect-built in `CameraBotVisual` (treads, hull, bevel plate, dome turret). They
+are now the owner's art: a wheeled rover with an articulated sensor boom, cut by
+`tools/art/prep_robot.py` into **two** plates - a body with holes where its wheels were, and the
+cogged road wheel on its own. That script's header is the source of truth for the cut and for every
+fraction in `CameraBotVisual`'s companion; re-run and paste rather than hand-editing them.
+
+- **The body plate is cut because the rim is the only thing that can show motion.** The rover is a
+  flat silhouette, so a cog drawn inside its outline is invisible - the rolling read comes entirely
+  from tooth tips breaking the wheel's circle. Leaving the drawn-on wheels in the body would union
+  them with the rotating sprite into a ring that is toothy all the way round at every angle, which
+  shimmers instead of turning. The cut is a disc of `r + 2` raw px (slightly WIDER, so no tooth tip
+  survives the resample) minus the chassis rectangle the wheels hide, which is reconstructed rather
+  than traced: the chassis floor is the last scanline that crosses the silhouette in ONE run
+  (y=799), its walls are read from the last scanline above the wheels' tops (y=650, x 331..1204).
+- **Everything about the wheels is measured, not assumed.** Below the chassis floor the only thing
+  left is wheels, so each one's bounding box gives its centre and outer radius directly: (359.0,
+  809.0) and (1174.5, 809.5), both r≈155 of a 1126x894 crop - they agree to half a raw pixel in
+  both, which is the check that the detection worked.
+- **The wheel plate is cropped to its bbox and forced square, which is also what makes it round.**
+  The raw cog is drawn 3.8% wider than tall, and rotating that wobbles the silhouette once per
+  turn. It rotates about the bbox centre, not the centroid (which sits ~7 raw px lower), because
+  that fixes the outer extent by construction - moving the rim is the more visible of the two errors.
+- **Wheels are driven by ground distance, not by time**, same rule as the guard's walk and the
+  player's: `rollAngle += dx / r`. That is what stops them dead when the bot pauses at the end of a
+  leg or is deactivated, and keeps them in step at whatever `speed` a level picks without a second
+  constant to hold in sync. `abs(dx) <= bot.width` swallows a respawn teleport, which would
+  otherwise whip them through however many turns the patrol is long.
+- **The mirrored chassis reverses the sense of a child's rotation.** `chassisContainer.scaleX = -1`
+  when facing left flips positions AND rotations, so the local angle is negated there. Sign errors
+  here are invisible in a still and obvious in motion, so `CameraBotWheelTest` asserts on
+  `wheels[i].rotation` - the angle that actually reaches the renderer - rather than on an internal
+  accumulator.
+- **The lens is dark unless the rover has the player** (2026-09-25 - see the fixtures pass
+  below). The blue glow/lens/pip stack this section was first written against is gone.
+- **The lens moved up the boom: `CameraBot.EYE_HEIGHT_FRACTION` is 0.20, was 0.45.** This is a
+  gameplay-visible change, not a cosmetic one. Mid-box suited a squat crawler with a turret on top;
+  the rover carries its sensor out over the front wheel and the front of the box at mid-height is
+  empty air, so the cone used to leave from beside the machine rather than from anything on it. The
+  cone is horizontal, 40 degrees over 120 units, so at full range it still covers most of a standing
+  player; what changes is that someone crouched right under the boom is slightly safer and someone
+  on a crate slightly less so. All 217 jvm tests pass either way.
+- **Which way it faces is a judgement, not a measurement**, and it is the one thing here worth
+  re-checking on screen. The plate is kept in source orientation and treated as facing RIGHT, which
+  puts the boom's slab reaching forward over the front wheel and the chassis's sloped fender over
+  it, and drops the cone out from under the slab's tip. Read the other way round the slab overhangs
+  the tail and the cone comes off a blank nose. If it is backwards, flip the plate in
+  `prep_robot.py` - do NOT invert the sign in `CameraBotVisual`, which follows the same
+  `facing < 0 -> scaleX = -1` convention as every other actor.
+- Sizes are the POT rule: body 128x128 (32 virtual units drawn x3 = 96), wheel 64x64 (~8.8 units x3
+  = 26, doubled because it is the one asset resampled at every angle rather than axis-aligned).
+  Together 20K px - the collision box (`width = 32`, `height = 26`) is untouched, so nothing in the
+  level's balance moves; the art is bottom-aligned inside it at its own 0.794 aspect and the wheels
+  sit on the floor the model walks the bot along.
+- **The procedural crawler is still there as a fallback** and `createAll` takes both bitmaps as
+  nullables defaulting to `null`, exactly like the fan's blade and cover, so a failed load degrades
+  instead of taking the level down. `testTheProceduralFallbackHasNoWheelsAndDoesNotCrash` pins it.
+
+**A black rover on a dark duct floor is hard to see, and that is not new** - the rects it replaced
+were `#0f172a`/`#1e293b`, barely lighter. It reads against the lit wall panels and disappears
+against the louvre vents, which is the same deal the player's own silhouette gets. Do not "fix" it
+by tinting: `colorMul` on art whose RGB is 0 does nothing at all (black times anything is black),
+so a tint means baking a lighter RGB into the plate and giving up the silhouette look the rest of
+the game is drawn in.
+
+Verified: `jvmTest` 217 green including the eight in `CameraBotWheelTest`, and
+`android-shell:compileReleaseKotlin` clean after `:paywall-build:publishToMavenLocal`. On JVM
+desktop the rover renders at the right size and place, bottom-aligned on the duct floor, mirrors
+correctly with `facing`, and the cone leaves from under the sensor slab - confirmed against
+screenshots with the shadows lifted, because at the level's own exposure it is nearly black.
+**The wheels turning was NOT resolved visually**: on screen the wheel is ~10px across with 16
+teeth, and the captures could not be aligned well enough to separate a rotating rim from the bot's
+own travel. It is pinned by test instead. **Not checked on Android or iOS.**
+
+## The level 7 fixtures pass (2026-09-25) - three removals and one art swap
+
+Four requests in one go. Three of them are removals, and a removal is the kind of change that
+quietly comes back, so `VentVisualsTest` pins the absences rather than trusting a comment.
+
+- **The exit terminal is gone, and `VentCorridorVisual` with it.** It was the whole class: a
+  `#334155` pedestal at x=5050 with a `#0284c7` bar, an additive `#38bdf8` "holographic manifest"
+  and a white strip - the blue-and-grey shape the owner pointed at. Nothing else lived in that
+  class, so the class, its `create` call and the `isL7`/`l7Layout` locals that fed it all went. If
+  level 7 ever wants architectural framing again, start a fresh one; do not resurrect this.
+- **The rovers carry no running lights.** They used to wear an additive cyan glow
+  (`botEyeGlowBitmap`, a 16x16 radial ramp) pulsing at 12 rad/s, plus a `#38bdf8` lens and a white
+  pip, lit the entire time they were alive. All three are gone and so is the generator - nothing
+  referenced it any more. What replaced them is `CameraBotVisual.alertLens`: a single 4x4 `#ef4444`
+  rect, **invisible unless the rover actually has the player**. That keeps the one moment the lamp
+  was information (the light cone and the detection pip carry the rest of that tell) and drops the
+  decoration. A deactivated rover still throws its amber sparks on a 1.5s blink.
+- **The steam nozzles are the owner's art** (`resources/steam_nozzle_{up,down}.png`, cut by
+  `tools/art/prep_steam.py`) in place of four stacked `solidRect`s. Two files rather than one and a
+  negative scale, because bug #8 tears a detailed `Image` under a negative scale at this downscale;
+  `truck.png`/`entrance.png` are pre-mirrored for the same reason. **Both mounts now sit INSIDE the
+  corridor** - the floor one stands on `bottomY`, the ceiling one hangs from `topY` - which is a
+  change from the rects, which sat *outside* the duct line. Recessed above the ceiling the black
+  silhouette lands on the dark background beyond the duct and vanishes: on screen only its LED was
+  visible. The jet still starts exactly at `topY`/`bottomY`, inside the fixture, and the plume is
+  built BEFORE the fixture so the plate draws over the mouth it leaves from. That the kill box runs
+  under the fixture is honest rather than sloppy - `SteamPipe.bounds` spans the full corridor, and
+  the fixture is what fills the last 19 units of it.
+- **The status LED survived the swap and had to.** Red while dormant, green from the 0.45s warning
+  flare through the whole eruption, it is the tell that lets a player time the run. The art has no
+  lamp drawn on it, so `prep_steam.py` measures the left bolt block (the scanlines where the
+  silhouette breaks into exactly three runs are the two blocks plus the trunk) and the LED is
+  placed there, on solid metal rather than floating in the taper.
+- **No more red wash on a lethal hit, on any level.** A `#ff0033` rect covered the whole canvas at
+  0.45 alpha for 0.25s whenever `GameWorld.onLaserHit` or `onSteamPipeHit` fired. Those callbacks
+  are shared model hooks, so one subscription in `GameplayScene` put it on every level with a laser
+  or a steam pipe - removing the subscription removes it everywhere, which is what "propagate to
+  the other levels" needed and why there is nothing per-level to check. The hooks themselves stay
+  (`GameplayModelTest` still asserts they fire); nothing subscribes to them now. It also fired on
+  the same tick as the game over, painting red over the last frame the player gets to read before
+  the MISSION FAILED card - the frame that tells them what killed them.
+
+Sizes: the fixture is drawn 64 units wide at the plate's own 0.295 aspect, stored 256x64 (the POT
+rule: 64x3 = 192 -> 256, 19x3 = 57 -> 64). 64 is not arbitrary - it puts the nozzle mouth at 25.7
+units against `SteamPipe.jetWidth` of 24, so the plume leaves a mouth that is actually as wide as
+the column that kills.
+
+Verified: `jvmTest` 223 green, `android-shell:compileReleaseKotlin` clean, and on JVM desktop both
+mounts render with their plumes erupting out of them and their LEDs cycling red -> green. The red
+wash is gone by measurement, not by eye: walking into an active jet, the whole-frame count of
+red-dominant pixels stays at ~211 (the LEDs) through the death and drops to 0 on the failure card,
+against the ~1.75M a full-canvas wash would have put there. **The exit terminal's removal was not
+re-checked on screen** - it is at x=5050, most of a level away from anywhere reachable in a test
+run, and the class that drew it no longer exists. **Nothing checked on Android or iOS.**
+
+## The wind stance (`resources/player/wind{transition,walk}`) - built 2026-09-24, live on level 7
+
+Two clips cut by `tools/art/prep_wind.py` from `Downloads/charAnimations/windtransition` (96 raw
+frames) and `windwalk` (144), both 360x640 half-res plates. **That script's header is the source of
+truth for every cut and the crop geometry - re-run and paste, don't hand-edit the Kotlin**, same
+rule as `prep_guard.py`/`prep_push.py`.
+
+**The `windwalk` folder arrived EMPTY** - only `windwalk.mp4` was there. The frames were made by
+reverse-engineering the rule the shipped `windtransition` plates were produced by rather than
+guessing at one: the video is a black silhouette on white, and the plate is
+`alpha = 255 - luma, rgb = 0`. Re-applying that to `windtransition.mp4` reproduces the shipped
+plates to a mean alpha error of 2.15/255, i.e. h.264 noise. The recipe is in the script's header.
+
+- **The framing is push's, exactly.** `windtransition` frame 1 measures a 484-row standing
+  silhouette centred on raw column 173.0 - the same pair `prep_push.py` measured on its own plates
+  - so these share push's scale and body centre, and frame 0 of the transition IS the standing pose,
+  which makes the handover in and out of idle free. Do not re-derive this from `windwalk`; that clip
+  never contains a standing pose.
+- **Frames are 192 wide, not push's 180, and that is forced.** The wind walk throws its leading arm
+  to raw x = 351 against push's crop-box right edge of 351.26 - a quarter of one raw pixel. 192
+  leaves ~6 sprite px of clearance. Width is free to differ per clip (climb is 200), because the
+  sprite is anchored at the frame's horizontal centre and the crop is symmetric about the body.
+- **Cuts**: transition raw 10..96 every 3rd (29 frames; raw 1-9 are a hold - frame 10 differs from
+  frame 1 by 0.29 of a mean step); walk raw 55..104 every 2nd (25 frames). The gait period is 50 raw
+  frames by self-similarity (26 is the half-cycle and looping on it makes both legs the same leg).
+  Start 55 beats the tighter-seam candidates at 66/67 because those enter from the braced lean with
+  a 6.2-step pose jump against 55's 2.18, and beats start 1 - which has the best entry of all -
+  because raw frame 6 runs off the left edge of the plate. **Atlas cost: 54 frames at 192x256 =
+  2.65M px**, taking the player atlas from 26.4M to 29.1M.
+- **`WIND_STRIDE_PER_HEIGHT` = 0.33, and it is a CADENCE knob, not a foot-planting constraint.**
+  Walk and push drive their loops from ground distance so a planted foot does not slide, and being
+  wrong there shows up at once as skating. Here the feet are meant to slide - the gale drags the
+  character backwards while he strides forward - so anywhere in the measured 0.31..0.39 bracket
+  reads fine. Measure it at the plate's own full rate over one whole period, never on the halved
+  output: at 2-frame spacing the correlation locks onto the wrong foot and comes out 45% high.
+
+**What plays when, and this is the owner's rule, not an inference:** standing in the airflow HOLDS
+a still braced pose - no gait at all - and the wind walk plays only while the player is spam-tapping.
+So the gait is gated on `GameWorld.isWindPushing` (the tap surge still being alive) and **not** on
+ground speed. Ground speed was the first gate tried and is wrong exactly where it matters: pushing
+into the mouth of a fan the player makes almost no headway while tapping hardest, so the legs froze
+precisely when the character should have looked like he was straining.
+
+### The tap mechanic, rebuilt (same day, same request: "slower and smoothly")
+
+The old rule moved `player.x` by a flat **10 units on the frame of the press**. A position jump is a
+jolt at any size, and at a human 4 Hz it was four of them a second. A tap now buys **velocity**
+(`GameWorld.fanSurgeSpeed`), decaying exponentially, which the normal integration spreads over the
+frames that follow. Every constant below was picked by simulating the real loop
+(`testFanTapAdvanceIsSmoothAndSlowerThanTheOldImpulse`), never from arithmetic - the duty cycle of a
+real tap is a guess and the simulation is not.
+
+| input style | old | now |
+|---|---|---|
+| hold + tap, 3.3 Hz (keyboard) | +62 u/s | +43.5 u/s |
+| touch tap 4 Hz, 35% duty | **-16 u/s** | +9.7 u/s |
+| touch tap 5 Hz, 50% duty | +24 u/s | +56.5 u/s |
+
+That middle row is the reason `WIND_WALK_FACTOR` (0.6) exists at all. A keyboard player HOLDS the
+key and taps it, banking full walk speed under every surge; a touch player pressing the same
+on-screen button can only have it down for part of each tap. At the old numbers the level ran
+**backwards** on a phone at a realistic tapping rate. Cutting ordinary walking inside a zone costs
+the holder much more than the tapper and closes most of that gap.
+
+**Three boundary bugs the rebuild turned up, all found in the running game, none by reasoning:**
+
+1. **Clearing the surge on leaving the zone stalls the player at its lip.** The gale bounces a body
+   leaning into the mouth of a fan out of the zone on alternating frames; zeroing momentum there
+   throws away every tap. Observed as the character stuck at x=453 against a zone starting at 490,
+   tapping continuously, going nowhere. Only the WIND is gated on the zone now - the surge decays on
+   its own wherever the player is.
+2. **...but momentum that outlives the zone also outlives the player's INTENT**, and in a corridor
+   of timed steam jets that is lethal. The walkthrough sim caught it immediately, drifting into a
+   pipe it had deliberately stopped to wait out. `FAN_INTENT_WINDOW` (0.35s, refreshed by a tap OR a
+   held button, because a touch player's button is up for most of every cycle) switches the decay to
+   `FAN_SURGE_RELEASE_SECONDS` (0.12) once they stop.
+3. **Taps have to register slightly OUTSIDE the zone too** (`windStanceBlend > 0` is the grace), for
+   the same reason as #1 - otherwise most of them land on the frames the wind has just pushed the
+   player out on, and neither the surge nor the lean ever builds.
+
+`FAN_TAP_FLOOR` (40) is a fourth measured value: without it the first second of a burst from cold
+nets -4.6 u/s - the player goes backwards while already tapping, which reads as the input not
+working. 40 puts that at +7.8 and leaves the steady state alone; 55 was tried and binds in steady
+state, taking the net back up to 62 and undoing the slowdown.
+
+**`windOwnsSprite` in `GameplayScene` is load-bearing, not tidiness.** The scene has two passes over
+the player sprite - a state machine that picks `playerAnimState` and loads clips, then a frame driver
+keyed off that same string - and something in the updater puts the state back to `"walk"` between
+them, so the walk gait overwrote the wind clip every frame. Traced frame by frame in the running
+game: the state machine really did set `"wind"` and the driver really did read `"walk"` in the same
+frame, with the chain's `else` branch demonstrably not running. Rather than keep hunting that, the
+wind branch claims the sprite with its own flag and the frame driver checks it first. **If another
+stance is ever added here, do the same rather than trusting `playerAnimState` to survive the trip.**
+
+Verified by `jvmTest` (207 green, including `testWindStanceHoldsBracedPoseIdleAndOnlyStridesWhile
+Tapping` and `testWindTapsRegisterAtTheZoneBoundaryNotJustInsideIt`) and `android-shell:
+compileReleaseKotlin` clean. On screen on JVM desktop the lean renders and the stance takes the
+sprite over correctly; **the fully-settled braced pose and the gait cycling deep inside a zone were
+NOT confirmed visually** - driving the game with synthetic key input kept either stalling at the
+zone lip or overshooting into a steam jet. **Not on Android or iOS.**
+
+## The push stance (`resources/player/push{,transition}`) - built 2026-09-24, live on level 8
 
 Two clips cut by `tools/art/prep_push.py` from `Downloads/charAnimations/push` (144 raw frames) and
 `pushtransition` (96), both 360x640 half-res plates. **That script's header is the source of truth
 for every cut and the crop geometry - re-run and paste, don't hand-edit the Kotlin**, same rule as
-`prep_guard.py`. Currently a stance with nothing to push: `INTERACT` toggles it, level 13 is the
+`prep_guard.py`. Currently a stance with nothing to push: `INTERACT` toggles it, level 8 is the
 bare stage it is tried out on, and a real pushable prop would gate it on range the way levers do.
 
 - **These plates are framed ~6.4% smaller than every other clip** - standing measures 484 rows
@@ -1683,14 +2001,14 @@ bare stage it is tried out on, and a real pushable prop would gate it on range t
   level, otherwise the scene's own `interactPressed` gate swallows the press before the world sees
   it. Facing is **locked** for the whole stance (walking backwards drags the load, it does not spin
   the braced silhouette around).
-- Verified by `jvmTest` (`testPushStance*`, `testLevel13*`) and on JVM desktop end to end: idle ->
+- Verified by `jvmTest` (`testPushStance*`, `testLevel8*`) and on JVM desktop end to end: idle ->
   lean -> braced -> push forward -> push backward with the facing held -> jump and crouch both
   refused -> stand up -> idle -> normal walk and jump restored. The planted foot was measured
   against the ground in the running game by screenshot burst (the camera is locked to the player, so
   a planted foot must slide backwards at exactly the player's own speed) and it does, within the
   +/-5% that method resolves. **Not on Android or iOS.**
 
-## Level 13 ("13: Final Proof") - `LEVEL_13_LAYOUT`, the push stage
+## Level 8 ("08: Relocation") - `LEVEL_8_LAYOUT`, the push stage
 
 Deliberately **empty**: flat ground wall to wall, no guards, cameras, boxes, hazards, start fences
 or anything hanging. It used to be a `GameWorld.createDefault` level with a patrolling guard and a
@@ -1786,7 +2104,7 @@ dumpsys gfxinfo com.infiltrate.androidshell framestats` before trusting any rank
 1. **The player atlas is the biggest memory consumer.** `MutableAtlas(2048, 2048)` adds a whole page
    at a time: 16.8MB heap + 16.8MB texture per page. Trimming unreachable frames (climb's raw 1-69
    run-up - `CLIMB_START` clamps to raw 70; crouchwalk's raw 145-192 tail) took it 26.2M -> 20.3M px;
-   the swing clip put it at ~22.5M and the two push clips at **26.4M** (84 frames at 180x256,
+   the swing clip put it at ~22.5M, the two push clips at 26.4M and the two wind clips at **29.1M** (84 frames at 180x256,
    roughly one more page of heap and one of texture - accepted, see "The push stance").
    **Adding frames is not free** - see the ATLAS BUDGET
    comment on `load()`. Climb START/END constants are in loaded-index space (`loadAnimation(firstFile
@@ -1933,6 +2251,20 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
   mid-shot. Pick loop windows by autocorrelation plus a seam scan, and measure any
   `*_STRIDE_PER_HEIGHT` by phase-correlating the ground-contact profile of the **processed output**
   (see "The push stance" for the three ways of measuring it that are wrong).
+- **Splitting a prop so one part can move** (`tools/art/prep_robot.py`, the level 7 rover): when
+  the art is a flat silhouette, the only thing that can read as motion is its OUTLINE, so the
+  moving part has to be cut OUT of the static plate, not drawn over it - overlaying leaves the
+  original's outline in the union at every angle. Cut slightly WIDE of the part (its radius plus
+  a couple of raw px) so nothing of it survives the resample, then add back whatever it was
+  occluding, reconstructed from scanlines the part does not reach. Find the part by structure
+  rather than by hardcoded coordinates - for the rover, the last scanline crossing the body in a
+  single run is the chassis floor, and everything under it is wheels. Both plates must be
+  cropped to the SAME box (the whole prop's bbox) or their coordinate frames do not line up.
+- **Anything that rotates gets cropped to its bbox and forced square.** That divides out any
+  ellipticity in the drawing (the rover's cog is 3.8% wider than tall, which would wobble once
+  per turn) and, by rotating about the bbox centre rather than the centroid, fixes the outer
+  extent by construction. Give it one extra POT step over the usual 3x rule - it is resampled at
+  every angle, not axis-aligned.
 - **Tight-crop a silhouette to its alpha bounds** before stretching it into a box (dead margin
   stretches too); re-derive box width from the cropped aspect at the fixed height.
 - **Wood crates (`woodcrate2.png`)**: 1536x1024 silhouette crate with rustic horizontal planks (replaced
@@ -2106,9 +2438,14 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
   round + adaptive, manifest updated), iOS (`ios-shell/Resources/Assets.xcassets/AppIcon.appiconset/`,
   Xcode 14+ single-size, `ASSETCATALOG_COMPILER_APPICON_NAME` in `project.yml`), and `korge { icon =
   file("icon.png") }`. Not verified on a device.
-- **Language dropdown** (`SettingsScreen.kt`): 15 languages in native script, persists the code only -
-  **zero translated strings exist**. No Bebas Neue (Latin-only) and no `letterSpacing` on the names
-  (breaks Arabic joining).
+- **Language system & French localization** (`Localization.kt`, `SettingsScreen.kt`): 15 languages in native script
+  in the Settings dropdown with persistence via `user_language`. French (`fr`) is implemented across all menus
+  (MainMenu buttons & mission dossier briefing, LevelSelect chapter cards and mission cards/reasons, Store tabs/items/cards/toasts,
+  and Settings panels/dialogs) and in-game overlays (Loading screen, Objectives HUD, Pause overlay, Mission Failed card,
+  and Victory debrief review). In-game tutorials remain untranslated in English by design. Shared via `src/game/model/Localization.kt`
+  (pure Kotlin standard library, zero `korlibs.*` imports) with extension functions `LevelData.localizedName`,
+  `LevelData.localizedDescription`, and `LevelData.localizedObjectiveHint`. Composed screens consume the language reactively via
+  `LocalAppLanguage` in `NavigationRoot.kt`. No Bebas Neue for non-Latin names and no `letterSpacing` on the names (breaks Arabic joining).
 - **Reset Progress** (`SettingsScreen.kt`, 2026-09-12): confirmation dialog (`showResetConfirmDialog`,
   `#16161A` with `#FF5252` accent, CANCEL / RESET EVERYTHING). `profileStorage.resetProgress(preservePremium
   = true)`: coins 100, starter inventory (2 jammer, 2 smoke, 1 bomb, 2 darts, 2 phantom, 2 invis, 2 boots,
@@ -2134,7 +2471,12 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
   One remaining compliance item: **Apple's App Tracking Transparency prompt is not implemented** while
   AdMob can serve personalized ads - decide (add ATT, or force non-personalized on iOS) before App Store submission.
   A `/delete` page was built and reverted the same day - the game holds no server data (local-only, deleted
-  by uninstalling); the owner answers Play Console's deletion question "No".
+- **Temporary gating for Google Play production approval (2026-09-25)**:
+  - **Levels 8 to 12 hidden**: `LevelData.DEFAULT_LEVELS` contains 12 levels (where level 8 is the push stance stage and levels 9–12 are future chapters). Kept `DEFAULT_LEVELS` intact so model tests pass. Restricted active levels to the 7 fully-featured levels via `.take(7)` in `LevelSelectScreen.kt` (recalculating max stars as 21), `MainMenuScreen.kt` (mission dossier briefing card cycles only within levels 1–7), and `GameplayScene.kt` (clearing level 7 yields `nextLevel = null`, showing "ALL CLEAR!" and returning to the main menu rather than advancing to level 8).
+  - **"Coming Soon" chapter boxes hidden**: In `LevelSelectScreen.kt`, the loop generating placeholder cards for Chapters 2–4 with lock icons and "COMING SOON" text was removed. Chapter 1 ("THE SHIPYARD") is followed by 3 Compose `Spacer(modifier = Modifier.weight(1f))` elements to preserve exact 4-column alignment with the mission grid below without presenting non-functional buttons to reviewers.
+  - **Settings language selection restricted**: In `SettingsScreen.kt`, `ALL_SUPPORTED_LANGUAGES` preserves all 15 language definitions, while `SUPPORTED_LANGUAGES` exposes only English (`en`) and French (`fr`), as these two are the only fully localized languages in `Localization.kt` (preventing fallback to English from reading as broken language switching to Play Store reviewers).
+  - **Store developer debug button hidden**: In `StoreScreen.kt` (`RemoveAdsSection`), the developer "RESET" button (which invoked `onDeactivate()` to wipe `isPremium` for testing) was hidden when Lifetime Pass is active, and the active indicator box now spans `Modifier.fillMaxWidth()`, preventing unintended dev controls or accidental loss of purchased premium state.
+  - **Level 2 rain temporarily removed**: In `LevelData.kt` (`DEFAULT_LEVEL_2`), set `hasRain = false` (was `true`), completely disabling the `RainEffect` particle layers, lightning flash/bolt, and thunder audio for Level 2 during the review/production phase.
 
 ## Keep this file up to date
 

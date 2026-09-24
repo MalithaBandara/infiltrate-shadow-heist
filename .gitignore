@@ -35,3 +35,10 @@ keystore_base64.txt
 
 scratch_*
 user_*.png
+
+# Screenshots
+screenshots/
+screenshot_*.png
+level2_rain_preview.png
+old_fan.png
+

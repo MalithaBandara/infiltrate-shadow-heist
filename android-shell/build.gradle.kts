@@ -53,7 +53,7 @@ android {
         minSdk = 24
         targetSdk = 37
         versionCode = 15
-        versionName = "0.0.10"
+        versionName = "0.1.0"
 
         val revenueCatKey = localProperties.getProperty("REVENUECAT_GOOGLE_KEY")
             ?.takeIf { it.isNotBlank() } ?: "goog_DVKTWBbrxMSDhEimnQZBxQcGVxx"

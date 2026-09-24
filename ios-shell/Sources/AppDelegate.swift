@@ -35,8 +35,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Initialize StoreBilling (RevenueCat In-App Purchases) for iOS
         StoreBilling.shared.initialize(apiKey: "appl_jnRvGBajbaDGqSLhCCdvqvwsaHs")
 
-        runStorageBridgeCheck()
-
         // ShellAppDelegate initialized the warm KorGE ViewController.
         // Compose Multiplatform owns non-gameplay screens, so MainMenu is the initial rootViewController.
         korgeVC = window.rootViewController
@@ -59,8 +57,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         // Automated verification sequence for CI:
         // MainMenu renders -> Switch to KorGE gameplay -> Dwell -> Return to MainMenu.
-        // Gated behind -ci-test flag so it never auto-transitions on real devices or TestFlight.
+        // Gated behind -ci-test flag so it never auto-transitions or overwrites user storage on real devices or TestFlight.
         if CommandLine.arguments.contains("-ci-test") {
+            runStorageBridgeCheck()
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
                 self?.runAutomatedLevelTransition()
             }

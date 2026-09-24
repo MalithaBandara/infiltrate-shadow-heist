@@ -81,7 +81,7 @@ data class GameWorld(
     val conveyorsStartOnMove: Boolean = false,
     val canClimb: Boolean = true,
     val manualCheckpoints: List<Checkpoint> = emptyList(),
-    /** See LevelLayout.pushStanceDemo - level 13 only. */
+    /** See LevelLayout.pushStanceDemo - level 8 only. */
     val pushStanceDemo: Boolean = false
 ) {
     val canInteract: Boolean
@@ -217,6 +217,8 @@ data class GameWorld(
         private set
     var detectingCameras: List<Camera> = emptyList()
         private set
+    var detectingCameraBots: List<CameraBot> = emptyList()
+        private set
     var alertProgress: Double = 0.0 // 0.0 (unnoticed) to 1.0 (caught)
         private set
     var isSpotted: Boolean = false
@@ -237,7 +239,6 @@ data class GameWorld(
     var totalElapsedSeconds: Double = 0.0
         private set
     var laserGraceTimer: Double = 0.0
-    var fanPushbackDampenTimer: Double = 0.0
 
     /** Desktop-only debug cheat (see GameplayScene's F1 handler, gated on Platform.isJvm): free
      *  flight through the level, ignoring gravity/collision/detection, for level-layout inspection. */
@@ -277,6 +278,71 @@ data class GameWorld(
         pushInteractWasDown = false
     }
 
+    // ---- wind stance (level 7's exhaust fans) ----------------------------------------------
+    //
+    // Same split as the push stance above and for the same reason: the model owns whether the
+    // character is braced against the gale and how far into the brace he is, the scene owns
+    // which frame of resources/player/wind{transition,walk} that draws as.
+
+    /** True while the player's box overlaps any fan's wind zone. */
+    var isInWindZone: Boolean = false
+        private set
+
+    /** 0 = upright, 1 = fully leaning into the wind. Drives both directions of the clip. */
+    var windStanceBlend: Double = 0.0
+        private set
+
+    /** True while the player is rapidly spamming forward taps, pushing through the airflow at normal speed. */
+    var isWindSpamming: Boolean = false
+        private set
+
+    private var fanTapCount: Int = 0
+    private var fanTapWindowTimer: Double = 0.0
+    private var fanSpamActiveTimer: Double = 0.0
+
+    /** Fully folded into the gale. The braced pose is HELD here - the gait only runs while
+     *  [isWindPushing]. */
+    val isWindBraced: Boolean get() = windStanceBlend >= 1.0
+
+    /**
+     * The player is actively driving forward against the wind right now - i.e. spamming forward taps.
+     * Standing in the airflow or pressing once / holding forward does nothing.
+     */
+    val isWindPushing: Boolean get() = isWindSpamming
+
+    /** Nothing happening: the scene hands the sprite back to idle/walk. */
+    val isWindStanceIdle: Boolean get() = !isInWindZone && !isWindSpamming && windStanceBlend <= 0.0
+
+    /**
+     * Forward speed (u/s) while spam-clicking through airflow.
+     */
+    var fanSurgeSpeed: Double = 0.0
+        private set
+
+    /**
+     * Net ground speed (u/s, unsigned) while in a wind zone - what actually happened to `player.x` this frame.
+     */
+    var windGroundSpeed: Double = 0.0
+        private set
+
+    private var windPrevPlayerX: Double = 0.0
+    private var windForwardDir: Double = 1.0
+    private var fanIntentTimer: Double = 0.0
+
+    private fun resetWindStance() {
+        isInWindZone = false
+        windStanceBlend = 0.0
+        fanSurgeSpeed = 0.0
+        windGroundSpeed = 0.0
+        windPrevPlayerX = player.x
+        windForwardDir = 1.0
+        fanIntentTimer = 0.0
+        isWindSpamming = false
+        fanTapCount = 0
+        fanTapWindowTimer = 0.0
+        fanSpamActiveTimer = 0.0
+    }
+
     var continueCount: Int = 0
         private set
     val canContinue: Boolean
@@ -301,6 +367,7 @@ data class GameWorld(
         alertProgress = 0.0
         detectingGuards = emptyList()
         detectingCameras = emptyList()
+        detectingCameraBots = emptyList()
         recentlySeeingGuards.clear()
         player.resetTo(lastCheckpointX, lastCheckpointY)
         for (g in allGuards) g.returnToPatrol()
@@ -316,8 +383,8 @@ data class GameWorld(
         activePowerups.invisibilityTimer = 3.0
         laserGraceTimer = 3.0
         spawnGraceTimer = 3.0
-        fanPushbackDampenTimer = 0.0
         resetPushStance()
+        resetWindStance()
         if (playerStartCrouched) player.isCrouching = true
         return true
     }
@@ -344,6 +411,7 @@ data class GameWorld(
         totalElapsedSeconds = 0.0
         detectingGuards = emptyList()
         detectingCameras = emptyList()
+        detectingCameraBots = emptyList()
         recentlySeeingGuards.clear()
         player.resetToStart()
         lastCheckpointX = player.startX
@@ -361,8 +429,8 @@ data class GameWorld(
         for (p in steamPipes) p.reset()
         activePowerups.invisibilityTimer = 0.0
         laserGraceTimer = 0.0
-        fanPushbackDampenTimer = 0.0
         resetPushStance()
+        resetWindStance()
         if (playerStartCrouched) player.isCrouching = true
         conveyorsActive = !conveyorsStartOnMove
     }
@@ -375,6 +443,98 @@ data class GameWorld(
      * same value the lever and camera-bot loops above consume - those are idempotent, a toggle
      * is not, and reading the level directly would flip the stance every frame of one press.
      */
+    /**
+     * Exhaust fans: the wind pushback, the tap-to-advance surge, and the wind stance clock.
+     *
+     * The surge is the whole reason this is not two lines any more. Tapping used to move
+     * `player.x` by a flat 10 units on the frame of the press, which is a teleport - four of
+     * them a second at a human tapping rate, and no amount of shrinking the number makes a jump
+     * smooth. A tap now adds to [fanSurgeSpeed], a forward VELOCITY that decays exponentially,
+     * so the same press is spread over the ~0.45s that follow and the player slides forward
+     * instead of snapping. The decay is also what carries them across the gap between taps,
+     * which is the job `fanPushbackDampenTimer` used to do by weakening the wind instead; that
+     * timer is gone and the wind now blows at a constant strength, which is one fewer thing
+     * making the motion lumpy.
+     *
+     * Speeds are deliberately lower than the old arrangement's. See [FAN_TAP_IMPULSE] for the
+     * equilibrium arithmetic and `testFanTapAdvanceIsSmoothAndSlowerThanTheOldImpulse` for the
+     * simulated check - this was measured against the real loop, not derived on paper.
+     */
+    private fun updateFans(dt: Double, forwardTap: Boolean, moveInput: Double) {
+        var inWind = false
+        var windDx = 0.0
+        var justPassedAnyFan = false
+        for (fan in fans) {
+            fan.update(dt)
+            if (fan.isPlayerInWind(player)) {
+                inWind = true
+                windForwardDir = if (fan.windDirection < 0.0) 1.0 else -1.0
+                windDx += fan.windDirection * fan.windPushSpeed * dt
+            }
+            // When fan blows backwards (windDirection < 0.0), passing the fan means crossing player.x >= fan.x.
+            // Bounded to [fan.x, fan.x + 120.0] so fans further down the level are not affected.
+            if (fan.windDirection < 0.0 && player.x >= fan.x && player.x <= fan.x + 120.0) {
+                justPassedAnyFan = true
+            }
+        }
+        isInWindZone = inWind
+
+        // Once past a fan, immediately zero out any spam state so the player does not rocket / lunge forward
+        if (justPassedAnyFan) {
+            isWindSpamming = false
+            fanSurgeSpeed = 0.0
+            fanTapCount = 0
+            fanTapWindowTimer = 0.0
+            fanSpamActiveTimer = 0.0
+        }
+
+        // Tap timing and spam detection:
+        // A single press or long-press does NOTHING. Only rapid consecutive taps (spamming) move the player forward.
+        if (fanTapWindowTimer > 0.0) {
+            fanTapWindowTimer = (fanTapWindowTimer - dt).coerceAtLeast(0.0)
+            if (fanTapWindowTimer <= 0.0) {
+                fanTapCount = 0
+            }
+        }
+        if (fanSpamActiveTimer > 0.0) {
+            fanSpamActiveTimer = (fanSpamActiveTimer - dt).coerceAtLeast(0.0)
+            if (fanSpamActiveTimer <= 0.0) {
+                isWindSpamming = false
+            }
+        }
+
+        if ((inWind || (windStanceBlend > 0.0 && !justPassedAnyFan)) && forwardTap) {
+            fanTapCount++
+            fanTapWindowTimer = FAN_SPAM_TAP_WINDOW
+            if (fanTapCount >= 2) {
+                isWindSpamming = true
+                fanSpamActiveTimer = FAN_SPAM_ACTIVE_WINDOW
+            }
+        }
+
+        if (isWindSpamming && !justPassedAnyFan) {
+            fanSurgeSpeed = WIND_SPAM_SPEED
+            // When spam clicking front: ignores the effect of wind and moves forward at normal speed
+            player.x = (player.x + windForwardDir * WIND_SPAM_SPEED * dt)
+                .coerceIn(0.0, worldWidth - player.width)
+        } else {
+            fanSurgeSpeed = 0.0
+            // When not spamming, if in the wind zone, the wind pushback applies (moving player backward)
+            if (inWind) {
+                player.x = (player.x + windDx)
+                    .coerceIn(0.0, worldWidth - player.width)
+            }
+        }
+
+        windGroundSpeed = if (inWind && dt > 0.0) kotlin.math.abs(player.x - windPrevPlayerX) / dt else 0.0
+        windPrevPlayerX = player.x
+
+        // Braced while the gale is on them. When past the fan, blend upright quickly.
+        val braced = inWind && !justPassedAnyFan
+        val rate = if (braced) dt / WIND_STANCE_ENTER_SECONDS else -dt / WIND_STANCE_EXIT_SECONDS
+        windStanceBlend = (windStanceBlend + rate).coerceIn(0.0, 1.0)
+    }
+
     private fun updatePushStance(dt: Double, interactInput: Boolean) {
         if (!pushStanceDemo) return
         if (interactInput && !pushInteractWasDown) {
@@ -503,10 +663,6 @@ data class GameWorld(
             spawnGraceTimer = (spawnGraceTimer - dt).coerceAtLeast(0.0)
         }
 
-        if (fanPushbackDampenTimer > 0.0) {
-            fanPushbackDampenTimer = (fanPushbackDampenTimer - dt).coerceAtLeast(0.0)
-        }
-
         if (interactInput) {
             for (lever in levers) {
                 if (!lever.isActivated && lever.isPlayerInRange(player)) {
@@ -523,19 +679,7 @@ data class GameWorld(
 
         updatePushStance(dt, interactInput)
 
-        for (fan in fans) {
-            fan.update(dt)
-            if (fan.isPlayerInWind(player)) {
-                if (forwardTap) {
-                    val impulseDir = if (fan.windDirection < 0.0) 1.0 else -1.0
-                    player.x = (player.x + impulseDir * fan.fanImpulse).coerceIn(0.0, worldWidth - player.width)
-                    fanPushbackDampenTimer = 0.10
-                }
-                val pushFactor = if (fanPushbackDampenTimer > 0.0) 0.45 else 1.0
-                val pushDx = fan.windPushSpeed * dt * fan.windDirection * pushFactor
-                player.x = (player.x + pushDx).coerceIn(0.0, worldWidth - player.width)
-            }
-        }
+        updateFans(dt, forwardTap, moveInput)
 
         for (bot in cameraBots) {
             bot.update(dt)
@@ -561,6 +705,7 @@ data class GameWorld(
         val previousAlert = alertProgress
         val seeingGuards = ArrayList<Guard>(allGuards.size)
         val seeingCameras = ArrayList<Camera>(cameras.size)
+        val seeingCameraBots = ArrayList<CameraBot>(cameraBots.size)
         var spottedDist: Double? = null
         var detectorRange: Double = guard.visionRange
 
@@ -604,6 +749,7 @@ data class GameWorld(
                             occluders = occluders
                         )
                         if (d != null) {
+                            seeingCameraBots.add(b)
                             if (spottedDist == null || d < spottedDist) {
                                 spottedDist = d
                                 detectorRange = b.visionRange
@@ -618,6 +764,7 @@ data class GameWorld(
         isPlayerInVision = inVision
         detectingGuards = if (inVision) seeingGuards.toList() else emptyList()
         detectingCameras = if (inVision) seeingCameras.toList() else emptyList()
+        detectingCameraBots = if (inVision) seeingCameraBots.toList() else emptyList()
         for (c in cameras) {
             if (c !in seeingCameras) {
                 c.onVisualLost()
@@ -834,7 +981,14 @@ data class GameWorld(
         // machine honest: every other stance change would otherwise be able to start on a frame
         // where the push clip is still on screen. INTERACT is the only way out.
         val pushActive = pushStanceDemo && !isPushStanceIdle
-        val effectiveMoveInput = if (pushActive) moveInput * PUSH_MOVE_FACTOR else moveInput
+        val effectiveMoveInput = when {
+            pushActive -> moveInput * PUSH_MOVE_FACTOR
+            // In air flow parts normal mechanics should not work.
+            // When he presses forward once or long presses it, nothing happens.
+            // Backward retreat (moveInput < 0.0) remains allowed.
+            isInWindZone -> if (moveInput < 0.0) moveInput else 0.0
+            else -> moveInput
+        }
         val effectiveJumpInput = jumpInput && !pushActive
         val effectiveCrouchInput = crouchInput && !pushActive
         player.update(
@@ -849,6 +1003,7 @@ data class GameWorld(
             alertProgress = 0.0
             detectingGuards = emptyList()
             detectingCameras = emptyList()
+            detectingCameraBots = emptyList()
             onLevelComplete?.invoke()
             onLevelCompleteResult?.invoke(getLevelResult())
             return
@@ -983,6 +1138,123 @@ data class GameWorld(
          * feet plant correctly at any speed, but this is the speed the footage was shot at.
          */
         const val PUSH_MOVE_FACTOR = 0.4
+
+        // ---- exhaust fans (level 7) --------------------------------------------------------
+        /**
+         * Forward speed (u/s) one tap buys, added to [fanSurgeSpeed] and then decayed.
+         *
+         * Not a distance: the old mechanic moved `player.x` by a flat 10 units on the frame of
+         * the press, and a position jump reads as a jolt at any size - at a human 4 Hz it was
+         * four snaps a second. Velocity integrates, so the same press becomes a slide.
+         *
+         * Equilibrium, and why these three numbers: tapping at rate r with decay tau settles at
+         * an average surge of roughly `IMPULSE * r * tau`, so 75 * 4 * 0.45 = 135 u/s. Against a
+         * 140 u/s gale and a touch player whose finger is down maybe a third of the time (~44
+         * u/s of ordinary walk), that nets about +40 u/s - a 360-unit fan zone crossed in ~9s of
+         * steady tapping. Deliberately slower than the old arrangement, which is what was asked
+         * for. Holding the button without tapping still loses: 132 of walk against 140 of wind
+         * drifts backwards, which is the mechanic.
+         *
+         * Verified by simulating the real loop (`testFanTapAdvanceIsSmoothAndSlowerThanTheOld
+         * Impulse`), not from this arithmetic - the duty cycle of a real tap is a guess and the
+         * simulation is not.
+         */
+        const val FAN_TAP_IMPULSE = 26.0
+
+        /**
+         * Time constant of the surge's exponential decay: what carries a player across the gap
+         * between taps, and the main smoothness knob. Ripple around the mean goes as 1/(rate*tau),
+         * so at a 3.3 Hz tap this holds the forward speed inside 21..65 u/s where 0.5 gave 10..59
+         * around a lower mean. Not longer than this: the surge is momentum the player coasts on
+         * after they stop tapping, and ~0.7s of drift in a corridor full of timed steam jets is
+         * already as much as the level can afford.
+         */
+        const val FAN_TAP_DECAY_SECONDS = 0.70
+
+        /**
+         * Floor the first tap of a burst lands on, so starting to tap is not a second of losing
+         * ground while the surge spins up.
+         *
+         * Measured, because the spin-up was real: from a standing start at a 3.3 Hz tap the first
+         * second nets -4.6 u/s with no floor - the player goes BACKWARDS while they are already
+         * tapping, which reads as the input not working. 40 puts that at +7.8 and leaves the
+         * steady state alone (49.3 -> 49.8 u/s), because it only binds while the surge is below
+         * it. 55 was tried and does bind in steady state, taking the net back up to 62 and undoing
+         * the slowdown this whole rework is for.
+         *
+         * This is a VELOCITY step, not a position one: the body accelerates from a standstill the
+         * same way a jump does. It is the position jump the old mechanic made that was the problem.
+         */
+        const val FAN_TAP_FLOOR = 40.0
+
+        /**
+         * How long after a tap (or a held button) the player still counts as driving forward, and
+         * how fast the surge bleeds off once they do not.
+         *
+         * The window exists because a touch player's button is up for most of every tap cycle, so
+         * "is the button down" is not a usable test of intent. The fast release exists because the
+         * surge deliberately outlives the wind zone, and without it the player cannot STOP - which
+         * in this corridor means drifting into a steam jet they stopped to wait out.
+         */
+        const val FAN_INTENT_WINDOW = 0.35
+        const val FAN_SURGE_RELEASE_SECONDS = 0.12
+
+        /** Ceiling on stacked taps. Binds only above ~9 Hz, which is its job. */
+        const val FAN_SURGE_MAX = 190.0
+
+        /**
+         * How much of the gale a full surge cancels, and the surge at which it is fully earned.
+         *
+         * The old mechanic had this as a binary 0.45x on the wind for 0.10s after every tap - a
+         * step change in the air the instant anyone touched the button. Scaling it off the surge
+         * instead is continuous, and it turns out to have been load-bearing rather than cosmetic:
+         * that dampen was most of what made the level passable for a player who taps rather than
+         * holds, because it is paid per TAP and does not care about the button's duty cycle.
+         * Dropping it without a replacement cost the 5 Hz touch case ~25 u/s.
+         */
+        const val FAN_SURGE_WIND_RELIEF = 0.45
+        const val FAN_SURGE_RELIEF_AT = 90.0
+
+        /**
+         * Fraction of [Player.moveSpeed] the player's own walking is worth inside a wind zone.
+         *
+         * Added because the mechanic otherwise splits hard by input device, which the simulated
+         * sweep made obvious. A keyboard player HOLDS the key and taps it, banking a full 132 u/s
+         * of walk under every surge; a touch player pressing the same on-screen button can only
+         * have it down for part of each tap, so they were getting a third of that. Measured on the
+         * old mechanic: +62 u/s for hold-and-tap at 3.3 Hz against -16 u/s for a 4 Hz touch tap -
+         * i.e. the level ran BACKWARDS on a phone at a realistic tapping rate. Cutting ordinary
+         * walking to 0.6 costs the holder much more than the tapper and closes most of that gap.
+         *
+         * Where these four numbers landed, all from simulating the real loop
+         * (`testFanTapAdvanceIsSmoothAndSlowerThanTheOldImpulse`), never from arithmetic:
+         *
+         *   input style                 old      now
+         *   hold + tap, 3.3 Hz         +62     +43.5   (slower, which is what was asked for)
+         *   touch tap 4 Hz, 35% duty   -16      +9.7   (was unplayable)
+         *   touch tap 5 Hz, 50% duty   +24     +56.5
+         *
+         * Re-run that sweep rather than nudging one of these: they trade against each other, and
+         * the smoothness of the result is set by FAN_TAP_DECAY_SECONDS against the tap rate, not
+         * by the impulse alone.
+         */
+        const val WIND_WALK_FACTOR = 0.60
+
+        /** Normal walking speed when spam-clicking forward against the wind, ignoring wind pushback. */
+        const val WIND_SPAM_SPEED = 96.0
+
+        /** Time window within which consecutive taps count as spamming (in seconds). */
+        const val FAN_SPAM_TAP_WINDOW = 0.40
+
+        /** Duration the spamming forward movement remains active after each spam tap (in seconds). */
+        const val FAN_SPAM_ACTIVE_WINDOW = 0.35
+
+        /**
+         * How long bracing into the gale and straightening back up take. Fast reaction (0.05s)
+         * so the character immediately folds into the braced forward lean upon touching the airflow.
+         */
+        const val WIND_STANCE_ENTER_SECONDS = 0.05
+        const val WIND_STANCE_EXIT_SECONDS = 0.25
 
         fun createDefault(levelData: LevelData = LevelData.DEFAULT_LEVEL_1): GameWorld {
             val layout = levelData.layout

@@ -28,21 +28,43 @@ import kotlin.math.round
  * - **Wider than the design** (tall-and-narrow phones held sideways, 20:9 / 21:9): height stays
  *   [DESIGN_HEIGHT] and the width grows. The player sees a little more of the level left and
  *   right; the vertical framing every level was tuned against is untouched.
- * - **Narrower than the design** (16:9 phones, and every tablet - 3:2, 16:10, 4:3): width stays
- *   [DESIGN_WIDTH] and the height grows. The horizontal field of view is *identical* to the
+ * - **Narrower than the design, down to [FULL_WIDTH_ASPECT]** (every phone: 16:9 is 1.778): width
+ *   stays [DESIGN_WIDTH] and the height grows. The horizontal field of view is *identical* to the
  *   reference phone's, which matters because level pacing is tuned against it (level 6's "the
  *   crane fills the frame from the lever" and level 3's overwatch pair are both statements about
  *   how much of the level fits on screen at once). The extra height becomes sky above the action:
  *   `GameplayScene` already pins the ground near the bottom of whatever canvas it is given
  *   (`worldViewY = canvasH - (groundY + 70) * zoom`) and tiles the background to `canvasH`, so
  *   nothing new has to be drawn to fill it.
+ * - **Squarer than [FULL_WIDTH_ASPECT]** (3:2, 16:10 and 4:3 tablets, unfolded foldables): the
+ *   canvas stops growing at [MAX_CANVAS_HEIGHT] and the width starts to give instead. This is the
+ *   zoom cap, and it is the one place the game deliberately shows less of a level than the
+ *   reference phone - see below.
  *
- * The consequence worth stating plainly: **no device ever sees LESS of a level than the reference
- * phone does.** A wider screen sees a little more width, a squarer screen sees more sky. That is
- * the reason the rule is "contain the design rect" rather than the more obvious "keep the height
- * fixed and let the width follow the aspect" - the latter would have handed a 4:3 iPad a 640x480
- * canvas, cutting the visible level width by a third and quietly invalidating level-design
- * decisions that were reasoned out against ~770 visible world units.
+ * ## The zoom cap, and why the "never crop" rule has an exception (2026-09-25)
+ *
+ * Containing the design rect at every aspect was the original rule, and the consequence was meant
+ * to be reassuring: no device ever sees less of a level than the reference phone. On a 4:3 iPad it
+ * read very differently. The canvas came out 1040x780, the ground is pinned near the bottom, and
+ * the world draws at a fixed `worldZoom` of 1.35 - so the action occupied the bottom 62% of a big
+ * expensive screen and the top 38% was empty sky. The owner's words after playing it on their own
+ * iPad: "don't show too much extra sky in tablets, instead zoom in onto the game."
+ *
+ * There is no free lunch here. The ground has nothing below it to reveal, so the only way to make
+ * the action fill more of a squarer screen is to magnify it, and magnifying it necessarily shows
+ * less level width. The cap picks where to stop: the canvas grows to at most [MAX_CANVAS_HEIGHT]
+ * (the height at which [DESIGN_WIDTH] exactly fills a [FULL_WIDTH_ASPECT] screen) and past that
+ * the width shrinks with the aspect - until it reaches [MIN_CANVAS_WIDTH], which is where a 4:3
+ * screen actually lands. So a 4:3 iPad goes from 1040x780 to a round 800x600: the player now
+ * stands 21% of the canvas height tall instead of 16% (26% on the reference phone), at the cost of
+ * 593 visible world units instead of 770, a 23% narrower view.
+ *
+ * [FULL_WIDTH_ASPECT] is 16:9 on purpose - the squarest a phone in landscape gets - so
+ * **no phone loses a single unit of horizontal field of view** and the cap is a
+ * tablet-and-foldable concession only, which is what keeps the level-pacing decisions above intact
+ * on the devices they were reasoned out against. [MIN_CANVAS_WIDTH] is the backstop under it, so a
+ * genuinely square or portrait window cannot zoom in without limit; it is the same 800 units
+ * `GameplayScene` already clamps its own `canvasW` to, so the two floors cannot disagree.
  *
  * ## Landscape is assumed, defensively
  *
@@ -77,6 +99,29 @@ object ScreenLayout {
     const val MAX_ASPECT: Double = 3.0
 
     /**
+     * The squarest screen that still gets the whole [DESIGN_WIDTH]: exactly 16:9, which is the
+     * squarest a phone in landscape gets. Setting it there rather than lower makes the zoom cap
+     * below as strong as it can be while still costing no phone a single unit of horizontal field
+     * of view.
+     */
+    const val FULL_WIDTH_ASPECT: Double = 16.0 / 9.0
+
+    /**
+     * The tallest canvas the zoom cap hands out: the height at which [DESIGN_WIDTH] exactly fills
+     * a [FULL_WIDTH_ASPECT] screen, 585 units. Past that the canvas zooms in rather than adding
+     * more sky above the action.
+     */
+    const val MAX_CANVAS_HEIGHT: Double = DESIGN_WIDTH / FULL_WIDTH_ASPECT
+
+    /**
+     * The narrowest canvas the zoom cap may produce. It binds below aspect 1.37, which is to say
+     * on 4:3 tablets and anything squarer. Deliberately the same 800 units `GameplayScene` clamps
+     * its own `canvasW` to - a canvas narrower than that would put the HUD it pins to `canvasW`
+     * off the edge of the screen.
+     */
+    const val MIN_CANVAS_WIDTH: Double = 800.0
+
+    /**
      * The virtual canvas for a screen of [screenWidthDp] x [screenHeightDp] density-independent
      * units (dp on Android, points on iOS, logical pixels on desktop). Order does not matter -
      * the larger of the two is taken as the landscape width.
@@ -93,9 +138,14 @@ object ScreenLayout {
             return VirtualViewport(DESIGN_WIDTH, DESIGN_HEIGHT)
         }
         val aspect = (long / short).coerceIn(MIN_ASPECT, MAX_ASPECT)
-        val height = max(DESIGN_HEIGHT, DESIGN_WIDTH / aspect)
-        val width = max(DESIGN_WIDTH, height * aspect)
-        return VirtualViewport(round(width), round(height))
+        // What containing the whole design rect would ask for on its own.
+        val containHeight = max(DESIGN_HEIGHT, DESIGN_WIDTH / aspect)
+        // The zoom cap: stop growing the canvas at MAX_CANVAS_HEIGHT so a squarer screen magnifies
+        // the action instead of stacking sky on top of it, but never let that shrink the canvas
+        // past MIN_CANVAS_WIDTH.
+        val cappedHeight = max(MAX_CANVAS_HEIGHT, MIN_CANVAS_WIDTH / aspect)
+        val height = min(containHeight, cappedHeight)
+        return VirtualViewport(round(height * aspect), round(height))
     }
 
     /** [viewportFor] for a whole [ScreenMetrics] reading. */

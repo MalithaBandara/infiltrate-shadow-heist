@@ -11,9 +11,11 @@ import kotlin.test.assertTrue
 /**
  * The viewport contract, pinned against the real devices this game has to cover.
  *
- * The one rule every case below is really checking: whatever canvas a device gets, the authored
- * 1040x480 design rect fits inside it, and the canvas has the device's own aspect so nothing is
- * letterboxed. See `ScreenLayout`'s doc comment for why that rule and not another.
+ * Two rules, and every case below is checking one of them. **Always:** the canvas has the device's
+ * own aspect, so SHOW_ALL has nothing left to letterbox, and it is never shorter than the authored
+ * 480. **On anything a phone can be** (16:9 and wider) it is also never narrower than the authored
+ * 1040, so no phone loses horizontal field of view. Tablets and foldables trade some of that width
+ * for magnification under the zoom cap - see `ScreenLayout`'s doc comment for why.
  */
 class ScreenLayoutTest {
 
@@ -36,10 +38,17 @@ class ScreenLayoutTest {
             val (w, h) = size
             val vp = ScreenLayout.viewportFor(w, h)
 
+            // Phones keep the authored width exactly; tablets may give some of it back to the
+            // zoom cap, but never below the floor GameplayScene pins its HUD against.
+            val floor = if (w / h >= ScreenLayout.FULL_WIDTH_ASPECT) {
+                ScreenLayout.DESIGN_WIDTH
+            } else {
+                ScreenLayout.MIN_CANVAS_WIDTH
+            }
             assertTrue(
-                vp.width >= ScreenLayout.DESIGN_WIDTH - 0.5,
-                "$label: canvas ${vp.width} is narrower than the authored ${ScreenLayout.DESIGN_WIDTH} - " +
-                    "levels would lose horizontal field of view"
+                vp.width >= floor - 0.5,
+                "$label: canvas ${vp.width} is narrower than $floor - levels would lose too much " +
+                    "horizontal field of view"
             )
             assertTrue(
                 vp.height >= ScreenLayout.DESIGN_HEIGHT - 0.5,
@@ -71,11 +80,45 @@ class ScreenLayoutTest {
         assertEquals(ScreenLayout.DESIGN_HEIGHT, wide.height, 0.001, "a wide screen must not change the vertical framing")
         assertTrue(wide.width > ScreenLayout.DESIGN_WIDTH, "a wide screen should see a little more level width")
 
-        // 4:3 iPad: squarer than the design aspect, so width is pinned and the extra goes to sky.
-        val tablet = ScreenLayout.viewportFor(1366.0, 1024.0)
-        assertEquals(ScreenLayout.DESIGN_WIDTH, tablet.width, 0.001, "a tablet must see exactly the phone's level width")
-        assertEquals(780.0, tablet.height, 0.5, "4:3 works out to 1040x780")
-        assertTrue(tablet.height > ScreenLayout.DESIGN_HEIGHT)
+        // 16:9, the squarest a phone gets: width is pinned and the extra goes to sky.
+        val phone = ScreenLayout.viewportFor(667.0, 375.0)
+        assertEquals(ScreenLayout.DESIGN_WIDTH, phone.width, 0.5, "a phone must see exactly the reference width")
+        assertTrue(phone.height > ScreenLayout.DESIGN_HEIGHT, "a 16:9 phone gets some sky above the action")
+    }
+
+    @Test
+    fun testTabletsZoomInInsteadOfStackingSkyAboveTheAction() {
+        // The owner's report from their own iPad: 1040x780 put the action in the bottom 62% of the
+        // screen with empty sky above it. The cap trades width for magnification instead.
+        val ipad = ScreenLayout.viewportFor(1366.0, 1024.0)
+        // 4:3 is square enough that the MIN_CANVAS_WIDTH floor, not the height cap, decides:
+        // the canvas stops at exactly the 800 units GameplayScene pins its HUD against.
+        assertEquals(600.0, ipad.height, 0.5, "4:3 must stop well short of the old 780")
+        assertEquals(ScreenLayout.MIN_CANVAS_WIDTH, ipad.width, 0.5, "and the width gives instead")
+        assertTrue(
+            ScreenLayout.DESIGN_HEIGHT / ipad.height >= 0.79,
+            "the action should fill most of the canvas height, was ${ScreenLayout.DESIGN_HEIGHT / ipad.height}"
+        )
+
+        // The cap is a tablet concession only: no phone aspect may lose any width to it.
+        for (aspect in listOf(2.33, 2.22, 2.167, 2.0, 16.0 / 9.0)) {
+            val vp = ScreenLayout.viewportFor(aspect * 400.0, 400.0)
+            assertTrue(
+                vp.width >= ScreenLayout.DESIGN_WIDTH - 0.5,
+                "aspect $aspect is a phone and must keep the full ${ScreenLayout.DESIGN_WIDTH}, got ${vp.width}"
+            )
+        }
+
+        // Right at the break point the two branches have to agree, or the canvas jumps.
+        val atBreak = ScreenLayout.viewportFor(ScreenLayout.FULL_WIDTH_ASPECT * 500.0, 500.0)
+        assertEquals(ScreenLayout.DESIGN_WIDTH, atBreak.width, 1.0)
+        assertEquals(ScreenLayout.MAX_CANVAS_HEIGHT, atBreak.height, 1.0)
+
+        // The squarest real device, a Z Fold 6 unfolded, hits the width floor rather than the
+        // height cap - it must not zoom in past what the HUD can survive.
+        val fold = ScreenLayout.viewportFor(823.0, 707.0)
+        assertEquals(ScreenLayout.MIN_CANVAS_WIDTH, fold.width, 0.5)
+        assertTrue(fold.height > ScreenLayout.MAX_CANVAS_HEIGHT)
     }
 
     @Test
@@ -97,8 +140,13 @@ class ScreenLayoutTest {
         // A genuinely portrait window (Android 16 can ignore the orientation lock on a large
         // screen): a very tall canvas, still at least the design rect, never inverted.
         val portrait = ScreenLayout.viewportFor(800.0, 1280.0)
-        assertTrue(portrait.width >= ScreenLayout.DESIGN_WIDTH - 0.5)
+        assertTrue(portrait.width >= ScreenLayout.MIN_CANVAS_WIDTH - 0.5)
         assertTrue(portrait.height >= ScreenLayout.DESIGN_HEIGHT - 0.5)
+
+        // A truly square window clamps on width, not height, and stays the right way up.
+        val square = ScreenLayout.viewportFor(900.0, 900.0)
+        assertEquals(ScreenLayout.MIN_CANVAS_WIDTH, square.width, 0.5)
+        assertEquals(ScreenLayout.MIN_CANVAS_WIDTH, square.height, 0.5)
     }
 
     @Test
@@ -142,7 +190,7 @@ class ScreenLayoutTest {
             assertTrue(!DeviceScreen.isTablet)
 
             DeviceScreen.publish(1366.0, 1024.0, safeBottomDp = 20.0)
-            assertEquals(780.0, DeviceScreen.viewport.height, 0.5)
+            assertEquals(600.0, DeviceScreen.viewport.height, 0.5)
             assertTrue(DeviceScreen.isTablet)
             assertTrue(DeviceScreen.safeInsets.bottom > 0.0)
 

@@ -54,8 +54,11 @@ import game.model.GameProfileStorage
 import game.model.LevelData
 import game.model.LevelResult
 import game.model.LevelStorage
+import game.model.Localization
 import game.model.MapBackedGameProfileStorage
 import game.model.MapBackedLevelStorage
+import game.model.localizedDescription
+import game.model.localizedName
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.Font
 import org.jetbrains.compose.resources.painterResource
@@ -102,21 +105,25 @@ fun MainMenuScreen(
         allResults = levelStorage.getAllResults()
     }
 
-    val levels = LevelData.DEFAULT_LEVELS
+    val language = LocalAppLanguage.current
+    // Temporarily restrict to the 7 active levels for Google Play production approval,
+    // so the mission briefing card never displays the hidden Level 8.
+    val levels = LevelData.DEFAULT_LEVELS.take(7)
     val currentMissionIndex = levels.indexOfFirst { allResults[it.id]?.completed != true }.let { if (it == -1) levels.lastIndex else it }
     val currentMission = levels[currentMissionIndex]
 
-    val storyTitle = "THE SHIPYARD"
-    val levelRawName = if (currentMission.name.contains(":")) {
-        currentMission.name.substringAfter(":").trim()
+    val storyTitle = Localization.theShipyard(language)
+    val localizedMissionName = currentMission.localizedName(language)
+    val levelRawName = if (localizedMissionName.contains(":")) {
+        localizedMissionName.substringAfter(":").trim()
     } else {
-        currentMission.name
+        localizedMissionName
     }
     // The sheet prints the file number in its own corner, so the title drops the "1." prefix
     // it used to carry inline.
     val missionNumber = (currentMissionIndex + 1).toString().padStart(2, '0')
     val missionTitle = levelRawName.uppercase()
-    val missionDescription = currentMission.description
+    val missionDescription = currentMission.localizedDescription(language)
 
     val bebasFont = FontFamily(Font(Res.font.bebas_neue_regular))
 
@@ -254,7 +261,7 @@ fun MainMenuScreen(
 
                 // Textured Heist Buttons Stack
                 HeistTexturedButton(
-                    text = "PLAY",
+                    text = Localization.play(language),
                     texture = Res.drawable.button1,
                     font = bebasFont,
                     buttonHeight = buttonHeight,
@@ -266,7 +273,7 @@ fun MainMenuScreen(
                 Spacer(modifier = Modifier.height(buttonSpacing))
 
                 HeistTexturedButton(
-                    text = "MISSIONS",
+                    text = Localization.missions(language),
                     texture = Res.drawable.button2,
                     font = bebasFont,
                     buttonHeight = buttonHeight,
@@ -278,7 +285,7 @@ fun MainMenuScreen(
                 Spacer(modifier = Modifier.height(buttonSpacing))
 
                 HeistTexturedButton(
-                    text = "STORE",
+                    text = Localization.store(language),
                     texture = Res.drawable.button3,
                     font = bebasFont,
                     buttonHeight = buttonHeight,
@@ -290,7 +297,7 @@ fun MainMenuScreen(
                 Spacer(modifier = Modifier.height(buttonSpacing))
 
                 HeistTexturedButton(
-                    text = "SETTINGS",
+                    text = Localization.settings(language),
                     texture = Res.drawable.button4,
                     font = bebasFont,
                     buttonHeight = buttonHeight,

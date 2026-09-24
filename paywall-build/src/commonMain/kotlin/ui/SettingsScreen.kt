@@ -55,6 +55,7 @@ import com.infiltrate.storage.PlatformStorage
 import game.model.GameProfile
 import game.model.GameProfileStorage
 import game.model.LevelStorage
+import game.model.Localization
 import game.model.MapBackedGameProfileStorage
 import game.model.MapBackedLevelStorage
 import kotlinx.coroutines.delay
@@ -73,12 +74,10 @@ enum class SettingsTab {
 data class LanguageOption(val code: String, val nativeName: String)
 
 /**
- * Shortlist picked for Shipaton store-listing reach, not yet wired to any real translated
- * strings - see .junie/guidelines.md "Language dropdown" note. Ordered by priority tier
- * (Play+App Store combined impact, then Play-heavy download volume, then optional/smaller reach),
- * English first as the only language the app actually speaks right now.
+ * Full shortlist of target languages, preserved for future rollout.
+ * Temporarily restricted to English and French below for Google Play production approval.
  */
-val SUPPORTED_LANGUAGES = listOf(
+val ALL_SUPPORTED_LANGUAGES = listOf(
     LanguageOption("en", "English"),
     LanguageOption("es", "Español (Latinoamérica)"),
     LanguageOption("pt-BR", "Português (Brasil)"),
@@ -96,6 +95,16 @@ val SUPPORTED_LANGUAGES = listOf(
     LanguageOption("zh-TW", "繁體中文"),
 )
 
+/**
+ * Active languages available in the dropdown.
+ * Temporarily restricted to English and French for Google Play production approval,
+ * as only these two have full localization strings implemented.
+ */
+val SUPPORTED_LANGUAGES = listOf(
+    LanguageOption("en", "English"),
+    LanguageOption("fr", "Français"),
+)
+
 @Composable
 fun SettingsScreen(
     initialTab: SettingsTab = SettingsTab.GENERAL,
@@ -105,8 +114,10 @@ fun SettingsScreen(
     // NavigationRoot.kt's own comment on why that used to not work.
     musicVolume: Float,
     sfxVolume: Float,
+    language: String = "en",
     onMusicVolumeChange: (Float) -> Unit,
     onSfxVolumeChange: (Float) -> Unit,
+    onLanguageChange: (String) -> Unit = {},
     onBackClicked: () -> Unit,
     onStoreShortcutClicked: () -> Unit = {}
 ) {
@@ -127,9 +138,13 @@ fun SettingsScreen(
     var profile by remember { mutableStateOf(profileStorage.getProfile()) }
     var currentTab by remember { mutableStateOf(initialTab) }
     var controlsSwapped by remember { mutableStateOf(profile.controlsSwapped) }
-    var currentLanguage by remember { mutableStateOf(profile.language) }
+    var currentLanguage by remember { mutableStateOf(language) }
     var showResetConfirmDialog by remember { mutableStateOf(false) }
     val bebasFont = FontFamily(Font(Res.font.bebas_neue_regular))
+
+    LaunchedEffect(language) {
+        currentLanguage = language
+    }
 
     var toastMessage by remember { mutableStateOf<String?>(null) }
     var toastIsSuccess by remember { mutableStateOf(true) }
@@ -173,10 +188,11 @@ fun SettingsScreen(
         // Reset local UI states
         controlsSwapped = false
         currentLanguage = "en"
+        onLanguageChange("en")
         profile = profileStorage.getProfile()
 
         showResetConfirmDialog = false
-        showToast("SETTINGS & PROGRESS RESET TO DEFAULT", false)
+        showToast(Localization.resetSuccessToast("en"), false)
     }
 
     BoxWithConstraints(
@@ -194,7 +210,7 @@ fun SettingsScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             // Top Bar
             MenuTopBar(
-                title = "SETTINGS",
+                title = Localization.settings(currentLanguage),
                 font = bebasFont,
                 onBackClicked = onBackClicked,
                 scale = scale,
@@ -224,7 +240,7 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     TexturedSidebarTab(
-                        text = "GENERAL",
+                        text = Localization.generalTab(currentLanguage),
                         isSelected = currentTab == SettingsTab.GENERAL,
                         texture = Res.drawable.button1,
                         font = bebasFont,
@@ -234,7 +250,7 @@ fun SettingsScreen(
                     )
 
                     TexturedSidebarTab(
-                        text = "ABOUT",
+                        text = Localization.aboutTab(currentLanguage),
                         isSelected = currentTab == SettingsTab.ABOUT,
                         texture = Res.drawable.button2,
                         font = bebasFont,
@@ -262,6 +278,7 @@ fun SettingsScreen(
                                 onLanguageChange = { lang ->
                                     currentLanguage = lang
                                     profileStorage.setLanguage(lang)
+                                    onLanguageChange(lang)
                                 },
                                 onMusicChange = onMusicVolumeChange,
                                 onSfxChange = onSfxVolumeChange,
@@ -276,6 +293,7 @@ fun SettingsScreen(
                         }
                         SettingsTab.ABOUT -> {
                             AboutSettingsPanel(
+                                selectedLanguage = currentLanguage,
                                 font = bebasFont,
                                 scale = scale,
                                 onActionToast = { showToast(it, true) }
@@ -326,7 +344,7 @@ fun SettingsScreen(
                                     .background(Color(0xFFFF5252), RoundedCornerShape(2.dp))
                             )
                             Text(
-                                text = "CONFIRM PROGRESS RESET",
+                                text = Localization.confirmProgressReset(currentLanguage),
                                 color = Color(0xFFFF5252),
                                 fontSize = (18 * scale).sp,
                                 fontFamily = bebasFont,
@@ -344,11 +362,7 @@ fun SettingsScreen(
 
                         // Description
                         Text(
-                            text = "Are you sure you want to reset all game data? This will permanently erase:\n" +
-                                "• All completed missions, best times, and star ratings\n" +
-                                "• Coin balance and gadget inventory\n" +
-                                "• Audio, language, and control preferences\n\n" +
-                                "Note: Any active Remove Ads purchase will be preserved.",
+                            text = Localization.confirmResetDesc(currentLanguage),
                             color = Color(0xFFD0D0D4),
                             fontSize = (13 * scale).sp,
                             lineHeight = (18 * scale).sp
@@ -379,7 +393,7 @@ fun SettingsScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "CANCEL",
+                                    text = Localization.cancel(currentLanguage),
                                     color = Color.White,
                                     fontSize = (12 * scale).sp,
                                     fontFamily = bebasFont,
@@ -406,7 +420,7 @@ fun SettingsScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "RESET EVERYTHING",
+                                    text = Localization.resetEverything(currentLanguage),
                                     color = Color(0xFF0A0A0C),
                                     fontSize = (12 * scale).sp,
                                     fontFamily = bebasFont,
@@ -477,7 +491,7 @@ private fun GeneralSettingsPanel(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "GENERAL CONFIGURATION",
+                text = Localization.generalConfig(selectedLanguage),
                 color = Color.White,
                 fontSize = (18 * scale).sp,
                 fontFamily = font,
@@ -508,14 +522,14 @@ private fun GeneralSettingsPanel(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column {
                     Text(
-                        text = "LANGUAGE",
+                        text = Localization.languageSetting(selectedLanguage),
                         color = Color.White,
                         fontSize = (15 * scale).sp,
                         fontFamily = font,
                         letterSpacing = 1.sp
                     )
                     Text(
-                        text = "Select your language (translations rolling out soon)",
+                        text = Localization.languageDesc(selectedLanguage),
                         color = Color(0xFF9A9A9E),
                         fontSize = (12 * scale).sp
                     )
@@ -643,14 +657,14 @@ private fun GeneralSettingsPanel(
         ) {
             Column(modifier = Modifier.width((200 * scale).dp)) {
                 Text(
-                    text = "MUSIC VOLUME",
+                    text = Localization.musicVolume(selectedLanguage),
                     color = Color.White,
                     fontSize = (15 * scale).sp,
                     fontFamily = font,
                     letterSpacing = 1.sp
                 )
                 Text(
-                    text = "Background music level",
+                    text = if (Localization.isFrench(selectedLanguage)) "Niveau de la musique de fond" else "Background music level",
                     color = Color(0xFF9A9A9E),
                     fontSize = (12 * scale).sp
                 )
@@ -675,14 +689,14 @@ private fun GeneralSettingsPanel(
         ) {
             Column(modifier = Modifier.width((200 * scale).dp)) {
                 Text(
-                    text = "SFX VOLUME",
+                    text = Localization.soundEffects(selectedLanguage),
                     color = Color.White,
                     fontSize = (15 * scale).sp,
                     fontFamily = font,
                     letterSpacing = 1.sp
                 )
                 Text(
-                    text = "Tactical sound effects",
+                    text = if (Localization.isFrench(selectedLanguage)) "Effets sonores tactiques" else "Tactical sound effects",
                     color = Color(0xFF9A9A9E),
                     fontSize = (12 * scale).sp
                 )
@@ -707,14 +721,14 @@ private fun GeneralSettingsPanel(
         ) {
             Column(modifier = Modifier.weight(1f).padding(end = (16 * scale).dp)) {
                 Text(
-                    text = "CONTROLS LAYOUT",
+                    text = Localization.controlsSetting(selectedLanguage),
                     color = Color.White,
                     fontSize = (15 * scale).sp,
                     fontFamily = font,
                     letterSpacing = 1.sp
                 )
                 Text(
-                    text = "Choose screen side for movement buttons (Actions on opposite side)",
+                    text = Localization.swapControlsDesc(selectedLanguage),
                     color = Color(0xFF9A9A9E),
                     fontSize = (12 * scale).sp
                 )
@@ -743,7 +757,7 @@ private fun GeneralSettingsPanel(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "DEFAULT (LEFT)",
+                        text = if (Localization.isFrench(selectedLanguage)) "PAR DÉFAUT (GAUCHE)" else "DEFAULT (LEFT)",
                         color = if (!controlsSwapped) Color.White else Color.White.copy(alpha = 0.7f),
                         fontSize = (12 * scale).sp,
                         fontFamily = font,
@@ -774,7 +788,7 @@ private fun GeneralSettingsPanel(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "SWAPPED (RIGHT)",
+                        text = if (Localization.isFrench(selectedLanguage)) "INVERSÉ (DROITE)" else "SWAPPED (RIGHT)",
                         color = if (controlsSwapped) Color.White else Color.White.copy(alpha = 0.7f),
                         fontSize = (12 * scale).sp,
                         fontFamily = font,
@@ -814,14 +828,14 @@ private fun GeneralSettingsPanel(
             ) {
                 Column {
                     Text(
-                        text = "RESET PROGRESS & SETTINGS",
+                        text = Localization.resetAllProgress(selectedLanguage),
                         color = Color(0xFFFF5252),
                         fontSize = (15 * scale).sp,
                         fontFamily = font,
                         letterSpacing = 1.sp
                     )
                     Text(
-                        text = "Clear all mission progress, inventory, and configuration defaults",
+                        text = Localization.resetProgressDesc(selectedLanguage),
                         color = Color(0xFF9A9A9E),
                         fontSize = (12 * scale).sp
                     )
@@ -832,7 +846,7 @@ private fun GeneralSettingsPanel(
                         .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
                     Text(
-                        text = "RESET",
+                        text = Localization.resetBtn(selectedLanguage),
                         color = Color(0xFF0A0A0C),
                         fontSize = (12 * scale).sp,
                         fontWeight = FontWeight.Black,
@@ -846,6 +860,7 @@ private fun GeneralSettingsPanel(
 
 @Composable
 private fun AboutSettingsPanel(
+    selectedLanguage: String = "en",
     font: FontFamily,
     scale: Float,
     onActionToast: (String) -> Unit
@@ -869,7 +884,7 @@ private fun AboutSettingsPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "ABOUT INFILTRATE",
+                    text = if (Localization.isFrench(selectedLanguage)) "À PROPOS D'INFILTRATE" else "ABOUT INFILTRATE",
                     color = Color.White,
                     fontSize = (18 * scale).sp,
                     fontFamily = font,
@@ -887,6 +902,14 @@ private fun AboutSettingsPanel(
             // Links
             var creditsExpanded by remember { mutableStateOf(false) }
             val links = listOf("PRIVACY POLICY", "CONTACT US", "CREDITS & LICENSES", "RATE US")
+            fun linkDisplay(link: String): String = when (link) {
+                "PRIVACY POLICY" -> Localization.privacyPolicy(selectedLanguage)
+                "CONTACT US" -> Localization.contactUs(selectedLanguage)
+                "CREDITS & LICENSES" -> Localization.creditsLicenses(selectedLanguage)
+                "RATE US" -> Localization.rateUs(selectedLanguage)
+                else -> link
+            }
+
             for (link in links) {
                 val interactionSource = remember { MutableInteractionSource() }
                 val isCredits = link == "CREDITS & LICENSES"
@@ -908,7 +931,7 @@ private fun AboutSettingsPanel(
                                 when (link) {
                                     "RATE US" -> {
                                         InAppReview.requestReview()
-                                        onActionToast("RATE US")
+                                        onActionToast(Localization.rateUs(selectedLanguage))
                                     }
                                     "CREDITS & LICENSES" -> {
                                         creditsExpanded = !creditsExpanded
@@ -938,7 +961,7 @@ private fun AboutSettingsPanel(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = link,
+                            text = linkDisplay(link),
                             color = Color.White,
                             fontSize = (14 * scale).sp,
                             fontFamily = font,
@@ -970,7 +993,7 @@ private fun AboutSettingsPanel(
         }
 
         Text(
-            text = "INFILTRATE: SHADOW HEIST • VERSION ${PlatformInfo.versionName} (BUILD ${PlatformInfo.buildNumber})".uppercase(),
+            text = "INFILTRATE: SHADOW HEIST • ${Localization.version(selectedLanguage)} ${PlatformInfo.versionName} (${Localization.build(selectedLanguage)} ${PlatformInfo.buildNumber})".uppercase(),
             color = Color(0xFF6E6E72),
             fontSize = (11 * scale).sp,
             fontWeight = FontWeight.Medium,

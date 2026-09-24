@@ -6181,7 +6181,7 @@ class GameplayModelTest {
     fun testLevel7LayoutStructureAndProperties() {
         val levelData = LevelData.DEFAULT_LEVEL_7
         assertEquals("level_7", levelData.id)
-        assertEquals("07: Stolen Manifest", levelData.name)
+        assertEquals("07: Service Tunnel", levelData.name)
         val layout = levelData.layout
         assertNotNull(layout)
         assertEquals(5200.0, layout.worldWidth)
@@ -6226,23 +6226,22 @@ class GameplayModelTest {
         val fan = world.fans.first() // x = 850.0, windRange = 360.0 (windMinX = 490.0)
         val dt = 1.0 / 60.0
 
-        // 0. Boundary check: At x = 500.0 where step_spam_fan triggers, player must already be in wind zone
+        // 0. Boundary check: at x = 500.0, where step_spam_fan triggers, the player is already in wind
         world.player.resetTo(500.0, 440.0 - 96.0)
         assertFalse(world.player.isCrouching, "Player stands by default in level 7")
         assertTrue(fan.isPlayerInWind(world.player), "Player at tutorial trigger x=500.0 must be recognized as inside wind zone")
 
-        // Single tap delivers measured forward impulse (+10.0 px)
+        // In air flow parts, normal mechanics do not work. Pressing forward once does nothing.
         val preTapX = world.player.x
         world.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false, interactInput = false, forwardTap = true)
-        assertTrue(world.player.x >= preTapX + 8.0, "Single tap in wind zone must deliver measured forward surge")
+        val oneTapStep = world.player.x - preTapX
+        assertTrue(oneTapStep <= 0.0, "Pressing forward once does nothing to advance: $oneTapStep")
+        assertFalse(world.isWindSpamming, "Single tap must not trigger spamming")
 
-        // Place player inside fan wind zone
+        // 1. Holding forward without tapping loses ground: gale blows player backward.
         val testX = 700.0
         world.player.resetTo(testX, 440.0 - 96.0)
         assertTrue(fan.isPlayerInWind(world.player))
-
-        // 1. Long pressing forward without tapping (moveInput = 1.0, forwardTap = false)
-        // Fan pushes back at 135 px/s while standing move speed is 132 px/s -> player is pushed backward!
         for (i in 0 until 30) {
             world.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false, interactInput = false, forwardTap = false)
         }
@@ -6252,17 +6251,178 @@ class GameplayModelTest {
         }
         assertTrue(world.player.x < startX, "Holding forward alone should be pushed backward by high-velocity exhaust fan")
 
-        // 2. Spam-tapping forward button at human cadence (e.g. 3-4 taps/sec, tap every 18 frames) while driving forward
-        // Stride impulse (+10 px/tap) and pushback dampening (0.10s) deliver steady, measured forward progress (~55-75 px/s)!
+        // 2. Continuously tapping forward at a human cadence triggers spamming and makes steady forward progress.
         val pushbackX = world.player.x
-        for (i in 0 until 60) {
+        for (i in 0 until 120) {
             val tap = (i % 18 == 0) // ~3.3 taps per second
             world.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false, interactInput = false, forwardTap = tap)
         }
-        assertTrue(world.player.x > pushbackX + 40.0, "Continuously tapping forward button must deliver measured impulses pushing through headwind")
-        assertTrue(world.player.x < pushbackX + 90.0, "Continuously tapping forward must not move too fast through airflow")
+        assertTrue(world.isWindSpamming, "Continuously tapping must activate spamming state")
+        assertTrue(world.player.x > pushbackX + 25.0, "Continuously tapping forward must push through the headwind")
     }
 
+    @Test
+    fun testFanTapAdvanceIsSmoothAndSlowerThanTheOldImpulse() {
+        val dt = 1.0 / 60.0
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_7)
+        world.player.resetTo(700.0, 440.0 - 96.0)
+        // Settle the spamming state before measuring.
+        for (i in 0 until 90) {
+            world.update(dt, 1.0, false, false, false, forwardTap = i % 18 == 0)
+        }
+
+        val x0 = world.player.x
+        var previous = x0
+        var fastestFrame = 0.0
+        val seconds = 2.0
+        val frames = (seconds / dt).toInt()
+        for (i in 0 until frames) {
+            world.update(dt, 1.0, false, false, false, forwardTap = i % 18 == 0)
+            val speed = (world.player.x - previous) / dt
+            previous = world.player.x
+            if (speed > fastestFrame) fastestFrame = speed
+        }
+        val net = (world.player.x - x0) / seconds
+
+        assertTrue(
+            fastestFrame <= world.player.moveSpeed + 0.5,
+            "No frame may exceed normal walking pace: peak was $fastestFrame u/s"
+        )
+        assertTrue(net > 20.0, "Spamming has to make real progress: $net u/s")
+
+        // And spamming stops when tapping stops
+        for (i in 0 until 60) {
+            world.update(dt, 0.0, false, false, false, forwardTap = false)
+        }
+        assertFalse(world.isWindSpamming, "Spamming state must deactivate once tapping stops")
+    }
+
+    @Test
+    fun testWindStanceLeansInAndStandsBackUpAroundAFanZone() {
+        val dt = 1.0 / 60.0
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_7)
+
+        // Well clear of every fan: upright, and the scene hands the sprite back to idle/walk.
+        world.player.resetTo(200.0, 440.0 - 96.0)
+        world.update(dt, 0.0, false, false, false)
+        assertFalse(world.isInWindZone, "x=200 is outside every fan's wind zone")
+        assertTrue(world.isWindStanceIdle, "Outside the wind the stance machine is idle")
+
+        // Inside the zone the body folds into the gale over WIND_STANCE_ENTER_SECONDS.
+        world.player.resetTo(700.0, 440.0 - 96.0)
+        world.update(dt, 0.0, false, false, false)
+        assertTrue(world.isInWindZone)
+        assertFalse(world.isWindBraced, "The lean-in is not instant")
+        val partway = world.windStanceBlend
+        assertTrue(partway > 0.0 && partway < 1.0, "Blend runs 0 -> 1: $partway")
+
+        var t = 0.0
+        while (t < GameWorld.WIND_STANCE_ENTER_SECONDS + 0.1) {
+            world.update(dt, 0.0, false, false, false)
+            t += dt
+        }
+        assertTrue(world.isWindBraced, "Fully leaning after WIND_STANCE_ENTER_SECONDS")
+        assertEquals(1.0, world.windStanceBlend)
+
+        // Stepping out of the zone straightens him back up, and the clip runs in reverse off the
+        // same number rather than snapping - so it has to pass through the middle, not jump to 0.
+        world.player.resetTo(200.0, 440.0 - 96.0)
+        world.update(dt, 0.0, false, false, false)
+        assertFalse(world.isInWindZone)
+        assertTrue(world.windStanceBlend < 1.0 && world.windStanceBlend > 0.0, "Stands up gradually")
+        t = 0.0
+        while (t < GameWorld.WIND_STANCE_EXIT_SECONDS + 0.1) {
+            world.update(dt, 0.0, false, false, false)
+            t += dt
+        }
+        assertTrue(world.isWindStanceIdle, "Fully upright again")
+    }
+
+    @Test
+    fun testWindStanceHoldsBracedPoseIdleAndOnlyStridesWhileTapping() {
+        // The rule this pins, in the owner's words: standing in the airflow holds a still braced
+        // pose, and the wind-walk gait plays only while the player is spam-tapping. So the gait is
+        // gated on GameWorld.isWindPushing - the tap surge being alive - and NOT on ground speed,
+        // which was the first thing tried and is wrong at the mouth of a fan, where the player
+        // makes almost no headway exactly while they are working hardest.
+        val dt = 1.0 / 60.0
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_7)
+        val fan = world.fans.first()
+
+        // Deep inside the airflow, not at its edge.
+        world.player.resetTo(550.0, 440.0 - 96.0)
+        assertTrue(fan.isPlayerInWind(world.player))
+
+        // 1. Standing in it, no input at all: the body folds into the gale and HOLDS there.
+        var t = 0.0
+        while (t < GameWorld.WIND_STANCE_ENTER_SECONDS + 0.1) {
+            world.update(dt, 0.0, false, false, false)
+            t += dt
+        }
+        assertTrue(world.isInWindZone, "Still in the airflow")
+        assertEquals(1.0, world.windStanceBlend, "Fully braced")
+        assertTrue(world.isWindBraced, "Braced pose is held")
+        assertFalse(world.isWindPushing, "Doing nothing is not pushing - no gait")
+
+        // 2. Spam-tapping: now the gait runs.
+        var sawPushing = false
+        for (i in 0 until 60) {
+            world.update(dt, 0.0, false, false, false, forwardTap = i % 15 == 0)
+            if (world.isWindPushing) sawPushing = true
+        }
+        assertTrue(sawPushing, "Tapping must drive the wind-walk gait")
+        assertTrue(world.isWindBraced, "Still braced while striding")
+
+        // 3. Stop again: the gait stops within the intent window, the brace stays until the gale
+        //    has carried them out of the zone.
+        for (i in 0 until 60) {
+            world.update(dt, 0.0, false, false, false, forwardTap = false)
+        }
+        assertFalse(world.isWindPushing, "Stopping stops the gait")
+    }
+
+    @Test
+    fun testWindTapsRegisterAtTheZoneBoundaryNotJustInsideIt() {
+        // Regression for a stall found in the running game: the gale bounces a player leaning into
+        // the mouth of a fan out of the zone on alternating frames, so gating taps strictly on
+        // isPlayerInWind threw most of them away. The character stood at x=453 against a zone
+        // starting at 490, tapping continuously, never getting in and never even leaning.
+        val dt = 1.0 / 60.0
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_7)
+        val fan = world.fans.first()
+        val zoneStart = minOf(fan.windMinX, fan.windMaxX)
+
+        // Start just short of the boundary, walking in and tapping the way a player would.
+        world.player.resetTo(zoneStart - 45.0, 440.0 - 96.0)
+        var maxX = world.player.x
+        for (i in 0 until 60 * 8) {
+            world.update(dt, 1.0, false, false, false, forwardTap = i % 18 == 0)
+            if (world.player.x > maxX) maxX = world.player.x
+        }
+        assertTrue(
+            maxX > zoneStart + 120.0,
+            "Tapping must carry the player well into the airflow, not stall at its lip (reached $maxX, zone starts $zoneStart)"
+        )
+    }
+
+    @Test
+    fun testWindGaitIsDrivenByGroundSpeedNotWalkInput() {
+        val dt = 1.0 / 60.0
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_7)
+        world.player.resetTo(700.0, 440.0 - 96.0)
+
+        // Hold forward, never tap: in air flow parts normal mechanics do not work (vx is 0.0, player does not advance).
+        for (i in 0 until 60) {
+            world.update(dt, 1.0, false, false, false, forwardTap = false)
+        }
+        assertEquals(0.0, world.player.vx, "Normal forward walk input must do nothing in air flow")
+        assertFalse(world.isWindSpamming, "Holding forward alone must not activate spamming")
+
+        // Outside a wind zone it is not reported at all.
+        world.player.resetTo(200.0, 440.0 - 96.0)
+        world.update(dt, 1.0, false, false, false)
+        assertEquals(0.0, world.windGroundSpeed, "No wind, no wind gait")
+    }
     @Test
     fun testLevel7CameraBotPatrolAndDeactivationFromBehind() {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_7)
@@ -6357,9 +6517,9 @@ class GameplayModelTest {
             val botDangerousAhead = world.cameraBots.firstOrNull { bot ->
                 if (bot.isDeactivated) false
                 else if (bot.facing < 0.0) {
-                    px in (bot.patrolMinX - bot.visionRange - 30.0)..bot.patrolMaxX
+                    px in (bot.patrolMinX - bot.visionRange - 60.0)..bot.patrolMaxX
                 } else {
-                    (bot.x - px) < 15.0 || (px in (bot.patrolMinX - bot.visionRange - 30.0)..bot.patrolMinX && bot.x > bot.patrolMinX + 40.0)
+                    (bot.x - px) < 15.0 || (px in (bot.patrolMinX - bot.visionRange - 60.0)..bot.patrolMinX && bot.x > bot.patrolMinX + 30.0)
                 }
             }
             // Approach from behind and deactivate when in range
@@ -6375,7 +6535,7 @@ class GameplayModelTest {
                     crossingPipe = null
                 }
             } else if (pipeAhead != null) {
-                if (pipeAhead.remainingInactiveTime(elapsed) >= 1.5) {
+                if (pipeAhead.remainingInactiveTime(elapsed) >= 0.7) {
                     crossingPipe = pipeAhead
                 }
             }
@@ -6403,34 +6563,34 @@ class GameplayModelTest {
         assertEquals(0, restarts, "Level 7 simulation should clear without any deaths")
     }
 
-    // ---- Level 13: the cleared push-stance stage --------------------------------------------
+    // ---- Level 8: the cleared push-stance stage --------------------------------------------
 
     @Test
-    fun testLevel13IsClearedOfEverythingButTheGroundAndTheExit() {
-        val layout = LevelData.LEVEL_13_LAYOUT
-        assertTrue(layout.boxes.isEmpty(), "level 13 must have no boxes")
-        assertTrue(layout.guards.isEmpty(), "level 13 must have no guards")
-        assertTrue(layout.cameras.isEmpty(), "level 13 must have no cameras")
-        assertTrue(layout.lasers.isEmpty(), "level 13 must have no lasers")
-        assertTrue(layout.levers.isEmpty(), "level 13 must have no levers")
-        assertTrue(layout.movingPlatforms.isEmpty(), "level 13 must have no moving platforms")
-        assertTrue(layout.conveyors.isEmpty() && layout.conveyorCrates.isEmpty(), "level 13 must have no conveyors")
+    fun testLevel8IsClearedOfEverythingButTheGroundAndTheExit() {
+        val layout = LevelData.LEVEL_8_LAYOUT
+        assertTrue(layout.boxes.isEmpty(), "level 8 must have no boxes")
+        assertTrue(layout.guards.isEmpty(), "level 8 must have no guards")
+        assertTrue(layout.cameras.isEmpty(), "level 8 must have no cameras")
+        assertTrue(layout.lasers.isEmpty(), "level 8 must have no lasers")
+        assertTrue(layout.levers.isEmpty(), "level 8 must have no levers")
+        assertTrue(layout.movingPlatforms.isEmpty(), "level 8 must have no moving platforms")
+        assertTrue(layout.conveyors.isEmpty() && layout.conveyorCrates.isEmpty(), "level 8 must have no conveyors")
         assertTrue(
             layout.fans.isEmpty() && layout.steamPipes.isEmpty() && layout.cameraBots.isEmpty(),
-            "level 13 must have no vent hazards"
+            "level 8 must have no vent hazards"
         )
         assertTrue(
             layout.hangingCrateVariant1.isEmpty() && layout.hangingCrateVariant2.isEmpty(),
-            "level 13 must have nothing hanging"
+            "level 8 must have nothing hanging"
         )
-        assertTrue(layout.swingHooks.isEmpty() && layout.hookCrates.isEmpty(), "level 13 must have no hooks")
-        assertFalse(layout.hasStartFences, "level 13 must have no start fences")
+        assertTrue(layout.swingHooks.isEmpty() && layout.hookCrates.isEmpty(), "level 8 must have no hooks")
+        assertFalse(layout.hasStartFences, "level 8 must have no start fences")
 
         // Exactly the floor and the two side walls - nothing to stand on above ground level.
-        assertEquals(3, layout.platforms.size, "level 13 should be ground plus the two bounding walls")
-        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_13)
-        assertTrue(world.hasNoGuards, "no guards are constructed for level 13")
-        assertTrue(world.pushStanceDemo, "level 13 is the push-stance stage")
+        assertEquals(3, layout.platforms.size, "level 8 should be ground plus the two bounding walls")
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        assertTrue(world.hasNoGuards, "no guards are constructed for level 8")
+        assertTrue(world.pushStanceDemo, "level 8 is the push-stance stage")
 
         // A flat, uninterrupted walk from spawn to the exit, with the ground under the player the
         // whole way - the stage is only useful if nothing can strand or kill him on it.
@@ -6438,16 +6598,16 @@ class GameplayModelTest {
         val dt = 1.0 / 60.0
         while (elapsed < 60.0 && !world.isLevelComplete) {
             world.update(dt, moveInput = 1.0, jumpInput = false)
-            assertFalse(world.isGameOver, "nothing in level 13 may kill the player")
-            assertTrue(world.player.isGrounded, "the floor must run the whole width of level 13")
+            assertFalse(world.isGameOver, "nothing in level 8 may kill the player")
+            assertTrue(world.player.isGrounded, "the floor must run the whole width of level 8")
             elapsed += dt
         }
-        assertTrue(world.isLevelComplete, "level 13 must still be walkable to its exit (stopped at x=" + world.player.x + ")")
+        assertTrue(world.isLevelComplete, "level 8 must still be walkable to its exit (stopped at x=" + world.player.x + ")")
     }
 
     // ---- Push stance ------------------------------------------------------------------------
 
-    private fun pushWorld() = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_13)
+    private fun pushWorld() = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
 
     /** One frame with INTERACT held, then one with it released - i.e. a single button press. */
     private fun GameWorld.tapInteract(dt: Double = 1.0 / 60.0) {
@@ -6540,18 +6700,18 @@ class GameplayModelTest {
     }
 
     @Test
-    fun testPushStanceIsLevel13OnlyAndLeavesEveryOtherLevelAlone() {
+    fun testPushStanceIsLevel8OnlyAndLeavesEveryOtherLevelAlone() {
         val other = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1)
         assertFalse(other.pushStanceDemo)
         val dt = 1.0 / 60.0
         repeat(120) {
             other.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = true)
         }
-        assertTrue(other.isPushStanceIdle, "INTERACT outside level 13 never braces anyone")
+        assertTrue(other.isPushStanceIdle, "INTERACT outside level 8 never braces anyone")
         assertEquals(0.0, other.pushStanceBlend)
 
         for (level in LevelData.DEFAULT_LEVELS) {
-            val expected = level.id == "level_13"
+            val expected = level.id == "level_8"
             assertEquals(expected, level.layout?.pushStanceDemo ?: false, level.id + " pushStanceDemo")
         }
     }
@@ -6559,10 +6719,122 @@ class GameplayModelTest {
     @Test
     fun testPushStanceKeepsTheInteractButtonLiveSoTheTogglePressReachesTheWorld() {
         // GameplayScene gates its interactPressed on world.canInteract before handing it over.
-        // With no levers and no camera bots in level 13, canInteract would be false forever and
+        // With no levers and no camera bots in level 8, canInteract would be false forever and
         // the toggle could never fire.
         val world = pushWorld()
         assertTrue(world.canInteract, "the button has to be live in the push-stance level")
         assertFalse(GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1).canInteract)
+    }
+
+    @Test
+    fun testGuardShieldDisplayNameAliasesAndLevel7Protection() {
+        // 1. Display name and ID resolution
+        assertEquals("GUARD SHIELD", PowerupType.LASER_SHIELD.displayName)
+        assertEquals(PowerupType.LASER_SHIELD, PowerupType.fromId("guard_shield"))
+        assertEquals(PowerupType.LASER_SHIELD, PowerupType.fromId("laser_shield"))
+        assertEquals(PowerupType.LASER_SHIELD, PowerupType.fromId("GUARD_SHIELD"))
+
+        // 2. Profile inventory storage & alias mapping
+        val storageMap = mutableMapOf<String, String>()
+        val profileStorage = MapBackedGameProfileStorage(
+            getRaw = { storageMap[it] },
+            setRaw = { k, v -> storageMap[k] = v }
+        )
+        profileStorage.addCoins(1000)
+        assertTrue(profileStorage.buyPowerup("guard_shield", 500))
+        val profile = profileStorage.getProfile()
+        assertEquals(1, profile.getPowerupCount(PowerupType.LASER_SHIELD))
+        assertEquals(1, profile.getPowerupCount("guard_shield"))
+        assertEquals(1, profile.getPowerupCount("laser_shield"))
+        assertTrue(profileStorage.consumePowerup(PowerupType.LASER_SHIELD))
+        assertEquals(0, profileStorage.getProfile().getPowerupCount(PowerupType.LASER_SHIELD))
+
+        // 3. Steam protection in Level 7
+        val worldSteam = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_7)
+        val pipe = worldSteam.steamPipes.first()
+        pipe.update(0.0)
+        assertTrue(pipe.isActive)
+        worldSteam.activePowerups.activate(PowerupType.LASER_SHIELD)
+        assertTrue(worldSteam.activePowerups.isLaserShieldActive)
+        var blockedSteamFired = false
+        worldSteam.onLaserShieldBlocked = { blockedSteamFired = true }
+        worldSteam.player.resetTo(pipe.x - 10.0, 440.0 - 96.0)
+        worldSteam.update(1.0 / 60.0, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+        assertFalse(worldSteam.isGameOver, "Guard Shield must prevent game over on steam contact")
+        assertFalse(worldSteam.activePowerups.isLaserShieldActive, "Guard Shield must be consumed after steam deflection")
+        assertTrue(blockedSteamFired, "onLaserShieldBlocked must fire on steam deflection")
+        assertTrue(worldSteam.laserGraceTimer > 0.0, "Grace timer should be granted")
+
+        // 4. Laser protection (standard laser hazard in Level 4)
+        val worldLaser = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_4)
+        val laser = worldLaser.lasers.first()
+        laser.update(0.0)
+        assertTrue(laser.isActive)
+        worldLaser.activePowerups.activate(PowerupType.LASER_SHIELD)
+        assertTrue(worldLaser.activePowerups.isLaserShieldActive)
+        var blockedLaserFired = false
+        worldLaser.onLaserShieldBlocked = { blockedLaserFired = true }
+        worldLaser.player.resetTo(laser.topX - worldLaser.player.width / 2.0, 300.0)
+        assertTrue(laser.intersectsPlayer(worldLaser.player.bounds))
+        worldLaser.update(1.0 / 60.0, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+        assertFalse(worldLaser.isGameOver, "Guard Shield must prevent game over on laser contact")
+        assertFalse(worldLaser.activePowerups.isLaserShieldActive, "Guard Shield must be consumed after laser deflection")
+        assertTrue(blockedLaserFired, "onLaserShieldBlocked must fire on laser deflection")
+        assertTrue(worldLaser.laserGraceTimer > 0.0, "Grace timer should be granted")
+    }
+
+    @Test
+    fun testLevel7SteamPipesSingleMountsAndNonConstantDurationsWithOneSecondWarning() {
+        val layout = LevelData.LEVEL_7_LAYOUT
+        val pipes = layout.steamPipes
+        assertTrue(pipes.isNotEmpty(), "Level 7 must contain steam pipes")
+
+        // 1. Requirement: No steam emitters on both top and bottom (never PAIR)
+        for (pipeDef in pipes) {
+            assertTrue(
+                pipeDef.mountType == PipeMountType.TOP || pipeDef.mountType == PipeMountType.BOTTOM,
+                "Pipe ${pipeDef.id} must be mounted either TOP or BOTTOM, never PAIR"
+            )
+            assertNotEquals(PipeMountType.PAIR, pipeDef.mountType)
+        }
+
+        // 2. Requirement: Non-constant gas emission durations and non-periodic cycles
+        val pipe = SteamPipe(pipes.first())
+        val cycles = pipe.cycles
+        assertTrue(cycles.size >= 10, "Should generate sufficient cycle history")
+
+        val activeDurations = cycles.take(10).map { it.activeDuration }.toSet()
+        assertTrue(
+            activeDurations.size > 1,
+            "Active gas emission durations must NOT be constant! Found distinct durations: $activeDurations"
+        )
+
+        val dormantDurations = cycles.take(10).map { it.dormantDuration }.toSet()
+        assertTrue(
+            dormantDurations.size > 1,
+            "Dormant rest durations must NOT be constant (non-periodic)! Found distinct durations: $dormantDurations"
+        )
+
+        // 3. Requirement: Show warning for exactly 1.0 second, then emit steam
+        for (cycle in cycles.take(5)) {
+            assertEquals(1.0, cycle.warningDuration, 1e-6, "Warning window before steam emission must be exactly 1.0s")
+
+            // Test right at the start of warning
+            pipe.update(cycle.dormantEnd - pipe.phaseOffsetSeconds)
+            assertTrue(pipe.isWarning, "Pipe must enter warning phase when green sign turns on")
+            assertFalse(pipe.isActive, "Pipe must NOT emit lethal steam during green sign warning")
+            assertEquals(0.0, pipe.warningProgress, 0.05)
+
+            // Test halfway through warning (0.5s in)
+            pipe.update(cycle.dormantEnd + 0.5 - pipe.phaseOffsetSeconds)
+            assertTrue(pipe.isWarning)
+            assertFalse(pipe.isActive, "Pipe must still NOT emit steam during 1.0s warning")
+            assertEquals(0.5, pipe.warningProgress, 0.05)
+
+            // Test right after 1.0s warning finishes: steam must erupt!
+            pipe.update(cycle.end + 0.01 - pipe.phaseOffsetSeconds)
+            assertTrue(pipe.isActive, "Pipe must emit steam after 1.0s warning has elapsed")
+            assertFalse(pipe.isWarning)
+        }
     }
 }
