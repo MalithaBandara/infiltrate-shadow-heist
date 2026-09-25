@@ -90,11 +90,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {
+        // Stops the level clock for as long as the player is somewhere else - see
+        // src/AppLifecycleBridge.kt. KorGE's own loop does stop while its view is out of the
+        // window here, but that is an engine detail this app should not be betting its scoring on,
+        // and the same flag is what Android (where the loop genuinely keeps running) relies on.
+        GameAppLifecycleBridge.shared.markBackground()
         ShellAppDelegate.shared.applicationDidEnterBackground(app: application)
     }
 
     func applicationWillEnterForeground(_ application: UIApplication) {
         ShellAppDelegate.shared.applicationWillEnterForeground(app: application)
+        GameAppLifecycleBridge.shared.markForeground()
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
@@ -242,6 +248,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     private func showContinueAd() {
         stopObservingLevelEnd()
+        // Same reason as applicationDidEnterBackground above: gameplay is about to leave the
+        // window for the length of a rewarded ad, and none of that is time the player was playing.
+        GameAppLifecycleBridge.shared.markBackground()
         switchToCompose()
         ContinueAdTrigger.shared.requestShow()
 
@@ -257,6 +266,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 if earned {
                     GameContinueAdBridge.shared.grantContinue()
                 }
+                GameAppLifecycleBridge.shared.markForeground()
                 self?.switchToKorGE()
             }
         }

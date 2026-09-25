@@ -3,7 +3,6 @@ package com.infiltrate.ads
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import app.lexilabs.basic.ads.DependsOnGoogleMobileAds
-import app.lexilabs.basic.ads.composable.RewardedAd
 
 @OptIn(DependsOnGoogleMobileAds::class)
 @Composable
@@ -16,10 +15,13 @@ actual fun GadgetRewardAdHost(
         AdAudioCoordinator.onAdStarted()
         onDispose { AdAudioCoordinator.onAdDismissed() }
     }
-    RewardedAd(
+    // Not basic-ads' plain RewardedAd(): one failed load used to be the final answer, which is
+    // what produced "Ad not ready. Please try again later." on the first tap. See
+    // RetryingRewardedAd.kt for why a retry needs a fresh handler rather than another load call.
+    RetryingRewardedAd(
         adUnitId = AdUnitIds.REWARDED_GADGET,
-        onRewardEarned = { onRewardEarned() },
+        onRewardEarned = onRewardEarned,
         onDismissed = onDismissed,
-        onFailure = { onFailure() },
+        onFailure = onFailure,
     )
 }

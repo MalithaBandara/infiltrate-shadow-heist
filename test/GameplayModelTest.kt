@@ -7434,4 +7434,95 @@ class GameplayModelTest {
             assertFalse(pipe.isWarning)
         }
     }
+    // -----------------------------------------------------------------------------------------
+    // Pause time is not gameplay time (GameWorld.isSuspended)
+    //
+    // `timeTaken` is what the win/fail card prints and what star 3 is judged against, so it has to
+    // mean "time the player could act", not "wall-clock since the level loaded". GameplayScene's
+    // updater returns early while its pause overlay is up, but that flag cannot see the holds that
+    // come from outside the scene - the app being backgrounded, or a full-screen ad covering
+    // gameplay while the KorGE loop keeps running underneath (Android never hides that view; see
+    // .junie/guidelines.md real-device bug #7). Those set isSuspended via GameAppLifecycle, and
+    // these tests pin the model half of the contract.
+    // -----------------------------------------------------------------------------------------
+
+    @Test
+    fun testSuspendedWorldDoesNotChargeTheLevelClock() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1)
+        val dt = 1.0 / 60.0
+
+        for (i in 0 until 60) world.update(dt, moveInput = 1.0, jumpInput = false)
+        val playedFor = world.timeTaken
+        assertEquals(1.0f, playedFor, 0.02f, "One second of play should bill one second")
+
+        // Three minutes of frames with the run on hold - a long pause, or a rewarded ad.
+        world.isSuspended = true
+        for (i in 0 until 60 * 180) world.update(dt, moveInput = 1.0, jumpInput = false)
+
+        assertEquals(
+            playedFor, world.timeTaken, 1e-6f,
+            "Three minutes on hold must not reach the level clock (was ${world.timeTaken}s, " +
+                "expected to still be ${playedFor}s)"
+        )
+
+        world.isSuspended = false
+        for (i in 0 until 60) world.update(dt, moveInput = 1.0, jumpInput = false)
+        assertEquals(
+            playedFor + 1.0f, world.timeTaken, 0.02f,
+            "Resuming should carry on from where the clock stopped, not from wall-clock time"
+        )
+    }
+
+    @Test
+    fun testSuspendedWorldFreezesTheRunItself() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1)
+        val dt = 1.0 / 60.0
+        for (i in 0 until 30) world.update(dt, moveInput = 1.0, jumpInput = false)
+
+        world.isSuspended = true
+        val x = world.player.x
+        val y = world.player.y
+        val alert = world.alertProgress
+        val worldClock = world.totalElapsedSeconds
+
+        // Inputs held the whole time: a player whose thumb is on the D-pad when a call arrives
+        // must not walk into a guard while the screen belongs to someone else.
+        for (i in 0 until 60 * 30) {
+            world.update(dt, moveInput = 1.0, jumpInput = true, crouchInput = false, interactInput = true)
+        }
+
+        assertEquals(x, world.player.x, 1e-9, "A suspended run must not move")
+        assertEquals(y, world.player.y, 1e-9, "A suspended run must not fall")
+        assertEquals(alert, world.alertProgress, 1e-9, "A suspended run must not accrue alert")
+        assertEquals(worldClock, world.totalElapsedSeconds, 1e-9, "Hazard phase must not advance either")
+        assertFalse(world.isGameOver, "Nothing can catch a player during a hold")
+    }
+
+    @Test
+    fun testRestartClearsSuspension() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1)
+        world.isSuspended = true
+        world.restartLevel()
+
+        assertFalse(
+            world.isSuspended,
+            "A fresh attempt must always resume - a hold left set here would freeze the new run outright"
+        )
+        val dt = 1.0 / 60.0
+        for (i in 0 until 60) world.update(dt, moveInput = 1.0, jumpInput = false)
+        assertTrue(world.timeTaken > 0.9f, "The restarted run should be billing time again")
+    }
+
+    @Test
+    fun testAppLifecycleStartsForegroundAndTracksBothEdges() {
+        // Targets with no native shell (desktop JVM, the JS/wasm previews) never report lifecycle
+        // at all, so the default has to be "playing" or those builds would sit frozen.
+        assertTrue(com.sample.demo.lifecycle.GameAppLifecycle.isForeground, "Default must be foreground")
+
+        com.sample.demo.lifecycle.GameAppLifecycle.markBackground()
+        assertFalse(com.sample.demo.lifecycle.GameAppLifecycle.isForeground)
+
+        com.sample.demo.lifecycle.GameAppLifecycle.markForeground()
+        assertTrue(com.sample.demo.lifecycle.GameAppLifecycle.isForeground)
+    }
 }

@@ -236,6 +236,22 @@ data class GameWorld(
         private set
     var isGameOver: Boolean = false
         internal set
+
+    /**
+     * True while the run is on hold and nothing about it should advance: the pause overlay is up,
+     * the app has been backgrounded, or a full-screen ad is covering gameplay. [update] is a no-op
+     * while it is set, so `timeTaken` (the number the win/fail card shows and the star-3 target is
+     * judged against) counts only time the player could actually act on.
+     *
+     * GameplayScene's updater already returns early while paused, so this is deliberately
+     * belt-and-braces rather than the sole mechanism: the scene is not the only caller (the native
+     * shells drive the KorGE loop on their own lifecycle, and on Android the loop keeps running
+     * under the Compose menu - see .junie/guidelines.md real-device bug #7), and a clock that can
+     * only be advanced by a frame the player saw is much easier to keep honest than one that
+     * depends on every future call site remembering to check a scene-local flag.
+     */
+    var isSuspended: Boolean = false
+
     var totalElapsedSeconds: Double = 0.0
         private set
     var laserGraceTimer: Double = 0.0
@@ -409,6 +425,10 @@ data class GameWorld(
         hasPlayerCrouchedOnce = false
         timeTaken = 0.0f
         totalElapsedSeconds = 0.0
+        // A restart always resumes: whatever put the run on hold (pause overlay, backgrounded
+        // app, ad) is over by the time anything asks for a fresh attempt, and a stuck flag here
+        // would freeze the new run outright.
+        isSuspended = false
         detectingGuards = emptyList()
         detectingCameras = emptyList()
         detectingCameraBots = emptyList()
@@ -640,7 +660,7 @@ data class GameWorld(
         interactInput: Boolean,
         forwardTap: Boolean = false
     ) {
-        if (isLevelComplete || isGameOver) return
+        if (isSuspended || isLevelComplete || isGameOver) return
 
         if (noclipFlying) {
             val flySpeed = 420.0
