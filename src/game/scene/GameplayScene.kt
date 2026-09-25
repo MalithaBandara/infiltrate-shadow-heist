@@ -1462,12 +1462,27 @@ class GameplayScene(
         }
 
 
+        // Weather. Both drop layers are parented to bgmgContainer, i.e. BEHIND worldView, so the
+        // whole curtain (and the splashes it leaves on the crates and the floor) draws over the
+        // sky and behind every box, guard and the player - owner request 2026-09-25, "put the rain
+        // effect behind the characters and all the elements". The near layer used to be a child of
+        // the scene root, over the top of everything.
+        //
+        // The lightning wash does NOT move with them: a full-screen flash parented behind the
+        // level would light the sky and leave the yard dark, which is backwards. It stays on the
+        // scene root, above worldView and below hudLayer, exactly where it was.
+        //
+        // world.platforms already carries the level's floors, its boxes and its two side walls;
+        // RainEffect filters the walls out by height and builds its own landing height map from
+        // the rest, so nothing here needs to know which rect is which.
         val rainEffect = if (levelData.hasRain) {
             RainEffect(
                 bgLayer = bgmgContainer,
-                fgLayer = this,
+                fgLayer = bgmgContainer,
                 initialCanvasW = canvasW,
-                initialCanvasH = canvasH
+                initialCanvasH = canvasH,
+                flashLayer = this,
+                splashSurfaces = world.platforms
             )
         } else null
 
@@ -3197,7 +3212,9 @@ class GameplayScene(
                 worldViewX = worldView.x,
                 sounds = sounds,
                 sfxVolume = sfxVolume(),
-                coroutineContext = sfxContext
+                coroutineContext = sfxContext,
+                worldViewY = worldView.y,
+                worldZoom = worldZoom
             )
 
             // Background parallax: 1:1 lockstep for interior warehouse wall (metalbg.png) and vent shaft (bglvl7.png), 0.2x rate for outdoor sky

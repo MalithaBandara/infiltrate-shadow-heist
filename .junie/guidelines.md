@@ -927,26 +927,69 @@ populating its own `swingHooks`. What a future session needs:
 
 ## Level 2 ("02: Cargo Yard") - procedural rain, lightning & thunder (`RainEffect.kt`)
 
-Built 2026-09-24. Gated by `LevelData.hasRain = true` (only enabled on Level 2). Designed specifically
-for atmospheric stealth gameplay with zero per-frame garbage collector pressure and negligible mobile CPU/GPU cost:
-- **Zero per-frame allocations**: Pre-allocated sprite pool of 250 `Image` views sharing a single 6x48
-  procedural premultiplied drop texture slice (`RainAssets.dropSlice`, bright silver `#ebf5ff` with 2-3px solid core).
-- **Dual volumetric depth**: 110 background drops (scale 0.85, length 67px, alpha 0.38..0.55, speed 650..780 px/s,
-  parallax 0.20) layered in `bgLayer` behind crates and world geometry; 140 foreground drops (scale 1.1, length 96px,
-  alpha 0.70..0.92, speed 920..1150 px/s, parallax 0.85) layered in front of gameplay.
-- **Wind drift & viewport wrapping**: Particles fall angled at ~11.3 degrees (`WIND_SLOPE = 0.20`) with
-  wrap margins (`MARGIN_X = 100`, `MARGIN_Y = 120`) around the active camera window. Zero off-screen particles
-  are simulated or rendered regardless of level width.
-- **Multi-pulse lightning strobe**: Periodic atmospheric strikes (initial timer 2.5-4.5s, subsequent intervals
-  8-16s). Multi-pulse profile matches real lightning physics: initial flash (0.70 alpha, 50ms), dip (0.25,
-  30ms), main return stroke (0.92, 60ms), secondary flicker (0.40, 50ms), and smooth exponential fade (260ms).
-  Uses a `SolidRect` overlay layered above world geometry and below HUD.
-- **Sky lightning bolt**: 7 connected jagged line segments (width 3.5px) rendered in the sky during the strobe.
-- **Physics speed-of-sound thunder delay**: Acoustic propagation delay (0.4s to 0.9s) between the speed-of-light visual
-  flash and the arrival of the rolling thunder audio (`sfx/thunder.wav`, 2.8s PCM s16le / 44.1kHz mono WAV,
-  `THUNDER_GAIN = 0.90`).
-- Verified via `RainEffectTest` (6/6 tests passing: asset generation, lifecycle, frame updates, lightning/thunder cycle,
-  and diagnostic preview generation `level2_rain_preview.png`). Android compilation and `assembleDebug` fully clean.
+Built 2026-09-24, reworked 2026-09-25 ("put the rain effect behind the characters and all the
+element. also it is too opaque and too much rain. make it less rain and more transparent. also add
+a splat effect when rain hits platforms if it is not too resource consuming"). Gated by
+`LevelData.hasRain`, **`true` on level 2 and nowhere else**. It had been switched off for the
+Google Play production review and was switched back on with the 2026-09-25 rework.
+
+**Both drop layers now draw BEHIND the world.** `GameplayScene` hands `bgmgContainer` as *both*
+`bgLayer` and `fgLayer`, so the whole curtain sits over the sky and behind every crate, guard and
+the player; "foreground" survives only as the name of the near half of the volumetric pair (bigger,
+faster, brighter, and the only half that lands on anything), not as a position in front of the
+level. The **lightning wash deliberately did NOT move with them** - `flashLayer` is still the scene
+root, above `worldView` and below the HUD, because a full-screen flash parented behind the level
+lights the sky and leaves the yard dark, which is backwards.
+
+- **Zero per-frame allocations**: fixed pools of recycled `Image` views sharing one procedural
+  premultiplied 6x48 drop slice (`RainAssets.dropSlice`) and one 16x10 splash slice.
+- **Counts and alphas were roughly halved** in the same pass: 40 background drops (scale 0.85,
+  alpha 0.16..0.26, 650..780 px/s, parallax 0.20) and 55 near drops (scale 1.1, alpha 0.30..0.44,
+  920..1150 px/s, parallax 0.85), down from 110/140 at 0.38..0.55 / 0.70..0.92. All five numbers
+  are pure look knobs - **re-lower these same constants if "too much rain" comes back**, rather
+  than adding a second dimming mechanism on top.
+- **Wind drift & viewport wrapping**: particles fall angled at ~11.3 degrees (`WIND_SLOPE = 0.20`)
+  and wrap around the camera window plus margins (`MARGIN_X = 100`, `MARGIN_Y = 120`), so zero
+  off-screen particles are simulated or drawn regardless of level width.
+- **Impact crowns (`SPLASH_*`)**: a near drop whose streak HEAD reaches a landable surface is
+  consumed there and re-seeded above the top edge, leaving a short-lived crown (`SPLASH_LIFE`
+  0.24s) that flares outward, pops up on a half-sine and fades from `SPLASH_ALPHA` 0.34. Pool of
+  22, and only `SPLASH_CHANCE` (0.34) of landings spawn one - a flat level lands on the order of a
+  hundred drops a second, so splashing every one is both a wall of white and more live views than
+  any sane pool holds.
+  - **The surfaces are a static height map, not a per-frame scan.** `GameplayScene` passes
+    `world.platforms` (floors + boxes + the two side walls); `RainEffect` filters anything taller
+    than `MAX_SURFACE_HEIGHT` (400) - **the walls are 1200 tall with their tops at y = -400, so
+    without that filter every level reports a landing surface above the sky at both ends** - and
+    buckets the rest by `SURFACE_BUCKET` (16 world units), keeping the HIGHEST top per bucket so a
+    drop over a crate lands on the crate. Lookup is O(1) per drop. Moving platforms are
+    deliberately absent: rain lands on the floor under a level 2 container rather than on it, which
+    is the price of the O(1) lookup and is not something the eye picks out of a downpour.
+  - The crown is a **V opening upward**, not an arch. The obvious shape - the top half of an
+    ellipse outline - reads as a dome or a bubble sitting on the floor rather than water leaving
+    it; `RainEffectTest` pins the difference (wider at the tips than at the feet, open between the
+    arms).
+  - Crowns are positioned from the **full** world transform (`worldViewX`/`worldViewY`/`worldZoom`,
+    the last two added to `update()` for this) rather than the parallax drift the drops get by on,
+    because a splash has to stay stuck to its surface while the camera pans.
+  - Because the whole effect is behind the world, a crown draws behind the crate it is standing on
+    - which is fine, since it stands ABOVE that crate's top edge - and behind the player's legs,
+    which is what it should do.
+- **Multi-pulse lightning strobe**: periodic strikes (initial timer 2.5-4.5s, then 8-16s). Profile:
+  initial flash (0.70 alpha, 50ms), dip (0.25, 30ms), main return stroke (0.92, 60ms), secondary
+  flicker (0.40, 50ms), exponential fade (260ms), on a `SolidRect` above the world and below the
+  HUD. Untouched by the 2026-09-25 pass - the "too opaque" report was about the rain.
+- **Sky lightning bolt**: 7 connected jagged segments (width 3.5px) in the sky during the strobe.
+- **Physics speed-of-sound thunder delay**: 0.4s to 0.9s between the flash and `sfx/thunder.wav`
+  (2.8s PCM s16le / 44.1kHz mono, `THUNDER_GAIN = 0.90`).
+- Verified by `RainEffectTest` (asset generation, lifecycle, frame updates, lightning/thunder
+  cycle, the crown's shape, drops actually landing on a Cargo-Yard-shaped floor without landing on
+  a side wall, and the diagnostic preview `level2_rain_preview.png`, whose layer order and counts
+  track the real constants). **The 2026-09-25 pass was never compiled or run** - `dl.google.com` is
+  blocked in that session's container, and both the KorGE Gradle plugin and `paywall-build` pull
+  the Android Gradle Plugin from it, so no Gradle task could configure at all. Treat the rework as
+  unbuilt until `jvmTest` and `android-shell:compileReleaseKotlin` have been run somewhere with
+  network access, and nothing here has been seen on a screen on any platform.
 
 ## Level 3 ("03: First Contact") - `LEVEL_3_LAYOUT`
 
@@ -2476,7 +2519,7 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
   - **"Coming Soon" chapter boxes hidden**: In `LevelSelectScreen.kt`, the loop generating placeholder cards for Chapters 2–4 with lock icons and "COMING SOON" text was removed. Chapter 1 ("THE SHIPYARD") is followed by 3 Compose `Spacer(modifier = Modifier.weight(1f))` elements to preserve exact 4-column alignment with the mission grid below without presenting non-functional buttons to reviewers.
   - **Settings language selection restricted**: In `SettingsScreen.kt`, `ALL_SUPPORTED_LANGUAGES` preserves all 15 language definitions, while `SUPPORTED_LANGUAGES` exposes only English (`en`) and French (`fr`), as these two are the only fully localized languages in `Localization.kt` (preventing fallback to English from reading as broken language switching to Play Store reviewers).
   - **Store developer debug button hidden**: In `StoreScreen.kt` (`RemoveAdsSection`), the developer "RESET" button (which invoked `onDeactivate()` to wipe `isPremium` for testing) was hidden when Lifetime Pass is active, and the active indicator box now spans `Modifier.fillMaxWidth()`, preventing unintended dev controls or accidental loss of purchased premium state.
-  - **Level 2 rain temporarily removed**: In `LevelData.kt` (`DEFAULT_LEVEL_2`), set `hasRain = false` (was `true`), completely disabling the `RainEffect` particle layers, lightning flash/bolt, and thunder audio for Level 2 during the review/production phase.
+  - **Level 2 rain temporarily removed**: In `LevelData.kt` (`DEFAULT_LEVEL_2`), set `hasRain = false` (was `true`), completely disabling the `RainEffect` particle layers, lightning flash/bolt, and thunder audio for Level 2 during the review/production phase. **Reverted 2026-09-25**: `hasRain = true` again, along with the rain rework (behind the world, thinner, more transparent, impact crowns). If a Play review ever needs the weather gone again, this one flag is still the whole switch.
 
 ## Keep this file up to date
 

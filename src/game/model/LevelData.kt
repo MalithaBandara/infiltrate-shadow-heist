@@ -725,8 +725,10 @@ data class LevelData(
             objectiveHint = "Find a Way Through the Yard",
             layout = LEVEL_2_LAYOUT,
             backgroundImage = "bgmg5.png",
-            // Temporarily disabled rain for Google Play production approval
-            hasRain = false
+            // Re-enabled 2026-09-25 after the rain rework (behind the world, thinner, more
+            // transparent, with impact crowns). It had been switched off for the Google Play
+            // production review - see .junie/guidelines.md's temporary-gating list.
+            hasRain = true
         )
 
         /**
