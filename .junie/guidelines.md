@@ -997,26 +997,69 @@ populating its own `swingHooks`. What a future session needs:
 
 ## Level 2 ("02: Cargo Yard") - procedural rain, lightning & thunder (`RainEffect.kt`)
 
-Built 2026-09-24. Gated by `LevelData.hasRain = true` (only enabled on Level 2). Designed specifically
-for atmospheric stealth gameplay with zero per-frame garbage collector pressure and negligible mobile CPU/GPU cost:
-- **Zero per-frame allocations**: Pre-allocated sprite pool of 250 `Image` views sharing a single 6x48
-  procedural premultiplied drop texture slice (`RainAssets.dropSlice`, bright silver `#ebf5ff` with 2-3px solid core).
-- **Dual volumetric depth**: 110 background drops (scale 0.85, length 67px, alpha 0.38..0.55, speed 650..780 px/s,
-  parallax 0.20) layered in `bgLayer` behind crates and world geometry; 140 foreground drops (scale 1.1, length 96px,
-  alpha 0.70..0.92, speed 920..1150 px/s, parallax 0.85) layered in front of gameplay.
-- **Wind drift & viewport wrapping**: Particles fall angled at ~11.3 degrees (`WIND_SLOPE = 0.20`) with
-  wrap margins (`MARGIN_X = 100`, `MARGIN_Y = 120`) around the active camera window. Zero off-screen particles
-  are simulated or rendered regardless of level width.
-- **Multi-pulse lightning strobe**: Periodic atmospheric strikes (initial timer 2.5-4.5s, subsequent intervals
-  8-16s). Multi-pulse profile matches real lightning physics: initial flash (0.70 alpha, 50ms), dip (0.25,
-  30ms), main return stroke (0.92, 60ms), secondary flicker (0.40, 50ms), and smooth exponential fade (260ms).
-  Uses a `SolidRect` overlay layered above world geometry and below HUD.
-- **Sky lightning bolt**: 7 connected jagged line segments (width 3.5px) rendered in the sky during the strobe.
-- **Physics speed-of-sound thunder delay**: Acoustic propagation delay (0.4s to 0.9s) between the speed-of-light visual
-  flash and the arrival of the rolling thunder audio (`sfx/thunder.wav`, 2.8s PCM s16le / 44.1kHz mono WAV,
-  `THUNDER_GAIN = 0.90`).
-- Verified via `RainEffectTest` (6/6 tests passing: asset generation, lifecycle, frame updates, lightning/thunder cycle,
-  and diagnostic preview generation `level2_rain_preview.png`). Android compilation and `assembleDebug` fully clean.
+Built 2026-09-24, reworked 2026-09-25 ("put the rain effect behind the characters and all the
+element. also it is too opaque and too much rain. make it less rain and more transparent. also add
+a splat effect when rain hits platforms if it is not too resource consuming"). Gated by
+`LevelData.hasRain`, **`true` on level 2 and nowhere else**. It had been switched off for the
+Google Play production review and was switched back on with the 2026-09-25 rework.
+
+**Both drop layers now draw BEHIND the world.** `GameplayScene` hands `bgmgContainer` as *both*
+`bgLayer` and `fgLayer`, so the whole curtain sits over the sky and behind every crate, guard and
+the player; "foreground" survives only as the name of the near half of the volumetric pair (bigger,
+faster, brighter, and the only half that lands on anything), not as a position in front of the
+level. The **lightning wash deliberately did NOT move with them** - `flashLayer` is still the scene
+root, above `worldView` and below the HUD, because a full-screen flash parented behind the level
+lights the sky and leaves the yard dark, which is backwards.
+
+- **Zero per-frame allocations**: fixed pools of recycled `Image` views sharing one procedural
+  premultiplied 6x48 drop slice (`RainAssets.dropSlice`) and one 16x10 splash slice.
+- **Counts and alphas were roughly halved** in the same pass: 40 background drops (scale 0.85,
+  alpha 0.16..0.26, 650..780 px/s, parallax 0.20) and 55 near drops (scale 1.1, alpha 0.30..0.44,
+  920..1150 px/s, parallax 0.85), down from 110/140 at 0.38..0.55 / 0.70..0.92. All five numbers
+  are pure look knobs - **re-lower these same constants if "too much rain" comes back**, rather
+  than adding a second dimming mechanism on top.
+- **Wind drift & viewport wrapping**: particles fall angled at ~11.3 degrees (`WIND_SLOPE = 0.20`)
+  and wrap around the camera window plus margins (`MARGIN_X = 100`, `MARGIN_Y = 120`), so zero
+  off-screen particles are simulated or drawn regardless of level width.
+- **Impact crowns (`SPLASH_*`)**: a near drop whose streak HEAD reaches a landable surface is
+  consumed there and re-seeded above the top edge, leaving a short-lived crown (`SPLASH_LIFE`
+  0.24s) that flares outward, pops up on a half-sine and fades from `SPLASH_ALPHA` 0.34. Pool of
+  22, and only `SPLASH_CHANCE` (0.34) of landings spawn one - a flat level lands on the order of a
+  hundred drops a second, so splashing every one is both a wall of white and more live views than
+  any sane pool holds.
+  - **The surfaces are a static height map, not a per-frame scan.** `GameplayScene` passes
+    `world.platforms` (floors + boxes + the two side walls); `RainEffect` filters anything taller
+    than `MAX_SURFACE_HEIGHT` (400) - **the walls are 1200 tall with their tops at y = -400, so
+    without that filter every level reports a landing surface above the sky at both ends** - and
+    buckets the rest by `SURFACE_BUCKET` (16 world units), keeping the HIGHEST top per bucket so a
+    drop over a crate lands on the crate. Lookup is O(1) per drop. Moving platforms are
+    deliberately absent: rain lands on the floor under a level 2 container rather than on it, which
+    is the price of the O(1) lookup and is not something the eye picks out of a downpour.
+  - The crown is a **V opening upward**, not an arch. The obvious shape - the top half of an
+    ellipse outline - reads as a dome or a bubble sitting on the floor rather than water leaving
+    it; `RainEffectTest` pins the difference (wider at the tips than at the feet, open between the
+    arms).
+  - Crowns are positioned from the **full** world transform (`worldViewX`/`worldViewY`/`worldZoom`,
+    the last two added to `update()` for this) rather than the parallax drift the drops get by on,
+    because a splash has to stay stuck to its surface while the camera pans.
+  - Because the whole effect is behind the world, a crown draws behind the crate it is standing on
+    - which is fine, since it stands ABOVE that crate's top edge - and behind the player's legs,
+    which is what it should do.
+- **Multi-pulse lightning strobe**: periodic strikes (initial timer 2.5-4.5s, then 8-16s). Profile:
+  initial flash (0.70 alpha, 50ms), dip (0.25, 30ms), main return stroke (0.92, 60ms), secondary
+  flicker (0.40, 50ms), exponential fade (260ms), on a `SolidRect` above the world and below the
+  HUD. Untouched by the 2026-09-25 pass - the "too opaque" report was about the rain.
+- **Sky lightning bolt**: 7 connected jagged segments (width 3.5px) in the sky during the strobe.
+- **Physics speed-of-sound thunder delay**: 0.4s to 0.9s between the flash and `sfx/thunder.wav`
+  (2.8s PCM s16le / 44.1kHz mono, `THUNDER_GAIN = 0.90`).
+- Verified by `RainEffectTest` (asset generation, lifecycle, frame updates, lightning/thunder
+  cycle, the crown's shape, drops actually landing on a Cargo-Yard-shaped floor without landing on
+  a side wall, and the diagnostic preview `level2_rain_preview.png`, whose layer order and counts
+  track the real constants). **The 2026-09-25 pass was never compiled or run** - `dl.google.com` is
+  blocked in that session's container, and both the KorGE Gradle plugin and `paywall-build` pull
+  the Android Gradle Plugin from it, so no Gradle task could configure at all. Treat the rework as
+  unbuilt until `jvmTest` and `android-shell:compileReleaseKotlin` have been run somewhere with
+  network access, and nothing here has been seen on a screen on any platform.
 
 ## Level 3 ("03: First Contact") - `LEVEL_3_LAYOUT`
 
@@ -2231,13 +2274,21 @@ sprite over correctly; **the fully-settled braced pose and the gait cycling deep
 NOT confirmed visually** - driving the game with synthetic key input kept either stalling at the
 zone lip or overshooting into a steam jet. **Not on Android or iOS.**
 
-## The push stance (`resources/player/push{,transition}`) - built 2026-09-24, live on level 8
+## The push stance (`resources/player/push{,transition}`) - built 2026-09-24, dev stage only
 
 Two clips cut by `tools/art/prep_push.py` from `Downloads/charAnimations/push` (144 raw frames) and
 `pushtransition` (96), both 360x640 half-res plates. **That script's header is the source of truth
 for every cut and the crop geometry - re-run and paste, don't hand-edit the Kotlin**, same rule as
-`prep_guard.py`. Currently a stance with nothing to push: `INTERACT` toggles it, level 8 is the
-bare stage it is tried out on, and a real pushable prop would gate it on range the way levers do.
+`prep_guard.py`. Currently a stance with nothing to push: `INTERACT` toggles it, and a real
+pushable prop would gate it on range the way levers do.
+
+**It is not in any shipped level.** It lived on level 8 until 2026-09-25, when level 8 became a
+real level; the bare stage moved to `LevelData.PUSH_STANCE_DEMO` (id `push_stance_demo`), which is
+deliberately NOT in `DEFAULT_LEVELS` and appears in no menu. Reach it by id through
+`LevelData.findById` - `./gradlew runJvm -PstartLevel=push_stance_demo`, or the desktop
+`.debug_level` file hook. `testPushStanceIsTheDevStageOnlyAndLeavesEveryShippedLevelAlone` pins
+that nothing shipped sets `pushStanceDemo`, and
+`testPushStanceStageIsOffTheShippedListButStillReachableById` pins that the stage stays reachable.
 
 - **These plates are framed ~6.4% smaller than every other clip** - standing measures 484 rows
   against crouch's 517 and swing's 503 on plates of the identical size. The scale that maps them to
@@ -2289,20 +2340,72 @@ bare stage it is tried out on, and a real pushable prop would gate it on range t
   a planted foot must slide backwards at exactly the player's own speed) and it does, within the
   +/-5% that method resolves. **Not on Android or iOS.**
 
-## Level 8 ("08: Relocation") - `LEVEL_8_LAYOUT`, the push stage
+## Level 8 ("08: Relocation") - `LEVEL_8_LAYOUT`, the suspended-load yard (built 2026-09-25)
 
-Deliberately **empty**: flat ground wall to wall, no guards, cameras, boxes, hazards, start fences
-or anything hanging. It used to be a `GameWorld.createDefault` level with a patrolling guard and a
-corridor derived from `guardPatrolMinX/MaxX`; that was cleared out so the push animation can be
-watched with nothing walking into frame or killing the player mid-stance.
-`LevelLayout.pushStanceDemo = true` is what makes INTERACT a stance toggle, and **nothing else in
-the game sets that flag** - a test pins that.
+Unhidden and built the same day, on request. Before this the slot held the bare push-stance stage
+(now `PUSH_STANCE_DEMO_LAYOUT`, off the shipped list - see the push stance section) and the level
+was gated out of the menus by the `.take(7)` production restriction. That gate is now `.take(8)` in
+all three places that carry it: `LevelSelectScreen.kt`, `MainMenuScreen.kt` and `GameplayScene.kt`.
+Levels 9 to 12 are still hidden - they are name-and-description stubs with no layout.
 
-`playerStartX = 560`, not near the left wall: at 160 the camera clamps against the world edge and
-the whole lean-in played underneath the on-screen D-pad, which on a stage whose only job is to show
-the animation is the one thing that must not happen. The camera window is ~770 world units, so the
-spawn has to be at least half of that from 0. The exit is still at the far end so the level remains
-completable - a long walk at the braced ~53 u/s, which is the point.
+The whole level is one mechanism seen twice. Three numbers do all the work, and they are the only
+things to re-tune:
+
+| number | value | what it decides |
+| --- | --- | --- |
+| `sweepCrateClearance` | 44 | UNDER `crouchHeight` (56), so the parked load refuses the climb outright and one arriving mid-climb crushes |
+| `crouchCrateClearance` | 68 | between `crouchHeight` (56) and standing height (96), so the duck-walk is forced but possible |
+| `periodSeconds` | 8.0 | with the 200 sweep, sets the window the climb has to fit inside |
+
+**Section 1 - the plane.** Default start fences and ~1250 units of floor, with two loads on level
+2's `chainedcrate.png` rigging hanging over it: a long stationary one and the short moving one.
+Both undersides sit 188 above the floor. **Nothing declares them unreachable** - no
+`unclimbableBoxes` entry, no flag. 188 is past `climbMaxHeight` (115) and four times
+`maxJumpHeight` (51.2), and `findClimbTarget` refuses a floating ledge (bottom above the climber's
+feet) regardless. That is the whole of "player cant get on top of these two", and a test drives the
+plane with the jump button pulsed to prove it.
+
+**Section 2 - the climb.** A 68x48 step crate flush against the platform's left face. Floor ->
+crate is 48, inside the jump arc AND under `climbMinHeight`, so it is jumped and never mantled;
+crate -> platform is exactly 96, this game's canonical climb. Floor -> platform is 144, past
+`climbMaxHeight`, so the crate cannot be skipped.
+
+**Section 3 - the crouch.** A long load 68 above the platform surface. Below 56 it would refuse
+passage the way level 6's gantry refuses the climb; at 96 it would not be an obstacle at all.
+
+**The crush.** `crushesOnContact` on the sweep crate - the same flag LEVEL_6_LAYOUT's gantry crate
+introduced, biting only from below, so it is never a platform that kills whoever stands on it. At
+44 clearance the two halves of the request are one mechanism: parked over the landing it refuses
+the climb before it starts (neither a standing nor a crouched body fits), and a climb begun in the
+clear window runs 1.95s at full standing height, so a load arriving part-way through catches the
+body under its underside - MISSION FAILED.
+
+**The number that actually had to be tuned is the WORST window, not the average one.** A player
+who starts the climb the instant the load swings clear still has it coming back. Off the cosine, a
+crate that is clear AND travelling left has at least `0.3734 * period` before it covers the landing
+again - 2.99s here, against 1.95s of climb plus the ~0.25s walk out from under it. So **"clear and
+swinging away" is a cue that always pays off, and "clear and swinging back" is the trap.** A
+shorter period, a wider crate, or a rest position closer to the lip all eat that same margin. The
+rest position stops 40 short of the lip for exactly this reason - the further right it parks, the
+further the player has to walk to get clear after climbing, out of the same budget.
+
+It sweeps LEFT off the landing, like level 6's, so everything right of the landing stays
+permanently clear and whoever just climbed walks on rather than being swept.
+
+Falling costs nothing - the floor runs the level's full width and the way back up is the same step
+crate - so the load is the only way to fail.
+
+**Measured, not estimated**: a clean run driven off that cue finishes in 20-25s depending on where
+the load is when the player reaches the face (the forced wait ranges 0.55s to 5.37s), and never
+dies at any arrival phase. `timeTargetSeconds = 45` leaves room for a missed hop.
+`testLevel8IsBeatableByReadingTheLoadSwingingAway` drives the whole route; five more tests pin the
+reach, the climb chain, the crouch clearance, the refusal and the crush.
+
+One trap for whoever writes the next test here: **read the crate's position AFTER `world.update`,
+not before.** The crate moves inside that call and the climb decision is made against where it
+ends up, so a climb that starts on the frame the load finally clears is the mechanism working. The
+first version of the refusal test asserted against the pre-update position and failed on exactly
+that frame.
 
 ## Guard sprite (`GuardAnimations.kt`, `resources/guard/{idle,walk}/`) - replaced 2026-09-14
 
@@ -2753,10 +2856,10 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
   AdMob can serve personalized ads - decide (add ATT, or force non-personalized on iOS) before App Store submission.
   A `/delete` page was built and reverted the same day - the game holds no server data (local-only, deleted
 - **Temporary gating for Google Play production approval (2026-09-25)**:
-  - **Levels 8 to 12 hidden**: `LevelData.DEFAULT_LEVELS` contains 12 levels (where level 8 is the push stance stage and levels 9–12 are future chapters). Kept `DEFAULT_LEVELS` intact so model tests pass. Restricted active levels to the 7 fully-featured levels via `.take(7)` in `LevelSelectScreen.kt` (recalculating max stars as 21), `MainMenuScreen.kt` (mission dossier briefing card cycles only within levels 1–7), and `GameplayScene.kt` (clearing level 7 yields `nextLevel = null`, showing "ALL CLEAR!" and returning to the main menu rather than advancing to level 8).
+  - **Levels 8 to 12 hidden**: `LevelData.DEFAULT_LEVELS` contains 12 levels (where level 8 was the push stance stage and levels 9–12 are future chapters). Kept `DEFAULT_LEVELS` intact so model tests pass. Restricted active levels via `.take(7)` in `LevelSelectScreen.kt` (max stars is computed from the list, not hardcoded), `MainMenuScreen.kt` (mission dossier briefing card cycles only within the active levels), and `GameplayScene.kt` (clearing the last active level yields `nextLevel = null`, showing "ALL CLEAR!" and returning to the main menu). **Level 8 unhidden 2026-09-25**: it got a real layout (see its own section above) and all three gates are now `.take(8)`; the push-stance stage it displaced moved to `LevelData.PUSH_STANCE_DEMO`, out of `DEFAULT_LEVELS` entirely. Levels 9 to 12 are still hidden and still have no layout - unhiding one means building it first.
   - **"Coming Soon" chapter boxes hidden**: In `LevelSelectScreen.kt`, the loop generating placeholder cards for Chapters 2–4 with lock icons and "COMING SOON" text was removed. Chapter 1 ("THE SHIPYARD") is followed by 3 Compose `Spacer(modifier = Modifier.weight(1f))` elements to preserve exact 4-column alignment with the mission grid below without presenting non-functional buttons to reviewers.
   - **Settings language selection restricted**: In `SettingsScreen.kt`, `ALL_SUPPORTED_LANGUAGES` preserves all 15 language definitions, while `SUPPORTED_LANGUAGES` exposes only English (`en`) and French (`fr`), as these two are the only fully localized languages in `Localization.kt` (preventing fallback to English from reading as broken language switching to Play Store reviewers).
-  - **Store developer debug button hidden**: In `StoreScreen.kt` (`RemoveAdsSection`), the developer "RESET" button (which invoked `onDeactivate()` to wipe `isPremium` for testing) was hidden when Lifetime Pass is active, and the active indicator box now spans `Modifier.fillMaxWidth()`, preventing unintended dev controls or accidental loss of purchased premium state.
+  - **Level 2 rain temporarily removed**: In `LevelData.kt` (`DEFAULT_LEVEL_2`), set `hasRain = false` (was `true`), completely disabling the `RainEffect` particle layers, lightning flash/bolt, and thunder audio for Level 2 during the review/production phase. **Reverted 2026-09-25**: `hasRain = true` again, along with the rain rework (behind the world, thinner, more transparent, impact crowns). If a Play review ever needs the weather gone again, this one flag is still the whole switch.
 
 ## Keep this file up to date
 
