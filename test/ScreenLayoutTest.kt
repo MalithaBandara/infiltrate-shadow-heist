@@ -172,6 +172,30 @@ class ScreenLayoutTest {
     }
 
     @Test
+    fun testTheGameplayHudTopRowIgnoresTheReportedTopInsetInLandscape() {
+        // What Android publishes on a gesture-navigation phone: no cutout worth anything on the
+        // long edges, and the mandatory gesture strip top and bottom. The top one is the
+        // swipe-to-reveal region, not something drawn over the game - honouring it pushed the
+        // objectives panel, the pause button and the gadget bolt well down the screen.
+        val android = SafeAreaInsets(left = 0.0, top = 28.0, right = 0.0, bottom = 24.0)
+        assertEquals(0.0, ScreenLayout.gameplayTopInset(android, 1040.0, 480.0), 0.001)
+        assertEquals(0.0, ScreenLayout.gameplayTopInset(android, 800.0, 600.0), 0.001, "a 4:3 tablet is still landscape")
+
+        // Nothing else moves: the island really is on a side and the home indicator really is
+        // along the bottom, so those stay fully honoured.
+        assertEquals(28.0, android.top, 0.001, "the reading itself is untouched")
+        assertEquals(24.0, android.bottom, 0.001)
+
+        // iOS in landscape reports zero up there anyway, so this is a no-op for it.
+        val ios = SafeAreaInsets(left = 59.0, top = 0.0, right = 59.0, bottom = 21.0)
+        assertEquals(0.0, ScreenLayout.gameplayTopInset(ios, 1040.0, 480.0), 0.001)
+
+        // A genuinely portrait window - only Android 16's orientation override produces one -
+        // can have a real status bar or cutout across its top, so there it is honoured.
+        assertEquals(28.0, ScreenLayout.gameplayTopInset(android, 480.0, 1040.0), 0.001)
+    }
+
+    @Test
     fun testTabletDetectionUsesTheShortSide() {
         assertTrue(ScreenMetrics(1366.0, 1024.0).isTablet)
         assertTrue(ScreenMetrics(1133.0, 744.0).isTablet, "iPad mini is a tablet")

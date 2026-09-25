@@ -299,7 +299,7 @@ class SteamPipe(
     ) {
         val activeDuration: Double get() = activeEnd - start
         val dormantDuration: Double get() = dormantEnd - activeEnd
-        val warningDuration: Double get() = end - dormantEnd // exactly 1.0s
+        val warningDuration: Double get() = end - dormantEnd // exactly 0.5s
     }
 
     val cycles: List<Cycle> = generateCycles()
@@ -327,11 +327,11 @@ class SteamPipe(
             val dormant = if (i == 0) {
                 inactiveDuration.coerceIn(0.8, 1.8)
             } else {
-                // Non-constant dormant rest duration (shorter deactive interval: ~0.8s - 1.8s + 1s warning)
+                // Non-constant dormant rest duration (shorter deactive interval: ~0.8s - 1.8s + 0.5s warning)
                 val variation = 0.80 + 0.70 * nextRandom()
                 (inactiveDuration * variation).coerceIn(0.8, 1.8)
             }
-            val warn = 1.0 // Warning phase with green sign is exactly 1.0 second
+            val warn = WARNING_DURATION // Warning phase with yellow light is exactly 0.5 seconds before steam goes off
             val activeEnd = t + act
             val dormantEnd = activeEnd + dormant
             val cycleEnd = dormantEnd + warn
@@ -347,7 +347,7 @@ class SteamPipe(
     var isWarning: Boolean = false
         private set
 
-    /** 0..1 warning indicator progress right before steam erupts (green sign on for 1.0s). */
+    /** 0..1 warning indicator progress right before steam erupts (yellow light on for 0.5s). */
     var warningProgress: Double = 0.0
         private set
 
@@ -385,7 +385,7 @@ class SteamPipe(
                 isActive = false
                 isWarning = true
                 val warnTime = normalizedTime - cycle.dormantEnd
-                warningProgress = (warnTime / 1.0).coerceIn(0.0, 1.0)
+                warningProgress = (warnTime / WARNING_DURATION).coerceIn(0.0, 1.0)
             }
         }
     }
@@ -448,4 +448,9 @@ class SteamPipe(
         inactiveDuration = def.inactiveDuration,
         phaseOffsetSeconds = def.phaseOffsetSeconds
     )
+
+    companion object {
+        /** Duration of warning phase (yellow light before steam erupts) in seconds. */
+        const val WARNING_DURATION = 0.5
+    }
 }

@@ -153,6 +153,35 @@ object ScreenLayout {
         viewportFor(metrics.widthDp, metrics.heightDp)
 
     /**
+     * How far a HUD row pinned to the **top** of the gameplay canvas should hold off the edge on
+     * account of the safe area. In landscape: not at all.
+     *
+     * Both shipping hosts lock landscape and hide their status bars, and in landscape the short
+     * edge - the one a notch, a Dynamic Island or a hole-punch camera lives on - is a *side*, not
+     * the top (that is why `GameplayScene` insets the D-pad horizontally in the first place). So
+     * nothing physically occupies the top edge of this game on either platform, and a reported
+     * top inset there is not an obstruction:
+     *
+     * - **iOS** reports 0 for it in landscape with the status bar hidden, so this changes nothing.
+     * - **Android** publishes `displayCutout() | mandatorySystemGestures()` (see
+     *   `MainActivity.observeSafeAreaInsets`, and the guidelines entry explaining why the full
+     *   `systemGestures()` set is deliberately not used). The mandatory set includes the strip at
+     *   the top reserved for the swipe that pulls the hidden system bars back down - a gesture
+     *   region, not a thing drawn over the app. Honouring it pushed the objectives panel, the
+     *   pause button and the gadget bolt a visible fraction of the screen height down from the
+     *   top, reported from the owner's own phone. It is the gameplay twin of the
+     *   `menuAppliesSafeAreaInsets` opt-out the Compose menus already have.
+     *
+     * A genuinely portrait window - which only Android 16's large-screen orientation override can
+     * produce here - *can* have a real cutout or status bar across its top, so the inset is
+     * honoured there. Left, right and bottom are untouched by this and stay fully honoured
+     * everywhere: the island really does sit on a side, and the home indicator really does sit
+     * along the bottom.
+     */
+    fun gameplayTopInset(insets: SafeAreaInsets, canvasWidth: Double, canvasHeight: Double): Double =
+        if (canvasWidth >= canvasHeight) 0.0 else insets.top
+
+    /**
      * The device's safe-area insets expressed in the virtual units the scene lays out in.
      *
      * Converted as a **fraction of the screen** rather than through a units-per-dp factor,

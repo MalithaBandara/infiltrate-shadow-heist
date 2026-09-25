@@ -387,10 +387,12 @@ data class LevelData(
         get() {
             if (backgroundImage != null) return backgroundImage
             val levelNum = id.replace(Regex("[^0-9]"), "").toIntOrNull() ?: 1
-            return when ((levelNum - 1) % 3) {
+            return when ((levelNum - 1) % 5) {
                 0 -> "bgmg2.png"
                 1 -> "bgmg3.png"
-                else -> "bgmg4.png"
+                2 -> "bgmg4.png"
+                3 -> "bgmg5.png"
+                else -> "bgmg6.png"
             }
         }
 
@@ -740,6 +742,7 @@ data class LevelData(
             description = "Cross the empty container yard and reach the restricted section.",
             objectiveHint = "Find a Way Through the Yard",
             layout = LEVEL_2_LAYOUT,
+            backgroundImage = "bgmg5.png",
             // Re-enabled 2026-09-25 after the rain rework (behind the world, thinner, more
             // transparent, with impact crowns). It had been switched off for the Google Play
             // production review - see .junie/guidelines.md's temporary-gating list.

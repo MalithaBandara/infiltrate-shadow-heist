@@ -782,17 +782,17 @@ class SteamPipeVisual(
         // phases of the cycle one colour each and keeps the LED's real job (letting a player time
         // the run) intact:
         //   dormant -> green   safe to cross
-        //   warning -> amber   1.0s of "not for much longer"
+        //   warning -> yellow  0.5s of warning before steam erupts
         //   active  -> red     lethal right now
         val ledColor = when {
             active -> Colors["#ef4444"]
-            warning -> Colors["#f59e0b"]
+            warning -> Colors["#facc15"]
             else -> Colors["#10b981"]
         }
         topLed?.colorMul = ledColor
         botLed?.colorMul = ledColor
 
-        // Steam only emits when active! Green sign shows 1s before steam eruption.
+        // Steam only emits when active! Yellow sign shows 0.5s before steam eruption.
         val emitting = active
         if (!emitting) {
             wasEmitting = false
