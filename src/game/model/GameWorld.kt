@@ -787,7 +787,12 @@ data class GameWorld(
                 wasDetected = true
                 alertProgress = 0.0
                 println("[SPOTTED] Player caught at (${player.x.toInt()}, ${player.y.toInt()}) (distance: ${spottedDist.toInt()}px)! Total alerts: $spottedCount. Resetting to start...")
-                onSpotted?.invoke(seeingGuards.firstOrNull() ?: allGuards.first(), player)
+                // firstOrNull, not first: a level can have cameras and no guards at all (see
+                // LEVEL_8_LAYOUT's pole camera), and allGuards is empty on those. Kotlin's `?.`
+                // short-circuits before evaluating arguments, so the old `allGuards.first()`
+                // only escaped being a crash because nothing currently assigns onSpotted.
+                val spotter = seeingGuards.firstOrNull() ?: allGuards.firstOrNull()
+                if (spotter != null) onSpotted?.invoke(spotter, player)
                 isGameOver = true
                 onGameOver?.invoke()
                 for (g in allGuards) g.returnToPatrol()
