@@ -81,7 +81,7 @@ data class GameWorld(
     val conveyorsStartOnMove: Boolean = false,
     val canClimb: Boolean = true,
     val manualCheckpoints: List<Checkpoint> = emptyList(),
-    /** See LevelLayout.pushStanceDemo - level 8 only. */
+    /** See LevelLayout.pushStanceDemo - the push-stance dev stage only, nothing shipped. */
     val pushStanceDemo: Boolean = false
 ) {
     val canInteract: Boolean

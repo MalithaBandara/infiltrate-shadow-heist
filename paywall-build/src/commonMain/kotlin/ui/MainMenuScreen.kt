@@ -106,9 +106,10 @@ fun MainMenuScreen(
     }
 
     val language = LocalAppLanguage.current
-    // Temporarily restrict to the 7 active levels for Google Play production approval,
-    // so the mission briefing card never displays the hidden Level 8.
-    val levels = LevelData.DEFAULT_LEVELS.take(7)
+    // Temporarily restrict to the active levels for Google Play production approval, so the
+    // mission briefing card never displays a level that is still a stub. Level 8 joined the list
+    // on 2026-09-25 when it got its real layout; 9 to 12 are still hidden.
+    val levels = LevelData.DEFAULT_LEVELS.take(8)
     val currentMissionIndex = levels.indexOfFirst { allResults[it.id]?.completed != true }.let { if (it == -1) levels.lastIndex else it }
     val currentMission = levels[currentMissionIndex]
 

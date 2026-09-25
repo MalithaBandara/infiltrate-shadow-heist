@@ -299,10 +299,13 @@ data class LevelLayout(
     val steamPipes: List<SteamPipeDef> = emptyList(),
     val playerStartCrouched: Boolean = false,
     // Turns INTERACT into a push-stance toggle anywhere in the level, with no object to push
-    // and nothing to be in range of. Only LEVEL_8_LAYOUT sets it: level 8 is the bare stage
-    // the push animation is tried out on, so the trigger is deliberately the plain button
-    // rather than proximity to anything. A real pushable prop would gate this on range the way
-    // levers and camera bots do, and would leave this flag alone.
+    // and nothing to be in range of. Only PUSH_STANCE_DEMO_LAYOUT sets it - the bare dev stage
+    // the push animation is tried out on (it held the level 8 slot until that became a real
+    // level), so the trigger is deliberately the plain button rather than proximity to anything.
+    // NOTHING SHIPPED may set it, and a test pins that: in a level with real geometry, INTERACT
+    // would brace the player where there is nothing to push, and a braced body cannot jump or
+    // crouch. A real pushable prop would gate this on range the way levers and camera bots do,
+    // and would leave this flag alone.
     val pushStanceDemo: Boolean = false
 )
 
@@ -2948,9 +2951,9 @@ data class LevelData(
         )
 
         /**
-         * Level 8: the push-stance stage ("08: Final Proof").
+         * The push-stance stage - a bare rehearsal room, NOT a shipped level.
          *
-         * Deliberately EMPTY - flat ground from wall to wall and nothing else. No guards, no
+         * Deliberately EMPTY: flat ground from wall to wall and nothing else. No guards, no
          * cameras, no boxes, no hazards, no start fences, no hanging anything. It used to be one
          * of the `GameWorld.createDefault` levels (a patrolling guard and a corridor derived from
          * guardPatrolMinX/MaxX); that was cleared out so the push animation can be watched on its
@@ -2962,11 +2965,16 @@ data class LevelData(
          *
          * `canClimb = false` and no boxes means there is nothing to climb; the ground runs the
          * full width so the player cannot fall out of the world while experimenting. The exit sits
-         * at the far end so the level is still completable - it is a long walk at the braced
+         * at the far end so the stage is still completable - it is a long walk at the braced
          * stance's ~53 u/s, which is the point: it is enough room to watch a full gait cycle
          * several times over.
+         *
+         * This WAS level 8 until 2026-09-25, when level 8 became a real shipped level (see
+         * [LEVEL_8_LAYOUT]) and the stage moved to its own id - it is not in [DEFAULT_LEVELS] and
+         * no menu lists it. Reach it by id through [findById]: the `.debug_level` file hook on
+         * desktop, or `./gradlew runJvm -PstartLevel=push_stance_demo`.
          */
-        val LEVEL_8_LAYOUT = run {
+        val PUSH_STANCE_DEMO_LAYOUT = run {
             val groundY = 440.0
             val worldWidth = 3600.0
             val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
@@ -2994,13 +3002,14 @@ data class LevelData(
             )
         }
 
-        val DEFAULT_LEVEL_8 = LevelData(
-            id = "level_8",
-            name = "08: Relocation",
+        /** See [PUSH_STANCE_DEMO_LAYOUT] - a dev stage, kept out of [DEFAULT_LEVELS]. */
+        val PUSH_STANCE_DEMO = LevelData(
+            id = "push_stance_demo",
+            name = "Push stance (dev stage)",
             timeTargetSeconds = 22.0f,
-            description = "The guards moved Container 17. Follow the trail to its new location.",
+            description = "Bare stage for the braced push animation.",
             objectiveHint = "Push the load to extraction",
-            layout = LEVEL_8_LAYOUT,
+            layout = PUSH_STANCE_DEMO_LAYOUT,
             tutorialSteps = listOf(
                 TutorialStep(
                     id = "step_push_stance",
@@ -3012,6 +3021,209 @@ data class LevelData(
                     targetAction = TutorialAction.INTERACT,
                     highlight = TutorialControlHighlight.INTERACT,
                     handwrittenCallout = "Brace, then walk it along!"
+                )
+            )
+        )
+
+        /**
+         * Level 8: the suspended-load yard ("08: Relocation"), built 2026-09-25 on request.
+         *
+         * Replaces the bare push-stance stage that held this slot (now [PUSH_STANCE_DEMO_LAYOUT],
+         * off the shipped list) - level 8 was hidden behind the `.take(7)` production gate until
+         * this layout gave it something to be.
+         *
+         * Three beats, in the order they were asked for: "add the starting gates same as in other
+         * levels / after that some long plane and there are two hanging crates (check level 2) /
+         * first crate is a long one and then next is a short one that moves / player cant get on
+         * top of these two for now / after that section there is a crate on floor and a platform
+         * he can climb onto by first climbing onto the crate / after climbing onto the platform he
+         * has to crouch because there is a long hanging crate there / also that moving crate moves
+         * left and right and when it is at right it can crush the person if he tries to climb and
+         * touching the bottom side of that crate when it is near the platform ends the level."
+         *
+         * **1. The plane.** Default start fences (`hasStartFences`, no explicit rects - the same
+         * -80/70 pair every other level gets) and then ~1250 units of uninterrupted floor. Two
+         * loads hang over it on level 2's own `chainedcrate.png` rigging: [overheadCrate], long
+         * and stationary, and [sweepCrate], short and moving. Both hang with their undersides 188
+         * above the floor - four times [Player.maxJumpHeight] (51.2) and past
+         * [Player.climbMaxHeight] (115), and `Player.findClimbTarget` refuses a floating ledge
+         * whose bottom is above the climber's feet anyway - so "player cant get on top of these
+         * two" needs no `unclimbableBoxes` entry, the height alone does it.
+         *
+         * **2. The climb.** [stepCrate] (68x48) stands flush against [platform]'s left face:
+         * ground -> crate is a 48 jump (inside the 51.2 arc, so it is jumped and never mantled),
+         * crate -> platform is exactly 96, this game's canonical climb. 144 from the floor to the
+         * platform top is past `climbMaxHeight`, so there is no way up that skips the crate.
+         *
+         * **3. The crouch.** [crouchCrate] hangs 68 above the platform surface. That number is
+         * the whole obstacle and it sits in a 40-unit window: below 56 (`Player.crouchHeight`) the
+         * crate would refuse the climb outright the way LEVEL_6_LAYOUT's gantry does, and at 96 or
+         * more a standing body walks straight under it. At 68 the player must duck and crawl its
+         * 174-unit length at `crouchSpeed`.
+         *
+         * **The crush.** [sweepCrate] is a [MovingPlatformDef] with `crushesOnContact`, the flag
+         * LEVEL_6_LAYOUT's gantry crate introduced; it only bites from below (feet under the
+         * crate's own underside), so it is a hazard to climb into and never a platform that kills
+         * whoever stands on it. It hangs 44 above the platform top - deliberately UNDER
+         * `crouchHeight`, which makes the two halves of the request one mechanism:
+         *   - parked at [sweepCrateMaxX] it covers the landing (`Player.climbLandingX`, 6 units in
+         *     from the lip), and neither a standing nor a crouched body fits, so the climb is
+         *     refused before it starts - the player is visibly held at the bottom;
+         *   - a climb begun in the clear window takes `Player.climbDuration` (1.95s) at full
+         *     standing height, so a load arriving part-way through catches the body under its
+         *     underside and it is MISSION FAILED.
+         * The sweep is 200 long over an 8s period, and it covers the landing only over the last
+         * 170 of that travel - with `MovingPlatform`'s cosine easing, ~25% of each cycle. The
+         * number that actually had to be tuned is not that window but the WORST one: a player who
+         * starts the climb the instant the load swings clear still has it coming back at them.
+         * Read off the cosine, a crate that is clear AND travelling left has at least 0.3734 of a
+         * period left before it covers the landing again - 2.99s here, against 1.95s of climb plus
+         * the ~0.25s walk out from under it. So "clear and swinging away" is a cue that always
+         * pays off, and "clear and swinging back" is the trap. A shorter period, a wider crate or
+         * a rest position closer to the lip all eat that same margin.
+         *
+         * It sweeps LEFT off the landing (out over the plane) rather than right, for the same
+         * reason level 6's does: everything right of the landing stays permanently clear, so
+         * whoever just climbed can walk on toward [crouchCrate] instead of being caught by the
+         * load coming back.
+         *
+         * Falling off costs nothing here - the ground runs the level's full width, and the way
+         * back up is the same step crate - so the only way to fail is the load.
+         */
+        val LEVEL_8_LAYOUT = run {
+            val groundY = 440.0
+            val worldWidth = 2700.0
+            val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
+
+            // --- SECTION 2's geometry first: everything else is placed against the platform ---
+            val platformLeft = 1560.0
+            val platformTop = 296.0
+            val platform = Rect(
+                x = platformLeft,
+                y = platformTop,
+                width = 520.0,
+                height = groundY - platformTop
+            )
+
+            // The only way up. 48 tall so the hop onto it is a jump (maxJumpHeight 51.2) and 96
+            // below the platform top so the next move is the mantle.
+            val stepCrateWidth = 68.0
+            val stepCrateHeight = 48.0
+            val stepCrate = Rect(
+                x = platformLeft - stepCrateWidth,
+                y = groundY - stepCrateHeight,
+                width = stepCrateWidth,
+                height = stepCrateHeight
+            )
+
+            // --- SECTION 1: the plane, and the two loads hanging over it ---
+            val longCrateWidth = 174.0
+            val shortCrateWidth = 76.0
+            val hangingCrateHeight = 38.0
+
+            // 44 above the platform's surface - under crouchHeight (56), so the parked load
+            // refuses the climb outright, and under standing height (96), so one arriving mid-climb
+            // crushes. Everything about this crate's own height follows from that one number.
+            val sweepCrateClearance = 44.0
+            val sweepCrateY = platformTop - sweepCrateClearance - hangingCrateHeight
+
+            // Parked over the landing (platformLeft + 6 .. + 42): the crate's 76 spans
+            // platformLeft - 40 .. + 36, so it covers all but the last 6 of the landing with its
+            // left end hanging clear out over the gap the player climbs up through. It stops 40
+            // SHORT of the lip on purpose - the further right it parks, the further whoever just
+            // climbed has to walk to get out from under it before it swings back, and that walk
+            // comes out of the same window the climb already spends 1.95s of. At -40 it is 30
+            // units, a quarter of a second.
+            val sweepCrateMaxX = platformLeft - 40.0
+            val sweepCrateSweep = 200.0
+            val sweepCrateMinX = sweepCrateMaxX - sweepCrateSweep
+
+            // The stationary half of the pair, further back down the plane at the same height, so
+            // the two read as one rigging line. Level 2's long chainedcrate.png crop.
+            val overheadCrate = Rect(
+                x = 760.0,
+                y = sweepCrateY,
+                width = longCrateWidth,
+                height = hangingCrateHeight
+            )
+
+            val sweepCrate = MovingPlatformDef(
+                id = "lvl8_sweep_crate",
+                initialX = sweepCrateMinX,
+                y = sweepCrateY,
+                width = shortCrateWidth,
+                height = hangingCrateHeight,
+                minX = sweepCrateMinX,
+                maxX = sweepCrateMaxX,
+                // Long enough that the guaranteed-clear phase outlasts a 1.95s climb with room
+                // to step out from under afterwards (see the class doc), and slow enough to be
+                // read from back down the plane.
+                periodSeconds = 8.0,
+                // Free-running off the level clock (no startsInactive - there is no lever here,
+                // unlike level 6's gantry), starting at the far LEFT end of its own sweep.
+                phaseOffsetSeconds = 0.0,
+                // The short chainedcrate2.png crop, matching level 2's own short containers -
+                // "first crate is a long one and then next is a short one that moves".
+                isVariant1 = false,
+                // "touching the bottom side of that crate when it is near the platform ends the
+                // level". See MovingPlatformDef.crushesOnContact - it only bites from below.
+                crushesOnContact = true
+            )
+
+            // --- SECTION 3: the crouch ---
+            // 68 above the platform: over crouchHeight (56) so the duck-walk fits, under standing
+            // height (96) so it is forced. Starts 120 in from the lip, clear of both the landing
+            // and the sweep crate's own parked footprint, so the player has somewhere to stand up
+            // between the two hazards.
+            val crouchCrateClearance = 68.0
+            val crouchCrate = Rect(
+                x = platformLeft + 120.0,
+                y = platformTop - crouchCrateClearance - hangingCrateHeight,
+                width = longCrateWidth,
+                height = hangingCrateHeight
+            )
+
+            val boxes = listOf(overheadCrate, stepCrate, platform, crouchCrate)
+
+            LevelLayout(
+                worldWidth = worldWidth,
+                playerStartX = 236.0,
+                playerStartY = groundY - 96.0,
+                exitZone = Rect(x = 2400.0, y = 340.0, width = 44.0, height = 100.0),
+                platforms = listOf(ground),
+                boxes = boxes,
+                guards = emptyList(),
+                // Both long loads take level 2's long chainedcrate.png crop; the short moving one
+                // picks its own art up from MovingPlatformDef.isVariant1 instead.
+                hangingCrateVariant1 = listOf(overheadCrate, crouchCrate),
+                movingPlatforms = listOf(sweepCrate)
+            )
+        }
+
+        val DEFAULT_LEVEL_8 = LevelData(
+            id = "level_8",
+            name = "08: Relocation",
+            // A clean run measures 20-25s end to end depending on where the load happens to be
+            // when the player reaches the face (the forced wait ranges 0.5s to 5.4s) - see
+            // testLevel8IsBeatableByReadingTheLoadSwingingAway, which drives exactly that. 45
+            // leaves room for a missed hop and a read of the sweep on the way in.
+            timeTargetSeconds = 45.0f,
+            description = "The guards moved Container 17. Follow the trail to its new location.",
+            objectiveHint = "Slip Under the Suspended Load",
+            layout = LEVEL_8_LAYOUT,
+            tutorialSteps = listOf(
+                TutorialStep(
+                    id = "step_crouch_under_load",
+                    // On the platform, between the landing and the low crate - i.e. after the
+                    // climb and before the head would hit anything.
+                    triggerMinX = 1580.0,
+                    triggerMaxX = 1690.0,
+                    title = "GET LOW",
+                    instructionTouch = "Hold CROUCH to crawl under the hanging container.",
+                    instructionDesktop = "Hold [S], [C] or [CTRL] to crawl under the hanging container.",
+                    targetAction = TutorialAction.CROUCH,
+                    highlight = TutorialControlHighlight.CROUCH,
+                    handwrittenCallout = "Duck under it!"
                 )
             )
         )
@@ -3074,6 +3286,22 @@ data class LevelData(
             DEFAULT_LEVEL_11,
             DEFAULT_LEVEL_12
         )
+
+        /**
+         * Levels that exist but are not part of the shipped progression: dev stages, reachable by
+         * id and listed in no menu. Deliberately NOT in [DEFAULT_LEVELS] - everything that walks
+         * that list (the mission grid, the briefing card, "next level", the star totals) would
+         * otherwise have to special-case them.
+         */
+        val DEV_LEVELS: List<LevelData> = listOf(PUSH_STANCE_DEMO)
+
+        /**
+         * Every level reachable by id, shipped or not - what the by-id entry points look through
+         * (`-PstartLevel=`, the desktop `.debug_level` file hook), so a dev stage stays reachable
+         * without being in [DEFAULT_LEVELS].
+         */
+        fun findById(id: String): LevelData? =
+            DEFAULT_LEVELS.firstOrNull { it.id == id } ?: DEV_LEVELS.firstOrNull { it.id == id }
     }
 }
 
