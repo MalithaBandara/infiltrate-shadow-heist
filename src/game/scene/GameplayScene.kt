@@ -2319,9 +2319,11 @@ class GameplayScene(
             }
         )
 
-        // Temporarily restrict to the 7 active levels for Google Play production approval,
-        // so completing Level 7 shows ALL CLEAR / returns to menu instead of advancing to Level 8.
-        val allLevels = LevelData.DEFAULT_LEVELS.take(7)
+        // Temporarily restrict to the active levels for Google Play production approval, so
+        // clearing the last one shows ALL CLEAR / returns to menu instead of advancing into a
+        // level that is not built yet. Level 8 joined the list on 2026-09-25 (LEVEL_8_LAYOUT);
+        // 9 to 12 are still name-and-description stubs with no layout.
+        val allLevels = LevelData.DEFAULT_LEVELS.take(8)
         val currentLevelIndex = allLevels.indexOfFirst { it.id == levelData.id }
         val nextLevel = if (currentLevelIndex >= 0 && currentLevelIndex + 1 < allLevels.size) allLevels[currentLevelIndex + 1] else null
 
@@ -2580,7 +2582,7 @@ class GameplayScene(
                             if (debugFile.exists()) {
                                 val targetId = debugFile.readString().trim()
                                 debugFile.delete()
-                                val targetLevel = LevelData.DEFAULT_LEVELS.firstOrNull { it.id == targetId }
+                                val targetLevel = LevelData.findById(targetId)
                                 if (targetLevel != null) {
                                     stopBgMusic()
                                     sceneContainer.changeTo { GameplayScene(targetLevel) }

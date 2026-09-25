@@ -49,7 +49,7 @@ suspend fun main(args: Array<String>) {
         DeviceViewport.apply(views, sceneContainer)
         val levelId = Environment["startLevel"] ?: args.firstOrNull()
         val levelData = if (levelId != null) {
-            LevelData.DEFAULT_LEVELS.firstOrNull { it.id == levelId } ?: LevelData.DEFAULT_LEVEL_1
+            LevelData.findById(levelId) ?: LevelData.DEFAULT_LEVEL_1
         } else {
             LevelData.DEFAULT_LEVEL_1
         }
