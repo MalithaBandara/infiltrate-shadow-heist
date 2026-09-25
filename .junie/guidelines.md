@@ -282,12 +282,19 @@ Each placement has its own unit for reporting/frequency-cap
 granularity. JVM falls back to Google's published test IDs - the rewarded and interstitial test IDs
 differ (`ca-app-pub-3940256099942544/1033173712` is the interstitial one); don't reuse one for the other.
 
-**All placements currently point at Google's TEST IDs**: `AdUnitIds.android.kt`/`AdUnitIds.ios.kt`
-each have `private const val USE_TEST_ADS = true` gating every placement. Deliberate: Play Console
-Internal/Closed testing and TestFlight/App Review count as developer-associated traffic under AdMob's
-invalid-traffic policy. **Before an Open testing or production build, grep `USE_TEST_ADS = true` in
-both files and flip both** - not automatic. (One flag per file replaced an older per-value swap that
-sat unnoticed.)
+**Both files are currently on REAL ad units** (`USE_TEST_ADS = false` in `AdUnitIds.android.kt`
+and `AdUnitIds.ios.kt` alike - one flag per file gates every placement in it). Flip both back to
+`true` for any Play Console Internal/Closed track or TestFlight build: those testers are people the
+developer invited, which AdMob's invalid-traffic policy treats like clicking your own ads. Real
+units are for Open testing and production. Not automatic - grep `USE_TEST_ADS` in both files before
+a build and set them deliberately. (One flag per file replaced an older per-value swap that sat
+unnoticed.)
+
+**This flag is the first thing to check when ads "don't work" on one platform.** A real ad unit on
+a freshly-created AdMob app has no serving history and answers most requests with no-fill for a
+while after it is set up, so a placement that works on the older Android app can look completely
+broken on the newer iOS one with identical code. Test units always fill, which is exactly what
+makes them the right way to prove the wiring before blaming it.
 
 ### Watch ad to continue (`REWARDED_CONTINUE`)
 
@@ -317,11 +324,49 @@ at the bottom when continue is available: **CONTINUE** (leftmost, watch-ad clapp
   hoisted load-failure callback is guarded on `showRequested.value`.
 - **Hazard 2: `FAILING` is a dead end.** `rememberXAd` only re-loads from `NONE`/`DISMISSED`
   (basic-ads 1.2.1 sources - no branch for `FAILING`). With preloading one early failure leaves the
-  handler dead for the process and a later request gets no ad and no resolution. Every show site
-  has an explicit `AdState.FAILING ->` branch that resolves the trigger like a load failure.
+  handler dead for the process and a later request gets no ad and no resolution. Android's show
+  sites answer this with an explicit `AdState.FAILING ->` branch that resolves the trigger like a
+  load failure. **iOS answers it by replacing the handler instead (2026-09-25)** - see below.
 - **Test ads cannot reproduce either hazard** (always fill, never fail) - force with airplane mode.
 - Store's `CoinsRewardAdHost`/`GadgetRewardAdHost` are NOT preloaded (gated at the call site in
   `StoreScreen.kt`; a menu button tolerates a wait). iOS interstitial: see below.
+
+### iOS rewarded ads retry; Android's do not (2026-09-25)
+
+Reported as "on iOS I keep getting ad not ready when trying to watch ad" (the Store toast,
+`Localization.adNotReady`, which only `StoreScreen.kt`'s two reward-ad `onFailure` paths raise).
+
+The first load answer was also the only one anything looked at: `basic-ads`' plain `RewardedAd()`
+composable reports `onFailure` and stops, and resolving hazard 2 by treating `FAILING` as final
+made that permanent for the preloaded continue ad - **one** unlucky request (racing
+`GADMobileAds.start()` at cold launch, a momentary no-fill, a blip) turned every later CONTINUE
+into an instant refusal for the rest of the process. iOS falls into that more easily than Android
+because the SDK is only started when the Compose scene first composes (`AdMobVerifyContent()`),
+in the same frame as the preload, rather than in an Activity's `onCreate`.
+
+**A handler cannot be restarted, but a new one always begins at `NONE`** - and `key(attempt) { }`
+gives you one: bumping `attempt` discards the composition group the dead handler was remembered
+in. That is the whole mechanism, in two places:
+
+- **`RetryingRewardedAd.kt`** (iosMain, new) - drop-in for the Store's two tap-to-watch hosts
+  (`CoinsRewardAdHost.ios.kt`, `GadgetRewardAdHost.ios.kt`). 3 attempts, 1.2s apart; `onFailure`
+  fires once, at the end, so the Store's toast and `showXRewardAd = false` bookkeeping are
+  unchanged. `resolved` guards against a second callback - basic-ads reports dismissal and display
+  failure through the same delegate.
+- **`ContinueAdBridge.kt`'s `ContinueAdContent`** - same shape, folded into the preload. Budget is
+  3 per *offer* and is re-armed by each new `requestShow()`; while nothing is pending, retries stop
+  once spent rather than re-requesting forever in the background. `cancelShow()` still resolves the
+  flow when the budget runs out with an offer on screen, so a failed ad never strands the player
+  behind Swift's 30s poll. An offer that arrives to find a `FAILING` handler replaces it.
+- **Writes that pick the next attempt happen in `LaunchedEffect`s and load callbacks, never in the
+  composition body** - a state write from a `when (ad.state)` branch is a recomposition loop
+  waiting to happen. That is also where the backoff lives.
+- **Android deliberately keeps the plain composable**: its rewarded placements were reported
+  working, and the same retry there is an unrequested change to a path that fills first time.
+- Retrying does not touch `CoinsAdLimiter`/`GadgetAdLimiter`: they record a *watch*, and nothing
+  here can grant a reward more than once.
+- **None of this is the cause if the ad unit itself is not serving** - check `USE_TEST_ADS` first
+  (above). Retries make a flaky unit usable; they cannot conjure fill out of a brand-new one.
 
 ### Watch ad for coins (Store, `REWARDED_COINS`)
 
@@ -690,10 +735,49 @@ surface (bug #7), so the Compose menu draws opaquely on top of an always-visible
   barrel-wall + hook-swing stub, see "The swing move"), `06: Stolen Manifest` (`LEVEL_6_LAYOUT` -
   lever-crate swing, pit crossing, crane crossing; see its own section), `07: Service Tunnel`
   (`LEVEL_7_LAYOUT` - linear vent crawling gauntlet, exhaust fans, camera bots, steam pipes; see its
-  own section), `08: Relocation` (`LEVEL_8_LAYOUT` - deliberately EMPTY, the push-animation
-  stage; see its own section), `09: Déjà Vu` .. `12: Final Escape` (no layout of their own,
+  own section), `08: Relocation` (`LEVEL_8_LAYOUT` - the suspended-load yard;
+  see its own section), `09: Déjà Vu` .. `12: Final Escape` (no layout of their own,
   `GameWorld.createDefault` with a per-level `guardSpeed`). Other levels' backgrounds rotate through
   `bgmg2/3/4` via `LevelData.resolvedBackgroundImage`.
+
+## The level clock counts play, not wall time (`GameWorld.isSuspended`, 2026-09-25)
+
+`world.timeTaken` is what the MISSION FAILED / HEIST COMPLETE sheets print and what star 3 is
+judged against (`LevelResult.star3`), so it has to mean "time the player could act on", not
+"seconds since the level loaded". It only ever advances inside `GameWorld.update`, and
+`GameplayScene`'s updater already returned early while its own pause overlay was up - so the pause
+*menu* was never the leak. The holds that come from outside the scene were:
+
+- **the app backgrounded** (home button, a call, the app switcher), and
+- **a full-screen ad covering gameplay**.
+
+Neither is visible to a scene-local flag, and on **Android the KorGE view is deliberately never
+hidden** (real-device bug #7 below: hiding it tears down the `GLSurfaceView` for good), so its
+render loop and this updater keep running under whatever is in front of them.
+
+Two pieces, both small:
+
+- **`src/AppLifecycleBridge.kt`** - `GameAppLifecycle.isForeground`, a plain process-wide flag
+  (no `expect`/`actual`: there is nothing platform-specific to implement, only a flag to set).
+  Defaults to **true**, because a target with no native shell - desktop JVM, the JS/wasm previews -
+  never reports lifecycle at all and must play normally rather than sit frozen. iOS reaches it
+  through `src@ios/AppLifecycleBridge.ios.kt`'s `@ObjCName(exact = true)` wrapper, the same shape
+  as every other Swift-visible object here. Set from `MainActivity.onPause`/`onResume` and from
+  `AppDelegate.swift`'s background/foreground callbacks plus either side of the rewarded continue
+  ad (the iOS shell swaps the window away from KorGE for its whole duration).
+- **`GameWorld.isSuspended`** - `update()` is a no-op while set, so no clock, no physics, no alert,
+  no hazard phase. `GameplayScene` mirrors `isPaused || !GameAppLifecycle.isForeground` onto it
+  every frame. Deliberately belt-and-braces rather than the sole mechanism: the scene is not the
+  only thing that can drive `update()`, and a clock that can only be advanced by a frame the player
+  saw is much easier to keep honest than one that depends on every future call site remembering to
+  check a scene-local flag. `restartLevel()` clears it - a stuck flag would freeze the new attempt
+  outright.
+
+Covered by four tests in `GameplayModelTest.kt` (`testSuspendedWorldDoesNotChargeTheLevelClock`,
+`...FreezesTheRunItself`, `testRestartClearsSuspension`,
+`testAppLifecycleStartsForegroundAndTracksBothEdges`). The second one holds every input down
+through the hold: a player whose thumb is on the D-pad when a call arrives must not walk into a
+guard while the screen belongs to someone else.
 
 ## End-of-run dossier sheets (MISSION FAILED / HEIST COMPLETE)
 
@@ -2616,10 +2700,28 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
   and the privacy-policy disclosure are gone. **Zero third-party analytics SDKs remain.**
 - **In-App Review (Google Play & iOS StoreKit)**: Multiplatform review prompting via `InAppReview` (in
   `paywall-build`) and `InAppReviewBridge` (in `:game`). On Android, uses `com.google.android.play:review:2.0.2`
-  (`ReviewManagerFactory`) wired to `MainActivity`. On iOS, links native `StoreKit.framework` and calls
-  `SKStoreReviewController.requestReview(in: scene)`. Prompted automatically upon completing level 4
+  (`ReviewManagerFactory`) wired to `MainActivity`. Prompted automatically upon completing level 4
   (`GameplayScene.kt` -> `getInAppReviewBridge().requestReview()`) and manually via the "RATE US" button
   in the About section of Settings (`SettingsScreen.kt`).
+
+  **iOS RATE US opens the App Store, it does not call StoreKit (fixed 2026-09-25)** - reported as
+  "rate us button in ios is not working", and it genuinely could not work. `SKStoreReviewController`
+  is Apple's *automatic* prompt, not a rate-us action: Apple decides whether it appears, it is
+  **never shown in a TestFlight build**, it is capped at three appearances per device per year in
+  production, and it is silently ignored otherwise. There is no callback and no error, so a correct
+  call and a suppressed one are indistinguishable from the app's side - which is what made this hard
+  to see. Apple's own guidance is that a deliberately-pressed button goes to the App Store review
+  page, so `InAppReview.ios.kt` now opens
+  `itms-apps://apps.apple.com/app/id<APP_STORE_ID>?action=write-review` (falling back to the `https`
+  form, then to the StoreKit prompt if neither opens). **`APP_STORE_ID = "6815256409"`** lives at the
+  top of that file. The StoreKit fallback also picks the window scene that owns a key window rather
+  than whatever `connectedScenes` (an unordered `NSSet`) hands back first - with more than one scene
+  alive that could be one not on screen, which StoreKit refuses without a word.
+
+  The **automatic** post-level-4 prompt deliberately still uses StoreKit on both platforms (`:game`'s
+  `InAppReviewBridge` -> `GameInAppReviewBridge` -> `AppDelegate.swift`'s `InAppReviewHelper`) - an
+  unprompted moment of goodwill is exactly what that API is for. **Android's RATE US is unchanged**
+  and still uses Play's in-app review; it was reported working.
 - **Settings → About panel (`SettingsScreen.kt`)**: Links order is "PRIVACY POLICY" (opens `https://infiltrate.saysplit.app/privacy/` via `LocalUriHandler`), "CONTACT US" (opens `https://infiltrate.saysplit.app/support/`), "CREDITS & LICENSES" (expandable third-party sound attributions), and "RATE US" (at the bottom of the links list with highlighted white outline: `Color.White.copy(alpha = 0.5f)` vs unhighlighted `0.08f`). Terms of service row removed. Version string is pinned to the bottom of the screen and resolves dynamically across platforms via `com.infiltrate.platform.PlatformInfo` (`expect`/`actual`: `versionName` and `buildNumber` read from `PackageManager` on Android, `NSBundle` on iOS, system/package properties on JVM).
 - **Web presence (`site/`, Netlify, e.g. `infiltrate.saysplit.app`)**: `index.html`, `support/`
   (App Store Guideline 1.5 page, Netlify Form with Name/Email/Category/Message, no visible email, no

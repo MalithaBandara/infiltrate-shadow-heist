@@ -27,6 +27,7 @@ import com.infiltrate.storage.PlatformStorage
 import com.infiltrate.ui.NavigationRoot
 import com.sample.demo.ads.AndroidContinueAdBridgeState
 import com.sample.demo.audio.AndroidGameSfxOutputState
+import com.sample.demo.lifecycle.GameAppLifecycle
 import com.sample.demo.nav.AndroidLevelExitBridgeState
 import com.sample.demo.review.AndroidInAppReviewBridgeState
 import game.model.DeviceScreen
@@ -309,11 +310,17 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         AndroidGameSfxOutputState.pauseEngine()
+        // The KorGE view is deliberately never hidden here (see the class doc comment and
+        // .junie/guidelines.md real-device bug #7), so its render loop - and GameplayScene's
+        // updater with it - keeps running while a full-screen ad, the launcher, or another app is
+        // in front of the player. Without this the level clock would bill them for that time.
+        GameAppLifecycle.markBackground()
     }
 
     override fun onResume() {
         super.onResume()
         AndroidGameSfxOutputState.resumeEngine()
+        GameAppLifecycle.markForeground()
     }
 
     override fun onDestroy() {
