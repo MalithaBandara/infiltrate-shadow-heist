@@ -6707,34 +6707,303 @@ class GameplayModelTest {
         assertEquals(0, restarts, "Level 7 simulation should clear without any deaths")
     }
 
-    // ---- Level 8: the cleared push-stance stage --------------------------------------------
+    // ---- Level 8: the suspended-load yard ---------------------------------------------------
+
+    /** The pieces of LEVEL_8_LAYOUT, found by shape so a re-tune moves the tests with it. */
+    private class Level8Geometry {
+        val layout = LevelData.LEVEL_8_LAYOUT
+        val groundY = 440.0
+        val platform = layout.boxes.first { it.height == 144.0 && it.width > 300.0 }
+        val stepCrate = layout.boxes.first { it.height == 48.0 }
+        /** The long stationary load hanging over the plane, back where the level starts. */
+        val overheadCrate = layout.hangingCrateVariant1.first { it.x < 1000.0 }
+        /** The long load hanging low over the platform - the one that forces the crouch. */
+        val crouchCrate = layout.hangingCrateVariant1.first { it.x > platform.left }
+        val sweepDef = layout.movingPlatforms.first { it.id == "lvl8_sweep_crate" }
+        val landingLeft = platform.left + 6.0
+    }
 
     @Test
-    fun testLevel8IsClearedOfEverythingButTheGroundAndTheExit() {
-        val layout = LevelData.LEVEL_8_LAYOUT
-        assertTrue(layout.boxes.isEmpty(), "level 8 must have no boxes")
-        assertTrue(layout.guards.isEmpty(), "level 8 must have no guards")
-        assertTrue(layout.cameras.isEmpty(), "level 8 must have no cameras")
-        assertTrue(layout.lasers.isEmpty(), "level 8 must have no lasers")
-        assertTrue(layout.levers.isEmpty(), "level 8 must have no levers")
-        assertTrue(layout.movingPlatforms.isEmpty(), "level 8 must have no moving platforms")
-        assertTrue(layout.conveyors.isEmpty() && layout.conveyorCrates.isEmpty(), "level 8 must have no conveyors")
+    fun testLevel8HangsBothLoadsOverThePlaneWellOutOfReach() {
+        // "player cant get on top of these two for now". Nothing declares that - no
+        // unclimbableBoxes entry, no flag - it falls out of how high they hang, so that is what
+        // gets pinned. Both are one jump plus one climb plus a wide margin above the floor, and
+        // Player.findClimbTarget refuses a floating ledge (bottom above the climber's feet)
+        // regardless.
+        val g = Level8Geometry()
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        val p = world.player
+        val sweep = world.movingPlatforms.first { it.id == "lvl8_sweep_crate" }
+
+        for ((name, bottom) in listOf("the long load" to g.overheadCrate.bottom, "the moving load" to sweep.bounds.bottom)) {
+            val reach = g.groundY - bottom
+            assertTrue(reach > p.climbMaxHeight, "$name hangs $reach above the floor, inside climb reach (${p.climbMaxHeight})")
+            assertTrue(reach > p.maxJumpHeight + p.height, "$name is within a jumping body's reach ($reach)")
+        }
+
+        // And the same thing driven: run the whole plane jumping the whole way, and the feet
+        // never leave the neighbourhood of the floor. Stops short of the step crate, which IS
+        // meant to be climbed onto. The button is PULSED, not held - Player re-arms the jump on
+        // release, so a held button fires exactly once.
+        var elapsed = 0.0
+        var frame = 0
+        val dt = 1.0 / 60.0
+        while (elapsed < 25.0 && p.x < g.stepCrate.left - 60.0) {
+            world.update(dt, moveInput = 1.0, jumpInput = (frame % 10) < 5, crouchInput = false, interactInput = false)
+            elapsed += dt
+            frame++
+            assertFalse(world.isGameOver, "nothing over the plane may kill the player (x=${p.x})")
+            assertTrue(
+                p.y + p.height > g.groundY - 60.0,
+                "the player got well above jump height out on the plane (feet at ${p.y + p.height}, x=${p.x})"
+            )
+        }
+        assertTrue(p.x >= g.stepCrate.left - 60.0, "the plane must be walkable to the step crate (stopped at ${p.x})")
+    }
+
+    @Test
+    fun testLevel8StepCrateIsTheOnlyWayOntoThePlatform() {
+        // "there is a crate on floor and a platform he can climb onto by first climbing onto the
+        // crate" - so the crate has to be jumpable, the step off it has to be a climb, and the
+        // platform must not be climbable straight off the floor or the crate is decoration.
+        val g = Level8Geometry()
+        val p = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8).player
+
+        assertEquals(g.platform.left, g.stepCrate.right, "the crate has to stand flush against the platform's face")
+        val hop = g.groundY - g.stepCrate.top
+        assertTrue(hop <= p.maxJumpHeight, "floor -> crate ($hop) must be inside the jump arc (${p.maxJumpHeight})")
+        assertTrue(hop <= p.climbMinHeight, "...and under the mantle threshold, so it is jumped and never climbed")
+
+        val mantle = g.stepCrate.top - g.platform.top
+        assertTrue(
+            mantle > p.climbMinHeight && mantle <= p.climbMaxHeight,
+            "crate -> platform ($mantle) has to be a climb, not a jump or an impossibility"
+        )
+        val fromFloor = g.groundY - g.platform.top
+        assertTrue(fromFloor > p.climbMaxHeight, "the platform must not be climbable off the floor ($fromFloor)")
+    }
+
+    @Test
+    fun testLevel8CrouchCrateForcesTheDuckAndStillLetsTheBodyThrough() {
+        // "after climbing onto the platform he has to crouch because there is a long hanging crate
+        // there." The clearance is the whole obstacle and it lives in a 40-unit window: under
+        // crouchHeight it would refuse passage outright (level 6's gantry), at standing height it
+        // would not be an obstacle at all.
+        val g = Level8Geometry()
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        val p = world.player
+
+        val clearance = g.platform.top - g.crouchCrate.bottom
+        assertTrue(clearance > p.crouchHeight, "a crouched body has to fit under it ($clearance vs ${p.crouchHeight})")
+        assertTrue(clearance < p.height, "...and a standing one must not ($clearance vs ${p.height})")
+
+        // Put the player on the platform just short of it and crouch-walk through.
+        p.resetTo(g.crouchCrate.left - p.width - 40.0, g.platform.top - p.height)
+        var elapsed = 0.0
+        val dt = 1.0 / 60.0
+        val past = g.crouchCrate.right + 10.0
+        while (elapsed < 15.0 && p.x < past) {
+            world.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = true, interactInput = false)
+            elapsed += dt
+            assertFalse(world.isGameOver, "the low crate is an obstacle, not a hazard (x=${p.x})")
+        }
+        assertTrue(p.x >= past, "a crouched body must get all the way under it (stopped at ${p.x})")
+
+        // Standing, the same walk is stopped dead by the crate's own left face.
+        p.resetTo(g.crouchCrate.left - p.width - 40.0, g.platform.top - p.height)
+        elapsed = 0.0
+        while (elapsed < 4.0) {
+            world.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false, interactInput = false)
+            elapsed += dt
+        }
+        assertTrue(
+            p.x + p.width <= g.crouchCrate.left + 1.0,
+            "a standing body must not walk under the low crate (got to ${p.x + p.width}, crate at ${g.crouchCrate.left})"
+        )
+    }
+
+    @Test
+    fun testLevel8SweepCrateRefusesTheClimbWhileItIsParkedOverTheLanding() {
+        // The crate hangs closer than crouchHeight, which is what makes it a gate rather than a
+        // crouch-climb: findClimbTarget drops a candidate only when the landing has room for
+        // neither a standing body nor a crouched one.
+        val g = Level8Geometry()
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        val crate = world.movingPlatforms.first { it.id == "lvl8_sweep_crate" }
+        val p = world.player
+        val dt = 1.0 / 60.0
+
+        val clearance = g.platform.top - (g.sweepDef.y + g.sweepDef.height)
+        assertTrue(
+            clearance > 0.0 && clearance < p.crouchHeight,
+            "the load has to hang inside the crouched body's headroom ($clearance vs ${p.crouchHeight})"
+        )
+
+        // Run the world until it is parked at the far end of its sweep, with the player left where
+        // he spawns (nowhere near it).
+        var elapsed = 0.0
+        while (elapsed < 20.0 && crate.x < g.sweepDef.maxX - 0.5) {
+            world.update(dt, moveInput = 0.0, jumpInput = false)
+            elapsed += dt
+        }
+        assertTrue(crate.x >= g.sweepDef.maxX - 0.5, "the sweep has to actually reach its far end")
+        val landing = Rect(g.landingLeft, g.platform.top - p.height, p.width, p.height)
+        assertTrue(crate.bounds.intersects(landing), "parked, it has to sit over the landing itself")
+
+        // Stand on the step crate and keep trying for as long as it stays over the landing. The
+        // button is pulsed so each attempt is a real fresh press (a held one re-arms only on
+        // release), which is what puts findClimbTarget through its paces every few frames.
+        //
+        // Coverage is read AFTER each update, not before: the crate moves inside world.update,
+        // and the climb decision is made against where it ends up - so a climb that starts on the
+        // frame the load finally swings clear is the mechanism working, not a miss.
+        p.resetTo(g.platform.left - p.width, g.stepCrate.top - p.height)
+        val landingRight = g.landingLeft + p.width
+        var tries = 0
+        var blockedFrames = 0
+        while (tries < 600) {
+            world.update(dt, moveInput = 1.0, jumpInput = (tries % 10) < 5, crouchInput = false, interactInput = false)
+            tries++
+            if (crate.right <= g.landingLeft || crate.left >= landingRight) break
+            blockedFrames++
+            assertFalse(p.isClimbing, "no climb may start while the load is over the landing")
+            assertTrue(
+                p.y + p.height > g.platform.top + 1.0,
+                "...and nothing else may get the player up there either (feet at ${p.y + p.height})"
+            )
+        }
+        assertTrue(blockedFrames > 10, "the parked phase has to last long enough to be a gate (only $blockedFrames frames)")
+    }
+
+    @Test
+    fun testLevel8SweepCrateCrushesAClimbItCatchesPartWayUp() {
+        // "when it is at right it can crush the person if he tries to climb and touching the
+        // bottom side of that crate when it is near the platform ends the level." The climb takes
+        // 1.95s at full standing height, so a load arriving part-way through catches the body
+        // under its underside - MovingPlatformDef.crushesOnContact, which only bites from below.
+        val g = Level8Geometry()
+        val dt = 1.0 / 60.0
+
+        // Pass 1, with nobody in the way: when does the load next arrive over the landing?
+        val probe = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        val probeCrate = probe.movingPlatforms.first { it.id == "lvl8_sweep_crate" }
+        val landingRight = g.landingLeft + probe.player.width
+        var arrivesAt = -1.0
+        var t = 0.0
+        while (t < 30.0 && arrivesAt < 0.0) {
+            probe.update(dt, moveInput = 0.0, jumpInput = false)
+            t += dt
+            if (probeCrate.right > g.landingLeft && probeCrate.left < landingRight) arrivesAt = t
+        }
+        assertTrue(arrivesAt > 2.0, "the load has to start clear of the landing and swing in (arrivesAt=$arrivesAt)")
+
+        // Pass 2: start the climb 1.2s before that, i.e. deliberately into the load's path.
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        val p = world.player
+        var elapsed = 0.0
+        while (elapsed < arrivesAt - 1.2) {
+            world.update(dt, moveInput = 0.0, jumpInput = false)
+            elapsed += dt
+        }
+        p.resetTo(g.platform.left - p.width, g.stepCrate.top - p.height)
+        var climbStartedAt = -1.0
+        var crushedAt = -1.0
+        var frame = 0
+        while (elapsed < arrivesAt + 3.0 && crushedAt < 0.0) {
+            world.update(dt, moveInput = 1.0, jumpInput = (frame % 10) < 5, crouchInput = false, interactInput = false)
+            elapsed += dt
+            frame++
+            if (climbStartedAt < 0.0 && p.isClimbing) climbStartedAt = elapsed
+            if (world.isGameOver) crushedAt = elapsed
+        }
+        assertTrue(climbStartedAt > 0.0, "the climb has to start while the landing is still clear")
+        assertTrue(crushedAt > 0.0, "the load arriving mid-climb has to end the level")
+        assertTrue(
+            crushedAt < climbStartedAt + p.climbDuration + 1.0,
+            "...and it has to bite during the climb, not long after it (started $climbStartedAt, crushed $crushedAt)"
+        )
+    }
+
+    @Test
+    fun testLevel8IsBeatableByReadingTheLoadSwingingAway() {
+        // The whole route, on the one cue the level is built around: climb only when the load is
+        // clear of the landing AND travelling away from it. Off the cosine that leaves at least
+        // 0.3734 of a period - 2.99s - before it comes back, against 1.95s of climb and a ~0.25s
+        // walk out from under. A run that reads that cue must never die.
+        val g = Level8Geometry()
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        val crate = world.movingPlatforms.first { it.id == "lvl8_sweep_crate" }
+        val p = world.player
+        val dt = 1.0 / 60.0
+        val landingRight = g.landingLeft + p.width
+
+        var elapsed = 0.0
+        var climbs = 0
+        var wasClimbing = false
+        var stalledFor = 0.0
+        while (elapsed < 120.0 && !world.isLevelComplete) {
+            val beforeX = p.x
+            val feet = p.y + p.height
+            val onFloor = p.isGrounded && feet >= g.groundY - 0.5
+            val onStep = p.isGrounded && kotlin.math.abs(feet - g.stepCrate.top) < 1.0
+            val landingClear = crate.right < g.landingLeft || crate.left > landingRight
+            // Walk into the face and press up off the stall, the same way the level 2 walkthrough
+            // drives its crate hops - the face itself does the positioning, so nothing here
+            // depends on hitting a jump at one particular x.
+            val stalled = stalledFor > 0.05
+            val jump = when {
+                onFloor -> stalled
+                // Clear AND swinging away: the cue with the guaranteed margin behind it.
+                onStep -> stalled && landingClear && crate.vx < 0.0
+                else -> false
+            }
+            val crouch = p.isGrounded &&
+                kotlin.math.abs(feet - g.platform.top) < 1.0 &&
+                p.x + p.width > g.crouchCrate.left - 20.0 &&
+                p.x < g.crouchCrate.right + 8.0
+            world.update(dt, moveInput = 1.0, jumpInput = jump, crouchInput = crouch, interactInput = false)
+            stalledFor = if (kotlin.math.abs(p.x - beforeX) < 0.5) stalledFor + dt else 0.0
+            elapsed += dt
+            if (p.isClimbing && !wasClimbing) climbs++
+            wasClimbing = p.isClimbing
+            assertFalse(world.isGameOver, "a run that waits for the load to swing away must not die (x=${p.x}, t=$elapsed)")
+        }
+        assertTrue(world.isLevelComplete, "level 8 must be beatable (stopped at x=${p.x} after ${elapsed}s)")
+        assertEquals(1, climbs, "the route is one climb - the step crate onto the platform")
+        assertTrue(
+            elapsed <= LevelData.DEFAULT_LEVEL_8.timeTargetSeconds,
+            "...and inside its own 3-star target (${elapsed}s vs ${LevelData.DEFAULT_LEVEL_8.timeTargetSeconds}s)"
+        )
+    }
+
+    // ---- The push-stance stage (was level 8 until 2026-09-25) ------------------------------
+
+    @Test
+    fun testPushStanceStageIsClearedOfEverythingButTheGroundAndTheExit() {
+        val layout = LevelData.PUSH_STANCE_DEMO_LAYOUT
+        assertTrue(layout.boxes.isEmpty(), "the push stage must have no boxes")
+        assertTrue(layout.guards.isEmpty(), "the push stage must have no guards")
+        assertTrue(layout.cameras.isEmpty(), "the push stage must have no cameras")
+        assertTrue(layout.lasers.isEmpty(), "the push stage must have no lasers")
+        assertTrue(layout.levers.isEmpty(), "the push stage must have no levers")
+        assertTrue(layout.movingPlatforms.isEmpty(), "the push stage must have no moving platforms")
+        assertTrue(layout.conveyors.isEmpty() && layout.conveyorCrates.isEmpty(), "the push stage must have no conveyors")
         assertTrue(
             layout.fans.isEmpty() && layout.steamPipes.isEmpty() && layout.cameraBots.isEmpty(),
-            "level 8 must have no vent hazards"
+            "the push stage must have no vent hazards"
         )
         assertTrue(
             layout.hangingCrateVariant1.isEmpty() && layout.hangingCrateVariant2.isEmpty(),
-            "level 8 must have nothing hanging"
+            "the push stage must have nothing hanging"
         )
-        assertTrue(layout.swingHooks.isEmpty() && layout.hookCrates.isEmpty(), "level 8 must have no hooks")
-        assertFalse(layout.hasStartFences, "level 8 must have no start fences")
+        assertTrue(layout.swingHooks.isEmpty() && layout.hookCrates.isEmpty(), "the push stage must have no hooks")
+        assertFalse(layout.hasStartFences, "the push stage must have no start fences")
 
         // Exactly the floor and the two side walls - nothing to stand on above ground level.
-        assertEquals(3, layout.platforms.size, "level 8 should be ground plus the two bounding walls")
-        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
-        assertTrue(world.hasNoGuards, "no guards are constructed for level 8")
-        assertTrue(world.pushStanceDemo, "level 8 is the push-stance stage")
+        assertEquals(3, layout.platforms.size, "the push stage should be ground plus the two bounding walls")
+        val world = GameWorld.createDefault(LevelData.PUSH_STANCE_DEMO)
+        assertTrue(world.hasNoGuards, "no guards are constructed for the push stage")
+        assertTrue(world.pushStanceDemo, "this is the push-stance stage")
 
         // A flat, uninterrupted walk from spawn to the exit, with the ground under the player the
         // whole way - the stage is only useful if nothing can strand or kill him on it.
@@ -6742,16 +7011,33 @@ class GameplayModelTest {
         val dt = 1.0 / 60.0
         while (elapsed < 60.0 && !world.isLevelComplete) {
             world.update(dt, moveInput = 1.0, jumpInput = false)
-            assertFalse(world.isGameOver, "nothing in level 8 may kill the player")
-            assertTrue(world.player.isGrounded, "the floor must run the whole width of level 8")
+            assertFalse(world.isGameOver, "nothing in the push stage may kill the player")
+            assertTrue(world.player.isGrounded, "the floor must run the whole width of the push stage")
             elapsed += dt
         }
-        assertTrue(world.isLevelComplete, "level 8 must still be walkable to its exit (stopped at x=" + world.player.x + ")")
+        assertTrue(world.isLevelComplete, "the push stage must still be walkable to its exit (stopped at x=" + world.player.x + ")")
+    }
+
+    /**
+     * The stage is deliberately off the shipped list now that level 8 is a real level, but it has
+     * to stay REACHABLE - by id, through the same lookup the `-PstartLevel=` / `.debug_level`
+     * entry points use. Dropping it out of [LevelData.DEV_LEVELS] would strand the only place the
+     * push animation can be watched.
+     */
+    @Test
+    fun testPushStanceStageIsOffTheShippedListButStillReachableById() {
+        assertFalse(
+            LevelData.DEFAULT_LEVELS.any { it.id == "push_stance_demo" },
+            "the dev stage must not be in the shipped progression"
+        )
+        assertEquals(LevelData.PUSH_STANCE_DEMO, LevelData.findById("push_stance_demo"))
+        assertEquals(LevelData.DEFAULT_LEVEL_8, LevelData.findById("level_8"))
+        assertNull(LevelData.findById("no_such_level"))
     }
 
     // ---- Push stance ------------------------------------------------------------------------
 
-    private fun pushWorld() = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+    private fun pushWorld() = GameWorld.createDefault(LevelData.PUSH_STANCE_DEMO)
 
     /** One frame with INTERACT held, then one with it released - i.e. a single button press. */
     private fun GameWorld.tapInteract(dt: Double = 1.0 / 60.0) {
@@ -6844,20 +7130,23 @@ class GameplayModelTest {
     }
 
     @Test
-    fun testPushStanceIsLevel8OnlyAndLeavesEveryOtherLevelAlone() {
+    fun testPushStanceIsTheDevStageOnlyAndLeavesEveryShippedLevelAlone() {
         val other = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1)
         assertFalse(other.pushStanceDemo)
         val dt = 1.0 / 60.0
         repeat(120) {
             other.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = true)
         }
-        assertTrue(other.isPushStanceIdle, "INTERACT outside level 8 never braces anyone")
+        assertTrue(other.isPushStanceIdle, "INTERACT outside the push stage never braces anyone")
         assertEquals(0.0, other.pushStanceBlend)
 
+        // Level 8 used to be the one exception; since it became a real level (LEVEL_8_LAYOUT) the
+        // flag belongs to the dev stage alone, and NOTHING shipped may set it - INTERACT would
+        // otherwise brace the player mid-level with nothing to push.
         for (level in LevelData.DEFAULT_LEVELS) {
-            val expected = level.id == "level_8"
-            assertEquals(expected, level.layout?.pushStanceDemo ?: false, level.id + " pushStanceDemo")
+            assertFalse(level.layout?.pushStanceDemo ?: false, level.id + " must not set pushStanceDemo")
         }
+        assertTrue(LevelData.PUSH_STANCE_DEMO.layout?.pushStanceDemo ?: false, "the dev stage is the push stage")
     }
 
     @Test
