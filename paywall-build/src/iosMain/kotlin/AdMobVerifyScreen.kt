@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.dp
 import app.lexilabs.basic.ads.AdUnitId
 import app.lexilabs.basic.ads.BasicAds
 import app.lexilabs.basic.ads.DependsOnGoogleMobileAds
+import app.lexilabs.basic.ads.RequestConfiguration
 import app.lexilabs.basic.ads.composable.BannerAd
 import kotlin.native.ObjCName
 
@@ -27,6 +28,8 @@ object AdMobVerifyBridge {
         private set
     var bannerLoaded: Boolean = false
         private set
+    var personalizationDisabled: Boolean = false
+        private set
 
     fun markInitializeCalled() {
         initializeCalled = true
@@ -35,12 +38,36 @@ object AdMobVerifyBridge {
     fun markBannerLoaded() {
         bannerLoaded = true
     }
+
+    fun markPersonalizationDisabled() {
+        personalizationDisabled = true
+    }
 }
 
 @OptIn(DependsOnGoogleMobileAds::class)
 @Composable
 fun AdMobVerifyContent() {
     BasicAds.Initialize()
+    // No App Tracking Transparency prompt exists anywhere in this app, so the SDK must never be
+    // allowed to request the IDFA for ad personalization - doing so without first showing the ATT
+    // prompt is an App Review rejection (Guideline 5.1.2). DISABLED tells GADMobileAds to serve
+    // ads without personalization (equivalent to a per-request npa=1) at the SDK level, for every
+    // ad requested afterward, so no per-ad-unit wiring is needed. Android is unaffected - ATT is
+    // an iOS-only requirement, and this file has no androidMain counterpart.
+    BasicAds.configuration = RequestConfiguration(
+        maxAdContentRating = null,
+        publisherPrivacyPersonalizationState = RequestConfiguration.PublisherPrivacyPersonalizationState.DISABLED,
+        tagForChildDirectedTreatment = RequestConfiguration.TAG_FOR_CHILD_DIRECTED_TREATMENT_UNSPECIFIED,
+        tagForUnderAgeOfConsent = RequestConfiguration.TAG_FOR_UNDER_AGE_OF_CONSENT_UNSPECIFIED,
+        testDeviceIds = null,
+    )
+    // Read the value back rather than trusting the assignment above didn't silently no-op -
+    // GADMobileAds' own setter is a black box from this side of the binding.
+    if (BasicAds.configuration.publisherPrivacyPersonalizationState ==
+        RequestConfiguration.PublisherPrivacyPersonalizationState.DISABLED
+    ) {
+        AdMobVerifyBridge.markPersonalizationDisabled()
+    }
     AdMobVerifyBridge.markInitializeCalled()
     // 1dp, not zero - some Compose ad-rendering paths skip work entirely for a
     // zero-size container; this is deliberately still practically invisible.

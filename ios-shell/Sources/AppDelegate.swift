@@ -388,11 +388,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             if loaded || timedOut {
                 t.invalidate()
                 let initCalled = AdMobVerifyBridge.shared.initializeCalled
+                let personalizationDisabled = AdMobVerifyBridge.shared.personalizationDisabled
                 let resultText: String
                 if loaded {
-                    resultText = "OK:initializeCalled=\(initCalled):bannerLoaded=true"
+                    resultText = "OK:initializeCalled=\(initCalled):bannerLoaded=true:personalizationDisabled=\(personalizationDisabled)"
                 } else {
-                    resultText = "FAIL:initializeCalled=\(initCalled):bannerLoaded=false:timedOut=\(timedOut)"
+                    resultText = "FAIL:initializeCalled=\(initCalled):bannerLoaded=false:personalizationDisabled=\(personalizationDisabled):timedOut=\(timedOut)"
                 }
                 print("ADMOB_TEST: ==== AdMob Verification COMPLETE: \(resultText) ====")
                 self.writeTextFile("admob_verify_result.txt", resultText)

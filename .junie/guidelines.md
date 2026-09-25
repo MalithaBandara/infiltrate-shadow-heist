@@ -3070,8 +3070,23 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
   FAQ), `privacy/` (on-device storage, AdMob/UMP consent, RevenueCat, COPPA/GDPR/CCPA), `styles.css`,
   `_redirects`, `netlify.toml`. iOS RevenueCat in-app purchase billing is wired (`com.infiltrate.shadowheist`,
   Apple Distribution codesigning & automated TestFlight release workflow in `.github/workflows/ios-testflight.yml`).
-  One remaining compliance item: **Apple's App Tracking Transparency prompt is not implemented** while
-  AdMob can serve personalized ads - decide (add ATT, or force non-personalized on iOS) before App Store submission.
+  **App Tracking Transparency - resolved 2026-09-26 by going non-personalized, not by adding the ATT
+  prompt.** No ATT prompt exists anywhere in the app; instead `AdMobVerifyScreen.kt`'s
+  `AdMobVerifyContent()` (iOS's sole production `BasicAds.Initialize()` call site, despite its own
+  "SPIKE / THROWAWAY" header - see that file before assuming it's dead code) sets `BasicAds.configuration`
+  with `publisherPrivacyPersonalizationState = DISABLED` right after init. That maps to
+  `GADMobileAds.sharedInstance().requestConfiguration.setPublisherPrivacyPersonalizationState(.disabled)`
+  under the hood (confirmed from `basic-ads-1.2.1-sources.jar`'s `BasicAds.ios.kt`) - the SDK-level
+  equivalent of `npa=1` on every request, applied once rather than per ad unit. No IDFA is requested,
+  so no ATT prompt is required (Guideline 5.1.2 only applies when tracking actually occurs). Trade-off:
+  lower eCPM than personalized ads, accepted deliberately over building + shipping the ATT flow before
+  submission. **Android is untouched** - `BasicAds.configuration` is only set from `iosMain`, ATT is an
+  iOS-only requirement, and Android's ad personalization stays on. **Not verified on a real device or
+  simulator** - compile-only, same caveat as every other iOS-only change in this file; if `basic-ads`
+  is ever upgraded past `1.2.1`, re-check `RequestConfiguration`'s shape before assuming this still
+  compiles. If personalized ads are ever wanted back, build the real ATT prompt
+  (`ATTrackingManager.requestTrackingAuthorization`) and gate this same `DISABLED` value on the
+  user's answer instead of hardcoding it.
   A `/delete` page was built and reverted the same day - the game holds no server data (local-only, deleted
 - **Temporary gating for Google Play production approval (2026-09-25)**:
   - **Levels 8 to 12 hidden**: `LevelData.DEFAULT_LEVELS` contains 12 levels (where level 8 was the push stance stage and levels 9–12 are future chapters). Kept `DEFAULT_LEVELS` intact so model tests pass. Restricted active levels via `.take(7)` in `LevelSelectScreen.kt` (max stars is computed from the list, not hardcoded), `MainMenuScreen.kt` (mission dossier briefing card cycles only within the active levels), and `GameplayScene.kt` (clearing the last active level yields `nextLevel = null`, showing "ALL CLEAR!" and returning to the main menu). **Level 8 unhidden 2026-09-25**: it got a real layout (see its own section above) and all three gates are now `.take(8)`; the push-stance stage it displaced moved to `LevelData.PUSH_STANCE_DEMO`, out of `DEFAULT_LEVELS` entirely. Levels 9 to 12 are still hidden and still have no layout - unhiding one means building it first.
