@@ -77,6 +77,13 @@ class GameplayScene(
     // Runtime flags & timing
     private var isPaused: Boolean = false
     private var isFirstCameraFrame: Boolean = true
+
+    /**
+     * Horizontal camera follow. A critically damped spring rather than the lerp this used to be -
+     * see [game.model.CameraFollow] for the measurements and for why every stance scrolls the
+     * same way now.
+     */
+    private val cameraFollow = CameraFollow()
     private var totalElapsedSeconds: Double = 0.0
     private var conveyorElapsedSeconds: Double = 0.0
 
@@ -202,6 +209,11 @@ class GameplayScene(
         // a cutout, and whenever no host has published anything - in which case every inset below
         // falls back to the number it has always had.
         val safeInsets = DeviceScreen.safeInsetsForCanvas(canvasW, canvasH)
+        // ...but NOT the top: in landscape the short edge is a side, so nothing occupies the top
+        // edge of this game and the number reported there is Android's swipe-to-reveal gesture
+        // strip, which pushed this whole top row a visible way down the screen. See
+        // ScreenLayout.gameplayTopInset for the full reasoning and for the portrait exception.
+        val safeTopInset = ScreenLayout.gameplayTopInset(safeInsets, canvasW, canvasH)
         val currentLanguage = (try { views.storage["user_language"] } catch (_: Throwable) { null }) ?: "en"
 
         // --- Loading screen -------------------------------------------------------------
@@ -1564,7 +1576,7 @@ class GameplayScene(
         // that used to occupy that gutter is gone. Worth knowing what that costs - the sky in
         // these levels is bright and the ground is black, light type has to survive both, and
         // there is nothing left to separate it from either.
-        val objPanel = hudLayer.container().xy(24.0 + safeInsets.left, 20.0 + safeInsets.top)
+        val objPanel = hudLayer.container().xy(24.0 + safeInsets.left, 20.0 + safeTopInset)
 
         val objTitle = objPanel.text(
             Localization.objectives(currentLanguage), textSize = 15.0, font = bebasFont, color = COLOR_PRIMARY
@@ -1647,7 +1659,7 @@ class GameplayScene(
         // The top-right HUD cluster (pause bars + gadget bolt) shares one right inset with the
         // gadget slot below - keep the two in step if either moves.
         val hudRightInset = 14.0 + safeInsets.right
-        val hudTopInset = 20.0 + safeInsets.top
+        val hudTopInset = 20.0 + safeTopInset
         val pauseBtn = hudLayer.container().xy(canvasW - hudRightInset - pauseRadius * 2.0, hudTopInset)
         pauseBtn.solidRect(pauseRadius * 2.0, pauseRadius * 2.0, Colors.TRANSPARENT)
         val pauseBg = pauseBtn.uiGraphics()
@@ -2362,6 +2374,7 @@ class GameplayScene(
                 if (world.activePowerups.isCheckpointsActive) {
                     isPaused = false
                     world.respawnAtCheckpoint()
+                    isFirstCameraFrame = true
                     world.onCheckpointAutoRespawn?.invoke()
                 } else {
                     stopBgMusic()
@@ -2401,6 +2414,7 @@ class GameplayScene(
             onRetry = {
                 if (world.activePowerups.isCheckpointsActive) {
                     world.respawnAtCheckpoint()
+                    isFirstCameraFrame = true
                     world.onCheckpointAutoRespawn?.invoke()
                 } else {
                     stopBgMusic()
@@ -3212,12 +3226,20 @@ class GameplayScene(
             val minWorldViewX = currentCanvasW - world.worldWidth * worldZoom
             val targetWorldViewX = desiredWorldViewX.coerceIn(minWorldViewX.coerceAtMost(0.0), 0.0)
             if (isFirstCameraFrame) {
-                worldView.x = targetWorldViewX
+                cameraFollow.snapTo(targetWorldViewX)
                 isFirstCameraFrame = false
             } else {
-                val camFactor = (1.0 - kotlin.math.exp(-16.0 * dtSec)).coerceIn(0.0, 1.0)
-                worldView.x += (targetWorldViewX - worldView.x) * camFactor
+                // A teleport - checkpoint respawn, an in-place conveyor reset, a continue-ad
+                // revive - must cut, not pan. Real movement is at most ~18px of camera travel in
+                // a frame even at the 0.1s dt clamp, so an eighth of a screen cannot be reached
+                // by playing; every one of the deliberate cases also sets isFirstCameraFrame, and
+                // this is the backstop for any that is ever added without doing so.
+                cameraFollow.update(targetWorldViewX, dtSec, snapIfFartherThan = currentCanvasW / 8.0)
             }
+            // The spring tracks an already-clamped target and critical damping cannot overshoot a
+            // ramp that stops, so this only ever binds for one frame after a cut - but a camera
+            // past the level's own edge is a black bar, so it is clamped anyway.
+            worldView.x = cameraFollow.position.coerceIn(minWorldViewX.coerceAtMost(0.0), 0.0)
             val baseWorldViewY = if (bgFileName == "bglvl7.png") {
                 val lvl7GroundY = world.platforms.firstOrNull { it.y >= 400.0 && it.width >= 1000.0 }?.y ?: 440.0
                 currentCanvasH * (488.0 / 724.0) - (lvl7GroundY * worldZoom)

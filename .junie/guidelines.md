@@ -537,6 +537,17 @@ width by a third.
   `ViewCompat.onApplyWindowInsets` rather than returning early, or the dispatch never reaches
   Compose. **This is the GAMEPLAY half only - the Compose menus opted Android out entirely, see
   `menuAppliesSafeAreaInsets` below.**
+- **...except the TOP, which the gameplay HUD ignores in landscape** (`ScreenLayout.gameplayTopInset`,
+  used by `GameplayScene`'s `safeTopInset` for the objectives panel and the pause/gadget cluster).
+  In landscape the short edge - where a notch, a Dynamic Island or a hole-punch sits - is a SIDE,
+  so nothing physically occupies the top edge of this game. iOS reports 0 up there anyway; what
+  Android reports is `mandatorySystemGestures`' swipe-to-reveal strip, a gesture region rather
+  than something drawn over the app, and honouring it pushed the objectives text, the pause button
+  and the gadget bolt a visible fraction of the screen height down - reported from the owner's own
+  phone, 2026-09-25 ("not at the top of the screen"). It is the gameplay twin of
+  `menuAppliesSafeAreaInsets`. Left, right and bottom stay fully honoured everywhere. A genuinely
+  PORTRAIT canvas (only Android 16's large-screen orientation override makes one) still honours
+  the top, and `testTheGameplayHudTopRowIgnoresTheReportedTopInsetInLandscape` pins both branches.
 
 **Compose: `paywall-build/src/commonMain/kotlin/ui/Responsive.kt`.** `menuMetrics(maxWidth,
 maxHeight)` gives one `scale = min(h/720, w/1280)` clamped 0.62..1.45, so the *smaller* axis
@@ -763,7 +774,57 @@ surface (bug #7), so the Compose menu draws opaquely on top of an always-visible
   own section), `08: Relocation` (`LEVEL_8_LAYOUT` - deliberately EMPTY, the push-animation
   stage; see its own section), `09: Déjà Vu` .. `12: Final Escape` (no layout of their own,
   `GameWorld.createDefault` with a per-level `guardSpeed`). Other levels' backgrounds rotate through
-  `bgmg2/3/4` via `LevelData.resolvedBackgroundImage`.
+  `bgmg2..6` via `LevelData.resolvedBackgroundImage`.
+
+## The camera follow (`src/game/model/CameraFollow.kt`) - 2026-09-25
+
+Reported as "when jumping forward the screen does not move smoothly ... for landing part the
+screen suddenly moves forward", with "make sure in every animation, screen moves very smoothly".
+
+**The camera was a first-order lerp** (`worldView.x += (target - worldView.x) * (1 - exp(-16*dt))`).
+That is smooth in position but its *acceleration* is a step function of the player's own velocity:
+`dx/dt = k*(target - x)`, so the instant `Player.vx` changes, the scroll rate starts changing at a
+rate that itself jumped. **`Player.vx` steps constantly, and every one of those steps is a tuned
+rule, not a bug to fix in the model** - do not "smooth" the physics to fix a camera complaint:
+
+- landing out of a jump drops to `jumpLandingSpeed` (100) for `jumpLandingDuration` (0.05s) then
+  restores 132 - two steps back to back, under the landing animation, which is the reported case;
+- walking off a ledge drops to `dropSpeed` (30) and the touchdown restores 132;
+- a body meeting a platform's near face mid-flight is pinned (132 -> 0 in ONE frame) and released
+  when the feet clear its top - the hardest step anything here produces;
+- climb and swing drive `x` off their own curves and hand control back at the end.
+
+**Now a critically damped spring** (`CameraFollow`, pure Kotlin so it is `jvmTest`-able and passes
+`ZeroKorlibsLintTest`), using the exact closed-form solution over each step so 60Hz and 120Hz
+settle along the same curve. Its acceleration depends only on the position error and its own
+velocity, both continuous, so the scroll rate can never change in a single frame whatever the
+player does. Critically damped specifically: under-damping wobbles on every landing, over-damping
+crawls.
+
+**`DEFAULT_SMOOTH_TIME` = 0.12 was measured, not picked.** Driving level 1 at 60fps and recording
+the worst single-frame change in scroll rate - the thing the eye reads as a jolt - against the old
+filter: jump landing 10.1 -> 4.1 px/s, crate-face pin 41.7 -> 18.1 px/s, at a walking lag of
+19.4px (the analytic lag is exactly `v * smoothTime`). That lag is 1.9% of the canvas and exists
+only while running; the spring settles exactly on target when the player stops, so standing and
+every static moment frame identically to before. The full table is in the class doc - **move that
+one number and re-measure the table rather than reaching back for a lerp.**
+
+**Teleports cut, they do not pan.** `update(..., snapIfFartherThan = canvasW / 8)` plus the
+existing `isFirstCameraFrame` at every deliberate site (scene build, conveyor fall-off reset,
+continue-ad revive, and now both checkpoint-respawn retry paths, which were missing it). Real
+movement is at most ~18px of camera travel in a frame even at the 0.1s `dtSec` clamp, against a
+130px threshold, so play can never trip it. `worldView.x` is still clamped to the level bounds
+after the spring - critical damping cannot overshoot a ramp that stops, so it only binds for one
+frame after a cut, but a camera past the level edge is a black bar.
+
+**The vertical does not follow at all and this did not change it**: `worldView.y` is pinned to the
+ground (`canvasH - (groundY + 70) * zoom`, or level 7's own anchoring), so a jump moves the
+character up the frame rather than the frame up with them.
+
+Pinned by `CameraFollowTest` (8 tests), two of which drive the real `GameWorld` loop and assert
+against the old filter measured on the identical run, so they do not rot as level tuning moves.
+**JVM only - not checked on Android or iOS, and not looked at on a screen** (screenshot testing
+was off for this pass at the owner's request).
 
 ## End-of-run dossier sheets (MISSION FAILED / HEIST COMPLETE)
 
@@ -2505,10 +2566,10 @@ dumpsys gfxinfo com.infiltrate.androidshell framestats` before trusting any rank
 4. **KorGE renders continuously under the Compose menu on Android** (bug #7) - first suspect for a
    *menu* lag report.
 
-**Dead assets removed** (`resources/` 75MB -> 40MB): `a1-a5`, `bg1-bg5`, `bg10-bg13`, `bglayer`,
-`bgmg`, `mglayer`, `mglayer2`, `card_bg`, `chainedhook`, `korge`, `store_*`, `bg_menu.jpg`, `logo.jpg`
+**Dead assets removed** (`resources/` 75MB -> ~39MB): `a1-a5`, `bg1-bg5`, `bg10-bg13`, `bglayer`,
+`bgmg`, `bgmg_warehouse`, `mglayer`, `mglayer2`, `card_bg`, `chainedhook`, `korge`, `store_*`, `bg_menu.jpg`, `logo.jpg`
 (the `Res.drawable.*` ones resolve to `paywall-build`'s own `composeResources/drawable/` copies). Live
-backgrounds: `bgmg2/3/4` (rotation), `bgmg5` (level 2), `bgmg6` (level 4). App icon is `icon.png` at the
+backgrounds: `bgmg2..6` (rotation across levels, with `bgmg5` explicitly set on level 2). App icon is `icon.png` at the
 repo root. `test_minimal.ldtk` is KEPT (`test/LdtkLoaderTest.kt`). **Before deleting, grep the whole
 repo excluding `build/`** - `build/intermediates/.../merger.xml` hits are packaging evidence, not use.
 Dead code removed: `UiComponents.drawAtmosphericBackdrop()`/`drawAtmosphericBackdropBitmap()`.

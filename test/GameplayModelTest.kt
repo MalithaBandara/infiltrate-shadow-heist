@@ -7248,26 +7248,50 @@ class GameplayModelTest {
             "Dormant rest durations must NOT be constant (non-periodic)! Found distinct durations: $dormantDurations"
         )
 
-        // 3. Requirement: Show warning for exactly 1.0 second, then emit steam
+        // 3. Requirement: Show warning for exactly 0.5 seconds, then emit steam
         for (cycle in cycles.take(5)) {
-            assertEquals(1.0, cycle.warningDuration, 1e-6, "Warning window before steam emission must be exactly 1.0s")
+            assertEquals(0.5, cycle.warningDuration, 1e-6, "Warning window before steam emission must be exactly 0.5s")
 
             // Test right at the start of warning
             pipe.update(cycle.dormantEnd - pipe.phaseOffsetSeconds)
-            assertTrue(pipe.isWarning, "Pipe must enter warning phase when green sign turns on")
-            assertFalse(pipe.isActive, "Pipe must NOT emit lethal steam during green sign warning")
+            assertTrue(pipe.isWarning, "Pipe must enter warning phase when yellow sign turns on")
+            assertFalse(pipe.isActive, "Pipe must NOT emit lethal steam during yellow sign warning")
             assertEquals(0.0, pipe.warningProgress, 0.05)
 
-            // Test halfway through warning (0.5s in)
-            pipe.update(cycle.dormantEnd + 0.5 - pipe.phaseOffsetSeconds)
+            // Test halfway through warning (0.25s in)
+            pipe.update(cycle.dormantEnd + 0.25 - pipe.phaseOffsetSeconds)
             assertTrue(pipe.isWarning)
-            assertFalse(pipe.isActive, "Pipe must still NOT emit steam during 1.0s warning")
+            assertFalse(pipe.isActive, "Pipe must still NOT emit steam during 0.5s warning")
             assertEquals(0.5, pipe.warningProgress, 0.05)
 
-            // Test right after 1.0s warning finishes: steam must erupt!
+            // Test right after 0.5s warning finishes: steam must erupt!
             pipe.update(cycle.end + 0.01 - pipe.phaseOffsetSeconds)
-            assertTrue(pipe.isActive, "Pipe must emit steam after 1.0s warning has elapsed")
+            assertTrue(pipe.isActive, "Pipe must emit steam after 0.5s warning has elapsed")
             assertFalse(pipe.isWarning)
         }
+    }
+
+    @Test
+    fun testLevelBackgroundResolutionAndLevel2Bgmg5() {
+        // Level 2 explicitly uses bgmg5.png
+        assertEquals("bgmg5.png", LevelData.DEFAULT_LEVEL_2.backgroundImage)
+        assertEquals("bgmg5.png", LevelData.DEFAULT_LEVEL_2.resolvedBackgroundImage)
+
+        // Level 4 and 7 keep their custom backgrounds
+        assertEquals("metalbg.png", LevelData.DEFAULT_LEVEL_4.resolvedBackgroundImage)
+        assertEquals("bglvl7.png", LevelData.DEFAULT_LEVEL_7.resolvedBackgroundImage)
+
+        // Rotation cycles through bgmg2..6 for levels without explicit backgroundImage
+        val testLevel = { num: Int -> LevelData(id = "level_$num", name = "Test Level $num") }
+        assertEquals("bgmg2.png", testLevel(1).resolvedBackgroundImage)
+        assertEquals("bgmg3.png", testLevel(2).resolvedBackgroundImage)
+        assertEquals("bgmg4.png", testLevel(3).resolvedBackgroundImage)
+        assertEquals("bgmg5.png", testLevel(4).resolvedBackgroundImage)
+        assertEquals("bgmg6.png", testLevel(5).resolvedBackgroundImage)
+        assertEquals("bgmg2.png", testLevel(6).resolvedBackgroundImage)
+        assertEquals("bgmg3.png", testLevel(7).resolvedBackgroundImage)
+        assertEquals("bgmg4.png", testLevel(8).resolvedBackgroundImage)
+        assertEquals("bgmg5.png", testLevel(9).resolvedBackgroundImage)
+        assertEquals("bgmg6.png", testLevel(10).resolvedBackgroundImage)
     }
 }
