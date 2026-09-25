@@ -1,4 +1,5 @@
 import game.model.LevelData
+import game.model.Rect
 import game.scene.RainAssets
 import game.scene.RainEffect
 import game.scene.GameplayScene
@@ -23,8 +24,7 @@ class RainEffectTest : ViewsForTesting() {
 
     @Test
     fun testLevel2HasRainEnabledAndOtherLevelsDoNot() {
-        // Rain is temporarily disabled on Level 2 for Google Play production approval
-        assertFalse(LevelData.DEFAULT_LEVEL_2.hasRain, "Level 2 (Cargo Yard) rain temporarily disabled")
+        assertTrue(LevelData.DEFAULT_LEVEL_2.hasRain, "Level 2 (Cargo Yard) is the one level with weather")
         assertFalse(LevelData.DEFAULT_LEVEL_1.hasRain, "Level 1 must not have rain enabled")
         assertFalse(LevelData.DEFAULT_LEVEL_3.hasRain, "Level 3 must not have rain enabled")
         assertFalse(LevelData.DEFAULT_LEVEL_4.hasRain, "Level 4 must not have rain enabled")
@@ -73,6 +73,89 @@ class RainEffectTest : ViewsForTesting() {
         for (f in 0 until 10) {
             views.update(16.milliseconds)
         }
+    }
+
+    @Test
+    fun testSplashTextureIsACrownOpeningUpwardNotAnArch() {
+        assertEquals(16, RainAssets.SPLASH_TEX_W)
+        assertEquals(10, RainAssets.SPLASH_TEX_H)
+        val bmp = RainAssets.splashTexture
+
+        fun rowAlpha(y: Int): Int = (0 until RainAssets.SPLASH_TEX_W).sumOf { bmp.getRgba(it, y).a }
+        fun litSpan(y: Int): Int {
+            val lit = (0 until RainAssets.SPLASH_TEX_W).filter { bmp.getRgba(it, y).a > 8 }
+            return if (lit.isEmpty()) 0 else lit.last() - lit.first()
+        }
+
+        assertTrue(rowAlpha(0) > 0, "The crown's tips must reach the top row of its own texture")
+        // The two arms flare apart on the way up: a V, not the arch that a top-half-of-an-ellipse
+        // outline would give (which would be WIDEST in the middle and pinched shut at the top).
+        assertTrue(
+            litSpan(0) > litSpan(RainAssets.SPLASH_TEX_H - 3),
+            "Crown must be wider at its tips than at its feet"
+        )
+        // Open at the top: nothing lit across the middle of the topmost row.
+        val cx = RainAssets.SPLASH_TEX_W / 2
+        assertTrue(bmp.getRgba(cx, 0).a <= 8, "The crown must be open between its arms, not domed over")
+    }
+
+    @Test
+    fun testNearDropsLandOnSurfacesAndLeaveSplashes() = viewsTest {
+        val bg = stage.container()
+        val fg = stage.container()
+        val flash = stage.container()
+
+        // A Cargo-Yard-shaped floor at world y = 440, plus one of GameWorld's own 1200-tall side
+        // walls (top at y = -400). The wall MUST be filtered out by height - left in, it would
+        // report a landing surface high above the sky at that end of the level.
+        val surfaces = listOf(
+            Rect(x = 0.0, y = 440.0, width = 5100.0, height = 100.0),
+            Rect(x = -200.0, y = -400.0, width = 30.0, height = 1200.0)
+        )
+        val rain = RainEffect(
+            bg, fg,
+            initialCanvasW = 1040.0, initialCanvasH = 480.0,
+            flashLayer = flash, splashSurfaces = surfaces
+        )
+        val sounds = game.scene.GameAudio.load()
+
+        // fg holds [drop container, splash container] - the flash and the bolt went to `flash`.
+        val splashContainer = fg.children[1] as Container
+        assertEquals(
+            RainEffect.SPLASH_COUNT, splashContainer.children.size,
+            "The crown pool is fixed-size and pre-allocated - nothing is created per impact"
+        )
+
+        // The same transform GameplayScene hands over on level 2: worldZoom 1.35 with the ground
+        // pinned near the bottom, which puts world y = 440 at screen y ~385.
+        val worldViewY = -208.5
+        val worldZoom = 1.35
+        var sawSplash = false
+        for (i in 0 until 180) {
+            rain.update(
+                dtSec = 0.016,
+                canvasW = 1040.0,
+                canvasH = 480.0,
+                worldViewX = 0.0,
+                sounds = sounds,
+                sfxVolume = 1.0f,
+                coroutineContext = coroutineContext,
+                worldViewY = worldViewY,
+                worldZoom = worldZoom
+            )
+            val live = splashContainer.children.filter { it.visible }
+            if (live.isNotEmpty()) {
+                sawSplash = true
+                for (c in live) {
+                    assertTrue(
+                        c.y > 300.0,
+                        "A crown must sit on the floor (~385), not on a side wall's top - got ${c.y}"
+                    )
+                }
+            }
+        }
+
+        assertTrue(sawSplash, "Near drops reaching the floor should leave impact crowns")
     }
 
     @Test
@@ -127,7 +210,34 @@ class RainEffectTest : ViewsForTesting() {
             g.fillRect(0, 0, canvasW, canvasH)
         }
 
-        // 2. Draw ground platform and crates
+        // 2. Draw dual-depth rain streaks FIRST - both layers sit behind the world now
+        // Wind angle: ~11.3 degrees (slope = 0.20)
+        val windSlope = 0.20
+
+        // Background rain (mid-depth streaks) - counts and alphas match RainEffect's own
+        // constants, which were roughly halved on 2026-09-25 ("less rain and more transparent").
+        g.color = Color(190, 220, 255, 52)
+        g.stroke = BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+        val rng = java.util.Random(1337)
+        for (i in 0 until RainEffect.BACK_DROP_COUNT) {
+            val rx = rng.nextDouble() * canvasW
+            val ry = rng.nextDouble() * (canvasH - 60)
+            val len = 42.0 + rng.nextDouble() * 20.0
+            g.drawLine(rx.toInt(), ry.toInt(), (rx + len * windSlope).toInt(), (ry + len).toInt())
+        }
+
+        // Near rain (longer, faster streaks). Both layers now draw BEHIND the world, so this
+        // preview stacks them under the crates rather than over them.
+        g.color = Color(240, 250, 255, 94)
+        g.stroke = BasicStroke(2.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+        for (i in 0 until RainEffect.FRONT_DROP_COUNT) {
+            val rx = rng.nextDouble() * canvasW
+            val ry = rng.nextDouble() * (canvasH - 40)
+            val len = 65.0 + rng.nextDouble() * 32.0
+            g.drawLine(rx.toInt(), ry.toInt(), (rx + len * windSlope).toInt(), (ry + len).toInt())
+        }
+
+        // 3. Draw ground platform and crates OVER the rain
         val groundY = 410
         g.color = Color(24, 28, 36)
         g.fillRect(0, groundY, canvasW, canvasH - groundY)
@@ -157,29 +267,21 @@ class RainEffectTest : ViewsForTesting() {
             g.drawLine(cx, cy + csize, cx + csize, cy)
         }
 
-        // 3. Draw dual-depth rain streaks
-        // Wind angle: ~11.3 degrees (slope = 0.20)
-        val windSlope = 0.20
 
-        // Background rain (mid-depth streaks)
-        g.color = Color(190, 220, 255, 110)
-        g.stroke = BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-        val rng = java.util.Random(1337)
-        for (i in 0 until 110) {
-            val rx = rng.nextDouble() * canvasW
-            val ry = rng.nextDouble() * (canvasH - 60)
-            val len = 42.0 + rng.nextDouble() * 20.0
-            g.drawLine(rx.toInt(), ry.toInt(), (rx + len * windSlope).toInt(), (ry + len).toInt())
-        }
-
-        // Foreground rain (crisp, bright, long streaks in front of structures)
-        g.color = Color(240, 250, 255, 210)
-        g.stroke = BasicStroke(2.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-        for (i in 0 until 140) {
-            val rx = rng.nextDouble() * canvasW
-            val ry = rng.nextDouble() * (canvasH - 40)
-            val len = 65.0 + rng.nextDouble() * 32.0
-            g.drawLine(rx.toInt(), ry.toInt(), (rx + len * windSlope).toInt(), (ry + len).toInt())
+        // 3b. Impact crowns on the surfaces the rain lands on (RainEffect spawns one on roughly
+        // a third of the near layer's landings and fades it out over SPLASH_LIFE).
+        g.stroke = BasicStroke(1.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+        val splashTops = mutableListOf<Pair<Int, Int>>()
+        for (sx in 40 until canvasW step 37) splashTops.add(Pair(sx, groundY))
+        for ((cx, cy, csize) in crateBoxes) splashTops.add(Pair(cx + csize / 2, cy))
+        for ((sx, sy) in splashTops) {
+            val life = rng.nextDouble()
+            val w = 3.0 + 5.0 * life
+            val h = 3.0 + 4.0 * Math.sin(life * Math.PI)
+            g.color = Color(240, 250, 255, (86 * (1.0 - life)).toInt().coerceIn(0, 255))
+            g.drawLine(sx, sy, (sx - w).toInt(), (sy - h).toInt())
+            g.drawLine(sx, sy, (sx + w).toInt(), (sy - h).toInt())
+            g.drawLine((sx - w).toInt(), sy, (sx + w).toInt(), sy)
         }
 
         // 4. Draw realistic sky lightning bolt
@@ -232,7 +334,11 @@ class RainEffectTest : ViewsForTesting() {
         g.drawString("LEVEL 2: CARGO YARD - PROCEDURAL RAIN & LIGHTNING SYSTEM", 32, 38)
         g.font = java.awt.Font("SansSerif", java.awt.Font.PLAIN, 11)
         g.color = Color(186, 230, 253)
-        g.drawString("• Dual volumetric depth: 44 back drops + 48 front drops (92 pooled sprites, 0 GC/frame)", 32, 54)
+        g.drawString(
+            "• Dual volumetric depth, behind the world: ${RainEffect.BACK_DROP_COUNT} back + " +
+                "${RainEffect.FRONT_DROP_COUNT} near drops + ${RainEffect.SPLASH_COUNT} pooled impact crowns, 0 GC/frame",
+            32, 54
+        )
         g.drawString("• Multi-pulse lightning strobe (flash + jagged bolt) with physics speed-of-sound thunder", 32, 68)
 
         g.dispose()
