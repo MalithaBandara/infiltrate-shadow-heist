@@ -33,6 +33,8 @@ import platform.AVFoundation.AVPlayerLayer
 import platform.AVFoundation.play
 import platform.AVFoundation.pause
 import platform.AVFoundation.seekToTime
+import platform.AVFoundation.setMuted
+import platform.AVFoundation.setVolume
 import platform.CoreGraphics.CGRect
 import platform.CoreGraphics.CGRectZero
 import platform.CoreMedia.kCMTimeZero
@@ -81,8 +83,8 @@ actual fun LoopingVideoBackground(
 
     val player = remember(playerItem) {
         AVPlayer(playerItem = playerItem).apply {
-            volume = 0f
-            muted = true
+            setVolume(0f)
+            setMuted(true)
         }
     }
 
