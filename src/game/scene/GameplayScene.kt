@@ -1,6 +1,7 @@
 package game.scene
 
 import com.sample.demo.ads.getContinueAdBridge
+import com.sample.demo.lifecycle.GameAppLifecycle
 import com.sample.demo.nav.getLevelExitBridge
 import com.sample.demo.review.getInAppReviewBridge
 import game.model.*
@@ -2671,7 +2672,14 @@ class GameplayScene(
 
             syncBgMusicVolume(dtSec)
 
-            if (isPaused || world.isLevelComplete || world.isGameOver) {
+            // The run is on hold while the pause overlay is up OR while the shell says gameplay
+            // is not in front of the player (backgrounded app, full-screen ad). Mirrored onto the
+            // world so the level clock cannot advance even if some other caller drives
+            // world.update() while we are here - see GameWorld.isSuspended.
+            val onHold = isPaused || !GameAppLifecycle.isForeground
+            world.isSuspended = onHold
+
+            if (onHold || world.isLevelComplete || world.isGameOver) {
                 if (world.isLevelComplete || world.isGameOver) {
                     tutorialLayer.visible = false
                 }

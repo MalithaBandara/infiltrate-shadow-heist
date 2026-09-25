@@ -282,12 +282,19 @@ Each placement has its own unit for reporting/frequency-cap
 granularity. JVM falls back to Google's published test IDs - the rewarded and interstitial test IDs
 differ (`ca-app-pub-3940256099942544/1033173712` is the interstitial one); don't reuse one for the other.
 
-**All placements currently point at Google's TEST IDs**: `AdUnitIds.android.kt`/`AdUnitIds.ios.kt`
-each have `private const val USE_TEST_ADS = true` gating every placement. Deliberate: Play Console
-Internal/Closed testing and TestFlight/App Review count as developer-associated traffic under AdMob's
-invalid-traffic policy. **Before an Open testing or production build, grep `USE_TEST_ADS = true` in
-both files and flip both** - not automatic. (One flag per file replaced an older per-value swap that
-sat unnoticed.)
+**Both files are currently on REAL ad units** (`USE_TEST_ADS = false` in `AdUnitIds.android.kt`
+and `AdUnitIds.ios.kt` alike - one flag per file gates every placement in it). Flip both back to
+`true` for any Play Console Internal/Closed track or TestFlight build: those testers are people the
+developer invited, which AdMob's invalid-traffic policy treats like clicking your own ads. Real
+units are for Open testing and production. Not automatic - grep `USE_TEST_ADS` in both files before
+a build and set them deliberately. (One flag per file replaced an older per-value swap that sat
+unnoticed.)
+
+**This flag is the first thing to check when ads "don't work" on one platform.** A real ad unit on
+a freshly-created AdMob app has no serving history and answers most requests with no-fill for a
+while after it is set up, so a placement that works on the older Android app can look completely
+broken on the newer iOS one with identical code. Test units always fill, which is exactly what
+makes them the right way to prove the wiring before blaming it.
 
 ### Watch ad to continue (`REWARDED_CONTINUE`)
 
@@ -317,11 +324,49 @@ at the bottom when continue is available: **CONTINUE** (leftmost, watch-ad clapp
   hoisted load-failure callback is guarded on `showRequested.value`.
 - **Hazard 2: `FAILING` is a dead end.** `rememberXAd` only re-loads from `NONE`/`DISMISSED`
   (basic-ads 1.2.1 sources - no branch for `FAILING`). With preloading one early failure leaves the
-  handler dead for the process and a later request gets no ad and no resolution. Every show site
-  has an explicit `AdState.FAILING ->` branch that resolves the trigger like a load failure.
+  handler dead for the process and a later request gets no ad and no resolution. Android's show
+  sites answer this with an explicit `AdState.FAILING ->` branch that resolves the trigger like a
+  load failure. **iOS answers it by replacing the handler instead (2026-09-25)** - see below.
 - **Test ads cannot reproduce either hazard** (always fill, never fail) - force with airplane mode.
 - Store's `CoinsRewardAdHost`/`GadgetRewardAdHost` are NOT preloaded (gated at the call site in
   `StoreScreen.kt`; a menu button tolerates a wait). iOS interstitial: see below.
+
+### iOS rewarded ads retry; Android's do not (2026-09-25)
+
+Reported as "on iOS I keep getting ad not ready when trying to watch ad" (the Store toast,
+`Localization.adNotReady`, which only `StoreScreen.kt`'s two reward-ad `onFailure` paths raise).
+
+The first load answer was also the only one anything looked at: `basic-ads`' plain `RewardedAd()`
+composable reports `onFailure` and stops, and resolving hazard 2 by treating `FAILING` as final
+made that permanent for the preloaded continue ad - **one** unlucky request (racing
+`GADMobileAds.start()` at cold launch, a momentary no-fill, a blip) turned every later CONTINUE
+into an instant refusal for the rest of the process. iOS falls into that more easily than Android
+because the SDK is only started when the Compose scene first composes (`AdMobVerifyContent()`),
+in the same frame as the preload, rather than in an Activity's `onCreate`.
+
+**A handler cannot be restarted, but a new one always begins at `NONE`** - and `key(attempt) { }`
+gives you one: bumping `attempt` discards the composition group the dead handler was remembered
+in. That is the whole mechanism, in two places:
+
+- **`RetryingRewardedAd.kt`** (iosMain, new) - drop-in for the Store's two tap-to-watch hosts
+  (`CoinsRewardAdHost.ios.kt`, `GadgetRewardAdHost.ios.kt`). 3 attempts, 1.2s apart; `onFailure`
+  fires once, at the end, so the Store's toast and `showXRewardAd = false` bookkeeping are
+  unchanged. `resolved` guards against a second callback - basic-ads reports dismissal and display
+  failure through the same delegate.
+- **`ContinueAdBridge.kt`'s `ContinueAdContent`** - same shape, folded into the preload. Budget is
+  3 per *offer* and is re-armed by each new `requestShow()`; while nothing is pending, retries stop
+  once spent rather than re-requesting forever in the background. `cancelShow()` still resolves the
+  flow when the budget runs out with an offer on screen, so a failed ad never strands the player
+  behind Swift's 30s poll. An offer that arrives to find a `FAILING` handler replaces it.
+- **Writes that pick the next attempt happen in `LaunchedEffect`s and load callbacks, never in the
+  composition body** - a state write from a `when (ad.state)` branch is a recomposition loop
+  waiting to happen. That is also where the backoff lives.
+- **Android deliberately keeps the plain composable**: its rewarded placements were reported
+  working, and the same retry there is an unrequested change to a path that fills first time.
+- Retrying does not touch `CoinsAdLimiter`/`GadgetAdLimiter`: they record a *watch*, and nothing
+  here can grant a reward more than once.
+- **None of this is the cause if the ad unit itself is not serving** - check `USE_TEST_ADS` first
+  (above). Retries make a flaky unit usable; they cannot conjure fill out of a brand-new one.
 
 ### Watch ad for coins (Store, `REWARDED_COINS`)
 
@@ -771,8 +816,8 @@ surface (bug #7), so the Compose menu draws opaquely on top of an always-visible
   barrel-wall + hook-swing stub, see "The swing move"), `06: Stolen Manifest` (`LEVEL_6_LAYOUT` -
   lever-crate swing, pit crossing, crane crossing; see its own section), `07: Service Tunnel`
   (`LEVEL_7_LAYOUT` - linear vent crawling gauntlet, exhaust fans, camera bots, steam pipes; see its
-  own section), `08: Relocation` (`LEVEL_8_LAYOUT` - deliberately EMPTY, the push-animation
-  stage; see its own section), `09: Déjà Vu` .. `12: Final Escape` (no layout of their own,
+  own section), `08: Relocation` (`LEVEL_8_LAYOUT` - the suspended-load yard;
+  see its own section), `09: Déjà Vu` .. `12: Final Escape` (no layout of their own,
   `GameWorld.createDefault` with a per-level `guardSpeed`). Other levels' backgrounds rotate through
   `bgmg2..6` via `LevelData.resolvedBackgroundImage`.
 
@@ -825,6 +870,45 @@ Pinned by `CameraFollowTest` (8 tests), two of which drive the real `GameWorld` 
 against the old filter measured on the identical run, so they do not rot as level tuning moves.
 **JVM only - not checked on Android or iOS, and not looked at on a screen** (screenshot testing
 was off for this pass at the owner's request).
+
+## The level clock counts play, not wall time (`GameWorld.isSuspended`, 2026-09-25)
+
+`world.timeTaken` is what the MISSION FAILED / HEIST COMPLETE sheets print and what star 3 is
+judged against (`LevelResult.star3`), so it has to mean "time the player could act on", not
+"seconds since the level loaded". It only ever advances inside `GameWorld.update`, and
+`GameplayScene`'s updater already returned early while its own pause overlay was up - so the pause
+*menu* was never the leak. The holds that come from outside the scene were:
+
+- **the app backgrounded** (home button, a call, the app switcher), and
+- **a full-screen ad covering gameplay**.
+
+Neither is visible to a scene-local flag, and on **Android the KorGE view is deliberately never
+hidden** (real-device bug #7 below: hiding it tears down the `GLSurfaceView` for good), so its
+render loop and this updater keep running under whatever is in front of them.
+
+Two pieces, both small:
+
+- **`src/AppLifecycleBridge.kt`** - `GameAppLifecycle.isForeground`, a plain process-wide flag
+  (no `expect`/`actual`: there is nothing platform-specific to implement, only a flag to set).
+  Defaults to **true**, because a target with no native shell - desktop JVM, the JS/wasm previews -
+  never reports lifecycle at all and must play normally rather than sit frozen. iOS reaches it
+  through `src@ios/AppLifecycleBridge.ios.kt`'s `@ObjCName(exact = true)` wrapper, the same shape
+  as every other Swift-visible object here. Set from `MainActivity.onPause`/`onResume` and from
+  `AppDelegate.swift`'s background/foreground callbacks plus either side of the rewarded continue
+  ad (the iOS shell swaps the window away from KorGE for its whole duration).
+- **`GameWorld.isSuspended`** - `update()` is a no-op while set, so no clock, no physics, no alert,
+  no hazard phase. `GameplayScene` mirrors `isPaused || !GameAppLifecycle.isForeground` onto it
+  every frame. Deliberately belt-and-braces rather than the sole mechanism: the scene is not the
+  only thing that can drive `update()`, and a clock that can only be advanced by a frame the player
+  saw is much easier to keep honest than one that depends on every future call site remembering to
+  check a scene-local flag. `restartLevel()` clears it - a stuck flag would freeze the new attempt
+  outright.
+
+Covered by four tests in `GameplayModelTest.kt` (`testSuspendedWorldDoesNotChargeTheLevelClock`,
+`...FreezesTheRunItself`, `testRestartClearsSuspension`,
+`testAppLifecycleStartsForegroundAndTracksBothEdges`). The second one holds every input down
+through the hold: a player whose thumb is on the D-pad when a call arrives must not walk into a
+guard while the screen belongs to someone else.
 
 ## End-of-run dossier sheets (MISSION FAILED / HEIST COMPLETE)
 
@@ -2401,45 +2485,53 @@ that nothing shipped sets `pushStanceDemo`, and
   a planted foot must slide backwards at exactly the player's own speed) and it does, within the
   +/-5% that method resolves. **Not on Android or iOS.**
 
-## Level 8 ("08: Relocation") - `LEVEL_8_LAYOUT`, the suspended-load yard (built 2026-09-25)
+## Level 8 ("08: Relocation") - `LEVEL_8_LAYOUT`, the suspended-load yard (built + reworked 2026-09-25)
 
-Unhidden and built the same day, on request. Before this the slot held the bare push-stance stage
-(now `PUSH_STANCE_DEMO_LAYOUT`, off the shipped list - see the push stance section) and the level
-was gated out of the menus by the `.take(7)` production restriction. That gate is now `.take(8)` in
-all three places that carry it: `LevelSelectScreen.kt`, `MainMenuScreen.kt` and `GameplayScene.kt`.
-Levels 9 to 12 are still hidden - they are name-and-description stubs with no layout.
+Unhidden and built the same day, then reworked the same day again against a nine-point rewrite.
+Before this the slot held the bare push-stance stage (now `PUSH_STANCE_DEMO_LAYOUT`, off the
+shipped list - see the push stance section) and the level was gated out of the menus by the
+`.take(7)` production restriction. That gate is now `.take(8)` in all three places that carry it:
+`LevelSelectScreen.kt`, `MainMenuScreen.kt` and `GameplayScene.kt`. Levels 9 to 12 are still
+hidden - they are name-and-description stubs with no layout. **The level ships with no tutorial
+steps at all**, on request; the crouch it used to teach here is taught long before.
 
-The whole level is one mechanism seen twice. Three numbers do all the work, and they are the only
-things to re-tune:
+Seven numbers do all the work, and they are the only things to re-tune:
 
 | number | value | what it decides |
 | --- | --- | --- |
-| `sweepCrateClearance` | 44 | UNDER `crouchHeight` (56), so the parked load refuses the climb outright and one arriving mid-climb crushes |
-| `crouchCrateClearance` | 68 | between `crouchHeight` (56) and standing height (96), so the duck-walk is forced but possible |
-| `periodSeconds` | 8.0 | with the 200 sweep, sets the window the climb has to fit inside |
+| `hangClearance` | 62 | the shared hang line for the three crates over the first half. Between `crouchHeight` (56) and `height` (96) |
+| `periodSeconds` (sweep crate) | 8.0 | with the 200 sweep, the window the 1.95s climb has to fit inside |
+| `bobLowClearance` / `bobHighClearance` | 62 / 90 | the bobbing pair's travel: crouch always fits, standing never does |
+| `noCrouchClearance` | 130 | the long load after the gauntlet, which is deliberately not an obstacle |
+| `visionFov` (pole camera) | 20 deg | the only width at which the camera can watch the load WITHOUT watching the crate you cross to reach the lever |
+| `sweepPauseDuration` | 7.0 | the blind window, against a ~5s run through the lever and both mantles |
 
-**Section 1 - the plane.** Default start fences and ~1250 units of floor, with two loads on level
-2's `chainedcrate.png` rigging hanging over it: a long stationary one and the short moving one.
-Both undersides sit 188 above the floor. **Nothing declares them unreachable** - no
-`unclimbableBoxes` entry, no flag. 188 is past `climbMaxHeight` (115) and four times
-`maxJumpHeight` (51.2), and `findClimbTarget` refuses a floating ledge (bottom above the climber's
-feet) regardless. That is the whole of "player cant get on top of these two", and a test drives the
-plane with the jump button pulsed to prove it.
+### The hang line is boxed in on both sides
 
-**Section 2 - the climb.** A 68x48 step crate flush against the platform's left face. Floor ->
-crate is 48, inside the jump arc AND under `climbMinHeight`, so it is jumped and never mantled;
-crate -> platform is exactly 96, this game's canonical climb. Floor -> platform is 144, past
-`climbMaxHeight`, so the crate cannot be skipped.
+`hangClearance` is not free choice. All three crates over the first half (the long stationary one
+on the plane, the sweeping one at the landing, the one that crosses the platform) put their
+undersides 62 above the platform surface, and 62 is the FLOOR of a 40-unit window:
 
-**Section 3 - the crouch.** A long load 68 above the platform surface. Below 56 it would refuse
-passage the way level 6's gantry refuses the climb; at 96 it would not be an obstacle at all.
+- **under 56 (`crouchHeight`) the platform seals shut.** The crate that sweeps it is 76 wide on a
+  240-wide platform; with no duck-under there is no safe pocket to wait in, only a corridor that
+  closes from whichever side the load is returning from. Worked through on paper before it was
+  built - it dead-ends at every sweep range and period.
+- **at 96 (`height`) or more a standing body walks straight under** and the crossing is not an
+  obstacle.
 
-**The crush.** `crushesOnContact` on the sweep crate - the same flag LEVEL_6_LAYOUT's gantry crate
-introduced, biting only from below, so it is never a platform that kills whoever stands on it. At
-44 clearance the two halves of the request are one mechanism: parked over the landing it refuses
-the climb before it starts (neither a standing nor a crouched body fits), and a climb begun in the
-clear window runs 1.95s at full standing height, so a load arriving part-way through catches the
-body under its underside - MISSION FAILED.
+62 leaves a crouched body 6 units of headroom - the lowest the geometry allows - so the crates read
+as low as the rework asked for without sealing anything. Lowering it further means moving
+`Player.crouchHeight` first.
+
+### The crush works differently at 62 than it did at 44
+
+`crushesOnContact` on the sweep crate - the same flag LEVEL_6_LAYOUT's gantry crate introduced,
+biting only from below, so it is never a platform that kills whoever stands on it. The first build
+hung it at 44 and the parked load REFUSED the climb (neither height fit, `findClimbTarget` returned
+nothing). At 62 a crouched body fits the landing, so the climb is allowed and the crate kills it
+mid-ascent instead - **`Player.bounds` uses `currentHeight`, and `isCrouching` is only set at the
+END of `advanceClimb`, so a climbing body is 96 tall for all 1.95s of it.** That is a more literal
+read of "when it is at right it can crush the person if he tries to climb" than the refusal was.
 
 **The number that actually had to be tuned is the WORST window, not the average one.** A player
 who starts the climb the instant the load swings clear still has it coming back. Off the cosine, a
@@ -2447,27 +2539,74 @@ crate that is clear AND travelling left has at least `0.3734 * period` before it
 again - 2.99s here, against 1.95s of climb plus the ~0.25s walk out from under it. So **"clear and
 swinging away" is a cue that always pays off, and "clear and swinging back" is the trap.** A
 shorter period, a wider crate, or a rest position closer to the lip all eat that same margin. The
-rest position stops 40 short of the lip for exactly this reason - the further right it parks, the
-further the player has to walk to get clear after climbing, out of the same budget.
+rest position stops 40 short of the lip for exactly this reason.
 
-It sweeps LEFT off the landing, like level 6's, so everything right of the landing stays
-permanently clear and whoever just climbed walks on rather than being swept.
+The crate that crosses the platform is deliberately **not** a crusher: a mistimed crossing there is
+a shove, not a restart. Its sweep also starts past `climbLandingX + Player.width`, so the landing
+belongs to the sweep crate alone and the two hazards never stack on one tile.
 
-Falling costs nothing - the floor runs the level's full width and the way back up is the same step
-crate - so the load is the only way to fail.
+### Nothing is declared unreachable - the heights do it
 
-**Measured, not estimated**: a clean run driven off that cue finishes in 20-25s depending on where
-the load is when the player reaches the face (the forced wait ranges 0.55s to 5.37s), and never
-dies at any arrival phase. `timeTargetSeconds = 45` leaves room for a missed hop.
-`testLevel8IsBeatableByReadingTheLoadSwingingAway` drives the whole route; five more tests pin the
-reach, the climb chain, the crouch clearance, the refusal and the crush.
+No `unclimbableBoxes` entry anywhere in this level. `findClimbTarget` refuses any box whose
+underside sits more than 4 above the climber's feet, which covers every hanging crate here, and the
+plane's two loads are 206 above the floor besides - past `climbMaxHeight` (115) and four times
+`maxJumpHeight` (51.2). The bobbing pair is the interesting case: at the bottom of its travel the
+tops are 100 up, INSIDE `climbMaxHeight`, and only the floating-ledge rule refuses them. Both
+facts are pinned by tests, one measured and one driven with the jump button pulsed.
 
-One trap for whoever writes the next test here: **read the crate's position AFTER `world.update`,
-not before.** The crate moves inside that call and the climb decision is made against where it
-ends up, so a climb that starts on the frame the load finally clears is the mechanism working. The
-first version of the refusal test asserted against the pre-update position and failed on exactly
-that frame.
+### The pole camera: bearings overlap, and that is the whole problem
 
+**Worth reading before touching anything from `groundWoodCrate` rightward.** From a lens up on a
+pole, a standing body on a crate at some x and a load hanging further left occupy OVERLAPPING
+bearings - so a cone wide enough to see the load also sees anyone standing on anything between the
+lens and it. The first cut put the striped crate at 1960 with a 380/40deg camera, and crossing that
+crate was lit at exactly the moment the camera was supposed to be looking away: a guaranteed death
+with no tell. Two changes fix it together, and neither works alone:
+
+- **the striped crate moved right to 2075.** A head on its leftmost point sits at bearing 144.7
+  deg; `crateAngle` minus half the cone is 147 deg, clearing it by 2.3 deg.
+- **the cone narrowed to 20 deg.** At 40 deg no placement separates them at all.
+
+With `visionRange` 370 the floor is out of reach at `crateAngle` entirely, and a standing body is
+out of range altogether left of about 1935 - which is why the approach waits back under the long
+load and why the walkthrough test stages at 1900. The blind window is then the whole 7s pause,
+against a ~5s run from the staging ground through the lever, the drop and both mantles. Full cycle
+15.9s.
+
+### The lever is mandatory
+
+`HookCrate` + `hangingHooks` rigging, same as level 5's minus the swing. `Lever.targetMechanismId`
+detaches the box and `HookCrate.update` drops it under gravity. It lands flush against the high
+platform's left face, turning a 144-tall wall (past `climbMaxHeight`, unclimbable from the floor)
+into the same jump-then-mantle pair the step crate makes of the mid platform. **Nothing else
+reaches the high platform**, so the camera guards a required action rather than an optional one.
+Note the drop lands on the GROUND - `HookCrate.update` only tests against `groundY`, it does not
+stack on boxes - so it cannot be hung over something and expected to land on it.
+
+### Measured, not estimated
+
+The walkthrough driven at 12 different arrival phases finishes in 32.9-47.2s, never dies, and peaks
+at 0.43 of the alert bar. `timeTargetSeconds = 80` leaves room for one missed read of each
+mechanism plus a full extra camera cycle. `testLevel8IsBeatableByReadingTheLoadSwingingAway` drives
+the whole route; twelve more tests pin the tutorial-free level data, the opening spacing, the hang
+line, the reach, the climb chain, the platform crossing, the barrels, the bobbing pair twice, the
+walk-under load, the lever chain and the camera sweep.
+
+Two traps for whoever writes the next test here:
+
+- **Read a moving crate's position AFTER `world.update`, not before.** The crate moves inside that
+  call and the climb decision is made against where it ends up, so a climb that starts on the frame
+  the load finally clears is the mechanism working, not a violation.
+- **The sweep crate starts its cycle at the far LEFT end.** A test that wants it parked over the
+  landing has to run the world forward until it gets there; asserting on frame 1 asserts nothing.
+
+### Guardless levels with cameras
+
+This is the first shipped level with a camera and no guards. `GameWorld`'s spotted branch used to
+read `seeingGuards.firstOrNull() ?: allGuards.first()`, which would throw on such a level - it only
+escaped being a live crash because Kotlin's `?.` short-circuits before evaluating arguments and
+nothing currently assigns `onSpotted`. Changed to `firstOrNull()` with a null guard while building
+this level.
 ## Guard sprite (`GuardAnimations.kt`, `resources/guard/{idle,walk}/`) - replaced 2026-09-14
 
 Copy of `PlayerAnimations`' recipe (own 2048x2048 atlas, cached per process, feet-anchored, scaled so
@@ -2903,10 +3042,28 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
   and the privacy-policy disclosure are gone. **Zero third-party analytics SDKs remain.**
 - **In-App Review (Google Play & iOS StoreKit)**: Multiplatform review prompting via `InAppReview` (in
   `paywall-build`) and `InAppReviewBridge` (in `:game`). On Android, uses `com.google.android.play:review:2.0.2`
-  (`ReviewManagerFactory`) wired to `MainActivity`. On iOS, links native `StoreKit.framework` and calls
-  `SKStoreReviewController.requestReview(in: scene)`. Prompted automatically upon completing level 4
+  (`ReviewManagerFactory`) wired to `MainActivity`. Prompted automatically upon completing level 4
   (`GameplayScene.kt` -> `getInAppReviewBridge().requestReview()`) and manually via the "RATE US" button
   in the About section of Settings (`SettingsScreen.kt`).
+
+  **iOS RATE US opens the App Store, it does not call StoreKit (fixed 2026-09-25)** - reported as
+  "rate us button in ios is not working", and it genuinely could not work. `SKStoreReviewController`
+  is Apple's *automatic* prompt, not a rate-us action: Apple decides whether it appears, it is
+  **never shown in a TestFlight build**, it is capped at three appearances per device per year in
+  production, and it is silently ignored otherwise. There is no callback and no error, so a correct
+  call and a suppressed one are indistinguishable from the app's side - which is what made this hard
+  to see. Apple's own guidance is that a deliberately-pressed button goes to the App Store review
+  page, so `InAppReview.ios.kt` now opens
+  `itms-apps://apps.apple.com/app/id<APP_STORE_ID>?action=write-review` (falling back to the `https`
+  form, then to the StoreKit prompt if neither opens). **`APP_STORE_ID = "6815256409"`** lives at the
+  top of that file. The StoreKit fallback also picks the window scene that owns a key window rather
+  than whatever `connectedScenes` (an unordered `NSSet`) hands back first - with more than one scene
+  alive that could be one not on screen, which StoreKit refuses without a word.
+
+  The **automatic** post-level-4 prompt deliberately still uses StoreKit on both platforms (`:game`'s
+  `InAppReviewBridge` -> `GameInAppReviewBridge` -> `AppDelegate.swift`'s `InAppReviewHelper`) - an
+  unprompted moment of goodwill is exactly what that API is for. **Android's RATE US is unchanged**
+  and still uses Play's in-app review; it was reported working.
 - **Settings → About panel (`SettingsScreen.kt`)**: Links order is "PRIVACY POLICY" (opens `https://infiltrate.saysplit.app/privacy/` via `LocalUriHandler`), "CONTACT US" (opens `https://infiltrate.saysplit.app/support/`), "CREDITS & LICENSES" (expandable third-party sound attributions), and "RATE US" (at the bottom of the links list with highlighted white outline: `Color.White.copy(alpha = 0.5f)` vs unhighlighted `0.08f`). Terms of service row removed. Version string is pinned to the bottom of the screen and resolves dynamically across platforms via `com.infiltrate.platform.PlatformInfo` (`expect`/`actual`: `versionName` and `buildNumber` read from `PackageManager` on Android, `NSBundle` on iOS, system/package properties on JVM).
 - **Web presence (`site/`, Netlify, e.g. `infiltrate.saysplit.app`)**: `index.html`, `support/`
   (App Store Guideline 1.5 page, Netlify Form with Name/Email/Category/Message, no visible email, no
