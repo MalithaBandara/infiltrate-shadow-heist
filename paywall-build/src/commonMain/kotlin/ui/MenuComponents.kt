@@ -56,6 +56,76 @@ import kotlin.math.sin
 
 // --- Top Bar ---
 
+/** The back button's authored size, and the touch minimum it is never allowed below. */
+const val TOP_BAR_BACK_DP = 46f
+const val TOP_BAR_MIN_BACK_DP = 44f
+
+/**
+ * How much of the bar's shrinkage is kept once the back button has stopped shrinking - see
+ * [topBarScaleFor]. 0 would pin the bar's contents to the button's floor; 1 would leave them
+ * scaling with the screen, which is what made the pills thin.
+ */
+const val TOP_BAR_SCALE_TAPER = 0.5f
+
+/**
+ * The scale [MenuTopBar] is actually drawn at, given the screen's own [MenuMetrics.scale].
+ *
+ * The back button cannot go under [TOP_BAR_MIN_BACK_DP] (it is the only way out of the screen),
+ * so below `44/46` the bar stops shrinking while `scale` keeps going. Anything inside it that
+ * still used `scale` lost its proportion against the button - that is what made the stat pills
+ * read as thin slivers. Pinning them to the button's floor instead went too far the other way:
+ * the bar then held its size while the screen shrank around it ("when screen gets smaller, scale
+ * down the logo the coin and star counter and title in middle a little"). So the contents keep
+ * [TOP_BAR_SCALE_TAPER] of the shrinkage below the floor rather than all of it or none.
+ *
+ * Equal to [scale] wherever the floor does not bind, which is the reference desktop window, so
+ * the look these screens were signed off at does not move. It DOES bind on tablets: a 4:3 iPad
+ * is width-limited to 0.8, which puts `46 * scale` under the touch floor already.
+ */
+fun topBarScaleFor(scale: Float): Float {
+    val floor = TOP_BAR_MIN_BACK_DP / TOP_BAR_BACK_DP
+    if (scale >= floor) return scale
+    return floor - (floor - scale) * TOP_BAR_SCALE_TAPER
+}
+
+/**
+ * How far the bar's left block - page padding, back button, gap, wordmark - reaches in from the
+ * leading edge, for a screen of this size. Pure, and the same arithmetic [MenuTopBar] lays out
+ * with; unit-tested in ResponsiveTest.
+ */
+internal fun topBarLeftBlockWidthFor(
+    screenWidth: Dp,
+    screenHeight: Dp,
+    safeStart: Dp = 0.dp,
+): Dp {
+    val scale = menuMetrics(screenWidth, screenHeight).scale
+    val barScale = topBarScaleFor(scale)
+    val backSize = (TOP_BAR_BACK_DP * scale).dp.coerceAtLeast(TOP_BAR_MIN_BACK_DP.dp)
+    val logoWidth = (180f * barScale).dp
+    return (24 * scale).dp + safeStart + backSize + (16 * barScale).dp + logoWidth
+}
+
+/**
+ * About how wide the centred screen title renders, for a screen of this size.
+ *
+ * [advanceEm] is Bebas Neue's average advance as a share of its type size. It is a condensed
+ * display face set in caps here, nearer 0.40em in practice; 0.46 is deliberately pessimistic so
+ * the clearance this feeds holds even if the face is substituted. An estimate, not a measurement -
+ * Compose's own text measurement is not reachable from a pure function, same caveat as
+ * [missionCardBriefingColumnsFor]. Unit-tested in ResponsiveTest.
+ */
+internal fun topBarTitleWidthFor(
+    screenWidth: Dp,
+    screenHeight: Dp,
+    titleChars: Int,
+    advanceEm: Float = 0.46f,
+): Dp {
+    val barScale = topBarScaleFor(menuMetrics(screenWidth, screenHeight).scale)
+    val titleSp = 26f * barScale
+    val tracking = 2f * barScale
+    return (titleChars * advanceEm * titleSp + (titleChars - 1).coerceAtLeast(0) * tracking).dp
+}
+
 @Composable
 fun MenuTopBar(
     title: String,
@@ -70,14 +140,20 @@ fun MenuTopBar(
     // Extra start/end padding for a landscape notch, from the host's reported safe area.
     startInset: Dp = 0.dp,
     endInset: Dp = 0.dp,
-    hideLogo: Boolean = false,
-    statPills: @Composable () -> Unit = {}
+    // Handed the scale the BAR is drawn at, not the screen's - see barScale below.
+    statPills: @Composable (barScale: Float) -> Unit = {}
 ) {
     // The back button is the one thing here that must not scale below the touch minimum: at the
     // 0.62 floor a scaled 46dp box is 28dp, well under the 44dp every platform's guidance asks
     // for, and this is the only way out of the screen.
-    val backSize = (46 * scale).dp.coerceAtLeast(44.dp)
+    val backSize = (TOP_BAR_BACK_DP * scale).dp.coerceAtLeast(TOP_BAR_MIN_BACK_DP.dp)
     val barHeight = ((74 * scale).dp).coerceAtLeast(backSize + 8.dp)
+
+    // See topBarScaleFor. `barHeight` already followed the button's floor; everything else in the
+    // bar did not, so on the owner's own phone the stat pills came out at 52% of the back
+    // button's height where the reference bar has them at 74% ("the coin and star counter is
+    // weird and too thin").
+    val barScale = topBarScaleFor(scale)
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -116,30 +192,41 @@ fun MenuTopBar(
                 }
             }
 
-            Spacer(modifier = Modifier.width((16 * scale).dp))
+            Spacer(modifier = Modifier.width((16 * barScale).dp))
 
-            // Graphic Logo Mark (enlarged for high clarity and visibility). Dropped on a narrow
-            // screen: the centred screen title is what names the page, and on a phone the logo
-            // was crowding it hard enough to overlap.
-            if (!hideLogo) {
-                Image(
-                    painter = painterResource(Res.drawable.logo_main),
-                    contentDescription = "Infiltrate: Shadow Heist",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .height((48 * scale).dp)
-                        .width((180 * scale).dp)
-                )
-            }
+            // Graphic Logo Mark. It was briefly dropped on a short/narrow screen, which meant
+            // EVERY phone in landscape (under 520dp tall) lost it - reported from the owner's own
+            // Android build as the logo simply missing from Store and Missions. It scales with
+            // the rest of the bar and clears the centred title comfortably even at the 0.62
+            // floor, so it is unconditional again.
+            //
+            // It takes barScale like everything else in the bar. That is bounded by the
+            // taper: pinned to the button's floor instead, the art is 148dp wide on a 667dp
+            // phone and the centred title comes within 6dp of it once a 59dp notch is taken off
+            // the leading edge. `testTheTopBarTitleStillClearsTheWordmarkOnEveryPhone` is there
+            // because that was measured, not guessed - re-run it if the taper moves.
+            val logoHeight = (48f * barScale).dp
+            Image(
+                painter = painterResource(Res.drawable.logo_main),
+                contentDescription = "Infiltrate: Shadow Heist",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .height(logoHeight)
+                    .width(logoHeight * (180f / 48f))
+            )
         }
 
-        // Center: Screen Title
+        // Center: Screen Title. On barScale like the rest of the bar - `26 * scale` is 16sp
+        // at the 0.62 floor, which next to a full-size 44dp back button reads as an afterthought
+        // rather than as the name of the screen ("the texts saying store, missions on the top
+        // middle could be little larger"). The taper still shrinks it with the screen, it just
+        // does not follow it all the way down.
         Text(
             text = title,
             color = Color.White,
-            fontSize = (26 * scale).sp,
+            fontSize = (26f * barScale).sp,
             fontFamily = font,
-            letterSpacing = (2 * scale).sp,
+            letterSpacing = (2 * barScale).sp,
             modifier = Modifier.align(Alignment.Center)
         )
 
@@ -147,9 +234,9 @@ fun MenuTopBar(
         Row(
             modifier = Modifier.align(Alignment.CenterEnd),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy((10 * scale).dp)
+            horizontalArrangement = Arrangement.spacedBy((10 * barScale).dp)
         ) {
-            statPills()
+            statPills(barScale)
         }
     }
 }

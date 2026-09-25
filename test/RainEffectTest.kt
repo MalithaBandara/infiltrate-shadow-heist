@@ -23,8 +23,7 @@ class RainEffectTest : ViewsForTesting() {
 
     @Test
     fun testLevel2HasRainEnabledAndOtherLevelsDoNot() {
-        // Rain is temporarily disabled on Level 2 for Google Play production approval
-        assertFalse(LevelData.DEFAULT_LEVEL_2.hasRain, "Level 2 (Cargo Yard) rain temporarily disabled")
+        assertTrue(LevelData.DEFAULT_LEVEL_2.hasRain, "Level 2 (Cargo Yard) must have rain enabled")
         assertFalse(LevelData.DEFAULT_LEVEL_1.hasRain, "Level 1 must not have rain enabled")
         assertFalse(LevelData.DEFAULT_LEVEL_3.hasRain, "Level 3 must not have rain enabled")
         assertFalse(LevelData.DEFAULT_LEVEL_4.hasRain, "Level 4 must not have rain enabled")
@@ -66,7 +65,7 @@ class RainEffectTest : ViewsForTesting() {
     @Test
     fun testGameplaySceneWithLevel2RainLoadsAndRenders() = viewsTest {
         val sceneContainer = sceneContainer()
-        sceneContainer.changeTo { GameplayScene(LevelData.DEFAULT_LEVEL_2.copy(hasRain = true)) }
+        sceneContainer.changeTo { GameplayScene(LevelData.DEFAULT_LEVEL_2) }
         assertNotNull(sceneContainer.currentScene)
 
         // Advance simulation frames to exercise rain rendering, wrapping, and camera tracking

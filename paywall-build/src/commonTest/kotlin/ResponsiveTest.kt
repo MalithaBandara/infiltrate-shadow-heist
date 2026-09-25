@@ -1,11 +1,21 @@
 package com.infiltrate.test
 
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.infiltrate.ui.MISSION_CARD_BRIEFING_LINES
 import com.infiltrate.ui.MenuMetrics
+import com.infiltrate.ui.TOP_BAR_BACK_DP
+import com.infiltrate.ui.TOP_BAR_MIN_BACK_DP
 import com.infiltrate.ui.dossierCardWidthFor
+import com.infiltrate.ui.menuAppliesSafeAreaInsets
 import com.infiltrate.ui.missionCardBriefingColumnsFor
+import com.infiltrate.ui.safeAreaPadding
+import com.infiltrate.ui.topBarLeftBlockWidthFor
+import com.infiltrate.ui.topBarScaleFor
+import com.infiltrate.ui.topBarTitleWidthFor
 import com.infiltrate.ui.videoBoxFor
+import game.model.DeviceScreen
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -192,5 +202,117 @@ class ResponsiveTest {
         // a 12.9" iPad the scale ceiling means the card grows faster than the type.
         assertTrue(missionCardBriefingColumnsFor(1366.dp, 1024.dp) >= 34)
         assertTrue(missionCardBriefingColumnsFor(823.dp, 707.dp) >= 34, "Z Fold 6 unfolded")
+    }
+
+    /**
+     * The top bar stops shrinking when its back button hits the 44dp touch floor, so the rest of
+     * the bar has to stop with it - reported from the owner's own phone as the stat pills being
+     * "weird and too thin" beside a full-size square button (2026-09-25).
+     */
+    @Test
+    fun testTopBarContentsStopShrinkingWithTheBackButton() {
+        // The reference window is above the floor, so the look these screens were signed off at
+        // does not move. That is the guarantee; it is NOT "only phones change".
+        assertEquals(1.0f, topBarScaleFor(MenuMetrics.scaleFor(1560f, 720f)), 0.001f)
+        assertEquals(1.0f, topBarScaleFor(MenuMetrics.scaleFor(1280f, 720f)), 0.001f)
+
+        // A 4:3 iPad is width-limited to 0.8, which puts `46 * scale` at 37dp - under the touch
+        // floor, so its back button was already being drawn full size and its pills were thin
+        // next to it in exactly the same way a phone's were. Tablets are lifted too.
+        assertTrue(
+            topBarScaleFor(MenuMetrics.scaleFor(1024f, 768f)) > MenuMetrics.scaleFor(1024f, 768f),
+            "a 4:3 iPad is below the button's floor as well",
+        )
+
+        // Below the floor the bar keeps shrinking, just not as fast as the screen - it must land
+        // strictly between the two. Pinning it to the floor instead was the first attempt and the
+        // owner asked for it back: "when screen gets smaller, scale down ... a little".
+        val floor = TOP_BAR_MIN_BACK_DP / TOP_BAR_BACK_DP
+        for ((label, size) in listOf(
+            "S25 Ultra" to (1040f to 480f),
+            "iPhone 15" to (852f to 393f),
+            "iPhone SE" to (667f to 375f),
+        )) {
+            val screenScale = MenuMetrics.scaleFor(size.first, size.second)
+            val barScale = topBarScaleFor(screenScale)
+            assertTrue(barScale > screenScale, "$label: must not shrink with the screen 1:1")
+            assertTrue(barScale < floor, "$label: must not be pinned to the button's floor")
+
+            // The reference bar runs a 34dp pill against a 46dp button - 0.74. The report that
+            // started this had it at 0.52 on a phone. The taper cannot get all the way back to
+            // 0.74 by construction, but it has to clear the sliver it was.
+            val pillHeight = 34f * barScale
+            val backHeight = maxOf(TOP_BAR_BACK_DP * screenScale, TOP_BAR_MIN_BACK_DP)
+            val ratio = pillHeight / backHeight
+            assertTrue(ratio > 0.58f, "$label: pill is $ratio of the back button")
+            assertTrue(ratio < 34f / TOP_BAR_BACK_DP, "$label: pill overshot the reference")
+        }
+
+        // And it has to be monotonic: a smaller screen gets a smaller bar, which is the whole
+        // point of the taper.
+        assertTrue(
+            topBarScaleFor(MenuMetrics.scaleFor(1040f, 480f)) >
+                topBarScaleFor(MenuMetrics.scaleFor(852f, 393f)),
+            "a larger phone must get a larger bar",
+        )
+    }
+
+    /**
+     * The wordmark and the floored title both grew, so the one thing to check is that they still
+     * leave the centred title alone. "MISSIONS" is the longest of the three screen names.
+     */
+    @Test
+    fun testTheTopBarTitleStillClearsTheWordmarkOnEveryPhone() {
+        val phones = listOf(
+            "S25 Ultra" to (1040f to 480f),
+            "iPhone 15" to (852f to 393f),
+            "iPhone SE" to (667f to 375f),
+            "Z Fold 6 unfolded" to (823f to 707f),
+        )
+        for ((label, size) in phones) {
+            val (w, h) = size
+            // The Dynamic Island is the worst leading inset any of these carries.
+            val left = topBarLeftBlockWidthFor(w.dp, h.dp, safeStart = 59.dp)
+            val titleHalf = topBarTitleWidthFor(w.dp, h.dp, titleChars = 8) / 2f
+            val gap = (w / 2f).dp - titleHalf - left
+            assertTrue(gap > 16.dp, "$label: only $gap between the wordmark and the title")
+        }
+    }
+
+    /**
+     * Android and desktop opt out of the safe area for the menus (2026-09-25): the insets
+     * Android publishes are a display cutout plus the mandatory gesture strip, and applying them
+     * left a band down one long edge and along the bottom of every menu on the owner's own phone.
+     * Only iOS insets these screens, for the Dynamic Island.
+     *
+     * This runs on the JVM, whose actual is the same `false` Android's is, so it pins the path
+     * Android takes - the platform constants themselves are one line each in
+     * `ui/MenuSafeArea.*.kt`.
+     */
+    @Test
+    fun testMenusOnlyInsetThemselvesOnAHostThatOptsIn() {
+        val previous = DeviceScreen.metrics
+        try {
+            // A landscape cutout on the leading edge and a home-indicator strip at the foot -
+            // the shape of what Android was reporting.
+            DeviceScreen.publish(
+                widthDp = 1040.0,
+                heightDp = 480.0,
+                safeLeftDp = 36.0,
+                safeBottomDp = 24.0,
+            )
+            val padding = safeAreaPadding()
+            val start = padding.calculateStartPadding(LayoutDirection.Ltr)
+            val bottom = padding.calculateBottomPadding()
+            if (menuAppliesSafeAreaInsets) {
+                assertEquals(36.dp, start)
+                assertEquals(24.dp, bottom)
+            } else {
+                assertEquals(0.dp, start, "Android/desktop menus must use the whole panel")
+                assertEquals(0.dp, bottom, "Android/desktop menus must use the whole panel")
+            }
+        } finally {
+            DeviceScreen.metrics = previous
+        }
     }
 }

@@ -75,8 +75,12 @@ class VentFan(
     }
 
     fun update(dt: Double) {
-        // Measured industrial turbine rotation (8.0 rad/s ≈ 1.27 rev/s)
-        bladeRotationAngle = (bladeRotationAngle + 8.0 * dt) % (2.0 * PI)
+        // 16.0 rad/s, about 2.5 rev/s (owner request 2026-09-25: "increase the rotation speed
+        // of fans"; it was 8.0). The ceiling on this is the strobe, not taste: the blades are
+        // sampled once a frame, so at 60fps an N-bladed fan starts reading as stopped or
+        // backwards once N * rev/s passes 30. At 2.5 rev/s that leaves room for up to a
+        // 12-bladed rotor, and fan_blade.png has far fewer than that.
+        bladeRotationAngle = (bladeRotationAngle + 16.0 * dt) % (2.0 * PI)
     }
 
     fun reset() {

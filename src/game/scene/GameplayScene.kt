@@ -171,6 +171,8 @@ class GameplayScene(
     private var tutorialPulseTimer: Double = 0.0
     private var stepActionCompleted: Boolean = false
     private var stepActionTimer: Double = 0.0
+    /** Wall time the current prompt has been on screen - drives [TutorialStep.autoDismissSeconds]. */
+    private var stepVisibleTimer: Double = 0.0
     private var stepActivatedX: Double = 0.0
     private var lastUsedKeyboard: Boolean = false
     private var prevRightPressed: Boolean = false
@@ -358,7 +360,11 @@ class GameplayScene(
 
         // Distance marker decals on Level 4 background wall (countdown stencils at 30m intervals across 150m)
         val wallDecalsContainer = bgmgContainer.container()
-        if (bitmaps.wallMarkerBitmaps.isNotEmpty() && bgmgBitmap != null) {
+        // Gated on the background, not just on the map being non-empty: level 7 fills the same
+        // map with its own white stencils, and this pass would then have drawn them a second time
+        // at level 4's positions (242 + i * 1500) and level 4's y, leaving ghost duplicates a
+        // beat away from the real ones all down level 7's corridor.
+        if (bgFileName == "metalbg.png" && bitmaps.wallMarkerBitmaps.isNotEmpty() && bgmgBitmap != null) {
             val milestoneLabels = listOf("150m", "120m", "90m", "60m", "30m", "0m")
             // Countdown markers spaced at 30-meter intervals (1500.0 world units apart) across the 150m conveyor:
             // 150m (start, 0m traversed): worldX = 242.0 (texX = 525 on Panel A, clearance > 220px from beams)
@@ -411,6 +417,56 @@ class GameplayScene(
         val cullTargets = ArrayList<CullTarget>()
         fun cullable(view: View, worldLeft: Double, worldWidth: Double) {
             cullTargets.add(CullTarget(view, worldLeft, worldLeft + worldWidth))
+        }
+
+        // Level 7's distance stencils: 120m down to 0m at level 4's own 1500-unit (30m) step.
+        // Ideal positions come from LevelData so the level and its own measurement cannot drift
+        // apart, but each one is then nudged along the corridor onto bare wall - see
+        // LEVEL_7_CLEAR_WALL_WINDOWS and findClearWallX.
+        //
+        // These go inside worldView rather than the parallax layer level 4 uses. Level 4 can put
+        // its own in the background because metalbg.png's scale is fixed (1000 * worldZoom / tile
+        // width); bglvl7.png's is canvasH / 724, so a sign sized off it would grow and shrink with
+        // the window while the corridor painted around it did not. Added before anything else in
+        // the world, so they still draw behind all of it - which is the only thing level 4 gained
+        // by putting them in the background layer in the first place.
+        if (bgFileName == "bglvl7.png" && bitmaps.wallMarkerBitmaps.isNotEmpty() && bgmgBitmap != null) {
+            // 28 units tall, down from 32: the stencil has to fit inside a bare panel, and the
+            // widest plate ("120m") at 32 needed 148 of bglvl7.png's own pixels against a widest
+            // useful window of 148. 28 buys ~19 pixels of slack to place it in.
+            val markerHeight = 28.0
+            val markerCenterY = 368.0 // mid-corridor (304..440) - the flat, lit panel band
+            val bgTextureWidth = bgmgBitmap.width.toDouble()
+            // The wall behind a stencil has to be clear of the LEVEL's own props too, not just of
+            // detail painted into the background: a fan is 36 units of opaque machinery sitting
+            // right across the band the stencils are drawn in, and a steam jet sweeps the whole
+            // corridor height every few seconds. Found by looking at the screen - the search put
+            // "60m" straight onto lvl7_fan_2, which the background test could not have caught.
+            val propSpans = world.fans.map { it.x..(it.x + it.width) } +
+                world.steamPipes.map { (it.x - it.jetWidth / 2.0)..(it.x + it.jetWidth / 2.0) }
+            for ((stepIndex, label) in LevelData.LEVEL_7_MARKER_LABELS.withIndex()) {
+                val markerBmp = bitmaps.wallMarkerBitmaps[label] ?: continue
+                val markerWidth = markerBmp.width * (markerHeight / markerBmp.height)
+                val idealX =
+                    LevelData.LEVEL_7_MARKER_FIRST_X + stepIndex * LevelData.LEVEL_7_MARKER_SPACING
+                val markerX = findClearWallX(
+                    idealX = idealX,
+                    halfWidthTexels = markerWidth / 2.0 * worldZoom / bgScale,
+                    worldToTexel = worldZoom / bgScale,
+                    textureWidth = bgTextureWidth,
+                    // The nudge may not carry a stencil out of the corridor it measures: not left
+                    // of the spawn, and above all not into the extraction booth, which is drawn
+                    // from exitZone.x rightwards and would eat the "0m" plate whole.
+                    minX = LevelData.LEVEL_7_MARKER_FIRST_X - 60.0 + markerWidth / 2.0,
+                    maxX = world.exitZone.x - markerWidth / 2.0 - 10.0,
+                    propSpans = propSpans,
+                    halfWidthWorld = markerWidth / 2.0 + 12.0
+                )
+                val markerImage = worldView.image(markerBmp) {
+                    size(markerWidth, markerHeight)
+                }.xy(markerX - markerWidth / 2.0, markerCenterY - markerHeight / 2.0)
+                cullable(markerImage, markerX - markerWidth / 2.0, markerWidth)
+            }
         }
 
         // Floors, walkways and boundary walls (Solid black platforms with tiny rough edge irregularities)
@@ -2491,6 +2547,7 @@ class GameplayScene(
         tutorialPulseTimer = 0.0
         stepActionCompleted = false
         stepActionTimer = 0.0
+        stepVisibleTimer = 0.0
         stepActivatedX = 0.0
         lastUsedKeyboard = false
 
@@ -2662,6 +2719,7 @@ class GameplayScene(
                         stepActivatedX = playerX
                         stepActionCompleted = false
                         stepActionTimer = 0.0
+                        stepVisibleTimer = 0.0
                         isTutorialFadingIn = true
                         isTutorialFadingOut = false
                         tutorialLayer.visible = true
@@ -2671,6 +2729,16 @@ class GameplayScene(
                 // If a step is active, evaluate action completion or boundary traversal
                 val step = currentTutorialStep
                 if (step != null) {
+                    stepVisibleTimer += dtSec
+                    // A prompt whose action is optional gets a ceiling on its welcome - see
+                    // TutorialStep.autoDismissSeconds. Marked completed rather than just hidden,
+                    // so it does not re-trigger the moment the player steps back into the window.
+                    if (!stepActionCompleted && step.autoDismissSeconds > 0.0 &&
+                        stepVisibleTimer >= step.autoDismissSeconds
+                    ) {
+                        stepActionCompleted = true
+                        stepActionTimer = 0.0
+                    }
                     if (!stepActionCompleted && !isTutorialFadingOut) {
                         val actionDone = when (step.targetAction) {
                             TutorialAction.MOVE -> {
@@ -4535,6 +4603,111 @@ class GameplayScene(
     }
 
     companion object {
+        /**
+         * Spans of bglvl7.png, in its own 2172-wide pixels, where the duct wall is bare metal -
+         * no louvred vent, junction box, conduit or standpipe. Measured by
+         * `tools/art/prep_wall_markers.py`, which flags a column by the worst vertical luminance
+         * step inside the band the distance stencils are drawn in: a panel seam is a vertical line
+         * and survives that test, a vent's louvres and a box's rim do not.
+         *
+         * Measured against the band a 480-unit canvas puts the stencils in (texture rows 305..380),
+         * which is the demanding case - it needs the widest footprint AND has the narrowest
+         * windows. Every window here is contained in the equivalent window for a 585- or
+         * 1066-unit canvas, so one position is bare wall at every viewport the game ships.
+         */
+        private val LEVEL_7_CLEAR_WALL_WINDOWS: List<ClosedFloatingPointRange<Double>> = listOf(
+            // 407..555 as measured; trimmed by one pixel because that single pixel is the only
+            // place the 585-unit canvas's band disagrees with the 480-unit one.
+            407.0..554.0,
+            595.0..728.0,
+            857.0..935.0,
+            1084.0..1163.0,
+            1216.0..1482.0,
+            1502.0..1722.0,
+            // Runs off the right edge of the tile and continues at its left - the wall is
+            // continuous across the seam, so this is one panel, not two. Only reachable because
+            // the fit test below tries the position in the next tile as well.
+            2146.0..2203.0
+        )
+
+        /**
+         * How far along the corridor a stencil may be nudged to find bare wall, in world units -
+         * 300 is 6 metres on this level's 50-units-to-the-metre scale. Sized off the measured
+         * worst case rather than picked: the widest plate needs 262 units of shift to reach bare
+         * wall on a 4:3 viewport, and every other plate on every other viewport lands inside 240.
+         */
+        private const val LEVEL_7_MARKER_SEARCH_RADIUS = 300.0
+
+        /**
+         * The nearest x to [idealX] whose stencil lands entirely on bare wall, or [idealX] itself
+         * if there is none within [LEVEL_7_MARKER_SEARCH_RADIUS].
+         *
+         * bglvl7.png tiles and scrolls 1:1 with the world, so the texture pixel under a world x is
+         * `(x * worldZoom / bgScale) mod textureWidth` - a fixed mapping once the canvas is known,
+         * but NOT a fixed one across canvases: bglvl7's background scale is `canvasH / 724`, so the
+         * same world x sits over different wall detail on a 16:9 phone and on a 4:3 tablet. That is
+         * why this runs at scene build time against the live `bgScale` instead of the positions
+         * being baked into the level. The owner's brief was "put the name only on places where
+         * background is empty ... it is okay for it to not be in the exact correct place", so the
+         * search trades up to 240 units (4.8m) of position for a clean backdrop, and gives the
+         * position back rather than draw nothing if the wall is busy everywhere nearby.
+         */
+        internal fun findClearWallX(
+            idealX: Double,
+            halfWidthTexels: Double,
+            worldToTexel: Double,
+            textureWidth: Double,
+            minX: Double,
+            maxX: Double,
+            propSpans: List<ClosedFloatingPointRange<Double>>,
+            halfWidthWorld: Double
+        ): Double {
+            // Clear of the level's own machinery. This is the HARD requirement: a stencil under a
+            // fan or inside a steam jet is hidden outright, where one on busy background is merely
+            // untidy - so it is tested on its own as well as inside `fits`, and drives the
+            // fallback when no position satisfies both.
+            fun clearOfProps(x: Double): Boolean {
+                if (x < minX || x > maxX) return false
+                return propSpans.none {
+                    x + halfWidthWorld >= it.start && x - halfWidthWorld <= it.endInclusive
+                }
+            }
+
+            fun fits(x: Double): Boolean {
+                if (!clearOfProps(x)) return false
+                val center = (((x * worldToTexel) % textureWidth) + textureWidth) % textureWidth
+                // Tried in this tile and in the next, which is what lets a window run across the
+                // tile seam: a position near the left edge is the same wall as one past the right.
+                for (base in doubleArrayOf(center, center + textureWidth)) {
+                    val left = base - halfWidthTexels
+                    val right = base + halfWidthTexels
+                    if (LEVEL_7_CLEAR_WALL_WINDOWS.any { left >= it.start && right <= it.endInclusive }) {
+                        return true
+                    }
+                }
+                return false
+            }
+            if (fits(idealX)) return idealX
+            var offset = 2.0
+            while (offset <= LEVEL_7_MARKER_SEARCH_RADIUS) {
+                if (fits(idealX + offset)) return idealX + offset
+                if (fits(idealX - offset)) return idealX - offset
+                offset += 2.0
+            }
+            // Nothing nearby is both bare wall and clear of the machinery. Give up the wall, not
+            // the machinery: falling back to idealX blindly once put the "30m" plate inside
+            // lvl7_pipe_9's jet on a 4:3 viewport, which is worse than the busy backdrop this
+            // whole search exists to avoid.
+            if (clearOfProps(idealX)) return idealX
+            offset = 2.0
+            while (offset <= LEVEL_7_MARKER_SEARCH_RADIUS) {
+                if (clearOfProps(idealX + offset)) return idealX + offset
+                if (clearOfProps(idealX - offset)) return idealX - offset
+                offset += 2.0
+            }
+            return idealX
+        }
+
         private const val ICON_COLUMN = 0.35
         private const val LABEL_COLUMN = 0.42
         private const val CENTERED_ICON_WIDTH = 18.0
@@ -5343,12 +5516,19 @@ class GameplayScene(
     ): GameplayBitmaps {
         val bgmgBitmap = SceneAssets.bitmap(bgFileName, minified = false)
         markLoadProgress()
-        val wallMarkerBitmaps: Map<String, Bitmap?> = if (bgFileName == "metalbg.png") {
-            listOf("150m", "120m", "90m", "60m", "30m", "0m").associateWith {
+        val wallMarkerBitmaps: Map<String, Bitmap?> = when (bgFileName) {
+            "metalbg.png" -> listOf("150m", "120m", "90m", "60m", "30m", "0m").associateWith {
                 SceneAssets.bitmap("wall_$it.png", minified = false)
             }
-        } else {
-            emptyMap()
+            // Level 7 counts down from 120m on the same stencils, recoloured white on disk by
+            // tools/art/prep_wall_markers.py. It has to be done on disk: colorMul only ever
+            // multiplies, so it can darken the ochre source but never lift it to white.
+            // minified = false for the same reason level 4's are - drawn at roughly 1:1, so
+            // there is nothing for mipmaps to do and no power-of-two size to meet.
+            "bglvl7.png" -> LevelData.LEVEL_7_MARKER_LABELS.associateWith {
+                SceneAssets.bitmap("wall7_$it.png", minified = false)
+            }
+            else -> emptyMap()
         }
         val crateBitmap = SceneAssets.bitmap("crate.png")
         markLoadProgress()

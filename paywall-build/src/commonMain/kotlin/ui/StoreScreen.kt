@@ -307,12 +307,12 @@ fun StoreScreen(
                 scale = scale,
                 startInset = safe.calculateStartPadding(LocalLayoutDirection.current),
                 endInset = safe.calculateEndPadding(LocalLayoutDirection.current),
-                hideLogo = !metrics.showsTopBarLogo,
-                statPills = {
+                // barScale, not the screen's scale - see MenuTopBar.topBarScaleFor.
+                statPills = { barScale ->
                     CoinPill(
                         coins = profile.coins,
                         onPlusClicked = { currentTab = StoreTab.COINS },
-                        scale = scale
+                        scale = barScale
                     )
                 }
             )

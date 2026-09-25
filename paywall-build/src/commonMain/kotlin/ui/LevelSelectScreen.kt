@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -126,18 +127,19 @@ fun LevelSelectScreen(
                 scale = scale,
                 startInset = safe.calculateStartPadding(LocalLayoutDirection.current),
                 endInset = safe.calculateEndPadding(LocalLayoutDirection.current),
-                hideLogo = !metrics.showsTopBarLogo,
-                statPills = {
+                // barScale, not the screen's scale: the bar stops shrinking at the back button's
+                // touch floor, and a pill that keeps shrinking past it reads as a thin sliver.
+                statPills = { barScale ->
                     StatPill(
                         label = "$starsEarned/$starsMax",
                         icon = { drawStar(size.width / 2f, size.height / 2f, 7f, 2.8f, Color(0xFFFFD54F)) },
                         pillWidth = 95.dp,
-                        scale = scale
+                        scale = barScale
                     )
                     CoinPill(
                         coins = profile.coins,
                         onPlusClicked = onStoreClicked,
-                        scale = scale
+                        scale = barScale
                     )
                 }
             )
@@ -156,10 +158,18 @@ fun LevelSelectScreen(
                         bottom = (12 * scale).dp + safe.calculateBottomPadding(),
                     )
             ) {
-                // Chapter Cards Row. Three of its four cards are COMING SOON placeholders, so on a
-                // screen with no height to spare it is the first thing to give: shorter here,
-                // rather than shrinking the missions the screen is actually for.
-                val chapterRowHeight = if (metrics.isShort) (86 * scale).dp else (110 * scale).dp
+                // Chapter Cards Row. This used to give height away on a short screen
+                // (`isShort -> 86 * scale` against 110 elsewhere), on the theory that three of
+                // its four cards were COMING SOON placeholders not worth the room. Both halves of
+                // that are gone: the placeholders were removed for the Play submission, and with
+                // `scale` no longer floored at 0.75 the row came out at 56dp on a phone - the
+                // card's own star and star-count crushed into it ("increase the size of that
+                // section more even on small screen sizes. i liked how it looked in build 11").
+                // It is build 11's own `110 * scale` again, with build 11's own floor under the
+                // scale, so a phone gets back the 82.5dp it had there and nothing above the floor
+                // moves at all.
+                val chapterScale = maxOf(scale, CHAPTER_CARD_MIN_SCALE)
+                val chapterRowHeight = (110 * chapterScale).dp
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -171,7 +181,7 @@ fun LevelSelectScreen(
                         isUnlocked = true,
                         starsText = "$starsEarned/$starsMax",
                         font = bebasFont,
-                        scale = scale,
+                        scale = chapterScale,
                         modifier = Modifier.weight(1f)
                     )
                     // Temporarily hide coming soon chapter boxes (Chapters 2-4) for Google Play production approval.
@@ -303,11 +313,24 @@ private fun ChapterCard(
                     fontFamily = font,
                     letterSpacing = 1.sp
                 )
+                // The star used to be a hard 14dp box beside type that scales, and a hard
+                // 6dp gap. That held together while `scale` was floored at 0.75 and came apart
+                // under it: a 14dp star against 8.5sp digits sits taller than the line it is on
+                // and leaves a gap the width of the box's own empty half, which is what read as
+                // "the star ... is not aligned properly". Both track the type now. The 0.06em
+                // lift is the optical centre: `CenterVertically` centres the text's LINE BOX,
+                // and digits carry no descender, so they sit above that centre - the same
+                // correction GameplayScene's torn-paper buttons needed for Bebas.
+                val starSize = (14 * scale).dp
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy((6 * scale).dp)
                 ) {
-                    Canvas(modifier = Modifier.size(14.dp)) {
+                    Canvas(
+                        modifier = Modifier
+                            .size(starSize)
+                            .offset(y = -(starSize.value * 0.06f).dp)
+                    ) {
                         drawStar(size.width / 2f, size.height / 2f, 6f, 2.4f, Color(0xFFFFD54F))
                     }
                     Text(
@@ -339,6 +362,18 @@ private fun ChapterCard(
         }
     }
 }
+
+/**
+ * The chapter row's own scale floor, and it is build 11's.
+ *
+ * Build 11 sized this whole screen with `(height / 720).coerceIn(0.75, 1.4)`, so a landscape
+ * phone got 0.75 and the chapter row was 82.5dp - the size the owner asked to have back. The
+ * responsive pass replaced that with a two-axis scale flooring at 0.62 for good reasons (see
+ * ui/Responsive.kt: the old floor was clipping the mission grid), but the chapter row is one
+ * fixed-height row rather than a grid that has to fit, so it can afford the taller floor that the
+ * screen as a whole could not.
+ */
+internal const val CHAPTER_CARD_MIN_SCALE = 0.75f
 
 /** Mission cards per grid row. Matches the four chapter cards in the row above them. */
 internal const val MISSION_CARDS_PER_ROW = 4

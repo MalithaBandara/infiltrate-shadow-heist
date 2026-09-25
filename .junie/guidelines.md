@@ -535,7 +535,8 @@ width by a third.
   mandatorySystemGestures()`, NOT the full `systemGestures()` set (that reserves ~20dp down both
   long edges for no real gain here), and its decor-view listener forwards via
   `ViewCompat.onApplyWindowInsets` rather than returning early, or the dispatch never reaches
-  Compose.
+  Compose. **This is the GAMEPLAY half only - the Compose menus opted Android out entirely, see
+  `menuAppliesSafeAreaInsets` below.**
 
 **Compose: `paywall-build/src/commonMain/kotlin/ui/Responsive.kt`.** `menuMetrics(maxWidth,
 maxHeight)` gives one `scale = min(h/720, w/1280)` clamped 0.62..1.45, so the *smaller* axis
@@ -546,8 +547,69 @@ this was not a redesign. **The main menu keeps its own lower floor** (`MAIN_MENU
 390dp-tall phone and SETTINGS falls off the bottom - measured, not estimated, and 0.62 was tried
 first and does exactly that. Where scaling alone cannot fit a screen, `metrics.isShort` (height <
 520dp, i.e. every phone in landscape and nothing else) trims decoration instead of shrinking type
-further: a shorter chapter row, two description lines instead of three, no top-bar wordmark.
+further: a shorter chapter row and two description lines instead of three.
 `MenuTopBar`/`StatPill`/`CoinPill` all take `scale` now, defaulting to 1f.
+
+**Two of these were wrong on the owner's own Android phone, reported 2026-09-25 and fixed there.**
+Both had only ever been looked at in a desktop window, where neither shows up:
+- **`isShort` also dropped the top-bar wordmark, which meant every phone lost it.** The logo is
+  unconditional again in `MenuTopBar` ("always show it"); `MenuMetrics.showsTopBarLogo` and the
+  `hideLogo` parameter are gone rather than left unused. It clears the centred title with room to
+  spare even at the 0.62 floor (~118dp wide against a title centred at half of 1040). **What the
+  old gate was right about is the wordmark's second line**: "SHADOW HEIST" is a smudge at this
+  size in a desktop capture. On a 3x phone it has 3x the device pixels of that capture, so it
+  should read - but that has not been looked at on the device.
+- **`safeAreaPadding()` is now gated on `menuAppliesSafeAreaInsets`** (`ui/MenuSafeArea.kt`,
+  `expect`/`actual`: iOS true, Android and JVM false). Android's published set - display cutout
+  plus the mandatory gesture strip - landed as a band down one long edge and another along the
+  bottom of MainMenu / Missions / Store / Settings: "in androids there should not be padding at
+  all ... for iphones use the safe area layout to do this to avoid dynamic island". The panels are
+  opaque flat colour and their content sits well inboard already, so a cutout over the edge costs
+  nothing there. iOS is unchanged, just explicit now. `testMenusOnlyInsetThemselvesOnAHostThatOptsIn`
+  (`ResponsiveTest`) runs the JVM actual, which is the same `false` branch Android takes.
+
+**The top bar has a second scale, and it is not optional** (`topBarScaleFor`, `MenuComponents.kt`).
+The back button floors at 44dp (the touch minimum; it is the only way out of the screen) and
+`barHeight` follows it, but everything else in the bar kept using the screen's `scale` - so the
+stat pills came out at **52% of the back button's height where the reference bar has them at 74%**,
+reported from the owner's phone as "the coin and star counter is weird and too thin".
+`topBarScaleFor` is the scale the bar is actually drawn at, and **everything in the bar takes it**:
+the wordmark, the title, the pills, their spacing and the tracking, handed to the pills through
+`statPills: @Composable (barScale: Float) -> Unit`. **It binds on tablets too, not just phones** - a
+4:3 iPad is width-limited to 0.8, so `46 * 0.8` is already under the floor; the reference desktop
+window (scale 1.0) is the only thing above it, which is what keeps the signed-off look still.
+
+**It is a taper, not a floor, and that took a second round.** `max(scale, 44/46)` was the first
+shape and it overshot: the bar then held its size while the screen shrank around it, reported as
+"when screen gets smaller, scale down the logo the coin and star counter and title in middle a
+little". It now keeps `TOP_BAR_SCALE_TAPER` (0.5) of the shrinkage below the floor -
+`floor - (floor - scale) * 0.5` - so a phone lands at 0.79..0.81 rather than 0.62 (sliver) or
+0.96 (pinned). Measured on screen, the stat pill went 52% -> 84% -> **69%** of the back button's
+height against the reference bar's 74%. `testTopBarContentsStopShrinkingWithTheBackButton` pins
+all three properties: strictly above `scale`, strictly below the floor, and monotonic in screen
+size. **The taper is also what lets the wordmark take `barScale` at all** - pinned to the floor it
+is 148dp wide on a 667dp phone and the centred title comes within 6dp of it once a 59dp notch is
+taken off the leading edge. That is measured, not guessed, and
+`testTheTopBarTitleStillClearsTheWordmarkOnEveryPhone` exists to catch it; re-run it if
+`TOP_BAR_SCALE_TAPER` moves.
+
+**The chapter row on Missions has build 11's own floor back** (`CHAPTER_CARD_MIN_SCALE` = 0.75,
+`LevelSelectScreen.kt`). It used to be `if (isShort) 86 * scale else 110 * scale`, giving height
+away on a phone because three of its four cards were COMING SOON placeholders - and both halves of
+that reasoning are now gone (the placeholders went for the Play submission, and `scale` is no
+longer floored at 0.75). At 56dp the card's star and star-count were crushed into it: "the star in
+bar saying shipyard is not aligned properly and part of the text showing how many stars is half
+cropped ... i liked how it looked in build 11". It is build 11's `110 * scale` with build 11's
+0.75 floor, so a phone gets its 82.5dp back and nothing above the floor moves. **The card's star
+was a hard `14.dp` box and a hard `6.dp` gap beside type that scales** - fine at 0.75, visibly
+wrong under it; both track the type now, with a 0.06em lift because `CenterVertically` centres the
+text's line box and digits carry no descender (the same optical correction the torn-paper buttons
+needed).
+
+**Still open from the same reports, deliberately not changed:** the Missions chapter row shows one
+card at a quarter width with three invisible `Spacer(weight(1f))`s beside it (the Play-approval
+change below), and the menu scale on a phone is 0.667 where the previous shipped build floored it
+at 0.75. Both were shown to the owner and left as they are - don't "fix" either without being asked.
 
 **Verification, and what is NOT verified.** Desktop stands in for device aspects:
 `./gradlew runJvm -PwindowSize=1024x768` (iPad), `1280x720`, `1120x480` (21:9), and
@@ -556,9 +618,17 @@ way `startLevel` already did. Screenshot recipe as always (`SetProcessDPIAware()
 **capture the CLIENT rect, not `GetWindowRect`**, which includes the invisible resize border and
 shows the desktop behind the window. Checked this way: gameplay at 4:3 / 16:9 / 21:9 on levels 1,
 4 (vignette) and 7 (its `canvasH * 488/724` background anchoring holds), and MainMenu / Missions /
-Store at 844x390 and 1024x768. `jvmTest` 187 green, `:paywall-build:jvmTest` 14 green,
-`android-shell:compileReleaseKotlin` clean. **Nothing here has run on a real device or simulator,
-and the safe-area plumbing in particular has never seen a non-zero inset** - desktop reports none.
+Store at 844x390 and 1024x768. `jvmTest` 228 green, `:paywall-build:jvmTest` 21 green,
+`android-shell:compileReleaseKotlin` clean.
+**The menus have since run on the owner's own Android phone, which is how the bugs above were
+found** - and the non-zero Android inset is now
+ignored by the menus rather than exercised by them, so the only safe-area plumbing anything has
+seen in anger is the Android gameplay HUD's. iOS safe areas remain unobserved end to end.
+**The desktop screenshot recipe needs `PrintWindow` or a fronted window, not both half-done**: a
+`CopyFromScreen` of a window that is not actually foreground captures whatever is on top of it
+(cost a wrong screenshot here), and `PrintWindow` on this Skiko window returns a stale frame after
+a click (cost another). What works: front the window with `AttachThreadInput` + `SetForegroundWindow`,
+click, settle, then `CopyFromScreen` the client rect - `tools`-less script kept out of the repo.
 iOS is not even compile-checked (CI only).
 
 ### Three follow-ups from the owner's own iPad (2026-09-24)
@@ -1285,13 +1355,22 @@ constant carries its reasoning there. Summary of the current shape:
 
 Replaced the barrel-wall + hook-swing layout of the same name, later recovered from history as level 5
 (see "The swing move"). Current:
-- Ground `y = 440`, `worldWidth = 5500`, no start fences, exit at `x = 5380`, `timeTargetSeconds =
-  90`, `backgroundImage = "bgmg6.png"`, `hasDarknessVignette = true`, `canClimb = false` (all
-  progression by jump/crouch), `restartOnConveyorFallOff = true` (instant in-place reset, no reload),
-  `conveyorsStartOnMove = true` (belt frozen until first move/jump input).
-- Conveyor `x 0..5000`, `y = 414`, height 26, `speed = -45` (against the player: net run 87 px/s,
+- Ground `y = 440`, `worldWidth = 8600`, no start fences, exit zone at `x = 7680` (width 80),
+  `timeTargetSeconds = 115`, `backgroundImage = "metalbg.png"`, `hasDarknessVignette = true`,
+  `canClimb = false` (all progression by jump/crouch), `restartOnConveyorFallOff = true` (instant
+  in-place reset, no reload), `conveyorsStartOnMove = true` (belt frozen until first move/jump
+  input). *(These five numbers were corrected 2026-09-25 against the source - the entry had kept
+  the pre-conveyor layout's 5500/5380/90/bgmg6.png. The crate and clearance arithmetic below was
+  spot-checked against `LEVEL_4_LAYOUT` at the same time and is right.)*
+- Conveyor `x 0..7760`, `y = 414`, height 26, `speed = -45` (against the player: net run 87 px/s,
   crouch crawl 20). Drawn from three sliced repeating layers `conveyor_top/mid/bot.png` inside
   `clipContainer` with `cullable()`.
+- **This level is where the game's metre scale is defined, and it is defined by decals.** Six
+  stencils `wall_{150,120,90,60,30,0}m.png` at `242.0 + stepIndex * 1500.0`, counting 150m down to
+  0m, drawn into the parallax layer (metalbg.png's background scale is canvas-independent, so they
+  are a fixed world size). 1500 units per 30m step is the only statement of distance anywhere in
+  the game - there is no HUD readout and no units-per-metre constant - and it makes the scale **50
+  units = 1 metre**. Level 7 reuses that spacing; see "Level 7's 120 metres".
 - **Floor crates are all 1-stacks** (68x48, top at 366) riding the belt (`loopMaxX = 5000`, no
   `shouldLoop` - looping would teleport crates across zones). A grounded player on a crate is carried.
 - **Four hanging crates** (`isHanging = true`, `y = 302`, height 38, bottom 340, `shouldLoop = true`,
@@ -1657,14 +1736,17 @@ beside the lever, exit past the machine). **Not on Android or iOS.**
 ## Level 7 ("07: Service Tunnel") - `LEVEL_7_LAYOUT`
 
 Designed 2026-09-23 as a high-tension linear crawling gauntlet similar in structure to Level 4's
-conveyor run. The player infiltrates the secure facility through a continuous 5200px ventilation
-duct:
+conveyor run. The player infiltrates the secure facility through a continuous ventilation duct,
+**rebuilt to 120m / 6410 units on 2026-09-25** - see "Level 7's 120 metres" below for the metre
+scale, the white wall stencils that state it, and the six-beat difficulty curve:
 
-- **The duct is STANDING height, not a crawl** - this entry used to say otherwise and it was stale.
-  `ceilingBottomY = 304.0` against `groundY = 440.0` is 136 units of clearance, so a 96-tall
-  standing player fits with room to spare, and `LevelLayout.playerStartCrouched` is `false`.
-  `Player.mustStayCrouched` still exists for ducts that ARE tight; nothing in level 7 triggers it
-  at the current geometry. Check `LEVEL_7_LAYOUT` before writing a crouch-only beat into this level.
+- **The duct is STANDING height for its whole length.** `ceilingBottomY = 304.0` against
+  `groundY = 440.0` is 136 units of clearance, so a 96-tall standing player fits with room to
+  spare, and `LevelLayout.playerStartCrouched` is `false`. Three crouch restrictions were built
+  here on 2026-09-25 and taken out again the same day on the owner's call ("remove the crawl under
+  things"); `plainPlatforms` is empty and a test says so. Do not reintroduce them without asking.
+  With `canClimb = false` and a flat floor, the corridor's whole vocabulary is wind, steam and
+  drones - which is the constraint the six-beat curve is built inside, not an oversight.
 - **Vent Fans (`VentFanDef` / `VentFan`, `src/game/model/VentObstacles.kt`)**: industrial exhaust
   fans blowing 135-145 u/s of air back down the duct. Ordinary walking cannot beat it
   (`GameWorld.WIND_WALK_FACTOR` cuts the player's own walk to 0.6 inside a zone, so 79 against 135);
@@ -1685,9 +1767,15 @@ duct:
   deflectable once by the Laser Shield gadget (`activePowerups.isLaserShieldActive`). **Nozzle art
   replaced 2026-09-25** - see "The level 7 fixtures pass" below, which also covers where the
   full-screen red hit flash went and why its removal reaches every other level too.
-- **Sequencing & decoupled hazard zones**: Obstacles are decoupled into clean, distinct stages so
-  fans do not blow the player into active steam pipes or drones. Safe recovery and staging zones
-  (100..300px) separate every hazard, housing 6 manual checkpoints.
+- **Sequencing & decoupled hazard zones**: hazards are staged so that one does not shove the
+  player into another, with recovery room between them and **7 manual checkpoints** (one per 20m
+  beat, plus one inside the final gauntlet). **One deliberate exception since 2026-09-25**:
+  `lvl7_pipe_9` at 4700 stands inside `lvl7_fan_3`'s zone (4660..5000), which is the level's one
+  "take a steam window at spam-tap pace" beat. It is exactly one, on purpose - the walkthrough
+  sim's behaviour there (stop tapping to wait out the jet, get blown back down the duct, walk in
+  again) is the cost of that combination, and it is why the sim's budget is 400s rather than 160s.
+  No checkpoint sits under a duct: a checkpoint respawns the player standing (`groundY - 96.0`),
+  which under one would put them inside its block.
 - **Visuals and performance discipline**: procedural textures, volumetric vision cones, nozzle LED
   indicators and duct frame structures are housed in `VentFxAssets.kt` to protect
   `GameplayScene.sceneMain` against the JVM 64KB bytecode limit.
@@ -1718,6 +1806,147 @@ duct:
   `testLevel7VentCeilingEnforcesContinuousCrouch`, `testLevel7VentFanPushbackAndSpamTapForwardImpulse`,
   `testLevel7CameraBotPatrolAndDeactivationFromBehind`, `testLevel7SteamPipeHazardsAndLaserShieldDeflection`,
   and full end-to-end traversal `testLevel7SimulationPlayableWalkthrough`.
+
+## Level 7's 120 metres (2026-09-25) - the metre scale, the stencils, and the curve
+
+### How distance is "calculated" - it isn't
+
+Nothing in this game converts world units to metres at runtime. There is no distance HUD, no
+`unitsPerMetre` constant, nothing. **Level 4 states its length entirely in wall decals**: six
+stencil PNGs (`resources/wall_{150,120,90,60,30,0}m.png`) drawn at `242.0 + stepIndex * 1500.0`
+across a 7760-unit conveyor, counting down 150m -> 0m. 1500 units per 30m step is the whole
+definition, and it makes the scale **50 world units = 1 metre**. If you want a level to "be" a
+distance, you place stencils; there is nothing else to change.
+
+So level 7 at 120m is five stencils 1500 units apart, 190 -> 6190, defined by
+`LevelData.LEVEL_7_MARKER_{FIRST_X,SPACING,LABELS}` and asserted against the layout in
+`testLevel7IsExactly120MetresOnLevel4sOwnMetreScale`. Move the exit and you move those, or the
+level stops meaning what it says.
+
+### The white stencils (`resources/wall7_*.png`)
+
+The owner asked for level 4's markers "but white" on level 7. `colorMul` cannot do it: it
+multiplies, so it darkens the ochre source and can never lift it to white. `tools/art/prep_wall_markers.py`
+does it on disk instead, and the conversion is exact because the stencils carry all of their shape
+in alpha - keep the alpha channel, replace RGB with white, resample nothing. Worn edges, grain and
+the loose speckle around the glyphs all survive. `minified = false`, like level 4's: drawn at
+roughly 1:1, so there is nothing for mipmaps to do and no power-of-two rule to meet.
+
+Two placement things that were found by looking at the screen, not by reasoning:
+
+- **They hang inside `worldView`, not in the parallax layer level 4 uses.** metalbg.png's
+  background scale is canvas-independent (`1000 * worldZoom / tileWidth`), so level 4's decals are
+  a fixed world size. bglvl7.png's is `canvasH / 724`, so a stencil sized off it would have grown
+  and shrunk with the window while the corridor painted around it did not. Added before anything
+  else in the world so they still draw behind all of it, which is the only thing level 4 gained by
+  putting its own in the background layer.
+- **`0m` stops 70 units short of the exit trigger.** The extraction booth (entrance.png) is drawn
+  from `exitZone.x` rightwards, so a 0m plate centred on the zone had its right half swallowed by
+  the booth on screen - only the "0" and a sliver of the "m" were readable. Level 4 has the same
+  arrangement and presumably the same problem. The first stencil is likewise 90 units ahead of the
+  spawn rather than on it, because at 130 the player's own silhouette covered the "m" of "120m" on
+  the very first frame of the level.
+
+### Landing them on bare wall
+
+"Put the name only on places where background is empty. no other objects." The wall is not empty
+anywhere in particular: bglvl7.png carries louvred vents, junction boxes, conduits and standpipes,
+and the ideal grid position dropped "120m" straight onto a junction box.
+
+This cannot be solved by choosing positions in `LevelData`, because **the background's world scale
+is not fixed**. bglvl7.png is drawn at `canvasH / 724`, and `canvasH` is the virtual canvas, which
+`ScreenLayout.viewportFor` sizes from the device aspect: 480 on a wide phone or desktop, 585 on
+16:9, up to ~1067 on 4:3. One tile of background therefore spans 1066 world units on one device and
+2369 on another, so the same world x sits over different wall detail on each. A baked position is
+right on exactly one aspect ratio.
+
+The level's own machinery counts too, and that part was found on screen rather than in a test:
+the first version only knew about detail painted into bglvl7.png, so it pushed "60m" 240 units
+right - directly onto `lvl7_fan_2`, 36 units of opaque machinery sitting across the stencil band.
+Fans and steam jets are now part of the same search, and they are the HARD requirement: a stencil
+under a fan or inside a jet is hidden outright, where one on busy background is merely untidy. So
+the search is two-stage - bare wall AND clear of machinery first, then clear of machinery alone.
+A single-stage version that fell back to the ideal position put "30m" inside `lvl7_pipe_9`'s jet
+on a 4:3 viewport, which is worse than the thing the search exists to avoid.
+
+So `GameplayScene.findClearWallX` does it at scene build time against the live `bgScale`:
+`(x * worldZoom / bgScale) mod textureWidth` is the texture pixel under a world x, and each stencil
+is nudged up to 300 units (6m) along the corridor until its whole footprint lands inside one of
+`LEVEL_7_CLEAR_WALL_WINDOWS`. The owner pre-authorised the trade ("it is okay for it to not be in
+the exact correct place to find a correct spot"). It returns the ideal position rather than drawing
+nothing when the wall is busy everywhere nearby, and it is bounded so the nudge can never carry a
+stencil behind the extraction booth or back past the spawn.
+
+The windows come from `tools/art/prep_wall_markers.py`, which scores each column by the worst
+**vertical** luminance step inside the stencil band. That is the discriminator that matters: a
+panel seam is a vertical line and has no vertical step, so it passes; a vent's louvres, a box's rim
+and a pipe's shading all fail. Measured in the band a 480-unit canvas uses, which is the demanding
+case - it needs the widest footprint in texture pixels AND has the narrowest windows, and every
+window it finds is contained in the equivalent window for a taller canvas.
+
+Two consequences worth knowing. The stencils are drawn **28 units tall, not 32**: at 32 the widest
+plate needed 148 texture pixels against a widest useful window of 148, with nowhere to place it.
+And one window runs off the right edge of the tile and continues at the left - the wall is
+continuous across the seam - so the fit test tries each position in this tile and in the next.
+
+Measured outcome: 18 of the 20 (canvas, stencil) combinations find bare wall; the other two fall
+back to the nearest machinery-free position. `VentVisualsTest` checks all twenty against every fan
+and every jet, and that no stencil drifts past the search radius or out of order.
+
+**A real bug this turned up**: level 4's decal pass was gated on `wallMarkerBitmaps.isNotEmpty()`
+rather than on its own background. Filling that same map for level 7 made the pass run there too,
+drawing every white stencil a SECOND time at level 4's positions and level 4's y - ghost
+duplicates a beat away from the real ones all down the corridor. It is gated on
+`bgFileName == "metalbg.png"` now. The lesson is the ordinary one: a shared map keyed by label is
+not a level gate.
+
+### The difficulty curve
+
+"Progressively harder" is only meaningful if it is measurable, so `testLevel7DifficultyRisesFromStartToExit`
+measures it: every steam window in the back half is tighter than every window in the front half,
+every wait is longer, each drone is faster than the one before it, each fan pushes harder, and no
+20m beat of the 120 is empty.
+
+Six 20m beats, each introducing one thing and then folding it into what came before:
+
+| beat | metres | what it adds |
+| --- | --- | --- |
+| 1 | 0-20 | headwind alone (the spam-tap tutorial, `lvl7_fan_1` untouched) |
+| 2 | 20-40 | steam alone, 300+ apart, longest windows |
+| 3 | 40-60 | the first drone, alone, with steam either side of it |
+| 4 | 60-80 | headwind, then a two-jet gate, then a faster drone |
+| 5 | 80-100 | a jet standing inside a wind zone |
+| 6 | 100-120 | gust -> tightest jet pair -> a drone on the door |
+
+The steam knobs carry the fine tightening, and they are indirect: `SteamPipe` clamps whatever it
+is handed (active 2.2..3.8s, dormant 0.8..1.8s, plus a fixed 1.0s warning flare), so the declared
+numbers only choose where inside those clamps a pipe lands. `inactiveDuration` 1.7 -> 1.3 -> 0.9
+shrinks the safe window from ~2.7s to ~1.8s; `activeDuration` 2.6 -> 3.0 -> 3.5 stretches the
+minimum wait from ~2.2s to ~3.0s.
+
+**A lone pipe is never the difficulty.** At a 132 u/s walk even the ~1.8s window covers 238 units
+against a jet 24 wide. Pairs are: the gate at 3620/3790 and the pair at 5560/5700 have to be read
+as one crossing on one window. So is `lvl7_pipe_9` at 4700, which stands inside `lvl7_fan_3`'s
+gale and so has to be taken at spam-tap pace.
+
+### What moved in the tests
+
+- `maxSimTime` in the walkthrough sim went 160s -> 400s, and the walker learned two things: to
+  crouch under ducts (without it, it stops dead at one and the level looks unfinishable), and to
+  size its commit window off the speed actually available - `(pipe.x + 20 - px) / crossSpeed +
+  0.35` instead of a flat 0.7s, which was tuned when every crossing was made standing against a
+  window no shorter than 2.5s.
+- `timeTargetSeconds` is back to 85.0, calibrated the way level 4's 115s is: just under what its
+  own sim takes. The sim clears the level in **85.3s with zero deaths**; 6160 units is 46.7s of
+  pure walking, so the target is roughly twice the theoretical floor. It was briefly 95 while the
+  crouch ducts were in.
+
+**Verified**: `jvmTest` 231 green, `android-shell:compileReleaseKotlin` clean, and on JVM desktop
+the 120m, 90m and 0m stencils were read off the screen at their own positions, the first crouch
+duct renders as the ceiling stepping down with `step_crouch_duct` firing at it, and the
+crawl-space jet's floor fixture and LED are visible under `duct2`. **Not checked**: the 60m and
+30m stencils (the three that were checked cover both ends and the middle), and anything on Android
+or iOS.
 
 ## The level 7 patrol rover (`resources/robot_{body,wheel}.png`) - replaced 2026-09-25
 
@@ -1848,6 +2077,58 @@ red-dominant pixels stays at ~211 (the LEDs) through the death and drops to 0 on
 against the ~1.75M a full-canvas wash would have put there. **The exit terminal's removal was not
 re-checked on screen** - it is at x=5050, most of a level away from anywhere reachable in a test
 run, and the class that drew it no longer exists. **Nothing checked on Android or iOS.**
+
+## The vent fixtures pass 2 (2026-09-25) - lamp meaning, burial, fan rate, prompt timeout
+
+Four more owner notes on the same level, all small and all with a measurement behind them.
+
+- **The steam lamp is red only while gas is out.** It used to run green from the warning flare
+  through the whole eruption, i.e. it said "safe" at the one moment the pipe kills. Each phase of
+  the cycle now owns a colour - dormant green, warning amber (`#f59e0b`, 1.0s), active red - so red
+  means one thing and the timing tell the lamp exists for is intact. `VentVisualsTest` sweeps 30
+  seconds of a real cycle and asserts the colour in every phase.
+- **The nozzles are bolted through the duct wall, not stuck to it.** They were pushed 4 units clear
+  of the corridor edge, which left a lit sliver of wall under the floor nozzle and over the ceiling
+  one - "they look like floating". `BURY_FRACTION` now pushes 22% of the plate's height past the
+  edge into the black band, and the plume starts at `topY`/`bottomY` exactly, which is where the
+  kill box starts anyway.
+- **Why 22% and not the half that was asked for.** Measured off `steam_nozzle_up.png`: the bolt
+  blocks the lamp stands on only exist in the outer half of the plate (solid rows 32..63 of 64 at
+  `LED_X`), and the only part spanning the plate's full height is the central trunk - which sits
+  entirely inside the `jetWidth` column the plume covers, so a lamp there would be behind the steam
+  exactly when it matters. Bury a full half and both blocks go under with it, leaving the lamp
+  hanging on bare wall beside a narrower silhouette - which is *worse* than the floating it was
+  meant to fix, and is what the first attempt at 0.35 actually looked like on screen. 0.22 is the
+  deepest bury that still leaves the lamp's whole 4.8-unit disc on solid silhouette: it needs 16 of
+  the plate's 64 rows clear below row 32, and 0.22 leaves 17.9.
+- **Fan blades run at 16.0 rad/s** (~2.5 rev/s), up from 8.0. The ceiling on this is the strobe,
+  not taste: blades are sampled once a frame, so an N-bladed rotor reads as stopped or backwards
+  once N revolutions per second passes 30 at 60fps. 2.5 rev/s leaves room for an 8-bladed rotor.
+  Pinned by a test, because a still frame cannot show a rate and this number has now moved twice.
+- **`TutorialStep.autoDismissSeconds`** is new and opt-in (0.0 = wait indefinitely, which is what
+  every pre-existing step still does and what is right when the action is the only way past). Level
+  7's `step_deactivate_bot` sets 5.0: disabling the drone is one option, not the only one, so the
+  prompt cannot camp on screen waiting for a choice the player may never make. A test asserts no
+  other step in any level was given a timeout.
+
+Verifying the prompt took instrumentation rather than screenshots, and the reason is worth
+remembering: the world updates behind the loading screen's fade, so a 5s prompt can open and close
+before the first frame a screen capture can see. A `println` on activate and on dismiss showed
+`activate step_deactivate_bot auto=5.0` then `auto-dismiss after 5.003s`. Screenshot bursts at
+0.6s spacing across the same window caught nothing and would have been read as "it never appeared".
+
+**Verified**: `jvmTest` 236 green and `android-shell:compileReleaseKotlin` clean. On JVM desktop,
+before the owner asked for screenshot testing to stop, the 120m and 90m stencils were seen on bare
+panels clear of the boxes either side, a ceiling nozzle showed red with steam pouring out of it
+while a floor nozzle showed amber in its warning phase, and both fixtures met the black band with
+no gap. **Not checked on screen**: the stencils after prop avoidance moved them again, the lamp's
+final seating after `LED_X` was nudged to 0.185, the fan rate (a still frame cannot show a rate -
+pinned by test), and anything on Android or iOS.
+
+**Screenshots are not the tool for a prompt's lifetime.** The world updates behind the loading
+screen's fade, so a 5s prompt opens and closes before the first frame a capture can see; bursts at
+0.6s spacing across the whole window caught nothing and would have been read as "it never
+appeared". A `println` on activate and dismiss settled it in one run.
 
 ## The wind stance (`resources/player/wind{transition,walk}`) - built 2026-09-24, live on level 7
 
@@ -2476,7 +2757,6 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
   - **"Coming Soon" chapter boxes hidden**: In `LevelSelectScreen.kt`, the loop generating placeholder cards for Chapters 2–4 with lock icons and "COMING SOON" text was removed. Chapter 1 ("THE SHIPYARD") is followed by 3 Compose `Spacer(modifier = Modifier.weight(1f))` elements to preserve exact 4-column alignment with the mission grid below without presenting non-functional buttons to reviewers.
   - **Settings language selection restricted**: In `SettingsScreen.kt`, `ALL_SUPPORTED_LANGUAGES` preserves all 15 language definitions, while `SUPPORTED_LANGUAGES` exposes only English (`en`) and French (`fr`), as these two are the only fully localized languages in `Localization.kt` (preventing fallback to English from reading as broken language switching to Play Store reviewers).
   - **Store developer debug button hidden**: In `StoreScreen.kt` (`RemoveAdsSection`), the developer "RESET" button (which invoked `onDeactivate()` to wipe `isPremium` for testing) was hidden when Lifetime Pass is active, and the active indicator box now spans `Modifier.fillMaxWidth()`, preventing unintended dev controls or accidental loss of purchased premium state.
-  - **Level 2 rain temporarily removed**: In `LevelData.kt` (`DEFAULT_LEVEL_2`), set `hasRain = false` (was `true`), completely disabling the `RainEffect` particle layers, lightning flash/bolt, and thunder audio for Level 2 during the review/production phase.
 
 ## Keep this file up to date
 

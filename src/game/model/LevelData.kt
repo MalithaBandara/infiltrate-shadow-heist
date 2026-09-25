@@ -322,6 +322,19 @@ data class TutorialStep(
     val instructionTouch: String,
     val instructionDesktop: String,
     val targetAction: TutorialAction,
+    /**
+     * Seconds the prompt may stay on screen before it dismisses itself, whether or not
+     * [targetAction] was ever performed. 0.0 - the default, and every step that existed before
+     * 2026-09-25 - means it waits indefinitely, which is right for a prompt whose action is the
+     * only way past (crouch under the beam, swing the gap).
+     *
+     * It is wrong for a prompt whose action is optional. Level 7's drone can be walked past as
+     * well as disabled, so "Approach from behind to disable!" camped on screen for as long as the
+     * player chose not to disable it - which is the case this exists for ("stop showing this go
+     * from behind after small time. dont wait until he disable robot"). Performing the action
+     * still dismisses it earlier; this is only a ceiling.
+     */
+    val autoDismissSeconds: Double = 0.0,
     val highlight: TutorialControlHighlight = TutorialControlHighlight.NONE,
     val handwrittenCallout: String? = null,
     // Only read when highlight == NONE: a world-anchored callout (text position and arrow tip,
@@ -725,8 +738,7 @@ data class LevelData(
             objectiveHint = "Find a Way Through the Yard",
             layout = LEVEL_2_LAYOUT,
             backgroundImage = "bgmg5.png",
-            // Temporarily disabled rain for Google Play production approval
-            hasRain = false
+            hasRain = true
         )
 
         /**
@@ -2676,30 +2688,88 @@ data class LevelData(
         )
 
         /**
-         * Level 7: Vent Infiltration ("07: Stolen Manifest").
+         * Where level 7's white distance stencils stand, and therefore how long level 7 is.
          *
-         * A high-tension linear crawling gauntlet through the facility's narrow ventilation duct:
-         * - Ceiling platform at y = 344.0..372.0 with ground at 440.0 enforces crouched crawling
-         *   across the entire duct (68px vertical clearance vs 56px crouch height / 96px standing).
-         * - Exhaust Fans: High-velocity air blows backwards (-120 px/s). Continuous holding moves
-         *   the player backward; spam-tapping forward delivers stride impulses (+48 px/tap) to push through.
-         * - Camera Bots: Patrolling drones with forward vision cones. Sneak up from behind within 52px
-         *   and press INTERACT to permanently deactivate them.
-         * - Pressurized Steam Pipes: Ceiling, floor, and paired nozzles blasting lethal jets of steam.
-         *   Players must time crawl intervals to cross safely (blockable once with Laser Shield).
+         * Level 4 measures itself purely with wall decals - nothing anywhere converts world units
+         * to metres at runtime - at 1500 units per 30m step, i.e. 50 units to the metre. Level 7
+         * counts down from 120m on that identical spacing, so these five constants and
+         * [LEVEL_7_LAYOUT]'s exit have to move together: the last stencil is the exit's own centre.
+         *
+         * Read by GameplayScene's marker pass (which loads `wall7_<label>.png`, the white recolour
+         * of level 4's ochre stencils - see tools/art/prep_wall_markers.py) and asserted against
+         * the layout in GameplayModelTest.
+         */
+        const val LEVEL_7_MARKER_FIRST_X: Double = 190.0
+
+        /** 1500 units = 30m, the same step level 4's stencils use. */
+        const val LEVEL_7_MARKER_SPACING: Double = 1500.0
+
+        /** Counting down, so the last one lands on the exit. */
+        val LEVEL_7_MARKER_LABELS: List<String> = listOf("120m", "90m", "60m", "30m", "0m")
+
+        /**
+         * Level 7: the 120-metre service tunnel ("07: Service Tunnel").
+         *
+         * ## The metre scale
+         *
+         * 50 world units = 1 metre - the scale level 4 is measured in, and the only place either
+         * level states a distance. Nothing computes metres at runtime: level 4's wall stencils run
+         * 150m -> 0m across 7500 units at 1500 units per 30m step, and that spacing is the whole
+         * definition. Level 7 reuses it unchanged at 120m, so the "120m" stencil stands at
+         * x = 190 and "0m" at x = 6190, with one every 1500 units between. The layout is built to
+         * the markers rather than the other way round, so moving the exit means moving
+         * [LEVEL_7_MARKER_FIRST_X] with it (GameplayScene's level 7 marker pass reads these same
+         * constants).
+         *
+         * "0m" stops 70 units short of the exit trigger rather than standing on it, because the
+         * extraction booth (entrance.png) is drawn from `exitZone.x` rightwards and swallowed the
+         * stencil's right half when the two were centred together. The last stencil now sits on
+         * the last clear panel before the door, which is where such a marking would be painted
+         * anyway. 70 is the clearance the 0m plate needs: it draws 49 units wide.
+         *
+         * ## The difficulty curve
+         *
+         * Six 20-metre beats. Each introduces one thing and then folds it into what came before,
+         * so no 20m stretch is empty and nothing appears cold inside a combination:
+         *
+         *   1.   0- 20m  Intake       headwind alone (the spam-tap tutorial)
+         *   2.  20- 40m  Purge line   steam alone, widely spaced, longest windows
+         *   3.  40- 60m  Patrol deck  the first drone, alone, with steam either side of it
+         *   4.  60- 80m  Compressor   headwind, then a two-jet gate, then a faster drone
+         *   5.  80-100m  Duct crawl   a jet standing inside a wind zone
+         *   6. 100-120m  Manifold     gust -> tightest jet pair -> a drone on the door
+         *
+         * The steam knobs do the fine tightening. [SteamPipe] clamps whatever it is handed (active
+         * 2.2..3.8s, dormant 0.8..1.8s, plus a fixed 1.0s warning flare), so the declared numbers
+         * choose where inside those clamps a pipe lands:
+         *
+         *   inactiveDuration 1.7 -> 1.3 -> 0.9  shrinks the safe window from ~2.7s to ~1.8s
+         *   activeDuration   2.6 -> 3.0 -> 3.5  stretches the minimum wait from ~2.2s to ~3.0s
+         *
+         * A lone pipe is never the difficulty: at a 132 u/s walk even the ~1.8s window covers 238
+         * units against a jet 24 wide. Pairs are. The gate at 3620/3790 and the pair at 5560/5700
+         * have to be read as one crossing on one window, and the jet at 4700 has to be taken at
+         * spam-tap pace because it stands inside lvl7_fan_3's gale.
+         *
+         * The duct is standing height for its whole length. Three crouch restrictions were built
+         * here on 2026-09-25 and taken out again the same day on the owner's call ("remove the
+         * crawl under things") - do not reintroduce them without asking; `canClimb = false` and a
+         * flat floor mean the corridor's only vocabulary is wind, steam and drones.
          */
         val LEVEL_7_LAYOUT = run {
             val groundY = 440.0
-            val worldWidth = 5200.0
+            val worldWidth = 6410.0
             val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
 
             // Whole middle section corridor: top black beam in bglvl7.png is at Y=212.0
             // Height = (488.0 - 212.0) * (480.0 / 724.0) / 1.35 ≈ 136.0 world units
             val ceilingBottomY = 304.0
-            val ventCeiling = Rect(x = 0.0, y = ceilingBottomY - 28.0, width = 4950.0, height = 28.0)
-            val chamberBackWall = Rect(x = 5160.0, y = 200.0, width = 40.0, height = groundY - 200.0)
+            val ventCeiling = Rect(x = 0.0, y = ceilingBottomY - 28.0, width = 6160.0, height = 28.0)
+            val chamberBackWall = Rect(x = 6370.0, y = 200.0, width = 40.0, height = groundY - 200.0)
 
             val fans = listOf(
+                // Beat 1 - the tutorial gale: widest zone (393..753), gentlest push. Left exactly
+                // as it was; step_spam_fan and several wind tests are pinned to this one's zone.
                 VentFanDef(
                     id = "lvl7_fan_1",
                     x = 753.0,
@@ -2711,39 +2781,59 @@ data class LevelData(
                     windDirection = -1.0,
                     fanImpulse = 10.0
                 ),
+                // Beat 4 - zone 3100..3400, immediately before the two-jet gate, so the gate is
+                // walked up to out of breath rather than from a standing start.
                 VentFanDef(
                     id = "lvl7_fan_2",
-                    x = 2886.0,
+                    x = 3400.0,
                     y = 338.0,
                     width = 36.0,
                     height = 68.0,
-                    windRange = 260.0,
-                    windPushSpeed = 140.0,
+                    windRange = 300.0,
+                    windPushSpeed = 145.0,
                     windDirection = -1.0,
                     fanImpulse = 10.0
                 ),
+                // Beat 5 - zone 4660..5000, with lvl7_pipe_9 at 4700 standing inside it: the one
+                // place in the level where a steam window has to be taken at spam-tap pace.
                 VentFanDef(
                     id = "lvl7_fan_3",
-                    x = 3953.0,
+                    x = 5000.0,
                     y = 338.0,
                     width = 36.0,
                     height = 68.0,
-                    windRange = 160.0,
-                    windPushSpeed = 145.0,
+                    windRange = 340.0,
+                    windPushSpeed = 150.0,
+                    windDirection = -1.0,
+                    fanImpulse = 10.0
+                ),
+                // Beat 6 - zone 5360..5480. Short and violent rather than wide: a gust off the
+                // mouth of duct3, clear of the duct itself so it is never fought while crouched.
+                VentFanDef(
+                    id = "lvl7_fan_4",
+                    x = 5480.0,
+                    y = 338.0,
+                    width = 36.0,
+                    height = 68.0,
+                    windRange = 120.0,
+                    windPushSpeed = 160.0,
                     windDirection = -1.0,
                     fanImpulse = 10.0
                 )
             )
 
+            // Sorted by x, and kept that way: the level 7 walkthrough test picks the next pipe
+            // with a `firstOrNull { px < pipe.x + 20.0 }` scan that assumes ascending order.
             val steamPipes = listOf(
+                // --- Beat 2: steam on its own, 300+ apart, the longest windows in the level. ----
                 SteamPipeDef(
                     id = "lvl7_pipe_1",
                     x = 1150.0,
                     topY = ceilingBottomY,
                     bottomY = groundY,
                     mountType = PipeMountType.TOP,
-                    activeDuration = 2.8,
-                    inactiveDuration = 1.2,
+                    activeDuration = 2.6,
+                    inactiveDuration = 1.7,
                     phaseOffsetSeconds = 0.0
                 ),
                 SteamPipeDef(
@@ -2752,8 +2842,8 @@ data class LevelData(
                     topY = ceilingBottomY,
                     bottomY = groundY,
                     mountType = PipeMountType.BOTTOM,
-                    activeDuration = 2.8,
-                    inactiveDuration = 1.2,
+                    activeDuration = 2.6,
+                    inactiveDuration = 1.7,
                     phaseOffsetSeconds = 1.8
                 ),
                 SteamPipeDef(
@@ -2762,63 +2852,102 @@ data class LevelData(
                     topY = ceilingBottomY,
                     bottomY = groundY,
                     mountType = PipeMountType.TOP,
-                    activeDuration = 2.9,
-                    inactiveDuration = 1.3,
+                    activeDuration = 2.7,
+                    inactiveDuration = 1.6,
                     phaseOffsetSeconds = 0.5
                 ),
+                // --- Beat 3: one either side of the first crouch duct. --------------------------
                 SteamPipeDef(
                     id = "lvl7_pipe_4",
                     x = 2480.0,
                     topY = ceilingBottomY,
                     bottomY = groundY,
                     mountType = PipeMountType.BOTTOM,
-                    activeDuration = 2.7,
-                    inactiveDuration = 1.2,
+                    activeDuration = 2.8,
+                    inactiveDuration = 1.5,
                     phaseOffsetSeconds = 1.0
                 ),
                 SteamPipeDef(
                     id = "lvl7_pipe_5",
-                    x = 3200.0,
+                    x = 3000.0,
                     topY = ceilingBottomY,
                     bottomY = groundY,
                     mountType = PipeMountType.TOP,
                     activeDuration = 2.8,
+                    inactiveDuration = 1.5,
+                    phaseOffsetSeconds = 0.3
+                ),
+                // --- Beat 4: the two-jet gate. 170 apart - close enough that the gap between them
+                //     is a place to pass through rather than a place to stop, far enough that a
+                //     player who misreads the first window is not already inside the second. ------
+                SteamPipeDef(
+                    id = "lvl7_pipe_6",
+                    x = 3620.0,
+                    topY = ceilingBottomY,
+                    bottomY = groundY,
+                    mountType = PipeMountType.BOTTOM,
+                    activeDuration = 3.0,
+                    inactiveDuration = 1.3,
+                    phaseOffsetSeconds = 0.0
+                ),
+                SteamPipeDef(
+                    id = "lvl7_pipe_7",
+                    x = 3790.0,
+                    topY = ceilingBottomY,
+                    bottomY = groundY,
+                    mountType = PipeMountType.TOP,
+                    activeDuration = 3.0,
+                    inactiveDuration = 1.3,
+                    phaseOffsetSeconds = 1.6
+                ),
+                // --- Beat 5: a lone jet, then the jet standing inside fan_3's gale. ------------
+                SteamPipeDef(
+                    id = "lvl7_pipe_8",
+                    x = 4390.0,
+                    topY = ceilingBottomY,
+                    bottomY = groundY,
+                    mountType = PipeMountType.BOTTOM,
+                    activeDuration = 3.1,
                     inactiveDuration = 1.2,
                     phaseOffsetSeconds = 0.0
                 ),
                 SteamPipeDef(
-                    id = "lvl7_pipe_6",
-                    x = 4220.0,
+                    id = "lvl7_pipe_9",
+                    x = 4700.0,
                     topY = ceilingBottomY,
                     bottomY = groundY,
                     mountType = PipeMountType.BOTTOM,
-                    activeDuration = 2.9,
-                    inactiveDuration = 1.3,
-                    phaseOffsetSeconds = 1.2
+                    activeDuration = 3.2,
+                    inactiveDuration = 1.1,
+                    phaseOffsetSeconds = 1.4
                 ),
+                // --- Beat 6: the tightest pair in the level, 140 apart on ~1.8s windows. --------
                 SteamPipeDef(
-                    id = "lvl7_pipe_7",
-                    x = 4450.0,
+                    id = "lvl7_pipe_10",
+                    x = 5560.0,
                     topY = ceilingBottomY,
                     bottomY = groundY,
                     mountType = PipeMountType.TOP,
-                    activeDuration = 2.7,
-                    inactiveDuration = 1.2,
-                    phaseOffsetSeconds = 0.4
+                    activeDuration = 3.5,
+                    inactiveDuration = 0.9,
+                    phaseOffsetSeconds = 0.0
                 ),
                 SteamPipeDef(
-                    id = "lvl7_pipe_8",
-                    x = 4650.0,
+                    id = "lvl7_pipe_11",
+                    x = 5700.0,
                     topY = ceilingBottomY,
                     bottomY = groundY,
                     mountType = PipeMountType.BOTTOM,
-                    activeDuration = 2.8,
-                    inactiveDuration = 1.2,
+                    activeDuration = 3.5,
+                    inactiveDuration = 0.9,
                     phaseOffsetSeconds = 1.5
                 )
             )
 
             val cameraBots = listOf(
+                // Beat 3 - the one the tutorial teaches on. Slowest, shortest sight, and the only
+                // hazard in its stretch. Left exactly where it was; the deactivation test is pinned
+                // to this one's start and patrol span.
                 CameraBotDef(
                     id = "lvl7_bot_1",
                     startX = 2080.0,
@@ -2829,28 +2958,36 @@ data class LevelData(
                     facing = 1.0,
                     visionRange = 120.0
                 ),
+                // Beat 4 - faster and longer-sighted, closing the beat that opened with a headwind,
+                // so it is met with the gale already behind the player.
                 CameraBotDef(
                     id = "lvl7_bot_2",
-                    startX = 3450.0,
+                    startX = 3960.0,
                     surfaceY = groundY,
-                    patrolMinX = 3420.0,
-                    patrolMaxX = 3620.0,
-                    speed = 38.0,
+                    patrolMinX = 3920.0,
+                    patrolMaxX = 4140.0,
+                    speed = 44.0,
                     facing = 1.0,
-                    visionRange = 120.0
+                    visionRange = 135.0
                 ),
+                // Beat 6 - on the door. Its patrol is deliberately short (90 units) so it turns
+                // often: the way past is to walk in behind it on a turn and disable it, which is
+                // the skill beat 3 taught, now with no room to wait it out.
                 CameraBotDef(
                     id = "lvl7_bot_3",
-                    startX = 4850.0,
+                    startX = 6160.0,
                     surfaceY = groundY,
-                    patrolMinX = 4820.0,
-                    patrolMaxX = 4980.0,
-                    speed = 40.0,
+                    patrolMinX = 6140.0,
+                    patrolMaxX = 6230.0,
+                    speed = 50.0,
                     facing = 1.0,
-                    visionRange = 120.0
+                    visionRange = 130.0
                 )
             )
 
+            // One per beat, plus an extra inside the final gauntlet. None sits under a duct: a
+            // checkpoint respawns the player standing (groundY - 96.0), which under a duct would
+            // put them inside its block.
             val checkpoints = listOf(
                 Checkpoint(
                     id = "lvl7_cp1_fan1",
@@ -2872,25 +3009,33 @@ data class LevelData(
                 ),
                 Checkpoint(
                     id = "lvl7_cp4_fan2",
-                    x = 2980.0,
+                    x = 3480.0,
                     y = groundY - 96.0,
-                    triggerZone = Rect(2960.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
+                    triggerZone = Rect(3460.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
                 ),
                 Checkpoint(
                     id = "lvl7_cp5_bot2",
-                    x = 3660.0,
+                    x = 4180.0,
                     y = groundY - 96.0,
-                    triggerZone = Rect(3640.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
+                    triggerZone = Rect(4160.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
                 ),
                 Checkpoint(
                     id = "lvl7_cp6_fan3",
-                    x = 4050.0,
+                    x = 5080.0,
                     y = groundY - 96.0,
-                    triggerZone = Rect(4030.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
+                    triggerZone = Rect(5060.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
+                ),
+                Checkpoint(
+                    id = "lvl7_cp7_manifold",
+                    x = 5500.0,
+                    y = groundY - 96.0,
+                    triggerZone = Rect(5480.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
                 )
             )
 
-            val exitX = 5050.0
+            // Far enough past the last stencil (6190) that the booth drawn from here does not
+            // cover it - see the class doc.
+            val exitX = 6260.0
 
             LevelLayout(
                 worldWidth = worldWidth,
@@ -2913,6 +3058,11 @@ data class LevelData(
         val DEFAULT_LEVEL_7 = LevelData(
             id = "level_7",
             name = "07: Service Tunnel",
+            // Calibrated the way level 4's 115s is: just under what its own walkthrough sim takes
+            // (85.3s here, 116.9s there), so the "finish under" objective is beaten by reading the
+            // hazards rather than by waiting out every single window. 6160 units is 46.7s of pure
+            // walking, so this is roughly twice the theoretical floor. It was briefly 95 while the
+            // level had crouch ducts in it.
             timeTargetSeconds = 85.0f,
             description = "Avoid the heavily guarded security room through the underground service tunnel.",
             objectiveHint = "Infiltrate Facility",
@@ -2939,6 +3089,9 @@ data class LevelData(
                     instructionTouch = "Approach the patrol bot from behind and tap INTERACT to disable it.",
                     instructionDesktop = "Approach the patrol bot from behind and press [E] or [F] to disable it.",
                     targetAction = TutorialAction.INTERACT,
+                    // Disabling the drone is one option, not the only one - so the prompt says its
+                    // piece and goes, instead of waiting for a choice the player may not make.
+                    autoDismissSeconds = 5.0,
                     highlight = TutorialControlHighlight.INTERACT,
                     handwrittenCallout = "Approach from behind to disable!"
                 )

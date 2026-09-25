@@ -6184,23 +6184,155 @@ class GameplayModelTest {
         assertEquals("07: Service Tunnel", levelData.name)
         val layout = levelData.layout
         assertNotNull(layout)
-        assertEquals(5200.0, layout.worldWidth)
+        assertEquals(6410.0, layout.worldWidth)
         assertEquals(100.0, layout.playerStartX)
         assertFalse(layout.playerStartCrouched)
         assertFalse(layout.canClimb)
         assertFalse(layout.hasStartFences)
-        assertEquals(3, layout.fans.size)
-        assertEquals(8, layout.steamPipes.size)
+        assertTrue(layout.plainPlatforms.isEmpty(), "the crouch ducts were removed 2026-09-25")
+        assertEquals(4, layout.fans.size)
+        assertEquals(11, layout.steamPipes.size)
         assertEquals(3, layout.cameraBots.size)
-        assertEquals(6, layout.manualCheckpoints.size)
+        assertEquals(7, layout.manualCheckpoints.size)
         assertEquals(1.0, levelData.playerCrouchForwardSpeedMultiplier)
 
         val world = GameWorld.createDefault(levelData)
         assertFalse(world.player.isCrouching, "Player in level 7 must start standing")
-        assertEquals(3, world.fans.size)
-        assertEquals(8, world.steamPipes.size)
+        assertEquals(4, world.fans.size)
+        assertEquals(11, world.steamPipes.size)
         assertEquals(3, world.cameraBots.size)
-        assertEquals(6, world.manualCheckpoints.size)
+        assertEquals(7, world.manualCheckpoints.size)
+    }
+
+    @Test
+    fun testLevel7IsExactly120MetresOnLevel4sOwnMetreScale() {
+        // Level 4 is the only place the game states a distance, and it states it purely as wall
+        // decals: six stencils 1500 units apart labelled 150m down to 0m, i.e. 50 units to the
+        // metre. Nothing converts units to metres at runtime in either level, so the stencils ARE
+        // the measurement and this is what keeps level 7 honest about being 120m.
+        val labels = LevelData.LEVEL_7_MARKER_LABELS
+        assertEquals(listOf("120m", "90m", "60m", "30m", "0m"), labels)
+        assertEquals(1500.0, LevelData.LEVEL_7_MARKER_SPACING, "level 4's own 30m step")
+
+        val unitsPerMetre = LevelData.LEVEL_7_MARKER_SPACING / 30.0
+        assertEquals(50.0, unitsPerMetre, 1e-9)
+
+        val first = LevelData.LEVEL_7_MARKER_FIRST_X
+        val last = first + (labels.size - 1) * LevelData.LEVEL_7_MARKER_SPACING
+        assertEquals(120.0, (last - first) / unitsPerMetre, 1e-9, "120m from the first stencil to the last")
+
+        // The last stencil reads 0m, so it belongs at the door - but NOT under it. The
+        // extraction booth is drawn from exitZone.x rightwards, and a 0m plate centred on the
+        // zone had its right half swallowed by the booth on screen. It sits just short instead,
+        // with room for its own 49-unit width.
+        val layout = LevelData.LEVEL_7_LAYOUT
+        val exit = layout.exitZone
+        assertTrue(last < exit.x, "the 0m stencil stands clear of the booth drawn from exitZone.x")
+        assertTrue(exit.x - last >= 49.0, "and clear by at least its own drawn width")
+        assertTrue(exit.x - last <= 150.0, "but still reads as the door, not as a landmark before it")
+
+        // And the level has to physically hold all of it, with the player starting behind the
+        // 120m mark rather than past it.
+        assertTrue(layout.playerStartX < first, "player starts behind the 120m stencil")
+        assertTrue(layout.worldWidth > exit.x + exit.width, "the world outlasts the exit")
+    }
+
+    @Test
+    fun testVentFanBladesSpinAtTheRequestedRate() {
+        // Owner request 2026-09-25: "increase the rotation speed of fans" (it was 8.0 rad/s).
+        // Pinned because the number has already been moved twice and it is not the kind of thing
+        // a screenshot can check - a still frame cannot show a rate.
+        val fan = VentFan(LevelData.LEVEL_7_LAYOUT.fans.first())
+        val dt = 1.0 / 60.0
+        var turned = 0.0
+        var previous = fan.bladeRotationAngle
+        repeat(60) {
+            fan.update(dt)
+            var step = fan.bladeRotationAngle - previous
+            if (step < 0.0) step += 2.0 * kotlin.math.PI // wrapped past a full turn
+            turned += step
+            previous = fan.bladeRotationAngle
+        }
+        assertEquals(16.0, turned, 0.05, "one second of updates is one second of rotation")
+
+        // The ceiling is the strobe: sampled once per frame, an N-bladed rotor reads as stopped or
+        // backwards once N revolutions per second passes 30.
+        val revsPerSecond = 16.0 / (2.0 * kotlin.math.PI)
+        assertTrue(revsPerSecond * 8.0 < 30.0, "still unambiguous for an 8-bladed rotor at 60fps")
+
+        fan.reset()
+        assertEquals(0.0, fan.bladeRotationAngle)
+    }
+
+    @Test
+    fun testTheDronePromptLetsGoOnItsOwn() {
+        // "stop showing this go from behind after small time. dont wait until he disable robot" -
+        // disabling the drone is one option, not the only one, so the prompt cannot camp on screen
+        // waiting for a choice the player may never make. Every other step in the game is still
+        // open-ended, which is right where the action is the only way past.
+        val bot = LevelData.DEFAULT_LEVEL_7.tutorialSteps.first { it.id == "step_deactivate_bot" }
+        assertEquals(5.0, bot.autoDismissSeconds)
+
+        val everywhereElse = LevelData.DEFAULT_LEVELS
+            .flatMap { it.tutorialSteps }
+            .filter { it.id != "step_deactivate_bot" }
+        assertTrue(
+            everywhereElse.all { it.autoDismissSeconds == 0.0 },
+            "no other tutorial step was given a timeout: " +
+                everywhereElse.filter { it.autoDismissSeconds != 0.0 }.map { it.id }
+        )
+    }
+
+    @Test
+    fun testLevel7DifficultyRisesFromStartToExit() {
+        // The brief was "progressively get harder", which is only meaningful if it is measurable.
+        // Steam is the hazard with a continuous knob on it, so it carries the curve: the safe
+        // window (dormant + the fixed 1.0s warning flare) has to shrink monotonically down the
+        // corridor, and the minimum wait between windows has to grow.
+        val pipes = LevelData.LEVEL_7_LAYOUT.steamPipes
+        assertEquals(pipes.sortedBy { it.x }, pipes, "the walkthrough test's next-pipe scan needs ascending x")
+
+        val firstHalf = pipes.filter { it.x < 3500.0 }
+        val lastHalf = pipes.filter { it.x >= 3500.0 }
+        assertTrue(firstHalf.isNotEmpty() && lastHalf.isNotEmpty())
+        assertTrue(
+            firstHalf.minOf { it.inactiveDuration } > lastHalf.maxOf { it.inactiveDuration },
+            "every window in the back half is tighter than every window in the front half"
+        )
+        assertTrue(
+            firstHalf.maxOf { it.activeDuration } < lastHalf.minOf { it.activeDuration },
+            "and every wait in the back half is longer"
+        )
+
+        // Drones speed up and see further the closer they are to the door.
+        val bots = LevelData.LEVEL_7_LAYOUT.cameraBots.sortedBy { it.startX }
+        for (i in 1 until bots.size) {
+            assertTrue(bots[i].speed > bots[i - 1].speed, "bot ${bots[i].id} is faster than the one before it")
+        }
+        assertTrue(bots.last().visionRange > bots.first().visionRange)
+
+        // Fans push harder the further in they are (the first one is the tutorial, the gentlest).
+        val fans = LevelData.LEVEL_7_LAYOUT.fans.sortedBy { it.x }
+        for (i in 1 until fans.size) {
+            assertTrue(
+                fans[i].windPushSpeed > fans[i - 1].windPushSpeed,
+                "fan ${fans[i].id} blows harder than the one before it"
+            )
+        }
+
+        // No 20m beat of the 120m is empty - that was the other half of the brief.
+        val hazardXs = pipes.map { it.x } +
+            LevelData.LEVEL_7_LAYOUT.fans.map { it.x } +
+            bots.map { it.startX }
+        val first = LevelData.LEVEL_7_MARKER_FIRST_X
+        for (beat in 0 until 6) {
+            val from = first + beat * 1000.0
+            val to = from + 1000.0
+            assertTrue(
+                hazardXs.any { it >= from && it < to },
+                "the 20m beat at ${beat * 20}m..${beat * 20 + 20}m ($from..$to) has nothing in it"
+            )
+        }
     }
 
     @Test
@@ -6507,7 +6639,11 @@ class GameplayModelTest {
         }
 
         var crossingPipe: SteamPipe? = null
-        val maxSimTime = 160.0
+        // 120m is 6030 units, which is 45.7s of walking before a single window is waited on -
+        // and the walker below deliberately gives ground rather than gamble, so the budget is
+        // generous. It is a bound on "does this level finish at all", not a pace target; the
+        // three-star pace is DEFAULT_LEVEL_7.timeTargetSeconds.
+        val maxSimTime = 400.0
         while (elapsed < maxSimTime && !world.isLevelComplete && restarts == 0) {
             val px = world.player.x
 
@@ -6530,12 +6666,19 @@ class GameplayModelTest {
             val nextPipe = world.steamPipes.firstOrNull { pipe -> px < pipe.x + 20.0 }
             val pipeAhead = if (nextPipe != null && (nextPipe.x - px) in 30.0..110.0) nextPipe else null
 
+            val crossSpeed = world.player.moveSpeed
+
             if (crossingPipe != null) {
                 if (px > crossingPipe!!.x + 20.0) {
                     crossingPipe = null
                 }
             } else if (pipeAhead != null) {
-                if (pipeAhead.remainingInactiveTime(elapsed) >= 0.7) {
+                // Commit only when what is left of the window covers the run to the far side of
+                // the jet at the walking speed available, plus a margin. This used to be a flat
+                // 0.7s, which was fine while no window here was shorter than 2.5s - the manifold
+                // pair now runs ~1.8s windows, and 110 units of approach is 0.83s of it.
+                val needed = (pipeAhead.x + 20.0 - px) / crossSpeed + 0.35
+                if (pipeAhead.remainingInactiveTime(elapsed) >= needed) {
                     crossingPipe = pipeAhead
                 }
             }
@@ -6559,6 +6702,7 @@ class GameplayModelTest {
             elapsed += dt
         }
 
+        println("Level 7 simulation finished at t=${elapsed}s, playerX=${world.player.x.toInt()}, isComplete=${world.isLevelComplete}, restarts=$restarts")
         assertTrue(world.isLevelComplete, "Level 7 simulation must reach exit zone within time limit (reached x=${world.player.x} at t=${elapsed}s)")
         assertEquals(0, restarts, "Level 7 simulation should clear without any deaths")
     }

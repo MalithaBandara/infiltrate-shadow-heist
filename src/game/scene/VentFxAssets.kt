@@ -709,8 +709,14 @@ class CameraBotVisual(
 class SteamPipeVisual(
     private val pipe: SteamPipe,
     private val container: Container,
-    private val topLed: Graphics?,
-    private val botLed: Graphics?,
+    /**
+     * The status lamps, one of which is null depending on which end the fixture is bolted to.
+     * Public so a test can read the colour and the seated position that actually reach the
+     * renderer: the lamp is a gameplay tell (it is what lets a player time a crossing), and both
+     * its colour meaning and its place on the plate have been changed under owner feedback.
+     */
+    val topLed: Graphics?,
+    val botLed: Graphics?,
     private val steamPlume: Container,
     private val particles: List<Image>,
     private val downwards: BooleanArray
@@ -770,12 +776,18 @@ class SteamPipeVisual(
         val warning = pipe.isWarning
         val warningProg = pipe.warningProgress
 
-        // Status LED color:
-        // - Off (inactive / dormant): red light (#ef4444)
-        // - Warning (1.0s before steam on) and Active (steam on): green light (#10b981)
+        // Status LED colour. Owner request 2026-09-25: "show red when gas is coming out" -
+        // this used to run green through the whole eruption, which read as "safe" at the one
+        // moment the pipe kills. Red is now the hazard and nothing else, which leaves the three
+        // phases of the cycle one colour each and keeps the LED's real job (letting a player time
+        // the run) intact:
+        //   dormant -> green   safe to cross
+        //   warning -> amber   1.0s of "not for much longer"
+        //   active  -> red     lethal right now
         val ledColor = when {
-            active || warning -> Colors["#10b981"]
-            else -> Colors["#ef4444"]
+            active -> Colors["#ef4444"]
+            warning -> Colors["#f59e0b"]
+            else -> Colors["#10b981"]
         }
         topLed?.colorMul = ledColor
         botLed?.colorMul = ledColor
@@ -823,7 +835,7 @@ class SteamPipeVisual(
             // Hot vapour rises once it has spent its momentum - lifts a ceiling jet's nose and
             // carries a floor jet's further. Cubic, so it only bites at the tail.
             val buoyancy = 9.0 * l * l * l
-            val cy = (if (downwards[i]) (pipe.topY + PROTRUSION) + travel else (pipe.bottomY - PROTRUSION) - travel) - buoyancy
+            val cy = (if (downwards[i]) pipe.topY + travel else pipe.bottomY - travel) - buoyancy
 
             // Spread opens with distance; the sway is this particle's own, not a shared oscillator.
             val cx = pipe.x + lateral[i] * l * l +
@@ -850,8 +862,42 @@ class SteamPipeVisual(
         // NOZZLE_WIDTH wide at the plate's own aspect.
         private const val NOZZLE_ASPECT = 0.2952   // 2124 x 627
         private const val NOZZLE_WIDTH = 64.0
-        // Move nozzles into corridor by 4.0 px to cover a little more
-        private const val PROTRUSION = 4.0
+
+        /**
+         * Across the plate to the left bolt block. 0.1664 is the block's measured centre; 0.185
+         * is a touch inboard of it, which seats the lamp's disc fully on the block's silhouette
+         * once [BURY_FRACTION] has taken the block's outer shoulder into the black.
+         */
+        private const val LED_X = 0.185
+
+        /**
+         * How much of the fixture's own height is pushed past the corridor edge into the black
+         * ceiling/floor structure, so it reads as bolted THROUGH the duct wall rather than stuck
+         * to it. It used to be a 4.0-unit gap in the other direction, which is what made the
+         * nozzles look like they were hovering in mid-air (owner, 2026-09-25).
+         *
+         * 0.22 rather than the half that was asked for, and the plate art is what sets the
+         * ceiling. Measured off steam_nozzle_up.png: the bolt blocks the status LED stands on only
+         * exist in the outer half of the plate (solid rows 32..63 of 64 at [LED_X]), and the only
+         * part that runs the plate's full height is the central trunk - which sits entirely inside
+         * the `jetWidth` column the plume covers, so a lamp there would be behind the steam at
+         * exactly the moment it matters. Bury a full half and the blocks go under with it, leaving
+         * the lamp hanging on bare wall beside a narrower silhouette, which is what the fixtures
+         * looked like before and reads as a bug rather than as a light.
+         *
+         * 0.22 is the deepest bury that still leaves the LED's whole 4.8-unit disc on solid
+         * silhouette: it needs 16 of the plate's 64 rows clear below row 32, and 0.22 leaves 17.9.
+         * That is enough to close the gap - the fixture's base now sits 4.2 units INSIDE the black
+         * band where it used to float 4.0 units above it.
+         */
+        private const val BURY_FRACTION = 0.22
+
+        /** Where the LED sits down the plate, measured from the mouth end - centred on the bolt
+         *  block (rows 32..63) and inside the 0.78 of the plate that stays visible. */
+        private const val LED_ALONG_PLATE = 0.625
+
+        /** Drawn radius of the status lamp, in world units. */
+        private const val LED_RADIUS = 2.4
 
         fun createAll(
             worldView: Container,
@@ -882,8 +928,10 @@ class SteamPipeVisual(
                 // Only mount top OR bottom, NEVER both!
                 if (pipe.mountType == PipeMountType.BOTTOM) {
                     if (upSlice != null) {
-                        // Stands ON the floor: shifted 4px up to cover a little more corridor
-                        val nBot = cont.container().xy(pipe.x - NOZZLE_WIDTH / 2.0, pipe.bottomY - fixtureH - PROTRUSION)
+                        // Bolted THROUGH the floor: the flange end sinks into the black band and
+                        // only the nozzle stack stands in the corridor. See BURY_FRACTION.
+                        val nBot = cont.container()
+                            .xy(pipe.x - NOZZLE_WIDTH / 2.0, pipe.bottomY - fixtureH * (1.0 - BURY_FRACTION))
                         nBot.image(upSlice).also { img ->
                             img.scaleX = NOZZLE_WIDTH / upSlice.width.toDouble()
                             img.scaleY = fixtureH / upSlice.height.toDouble()
@@ -891,14 +939,14 @@ class SteamPipeVisual(
                         val g = nBot.graphics()
                         g.updateShape {
                             fill(Colors.WHITE) {
-                                circle(Point(0.0, 0.0), 2.8)
+                                circle(Point(0.0, 0.0), LED_RADIUS)
                             }
                         }
-                        g.xy(NOZZLE_WIDTH / 2.0, fixtureH * 0.65)
-                        g.colorMul = Colors["#ef4444"]
+                        g.xy(LED_X * NOZZLE_WIDTH, fixtureH * LED_ALONG_PLATE)
+                        g.colorMul = Colors["#10b981"]
                         botLed = g
                     } else {
-                        val nBot = cont.container().xy(pipe.x - nozzleW / 2.0, pipe.bottomY - PROTRUSION)
+                        val nBot = cont.container().xy(pipe.x - nozzleW / 2.0, pipe.bottomY - 4.0)
                         // Structural collar attached to floor plate
                         nBot.solidRect(nozzleW, 4.0, Colors["#475569"]).xy(0.0, 0.0)
                         // Heavy conical nozzle mouth
@@ -913,14 +961,15 @@ class SteamPipeVisual(
                             }
                         }
                         g.xy(nozzleW / 2.0, -nozzleH / 2.0)
-                        g.colorMul = Colors["#ef4444"]
+                        g.colorMul = Colors["#10b981"]
                         botLed = g
                     }
                 } else {
                     // TOP mounted (default, even if legacy PAIR was passed)
                     if (downSlice != null) {
-                        // Hangs DOWN from the ceiling line: shifted 4px down to cover a little more corridor
-                        val nTop = cont.container().xy(pipe.x - NOZZLE_WIDTH / 2.0, pipe.topY + PROTRUSION)
+                        // Mirror of the floor mount: the flange end sinks up into the ceiling band.
+                        val nTop = cont.container()
+                            .xy(pipe.x - NOZZLE_WIDTH / 2.0, pipe.topY - fixtureH * BURY_FRACTION)
                         nTop.image(downSlice).also { img ->
                             img.scaleX = NOZZLE_WIDTH / downSlice.width.toDouble()
                             img.scaleY = fixtureH / downSlice.height.toDouble()
@@ -928,14 +977,14 @@ class SteamPipeVisual(
                         val g = nTop.graphics()
                         g.updateShape {
                             fill(Colors.WHITE) {
-                                circle(Point(0.0, 0.0), 2.8)
+                                circle(Point(0.0, 0.0), LED_RADIUS)
                             }
                         }
-                        g.xy(NOZZLE_WIDTH / 2.0, fixtureH * 0.35)
-                        g.colorMul = Colors["#ef4444"]
+                        g.xy(LED_X * NOZZLE_WIDTH, fixtureH * (1.0 - LED_ALONG_PLATE))
+                        g.colorMul = Colors["#10b981"]
                         topLed = g
                     } else {
-                        val nTop = cont.container().xy(pipe.x - nozzleW / 2.0, pipe.topY - nozzleH + PROTRUSION)
+                        val nTop = cont.container().xy(pipe.x - nozzleW / 2.0, pipe.topY - nozzleH + 4.0)
                         // Structural collar attached to ceiling plate
                         nTop.solidRect(nozzleW, 4.0, Colors["#475569"]).xy(0.0, 0.0)
                         // Heavy conical nozzle mouth
@@ -950,7 +999,7 @@ class SteamPipeVisual(
                             }
                         }
                         g.xy(nozzleW / 2.0, nozzleH / 2.0)
-                        g.colorMul = Colors["#ef4444"]
+                        g.colorMul = Colors["#10b981"]
                         topLed = g
                     }
                 }

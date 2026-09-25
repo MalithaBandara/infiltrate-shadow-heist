@@ -56,15 +56,6 @@ data class MenuMetrics(
      */
     val isTablet: Boolean get() = min(widthDp.value, heightDp.value) >= 600f
 
-    /**
-     * Whether the top bar should carry the wordmark next to the back button.
-     *
-     * Off on a phone: at the scale a 390dp-tall screen gets, the 180x48 logo renders about
-     * 112x30, small enough that its two lines of distressed lettering collide into a smudge -
-     * and the screen title is centred right next to it saying the same thing in one word.
-     */
-    val showsTopBarLogo: Boolean get() = !isNarrow && !isShort
-
     /** Horizontal page gutter: generous on a tablet, minimal on a narrow phone. */
     val gutter: Dp get() = when {
         isNarrow -> 16.dp
@@ -129,8 +120,12 @@ fun menuMetrics(
  * `game.model.DeviceScreen` the gameplay HUD uses keeps one mechanism for both halves of the app
  * and keeps this file free of a Compose insets API whose iOS behaviour cannot be checked on this
  * machine. Zero until a host publishes, which is exactly the behaviour these screens had before.
+ *
+ * **Android opts out entirely** - see [menuAppliesSafeAreaInsets], which is what "in androids
+ * there should not be padding at all" came down to. Only iOS insets these screens.
  */
 fun safeAreaPadding(): PaddingValues {
+    if (!menuAppliesSafeAreaInsets) return PaddingValues(0.dp)
     val safe = game.model.DeviceScreen.metrics?.safeArea ?: return PaddingValues(0.dp)
     return PaddingValues(
         start = safe.left.dp,

@@ -216,7 +216,6 @@ fun SettingsScreen(
                 scale = scale,
                 startInset = safe.calculateStartPadding(LocalLayoutDirection.current),
                 endInset = safe.calculateEndPadding(LocalLayoutDirection.current),
-                hideLogo = !metrics.showsTopBarLogo
             )
 
             // Content: Sidebar + Main Area
