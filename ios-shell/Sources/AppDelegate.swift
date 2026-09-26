@@ -1,6 +1,7 @@
 import UIKit
 import Darwin
 import StoreKit
+import AppTrackingTransparency
 import GameMain
 import PaywallModule
 
@@ -105,11 +106,67 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         ShellAppDelegate.shared.applicationDidBecomeActive(app: application)
+        gatherAdConsent()
     }
 
     func applicationWillTerminate(_ application: UIApplication) {
         ShellAppDelegate.shared.applicationWillTerminate(app: application)
     }
+
+    // MARK: - Ad consent (Google's consent message, then App Tracking Transparency)
+    //
+    // Ads are personalized, so nothing is requested until both have been answered - see
+    // paywall-build's AdPrivacy / AdConsentBridge for the Kotlin half. Runs from
+    // applicationDidBecomeActive because Apple only shows the ATT prompt to an active app (asked
+    // from didFinishLaunching it is silently skipped), and re-runs there on every activation until
+    // it settles, so a launch that was offline gets another go instead of leaving ads off.
+
+    private func gatherAdConsent() {
+        guard !AdConsentBridge.shared.isSettledOrRunning else {
+            retryTrackingPromptIfSkipped()
+            return
+        }
+        AdConsentBridge.shared.gatherConsent { [weak self] in
+            self?.requestTrackingAuthorization {
+                AdConsentBridge.shared.finish()
+            }
+        }
+    }
+
+    private func requestTrackingAuthorization(then done: @escaping () -> Void) {
+        // CI's simulator run has nobody to tap the system alert - it would sit over every
+        // screenshot and hold ads back for the whole run.
+        if CommandLine.arguments.contains("-ci-test") {
+            done()
+            return
+        }
+        guard ATTrackingManager.trackingAuthorizationStatus == .notDetermined else {
+            done()
+            return
+        }
+        ATTrackingManager.requestTrackingAuthorization { _ in
+            // Called on a background queue; AdConsentBridge.finish() writes Compose state.
+            DispatchQueue.main.async { done() }
+        }
+    }
+
+    // iOS can drop the request without showing anything while the app is still settling (right
+    // after the consent message closes, say), leaving the status undetermined. Ads have started by
+    // then, but asking again on the next activation still lets later requests carry the answer.
+    private func retryTrackingPromptIfSkipped() {
+        // hasFinished, not isSettledOrRunning: while the first flow is still running, its own ATT
+        // request is the one in flight, and a second would race it.
+        guard AdConsentBridge.shared.hasFinished,
+              !CommandLine.arguments.contains("-ci-test"),
+              ATTrackingManager.trackingAuthorizationStatus == .notDetermined,
+              !trackingPromptInFlight else { return }
+        trackingPromptInFlight = true
+        ATTrackingManager.requestTrackingAuthorization { [weak self] _ in
+            DispatchQueue.main.async { self?.trackingPromptInFlight = false }
+        }
+    }
+
+    private var trackingPromptInFlight = false
 
     // MARK: - Screen Metrics (canvas size + safe area, consumed by game.model.ScreenLayout)
 
@@ -361,7 +418,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     // MARK: - AdMob On-Device Verification (see .junie/guidelines.md "AdMob (basic-ads)
     // feasibility spike" - the link-only spike proved basic-ads compiles+links; this proves
-    // BasicAds.Initialize() and the non-personalized RequestConfiguration actually run on a real
+    // BasicAds.Initialize() and the personalized RequestConfiguration actually run on a real
     // iOS Simulator, not just that the code compiles). No longer verifies a real banner load: the
     // spike's invisible 1dp BannerAd() was a real ad impression firing on every production launch,
     // which violates AdMob's policy against ads not visible to users, so it was removed from
@@ -376,23 +433,22 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // ComposeUIViewController here and crashed inside Compose's own setContent machinery
         // with two scenes alive at once - see guidelines.md for the full story.
 
-        // initializeCalled/personalizationDisabled are set synchronously during Compose's first
-        // composition (no ad network round-trip involved anymore), but still polled rather than
-        // read once immediately, in case that first composition is delayed behind other launch
-        // work.
+        // initializeCalled/personalizationEnabled are set during composition once the ad consent
+        // flow has settled (a Google consent-status round trip at launch - ATT is skipped under
+        // -ci-test), so they are polled rather than read once.
         let deadline = Date().addingTimeInterval(15.0)
         var pollTimer: Timer?
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { t in
             let initCalled = AdMobVerifyBridge.shared.initializeCalled
-            let personalizationDisabled = AdMobVerifyBridge.shared.personalizationDisabled
+            let personalizationEnabled = AdMobVerifyBridge.shared.personalizationEnabled
             let timedOut = Date() >= deadline
             if initCalled || timedOut {
                 t.invalidate()
                 let resultText: String
                 if initCalled {
-                    resultText = "OK:initializeCalled=true:personalizationDisabled=\(personalizationDisabled)"
+                    resultText = "OK:initializeCalled=true:personalizationEnabled=\(personalizationEnabled)"
                 } else {
-                    resultText = "FAIL:initializeCalled=false:personalizationDisabled=\(personalizationDisabled):timedOut=\(timedOut)"
+                    resultText = "FAIL:initializeCalled=false:personalizationEnabled=\(personalizationEnabled):timedOut=\(timedOut)"
                 }
                 print("ADMOB_TEST: ==== AdMob Verification COMPLETE: \(resultText) ====")
                 self.writeTextFile("admob_verify_result.txt", resultText)

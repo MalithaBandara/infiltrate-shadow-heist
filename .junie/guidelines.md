@@ -1399,13 +1399,33 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
   in production, silently ignored otherwise, no callback) so a deliberately-pressed button can't
   meaningfully use it; `APP_STORE_ID = "6815256409"` lives at the top of `InAppReview.ios.kt`.
   Android's RATE US is unchanged (Play in-app review, reported working).
-- **App Tracking Transparency - resolved by going non-personalized, not by adding an ATT prompt**
-  (2026-09-26). No ATT prompt exists; `AdMobVerifyContent()` (iOS's sole production ad-init call
-  site) sets `publisherPrivacyPersonalizationState = DISABLED` once at startup - the SDK-level
-  equivalent of `npa=1`, so no IDFA is requested and no prompt is required. Trade-off: lower eCPM,
-  accepted over building the ATT flow before submission. Android untouched. **Not verified on a real
-  device or simulator.** If personalized ads are ever wanted back, build the real
-  `ATTrackingManager.requestTrackingAuthorization` flow and gate this value on the user's answer.
+- **Ads are personalized, behind a consent flow, on both platforms** (2026-09-26; replaced a
+  same-day `DISABLED`/no-ATT stopgap). Both `BasicAds.configuration` sites
+  (`AdMobVerifyContent()` iOS, `MainActivity` Android) use `PublisherPrivacyPersonalizationState.
+  DEFAULT` - the SDK personalizes where the user's answers allow. Flow: Google UMP consent message
+  (GDPR - only EEA/UK/CH, and only once a message is published in AdMob's "Privacy & messaging"
+  tab), then on iOS the ATT prompt, then `AdPrivacy.canRequestAds` flips and the SDK starts.
+  - **`AdPrivacy` (commonMain) is the gate.** Every ad host (continue, interstitial, both Store
+    rewarded hosts, both platforms) resolves a request immediately while it is false instead of
+    loading - never let a new ad host skip this check.
+  - **UMP comes from `basic-ads`' own `Consent` wrapper** - no new dependency (Android pulls
+    `user-messaging-platform` 4.0.0 transitively; iOS already had the pod). `AdConsent.android.kt`
+    runs it from `MainActivity.onCreate`/`onResume`; `AdConsentBridge.kt` (iosMain) runs it from
+    `AppDelegate.applicationDidBecomeActive`.
+  - **ATT lives in Swift**, and only from `applicationDidBecomeActive` - Apple silently skips a
+    request from an inactive app. Its completion handler is off-main; hop back before
+    `AdConsentBridge.finish()`. Skipped under `-ci-test` (nobody taps the alert in CI).
+    `NSUserTrackingUsageDescription` is in `project.yml` - iOS crashes the request without it.
+  - Settings > About shows **AD PRIVACY CHOICES** only while `AdPrivacy.privacyOptionsRequired`
+    (Google's required way back into the consent message).
+  - **Privacy manifest deliberately still says `NSPrivacyTracking = false`.** Apple requires at
+    least one `NSPrivacyTrackingDomains` entry when it is true, and iOS 17+ then BLOCKS those
+    domains for users who deny ATT - listing Google's ad domains risks no ads at all for them.
+    Google publishes no AdMob tracking-domain list and its own SDK manifest lists none. Tracking is
+    declared in App Store Connect's privacy answers instead (Device ID etc., "used to track").
+  - **Written without a local build (CI is the only compile check). Never run on a device**; the
+    consent message can't be seen from
+    CI's (US) simulator. Test UMP with `ConsentDebugSettings` geography EEA + a test device ID.
 - **Temporary gating for Google Play production approval (2026-09-25)**: levels 8-12 were hidden via
   `.take(7)` in three places (level 8 since unhidden, `.take(8)`); "Coming Soon" chapter placeholders
   removed (replaced with layout-preserving spacers); Settings language list restricted to

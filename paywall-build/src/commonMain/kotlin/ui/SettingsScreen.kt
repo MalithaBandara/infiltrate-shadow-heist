@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import com.infiltrate.ads.AdPrivacy
 import com.infiltrate.platform.PlatformInfo
 import com.infiltrate.review.InAppReview
 import com.infiltrate.storage.PlatformStorage
@@ -900,9 +901,17 @@ private fun AboutSettingsPanel(
 
             // Links
             var creditsExpanded by remember { mutableStateOf(false) }
-            val links = listOf("PRIVACY POLICY", "CONTACT US", "CREDITS & LICENSES", "RATE US")
+            // AD PRIVACY CHOICES is Google's required way back into its consent message, shown only
+            // to users that message applies to (EEA/UK/Switzerland) - see AdPrivacy.
+            val links = buildList {
+                add("PRIVACY POLICY")
+                if (AdPrivacy.privacyOptionsRequired) add("AD PRIVACY CHOICES")
+                addAll(listOf("CONTACT US", "CREDITS & LICENSES", "RATE US"))
+            }
             fun linkDisplay(link: String): String = when (link) {
                 "PRIVACY POLICY" -> Localization.privacyPolicy(selectedLanguage)
+                "AD PRIVACY CHOICES" ->
+                    if (Localization.isFrench(selectedLanguage)) "CHOIX DE CONFIDENTIALITÉ PUBLICITAIRE" else "AD PRIVACY CHOICES"
                 "CONTACT US" -> Localization.contactUs(selectedLanguage)
                 "CREDITS & LICENSES" -> Localization.creditsLicenses(selectedLanguage)
                 "RATE US" -> Localization.rateUs(selectedLanguage)
@@ -935,6 +944,7 @@ private fun AboutSettingsPanel(
                                     "CREDITS & LICENSES" -> {
                                         creditsExpanded = !creditsExpanded
                                     }
+                                    "AD PRIVACY CHOICES" -> AdPrivacy.showPrivacyOptions()
                                     "PRIVACY POLICY" -> {
                                         try {
                                             uriHandler.openUri("https://infiltrate.saysplit.app/privacy/")

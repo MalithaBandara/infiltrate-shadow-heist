@@ -12,10 +12,11 @@ object MainMenuComposeScreen {
     fun makeViewController(onStartLevel: (String) -> Unit): UIViewController =
         ComposeUIViewController {
             NavigationRoot(onStartLevel = onStartLevel)
-            // Real BasicAds.Initialize() + non-personalized RequestConfiguration call site (see
-            // AdMobVerifyScreen.kt) - deliberately rendered in the SAME scene as NavigationRoot,
-            // not a second ComposeUIViewController (that crashed - see AdMobVerifyScreen.kt for
-            // the full story). Renders no UI of its own; does not affect the real menu.
+            // Real BasicAds.Initialize() + RequestConfiguration call site (see
+            // AdMobVerifyScreen.kt), inert until AppDelegate.swift's consent flow settles -
+            // deliberately rendered in the SAME scene as NavigationRoot, not a second
+            // ComposeUIViewController (that crashed - see AdMobVerifyScreen.kt for the full
+            // story). Renders no UI of its own; does not affect the real menu.
             AdMobVerifyContent()
             // Real "watch ad to continue" trigger (see ContinueAdBridge.kt) - inert until Swift
             // calls ContinueAdTrigger.requestShow() after a mid-game death.
