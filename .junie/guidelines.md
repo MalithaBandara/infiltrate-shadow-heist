@@ -258,6 +258,15 @@ you one: bumping `attempt` discards the composition group the dead handler was r
   time.
 - Retrying does not touch `CoinsAdLimiter`/`GadgetAdLimiter` - it can't grant a reward twice.
 - **None of this is the cause if the ad unit itself isn't serving** - check `USE_TEST_ADS` first.
+- **"Ad not ready" on every iOS request in TestFlight, with AdMob counting the requests (reported
+  2026-09-26) is AdMob's limited ad serving, not code.** AdMob only fully serves an app that is
+  published on a supported store AND linked in AdMob, then reviewed (2-3 days); before the App
+  Store release the iOS app cannot be linked, so its real units no-fill. Android fills because its
+  Play listing is live and linked. Requests reaching AdMob prove the load path works; retries
+  cannot fix a no-fill. Confirm in AdMob > Apps (app status) and Reports (match rate ~0%). To
+  exercise the flow before approval use `USE_TEST_ADS = true` - which a TestFlight build should
+  use anyway (policy). `basic-ads` drops the `NSError` (`onFailure(AdException())`), so the app
+  can't show the real error code; AdMob's Ad Inspector on a registered test device can.
 
 ### Watch ad for coins (Store, `REWARDED_COINS`)
 
@@ -1421,11 +1430,18 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
   - **Privacy manifest deliberately still says `NSPrivacyTracking = false`.** Apple requires at
     least one `NSPrivacyTrackingDomains` entry when it is true, and iOS 17+ then BLOCKS those
     domains for users who deny ATT - listing Google's ad domains risks no ads at all for them.
-    Google publishes no AdMob tracking-domain list and its own SDK manifest lists none. Tracking is
-    declared in App Store Connect's privacy answers instead (Device ID etc., "used to track").
-  - **Written without a local build (CI is the only compile check). Never run on a device**; the
-    consent message can't be seen from
-    CI's (US) simulator. Test UMP with `ConsentDebugSettings` geography EEA + a test device ID.
+    AdMob 13.8.0's own manifest (printed by CI) has no `NSPrivacyTracking` key and no domains.
+    Tracking is declared per data type instead: `NSPrivacyCollectedDataTypes` is AdMob's 7 entries
+    (Device ID the only one with tracking=true) plus RevenueCat's Purchase History, merged by
+    script from the CI print and RevenueCat's GitHub manifest - re-derive, don't hand-edit.
+  - **`SKAdNetworkItems` is Google's full 50-ID list** (Google's own first), copied from
+    developers.google.com/admob/ios/3p-skadnetworks - re-copy the whole list when Google updates it.
+  - **Verified in CI 2026-09-26** (runs 36251116781 / 36251116782, raw logs read): both frameworks
+    link, shell `BUILD SUCCEEDED`, `android-shell bundleRelease` `BUILD SUCCESSFUL`, and on the
+    simulator `admob_verify_result` = `initializeCalled=true:personalizationEnabled=true` - i.e.
+    the consent flow settled and let ads start. **Never run on a device**; the consent message
+    can't be seen from CI's (US) simulator. Test UMP with `ConsentDebugSettings` geography EEA +
+    a test device ID, or a VPN to an EU country.
 - **Temporary gating for Google Play production approval (2026-09-25)**: levels 8-12 were hidden via
   `.take(7)` in three places (level 8 since unhidden, `.take(8)`); "Coming Soon" chapter placeholders
   removed (replaced with layout-preserving spacers); Settings language list restricted to
