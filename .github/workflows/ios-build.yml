@@ -171,6 +171,24 @@ jobs:
             echo "MISSING: no GoogleMobileAdsResources.bundle found anywhere in the app bundle."
           fi
 
+      - name: "One-off: locate PrivacyInfo.xcprivacy / GoogleMobileAdsResources.bundle anywhere on the runner"
+        continue-on-error: true
+        run: |
+          set +e
+          # Confirmed missing from ShellApp.app in the previous step. Kotlin's cocoapods plugin
+          # builds Google-Mobile-Ads-SDK in its own synthetic Xcode project under
+          # paywall-build/build/cocoapods/synthetic/IOS/ (see "podBuildGoogle-Mobile-Ads-SDK..."
+          # task in the build log above) rather than ios-shell/build/ - this searches the whole
+          # workspace plus the usual CocoaPods/DerivedData caches to find where it actually landed,
+          # so the eventual postbuildScript fix copies from a real path, not a guess.
+          echo "--- Searching $GITHUB_WORKSPACE ---"
+          find "$GITHUB_WORKSPACE" \( -iname "PrivacyInfo.xcprivacy" -o -iname "GoogleMobileAdsResources.bundle" \) 2>/dev/null
+          echo "--- Searching $HOME/Library/Developer/Xcode/DerivedData ---"
+          find "$HOME/Library/Developer/Xcode/DerivedData" \( -iname "PrivacyInfo.xcprivacy" -o -iname "GoogleMobileAdsResources.bundle" \) 2>/dev/null
+          echo "--- Searching $HOME/.cocoapods ---"
+          find "$HOME/.cocoapods" \( -iname "PrivacyInfo.xcprivacy" -o -iname "GoogleMobileAdsResources.bundle" \) 2>/dev/null
+          echo "--- done ---"
+
       - name: "Shell app: boot simulator, install, launch, verify on-device storage bridge"
         continue-on-error: true
         run: |
