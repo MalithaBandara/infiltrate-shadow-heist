@@ -124,3 +124,61 @@ targets:
           DEST="${TARGET_BUILD_DIR}/${WRAPPER_NAME}"
           echo "Copying game resources from $SRC to $DEST"
           rsync -a --exclude='.*' "$SRC/" "$DEST/"
+
+      # Real gap found via a CI step that inspects a built ShellApp.app directly (see
+      # ios-build.yml's "check for AdMob/RevenueCat privacy manifest" step): AdMob's
+      # PrivacyInfo.xcprivacy and GoogleMobileAdsResources.bundle were both confirmed absent from
+      # the shipped app. Root cause - paywall-build/build.gradle.kts's cocoapods{} block builds
+      # Google-Mobile-Ads-SDK in its OWN synthetic Xcode project under
+      # paywall-build/build/cocoapods/synthetic/ios/ (Kotlin/Native's cocoapods plugin does this to
+      # produce a .framework for cinterop/linking), completely separate from this app's own build
+      # tree. Xcode's usual "Copy Pods Resources" phase - which would normally carry both files
+      # into the app automatically - only exists for a project with its own Podfile, and this one
+      # (ios-shell) deliberately has none (see build.gradle.kts's noPodspec() comment). Missing
+      # either file is an automatic App Store Connect upload rejection (ITMS-91061), not a lint
+      # warning, so this fix matters before the first real submission attempt, not after a
+      # rejection surfaces it.
+      #
+      # Paths are located with `find` rather than hardcoded to the one build the CI diagnostic
+      # actually exercised (Debug-iphonesimulator): Kotlin's synthetic project's own intermediate
+      # directory naming for a device/Release build was never observed directly (no device/archive
+      # build has been run in this environment), so hardcoding that path would be exactly the kind
+      # of unverified guess this fix is trying to avoid.
+      - name: "Embed AdMob's privacy manifest and resource bundle into the app bundle root"
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          DEST="${TARGET_BUILD_DIR}/${WRAPPER_NAME}"
+          POD_ROOT="${SRCROOT}/../paywall-build/build/cocoapods/synthetic/ios"
+
+          RESOURCES_BUNDLE=$(find "$POD_ROOT/build" -type d -name "GoogleMobileAdsResources.bundle" 2>/dev/null | head -n 1)
+          if [ -n "$RESOURCES_BUNDLE" ]; then
+            echo "Copying $RESOURCES_BUNDLE to $DEST"
+            rsync -a "$RESOURCES_BUNDLE" "$DEST/"
+          else
+            echo "warning: GoogleMobileAdsResources.bundle not found under $POD_ROOT/build - AdMob ads may misbehave and/or the App Store Connect upload may be rejected (ITMS-91061)."
+          fi
+
+          # The framework's own manifest (separate from the resources bundle's copy) - lands at
+          # the app bundle root since GoogleMobileAds is linked into PaywallModule.framework rather
+          # than embedded here as its own separate framework. Prefer the slice matching this
+          # build's platform (PLATFORM_NAME is e.g. "iphonesimulator" or "iphoneos"; the pod's own
+          # xcframework slice directories are named like "ios-arm64_x86_64-simulator" or
+          # "ios-arm64", so match on "simulator" as a substring rather than an exact platform
+          # name), falling back to any slice found since the manifest's content does not vary by
+          # architecture.
+          ALL_MANIFESTS=$(find "$POD_ROOT/Pods/Google-Mobile-Ads-SDK" -path "*/GoogleMobileAds.framework/PrivacyInfo.xcprivacy" 2>/dev/null)
+          if echo "$PLATFORM_NAME" | grep -qi simulator; then
+            PRIVACY_MANIFEST=$(echo "$ALL_MANIFESTS" | grep -i simulator | head -n 1)
+          else
+            PRIVACY_MANIFEST=$(echo "$ALL_MANIFESTS" | grep -vi simulator | head -n 1)
+          fi
+          if [ -z "$PRIVACY_MANIFEST" ]; then
+            PRIVACY_MANIFEST=$(echo "$ALL_MANIFESTS" | head -n 1)
+          fi
+          if [ -n "$PRIVACY_MANIFEST" ]; then
+            echo "Copying $PRIVACY_MANIFEST to $DEST/PrivacyInfo.xcprivacy"
+            cp "$PRIVACY_MANIFEST" "$DEST/PrivacyInfo.xcprivacy"
+          else
+            echo "warning: GoogleMobileAds PrivacyInfo.xcprivacy not found under $POD_ROOT/Pods - the App Store Connect upload will likely be rejected (ITMS-91061)."
+          fi
