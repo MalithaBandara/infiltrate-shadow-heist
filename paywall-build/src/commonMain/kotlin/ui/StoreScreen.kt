@@ -163,6 +163,18 @@ fun StoreScreen(
     var toastIsSuccess by remember { mutableStateOf(true) }
     var isPurchasing by remember { mutableStateOf(false) }
 
+    // Real, store-localized prices (e.g. "$0.99" for a US buyer, "€1,09" for Germany) - keyed by
+    // the same packageId used in coinPacks below. Populated async; coinPacks shows "..." for any
+    // ID not yet in this map rather than a hardcoded USD guess that wouldn't match what non-US
+    // buyers are actually charged at checkout.
+    var localizedCoinPackPrices by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    LaunchedEffect(Unit) {
+        StoreBilling.fetchLocalizedPrices(
+            packageIds = listOf("coins_tier_1", "coins_tier_2", "coins_tier_3", "coins_tier_4", "coins_tier_5"),
+            onResult = { localizedCoinPackPrices = it }
+        )
+    }
+
     fun refreshProfile() {
         val p = profileStorage.getProfile()
         profile = p.copy(
@@ -232,7 +244,7 @@ fun StoreScreen(
         )
     }
 
-    val coinPacks = remember(language) {
+    val coinPacks = remember(language, localizedCoinPackPrices) {
         listOf(
             CoinPackItem(
                 id = "coins_ad",
@@ -247,7 +259,7 @@ fun StoreScreen(
                 id = "coins_tier_1",
                 title = Localization.coinPackName("coins_pouch", language),
                 amount = 1000,
-                price = "$0.99",
+                price = localizedCoinPackPrices["coins_tier_1"] ?: "...",
                 imageRes = Res.drawable.store_pouch,
                 imageSizeDp = 80
             ),
@@ -255,7 +267,7 @@ fun StoreScreen(
                 id = "coins_tier_2",
                 title = Localization.coinPackName("coins_briefcase", language),
                 amount = 2500,
-                price = "$1.99",
+                price = localizedCoinPackPrices["coins_tier_2"] ?: "...",
                 imageRes = Res.drawable.store_briefcase,
                 imageSizeDp = 84
             ),
@@ -263,7 +275,7 @@ fun StoreScreen(
                 id = "coins_tier_3",
                 title = Localization.coinPackName("coins_stash", language),
                 amount = 4000,
-                price = "$2.99",
+                price = localizedCoinPackPrices["coins_tier_3"] ?: "...",
                 imageRes = Res.drawable.store_stash,
                 imageSizeDp = 88
             ),
@@ -271,7 +283,7 @@ fun StoreScreen(
                 id = "coins_tier_4",
                 title = Localization.coinPackName("coins_duffle", language),
                 amount = 7500,
-                price = "$4.99",
+                price = localizedCoinPackPrices["coins_tier_4"] ?: "...",
                 imageRes = Res.drawable.store_duffle,
                 imageSizeDp = 92
             ),
@@ -279,7 +291,7 @@ fun StoreScreen(
                 id = "coins_tier_5",
                 title = Localization.coinPackName("coins_vault", language),
                 amount = 20000,
-                price = "$9.99",
+                price = localizedCoinPackPrices["coins_tier_5"] ?: "...",
                 imageRes = Res.drawable.store_vault,
                 imageSizeDp = 96
             )
