@@ -5,6 +5,7 @@ import game.model.VirtualViewport
 import korlibs.korge.scene.SceneContainer
 import korlibs.korge.view.Views
 import korlibs.math.geom.Size
+import korlibs.platform.Platform
 
 /**
  * Applies the device's virtual canvas (see `game.model.ScreenLayout`) to a live KorGE view tree.
@@ -44,8 +45,19 @@ object DeviceViewport {
      * `sceneContainer.size` at creation, so a scene already on screen will not pick up a resize
      * here - the next one will.
      */
+    fun currentViewport(): VirtualViewport {
+        val m = DeviceScreen.metrics
+        if (Platform.isJvm && m != null && m.widthDp > 1.0 && m.heightDp > 1.0 && m.widthDp < m.heightDp) {
+            val aspect = m.widthDp / m.heightDp
+            val h = if (aspect >= 0.7) 600.0 else 585.0
+            val w = kotlin.math.round(h * aspect).coerceAtLeast(240.0)
+            return VirtualViewport(w, h)
+        }
+        return DeviceScreen.viewport
+    }
+
     fun apply(views: Views, container: SceneContainer): VirtualViewport {
-        val viewport = DeviceScreen.viewport
+        val viewport = currentViewport()
         val w = viewport.width.toInt()
         val h = viewport.height.toInt()
         if (views.virtualWidth != w || views.virtualHeight != h) {

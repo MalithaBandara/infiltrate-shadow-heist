@@ -159,16 +159,33 @@ class RainEffectTest : ViewsForTesting() {
     }
 
     @Test
+    fun testBoltTextureHasHotCoreAndSoftCoronaGlow() {
+        assertEquals(32, RainAssets.BOLT_TEX_W)
+        assertEquals(16, RainAssets.BOLT_TEX_H)
+        val bmp = RainAssets.boltTexture
+        val midX = RainAssets.BOLT_TEX_W / 2
+        val coreRgba = bmp.getRgba(midX, RainAssets.BOLT_TEX_H / 2)
+        val coronaRgba = bmp.getRgba(midX, 2)
+
+        assertTrue(coreRgba.a > 220, "Plasma core must be near-opaque incandescent white-cyan")
+        assertTrue(coronaRgba.a in 10..150, "Outer corona must have a soft translucent glow falloff")
+        assertTrue(coreRgba.a > coronaRgba.a, "Core must be brighter than outer corona sheath")
+    }
+
+    @Test
     fun testLightningAndThunderCycle() = viewsTest {
         val bg = stage.container()
         val fg = stage.container()
-        val rain = RainEffect(bg, fg, initialCanvasW = 1040.0, initialCanvasH = 480.0)
+        val flash = stage.container()
+        val rain = RainEffect(bg, fg, initialCanvasW = 1040.0, initialCanvasH = 480.0, flashLayer = flash)
         val sounds = game.scene.GameAudio.load()
 
-        var sawLightningFlash = false
+        val boltContainer = bg.children[0] as Container
+        var sawActiveSkyBolt = false
+        var maxVisibleBoltSegments = 0
 
-        // Initial lightning timer is 5.0..8.0 seconds. Advance in 0.02s steps to reliably capture the flash strobe
-        for (step in 0 until 500) {
+        // Initial lightning timer is 2.5..4.5 seconds. Advance in 0.02s steps to capture the sky bolt discharge
+        for (step in 0 until 350) {
             rain.update(
                 dtSec = 0.02,
                 canvasW = 1040.0,
@@ -179,15 +196,25 @@ class RainEffectTest : ViewsForTesting() {
                 coroutineContext = coroutineContext
             )
 
-            // Look inside fg layer for the full-screen flash SolidRect
-            val flashRect = fg.firstDescendantWith { it is SolidRect } as? SolidRect
-            if (flashRect != null && flashRect.visible && flashRect.alpha > 0.05) {
-                sawLightningFlash = true
-                break
+            // Ensure no full-screen white flash SolidRect ever exists or flashes the screen
+            val anyFlashRect = stage.firstDescendantWith { it is SolidRect && it.visible && it.width >= 500.0 }
+            assertEquals(null, anyFlashRect, "Screen must NEVER be flashed with a white overlay during lightning")
+
+            if (boltContainer.visible) {
+                val litSegments = boltContainer.children.count { it.visible && it.alpha > 0.05 }
+                if (litSegments > maxVisibleBoltSegments) {
+                    maxVisibleBoltSegments = litSegments
+                }
+                if (litSegments >= 20) {
+                    sawActiveSkyBolt = true
+                }
             }
         }
 
-        assertTrue(sawLightningFlash, "Lightning flash should have fired within 12 seconds of gameplay")
+        assertTrue(
+            sawActiveSkyBolt,
+            "Fractal branched sky lightning bolt should have fired within 7s (max lit segments=$maxVisibleBoltSegments)"
+        )
     }
 
     @Test
@@ -210,12 +237,52 @@ class RainEffectTest : ViewsForTesting() {
             g.fillRect(0, 0, canvasW, canvasH)
         }
 
-        // 2. Draw dual-depth rain streaks FIRST - both layers sit behind the world now
-        // Wind angle: ~11.3 degrees (slope = 0.20)
-        val windSlope = 0.20
+        // 2. Draw realistic fractal sky lightning bolt BEHIND the rain and world silhouettes
+        // (No full-screen white flash overlay)
+        val boltPoints = listOf(
+            Pair(440, -4), Pair(448, 18), Pair(436, 39), Pair(452, 62),
+            Pair(443, 84), Pair(464, 108), Pair(455, 130), Pair(471, 154),
+            Pair(460, 178), Pair(478, 204), Pair(469, 228), Pair(486, 252),
+            Pair(479, 276), Pair(494, 300), Pair(488, 326), Pair(501, 352),
+            Pair(495, 378)
+        )
 
-        // Background rain (mid-depth streaks) - counts and alphas match RainEffect's own
-        // constants, which were roughly halved on 2026-09-25 ("less rain and more transparent").
+        // Outer electric corona glow
+        for (i in 0 until boltPoints.size - 1) {
+            val p = i.toFloat() / (boltPoints.size - 1)
+            g.stroke = BasicStroke(5.8f * (1f - 0.35f * p), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+            g.color = Color(145, 205, 255, (92 * (1f - 0.25f * p)).toInt())
+            g.drawLine(boltPoints[i].first, boltPoints[i].second, boltPoints[i + 1].first, boltPoints[i + 1].second)
+        }
+        // White-hot plasma core
+        for (i in 0 until boltPoints.size - 1) {
+            val p = i.toFloat() / (boltPoints.size - 1)
+            g.stroke = BasicStroke(2.2f * (1f - 0.35f * p), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+            g.color = Color(248, 253, 255, (242 * (1f - 0.15f * p)).toInt())
+            g.drawLine(boltPoints[i].first, boltPoints[i].second, boltPoints[i + 1].first, boltPoints[i + 1].second)
+        }
+
+        // Multi-tier secondary & tertiary forks
+        val branches = listOf(
+            listOf(Pair(452, 62), Pair(472, 80), Pair(486, 102), Pair(508, 122), Pair(522, 145)),
+            listOf(Pair(455, 130), Pair(434, 150), Pair(418, 172), Pair(399, 196), Pair(388, 218)),
+            listOf(Pair(469, 228), Pair(492, 248), Pair(509, 270), Pair(524, 292))
+        )
+        for (branch in branches) {
+            for (i in 0 until branch.size - 1) {
+                val p = i.toFloat() / (branch.size - 1)
+                g.stroke = BasicStroke(2.8f * (1f - 0.55f * p), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+                g.color = Color(150, 210, 255, (72 * (1f - 0.5f * p)).toInt())
+                g.drawLine(branch[i].first, branch[i].second, branch[i + 1].first, branch[i + 1].second)
+
+                g.stroke = BasicStroke(1.2f * (1f - 0.55f * p), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+                g.color = Color(235, 248, 255, (195 * (1f - 0.55f * p)).toInt())
+                g.drawLine(branch[i].first, branch[i].second, branch[i + 1].first, branch[i + 1].second)
+            }
+        }
+
+        // 3. Draw dual-depth rain streaks (behind the world)
+        val windSlope = 0.20
         g.color = Color(190, 220, 255, 52)
         g.stroke = BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
         val rng = java.util.Random(1337)
@@ -226,8 +293,6 @@ class RainEffectTest : ViewsForTesting() {
             g.drawLine(rx.toInt(), ry.toInt(), (rx + len * windSlope).toInt(), (ry + len).toInt())
         }
 
-        // Near rain (longer, faster streaks). Both layers now draw BEHIND the world, so this
-        // preview stacks them under the crates rather than over them.
         g.color = Color(240, 250, 255, 94)
         g.stroke = BasicStroke(2.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
         for (i in 0 until RainEffect.FRONT_DROP_COUNT) {
@@ -237,14 +302,13 @@ class RainEffectTest : ViewsForTesting() {
             g.drawLine(rx.toInt(), ry.toInt(), (rx + len * windSlope).toInt(), (ry + len).toInt())
         }
 
-        // 3. Draw ground platform and crates OVER the rain
+        // 4. Draw ground platform and crates OVER the rain and lightning
         val groundY = 410
         g.color = Color(24, 28, 36)
         g.fillRect(0, groundY, canvasW, canvasH - groundY)
         g.color = Color(40, 48, 64)
         g.fillRect(0, groundY, canvasW, 4)
 
-        // Stacks of crates representative of Cargo Yard
         val crateBoxes = listOf(
             Triple(120, groundY - 48, 48),
             Triple(168, groundY - 48, 48),
@@ -267,9 +331,7 @@ class RainEffectTest : ViewsForTesting() {
             g.drawLine(cx, cy + csize, cx + csize, cy)
         }
 
-
-        // 3b. Impact crowns on the surfaces the rain lands on (RainEffect spawns one on roughly
-        // a third of the near layer's landings and fades it out over SPLASH_LIFE).
+        // 4b. Impact crowns on the surfaces the rain lands on
         g.stroke = BasicStroke(1.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
         val splashTops = mutableListOf<Pair<Int, Int>>()
         for (sx in 40 until canvasW step 37) splashTops.add(Pair(sx, groundY))
@@ -284,54 +346,15 @@ class RainEffectTest : ViewsForTesting() {
             g.drawLine((sx - w).toInt(), sy, (sx + w).toInt(), sy)
         }
 
-        // 4. Draw realistic sky lightning bolt
-        val boltColor = Color(224, 242, 254, 240)
-        val boltGlowColor = Color(186, 230, 253, 100)
-
-        val boltPoints = listOf(
-            Pair(420, 20),
-            Pair(445, 65),
-            Pair(432, 110),
-            Pair(460, 160),
-            Pair(448, 205),
-            Pair(475, 260),
-            Pair(490, 310)
-        )
-
-        // Outer glow
-        g.stroke = BasicStroke(5.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-        g.color = boltGlowColor
-        for (i in 0 until boltPoints.size - 1) {
-            g.drawLine(boltPoints[i].first, boltPoints[i].second, boltPoints[i + 1].first, boltPoints[i + 1].second)
-        }
-
-        // Inner core
-        g.stroke = BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-        g.color = boltColor
-        for (i in 0 until boltPoints.size - 1) {
-            g.drawLine(boltPoints[i].first, boltPoints[i].second, boltPoints[i + 1].first, boltPoints[i + 1].second)
-        }
-
-        // Side fork branch
-        g.stroke = BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-        g.color = Color(210, 235, 255, 180)
-        g.drawLine(445, 65, 480, 100)
-        g.drawLine(480, 100, 495, 135)
-        g.drawLine(448, 205, 420, 245)
-
-        // 5. Ambient lightning flash tint overlay (strobe peak)
-        g.color = Color(219, 234, 254, 38)
-        g.fillRect(0, 0, canvasW, canvasH)
-
-        // 6. Header / callout banner
+        // 5. Header / callout banner
         g.color = Color(12, 16, 24, 210)
-        g.fillRoundRect(20, 18, 530, 64, 8, 8)
+        g.fillRoundRect(20, 18, 560, 64, 8, 8)
         g.color = Color(56, 189, 248, 160)
-        g.drawRoundRect(20, 18, 530, 64, 8, 8)
+        g.drawRoundRect(20, 18, 560, 64, 8, 8)
 
         g.color = Color(255, 255, 255)
         g.font = java.awt.Font("SansSerif", java.awt.Font.BOLD, 13)
-        g.drawString("LEVEL 2: CARGO YARD - PROCEDURAL RAIN & LIGHTNING SYSTEM", 32, 38)
+        g.drawString("LEVEL 2: CARGO YARD - PROCEDURAL RAIN & SKY LIGHTNING SYSTEM", 32, 38)
         g.font = java.awt.Font("SansSerif", java.awt.Font.PLAIN, 11)
         g.color = Color(186, 230, 253)
         g.drawString(
@@ -339,7 +362,7 @@ class RainEffectTest : ViewsForTesting() {
                 "${RainEffect.FRONT_DROP_COUNT} near drops + ${RainEffect.SPLASH_COUNT} pooled impact crowns, 0 GC/frame",
             32, 54
         )
-        g.drawString("• Multi-pulse lightning strobe (flash + jagged bolt) with physics speed-of-sound thunder", 32, 68)
+        g.drawString("• 32-segment fractal branched sky bolt (plasma core + corona, no screen flash) + thunder", 32, 68)
 
         g.dispose()
 

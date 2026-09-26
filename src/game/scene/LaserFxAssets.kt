@@ -319,18 +319,30 @@ class LaserVisual(
     }
 
     companion object {
+        /**
+         * [visualTopY], when set, mounts each emitter at that world y instead of the laser's own
+         * `topY`, sliding it back along the beam's own line so the angle is unchanged (level 4
+         * hangs its emitters from the top of the screen, which sits at a different world y on
+         * every aspect). Drawing only - the lethal segment stays `topY..bottomY`, and nothing the
+         * player can reach is above it.
+         */
         fun createAll(
             worldView: Container,
             lasers: List<Laser>,
-            laserEmitterBitmap: Bitmap? = null
+            laserEmitterBitmap: Bitmap? = null,
+            visualTopY: Double? = null
         ): List<LaserVisual> {
             val emitterBmp = laserEmitterBitmap ?: LaserFxAssets.emitterBitmap
 
             return lasers.map { laser ->
                 val cont = worldView.container()
 
-                val dx = laser.bottomX - laser.topX
-                val dy = laser.bottomY - laser.topY
+                val lineDx = laser.bottomX - laser.topX
+                val lineDy = laser.bottomY - laser.topY
+                val topY = if (visualTopY != null && visualTopY < laser.topY && lineDy > 0.0) visualTopY else laser.topY
+                val topX = if (topY != laser.topY) laser.topX + (topY - laser.topY) * lineDx / lineDy else laser.topX
+                val dx = laser.bottomX - topX
+                val dy = laser.bottomY - topY
                 val totalDist = hypot(dx, dy)
                 val angleDeg = atan2(dy, dx) * 180.0 / PI
 
@@ -341,7 +353,7 @@ class LaserVisual(
                 val beamLength = (totalDist - 2.0 * nozzleDist).coerceAtLeast(1.0)
 
                 // 1. Top Emitter Cannon (swiveled towards receiver, zero grey boxes)
-                val emitterCont = cont.container().xy(laser.topX, laser.topY)
+                val emitterCont = cont.container().xy(topX, topY)
                 emitterCont.rotation = angleDeg.degrees
 
                 // Status indicator glow behind the 3 diagonal hazard stripes

@@ -88,13 +88,12 @@ class VentVisualsTest {
     private fun placeStencil(
         label: String,
         sourceWidth: Int,
-        stepIndex: Int,
-        canvasHeight: Double
+        stepIndex: Int
     ): Double {
         val markerHeight = 28.0
         val worldZoom = 1.35
         val textureWidth = 2172.0            // bglvl7.png
-        val bgScale = canvasHeight / 724.0   // how GameplayScene scales that background
+        val bgScale = GameplayScene.LEVEL_7_BG_SCALE   // how GameplayScene scales that background
         val markerWidth = sourceWidth * (markerHeight / 68.0)
         val layout = LevelData.LEVEL_7_LAYOUT
         val propSpans = layout.fans.map { it.x..(it.x + it.width) } +
@@ -118,36 +117,60 @@ class VentVisualsTest {
         // lvl7_fan_2, 36 units of opaque machinery sitting across the band stencils are drawn in.
         // The props are level geometry, so they have to be part of the same search.
         //
-        // Checked at the four viewport heights ScreenLayout.viewportFor actually produces, because
-        // bglvl7's background scale is canvasH / 724: the same world x sits over different wall
-        // detail on each, so one position is not a proof about the others.
+        // This used to loop over four viewport heights, back when bglvl7's scale was canvasH / 724
+        // and the same world x sat over different wall detail on each. The scale is fixed now
+        // (see testLevel7PaintedDuctMatchesTheWorldDuctAtEveryViewport), so one answer holds for
+        // every device.
         val plates = listOf("120m" to 154, "90m" to 137, "60m" to 142, "30m" to 138, "0m" to 105)
         val layout = LevelData.LEVEL_7_LAYOUT
-        for (canvasHeight in listOf(480.0, 585.0, 800.0, 1066.0)) {
-            for ((stepIndex, plate) in plates.withIndex()) {
-                val (label, sourceWidth) = plate
-                val x = placeStencil(label, sourceWidth, stepIndex, canvasHeight)
-                val half = sourceWidth * (28.0 / 68.0) / 2.0
+        for ((stepIndex, plate) in plates.withIndex()) {
+            val (label, sourceWidth) = plate
+            val x = placeStencil(label, sourceWidth, stepIndex)
+            val half = sourceWidth * (28.0 / 68.0) / 2.0
 
-                for (fan in layout.fans) {
-                    assertTrue(
-                        x + half < fan.x || x - half > fan.x + fan.width,
-                        "$label at canvas $canvasHeight (x=$x) overlaps ${fan.id}"
-                    )
-                }
-                for (pipe in layout.steamPipes) {
-                    assertTrue(
-                        x + half < pipe.x - pipe.jetWidth / 2.0 || x - half > pipe.x + pipe.jetWidth / 2.0,
-                        "$label at canvas $canvasHeight (x=$x) overlaps ${pipe.id}'s jet"
-                    )
-                }
+            for (fan in layout.fans) {
                 assertTrue(
-                    x + half < layout.exitZone.x,
-                    "$label at canvas $canvasHeight (x=$x) was pushed into the extraction booth"
+                    x + half < fan.x || x - half > fan.x + fan.width,
+                    "$label (x=$x) overlaps ${fan.id}"
                 )
-                assertTrue(x - half > 0.0, "$label at canvas $canvasHeight (x=$x) fell out of the world")
             }
+            for (pipe in layout.steamPipes) {
+                assertTrue(
+                    x + half < pipe.x - pipe.jetWidth / 2.0 || x - half > pipe.x + pipe.jetWidth / 2.0,
+                    "$label (x=$x) overlaps ${pipe.id}'s jet"
+                )
+            }
+            assertTrue(
+                x + half < layout.exitZone.x,
+                "$label (x=$x) was pushed into the extraction booth"
+            )
+            assertTrue(x - half > 0.0, "$label (x=$x) fell out of the world")
         }
+    }
+
+    @Test
+    fun testLevel7PaintedDuctMatchesTheWorldDuctAtEveryViewport() {
+        // Owner report 2026-09-26, on tablets: the ceiling steam nozzles hung well below the black
+        // beam and the fans sat in the wrong places. bglvl7.png was scaled to the canvas height
+        // against a fixed worldZoom, so the painted duct only matched the world's 304..440 on the
+        // reference 480-unit canvas. Checked at every viewport height ScreenLayout produces.
+        val worldZoom = 1.35
+        val s = GameplayScene.LEVEL_7_BG_SCALE
+        val top = GameplayScene.LEVEL_7_BG_DUCT_TOP_ROW
+        val bottom = GameplayScene.LEVEL_7_BG_DUCT_BOTTOM_ROW
+        for (canvasHeight in listOf(480.0, 585.0, 600.0, 687.0, 800.0, 1066.0)) {
+            val floorScreenY = GameplayScene.level7FloorScreenY(canvasHeight)
+            val worldViewY = floorScreenY - 440.0 * worldZoom
+            fun worldYOfRow(row: Int) = (floorScreenY - (488 - row) * s - worldViewY) / worldZoom
+            assertEquals(440.0, worldYOfRow(488), 1e-9, "floor line at canvas $canvasHeight")
+            assertEquals(304.0, worldYOfRow(212), 1.0, "ceiling beam's underside at canvas $canvasHeight")
+
+            // The three bands exactly fill the canvas - no bare stage colour above or below.
+            val stretch = GameplayScene.level7SceneryStretch(canvasHeight)
+            val drawn = top * s * stretch + (bottom - top) * s + (724 - bottom) * s * stretch
+            assertEquals(canvasHeight, drawn, 1e-6, "background height at canvas $canvasHeight")
+        }
+        assertEquals(1.0, GameplayScene.level7SceneryStretch(480.0), 1e-12)
     }
 
     @Test
@@ -156,19 +179,17 @@ class VentVisualsTest {
         // correct place"), but a stencil that drifts far enough stops being a measurement. The
         // search radius is the bound, and the stencils have to stay in order.
         val plates = listOf("120m" to 154, "90m" to 137, "60m" to 142, "30m" to 138, "0m" to 105)
-        for (canvasHeight in listOf(480.0, 585.0, 800.0, 1066.0)) {
-            var previous = Double.NEGATIVE_INFINITY
-            for ((stepIndex, plate) in plates.withIndex()) {
-                val (label, sourceWidth) = plate
-                val ideal = LevelData.LEVEL_7_MARKER_FIRST_X + stepIndex * LevelData.LEVEL_7_MARKER_SPACING
-                val x = placeStencil(label, sourceWidth, stepIndex, canvasHeight)
-                assertTrue(
-                    kotlin.math.abs(x - ideal) <= 300.0,
-                    "$label drifted ${x - ideal} at canvas $canvasHeight - past the search radius"
-                )
-                assertTrue(x > previous, "stencils have to stay in descending-distance order")
-                previous = x
-            }
+        var previous = Double.NEGATIVE_INFINITY
+        for ((stepIndex, plate) in plates.withIndex()) {
+            val (label, sourceWidth) = plate
+            val ideal = LevelData.LEVEL_7_MARKER_FIRST_X + stepIndex * LevelData.LEVEL_7_MARKER_SPACING
+            val x = placeStencil(label, sourceWidth, stepIndex)
+            assertTrue(
+                kotlin.math.abs(x - ideal) <= 300.0,
+                "$label drifted ${x - ideal} - past the search radius"
+            )
+            assertTrue(x > previous, "stencils have to stay in descending-distance order")
+            previous = x
         }
     }
 

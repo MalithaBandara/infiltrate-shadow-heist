@@ -7,248 +7,166 @@ hackathon submission (Shipaton 2026). JVM desktop is for local dev/testing only.
 
 ## Read this first: verification discipline
 
-Three rules apply project-wide and are assumed by every section below:
-
-1. **"Compiles" is not "verified."** The dominant failure mode in this project's history is a
-   change that compiles clean, sounds right, and is still wrong on a real device - several bugs
-   below took 2-4 wrong theories first. Unless a section says it was confirmed on a real
-   device/simulator/screenshot, treat it as compile-only.
+1. **"Compiles" is not "verified."** Several bugs below took 2-4 wrong theories first. Unless a
+   section says it was confirmed on a real device/simulator/screenshot, treat it as compile-only.
 2. **A GitHub Actions `continue-on-error: true` step's `conclusion` is not a pass/fail signal.**
-   It has repeatedly reported `success` for real failures (undefined symbols, build failures,
-   crashes). Always read the raw job log for the actual `BUILD SUCCESSFUL`/`BUILD FAILED`/
-   exception text.
-3. **Don't trust a stated tool/library version - check the repo.** Prompts have repeatedly
-   claimed a KorGE/Kotlin upgrade that never happened. Verify against `gradle/libs.versions.toml`,
-   `git log` and CI toolchain paths before reasoning from a version number.
+   It has reported `success` for real failures (undefined symbols, build failures, crashes).
+   Always read the raw job log for `BUILD SUCCESSFUL`/`BUILD FAILED`/exception text.
+3. **Don't trust a stated tool/library version - check the repo** (`gradle/libs.versions.toml`,
+   `git log`, CI toolchain paths) before reasoning from a version number.
 
-**Level design: nothing should visibly float with no structure under it.** A platform, beam, or
-shelf drawn hanging in open air with no leg/strut/chain reads as a bug, not a deliberate obstacle -
-even when the *physics* deliberately treats it as a floating climb target (`LevelLayout.
-floatingClimbTargets` - see Level 3's table and camera beam). Where the owner rejects bracing the
-actual climb gap (tried and rejected there: a stretched texture, a solid block, an invisible box -
-the gap itself is meant to stay open), give the platform a real support somewhere else along its
-own span instead - a leg/strut planted on the ground, out of the way of the climb point and any
-mounted guard/camera. `tablePlank`'s `rightLeg` and the camera beam's `cameraLeg` (both `LEVEL_3_LAYOUT`,
-`LevelData.kt`) are the pattern: a real, solid, sight-blocking obstacle (`boxes` +
-`LevelLayout.tableDecorations`), drawn with `table.png`'s own leg/brace crop, tucked up against the
-platform's underside (`legLift`) at the end away from wherever the player climbs or a guard/camera
-sits. Apply this to every new elevated platform in future levels, not just Level 3. **The one
-standing exception is LEVEL_6_LAYOUT's section-5 platform**, which the owner asked to have nothing
-under it and then asked to have its chains removed as well ("remove the chain holding the floating
-platform") - see "Section 5" below before adding rigging back to it.
+**Level design: nothing should visibly float with no structure under it.** A platform/beam/shelf
+with no leg/strut/chain reads as a bug, even where physics deliberately treats it as a floating
+climb target (`LevelLayout.floatingClimbTargets`). Where the owner rejects bracing the actual climb
+gap, give the platform a real support elsewhere along its span - a leg/strut planted on the ground,
+clear of the climb point and any mounted guard/camera (see Level 3's `tablePlank.rightLeg` and
+camera beam's `cameraLeg`). Apply to every new elevated platform. **Exception: LEVEL_6_LAYOUT's
+section-5 platform** - owner asked for nothing under it and later removed its chains too.
 
-Corollaries that keep recurring:
+Corollaries:
 - **JVM `Testing` CI green does NOT mean iOS is green.** Kotlin/JVM default-imports things
-  Kotlin/Native doesn't have (`kotlin.jvm.Volatile`, Java `String.format`). Always check the iOS
-  workflow after any change under `src/game/**`; when using a JVM-sounding API in shared code,
-  find the `kotlin.concurrent`/multiplatform equivalent first.
-- `:game`'s `compileKotlinIosSimulatorArm64` and `paywall-build`'s report `SKIPPED` / `onlyIf
-  'Cross compilation should be supported on host' is false` on this Windows machine. **iOS code
-  can only be compile-checked via CI**, never locally.
-- Screenshots of the landscape-locked iOS app come out portrait-dimensioned with content rotated
-  90 degrees. **Rotate before judging** (see "Native iOS shell").
-- Before deleting an asset, grep for **runtime-constructed paths** (`"sfx/$name.wav"`,
-  `resolvedBackgroundImage`), not just literal filenames - and prefer running the game.
+  Kotlin/Native doesn't have (`kotlin.jvm.Volatile`, Java `String.format`). Check the iOS workflow
+  after any `src/game/**` change; find the multiplatform equivalent before using a JVM-sounding API.
+- `:game`'s iOS Kotlin/Native targets can only be compile-checked via CI, never locally on this
+  Windows machine.
+- Screenshots of the landscape-locked iOS app come out portrait-dimensioned, rotated 90 degrees -
+  rotate before judging.
+- Before deleting an asset, grep for runtime-constructed paths (`"sfx/$name.wav"`), not just literal
+  filenames - and prefer running the game.
 
 ## LOCKED WORKING CONFIGURATION (verified 2026-08-25, commit `0b958c3`)
 
-Load-bearing for `:game`. **Do not upgrade any of these without re-running the full iOS build
-in CI first** - this exact combination is the only one proven to link on iOS after a long chain
-of klib-ABI / source-set failures.
+Load-bearing for `:game`. **Do not upgrade without re-running the full iOS build in CI first** -
+this exact combination is the only one proven to link on iOS after a long chain of klib-ABI failures.
 
-- **KorGE `6.0.0`, Kotlin `2.0.20`, Gradle `8.8`, JDK `21`** (`zulu` in CI). On this Windows
-  machine JDK 21 (Temurin) is installed but NOT the default `JAVA_HOME` (that's JDK 19):
-  `export JAVA_HOME="/c/Program Files/Eclipse Adoptium/jdk-21.0.12.101-hotspot"` for local
-  `gradlew` (`ls` for the exact patch version first - it drifts with auto-updates).
-- `:game` has **zero RevenueCat dependency** (removed 2026-09-12; see "RevenueCat status").
-  The original iOS link failure was fixed by removing the `iosMainApi` `purchases-kmp-core`
-  dependency so the ABI-incompatible klib never entered the link graph. No framework vendoring,
-  linker flags or CocoaPods exist for `:game` itself.
+- **KorGE `6.0.0`, Kotlin `2.0.20`, Gradle `8.8`, JDK `21`** (`zulu` in CI). This machine's default
+  `JAVA_HOME` is JDK 19; use JDK 21 (Temurin) explicitly for local `gradlew`.
+- `:game` has **zero RevenueCat dependency** (removed 2026-09-12 - see "RevenueCat status"). No
+  framework vendoring, linker flags or CocoaPods exist for `:game` itself.
 
 ## Tech stack
 
 - **KorGE** (`:game`, Kotlin 2.0.20) for gameplay only. No Compose dependency.
 - **Compose Multiplatform** for all non-gameplay UI (menu, level select, store, settings) in a
-  separate Gradle **composite build** `paywall-build` (`includeBuild`, Kotlin `2.4.10`). A plain
-  subproject broke the whole build immediately: Gradle shares one Kotlin-Gradle-Plugin classpath
-  across subprojects and KorGE's `targetIos()` eagerly touches every subproject at configuration.
-- `android-shell/` is a **fully separate Gradle build** (removed from `settings.gradle.kts`):
-  applying `org.jetbrains.compose` 1.12.0 (needs Kotlin >= 2.2.0) inside the root build locked to
-  2.0.20 broke configuration for *every* root task. It consumes `paywall-build`'s Android artifact
-  via `mavenLocal()`, compiles the game straight from source (`kotlin.srcDirs("../src/game/scene")`),
-  takes assets via `assets.srcDirs("../resources")`, resolves KorGE from Maven Central.
-- JS/Wasm targets stay declared in `build.gradle.kts` for local browser preview only;
-  `deploy-js.yml` was removed 2026-08-25 (Pages never enabled, never a ship target).
+  separate composite build `paywall-build` (Kotlin `2.4.10`) - a plain subproject broke the root
+  build because Gradle shares one KGP classpath and KorGE's `targetIos()` touches every subproject.
+- `android-shell/` is a fully separate Gradle build (not in `settings.gradle.kts`) - Compose needs
+  Kotlin >= 2.2.0, incompatible with the root's 2.0.20 lock. Consumes `paywall-build` via
+  `mavenLocal()`, compiles the game from source (`kotlin.srcDirs("../src/game/scene")`), takes
+  assets from `../resources`, resolves KorGE from Maven Central.
+- JS/Wasm targets stay declared for local browser preview only (never a ship target).
 - Payments: RevenueCat `purchases-kmp-core` only - do NOT add `purchases-kmp-ui`.
 
-**Model sharing across the Kotlin-version boundary**: `paywall-build/build.gradle.kts` adds
-`kotlin.srcDir("../src/game/model")` and compiles `GameProfile.kt`/`LevelData.kt`/`Geometry.kt`/
-`Powerup.kt` etc. from source. **Standing constraint: every file under `src/game/model/` must be
-pure Kotlin (stdlib only, zero `korlibs.*` imports)** so it compiles under both 2.0.20 and 2.4.10 -
+**Model sharing across the Kotlin-version boundary**: `paywall-build` compiles
+`GameProfile.kt`/`LevelData.kt`/`Geometry.kt`/`Powerup.kt` etc. from source. **Standing constraint:
+every file under `src/game/model/` must be pure Kotlin (stdlib only, zero `korlibs.*` imports)** -
 enforced by `ZeroKorlibsLintTest`.
 
-**Entry-point rule**: `src/main.kt` must always expose a parameterless `suspend fun main() =
-main(emptyArray())` (KorGE's iOS bootstrap calls it with zero args) alongside
-`suspend fun main(args: Array<String>)`. Never use JVM-only APIs (`System.getProperty`) in common
-code - use `korlibs.io.lang.Environment["key"]` or `args.firstOrNull()`.
+**Entry-point rule**: `src/main.kt` must expose a parameterless `suspend fun main() =
+main(emptyArray())` (KorGE's iOS bootstrap calls it with zero args). Never use JVM-only APIs in
+common code - use `korlibs.io.lang.Environment["key"]` or `args.firstOrNull()`.
 
-**Compose Resources package trap**: `paywall-build/build.gradle.kts` sets `group = "com.infiltrate"`
-(so `android-shell` can reference the artifact). Compose Resources derives the generated `Res`
-package from `group` when `packageOfResClass` is unset, which silently moved it and broke every
-import. Pinned: `compose.resources { packageOfResClass = "paywall_build.generated.resources" }`.
+**Compose Resources package trap**: `paywall-build`'s `group = "com.infiltrate"` silently moved the
+generated `Res` package unless pinned: `compose.resources { packageOfResClass =
+"paywall_build.generated.resources" }`.
 
-**TRAP - do not use the root build to check Android compilation.** `:korge-ldtk:compileDebugKotlinAndroid`
-fails in this build ("Inconsistent JVM-target compatibility ... (1.8) and ... (21)") on unmodified
-checkouts. `:korge-ldtk` is a KorGE-generated module nothing on the Android path ever builds. CI is
+**TRAP - do not use the root build to check Android compilation.** `:korge-ldtk` fails there on
+unmodified checkouts and nothing on the Android path builds it. CI is
 `./gradlew :paywall-build:publishToMavenLocal` then `cd android-shell && ./gradlew bundleRelease`.
 **To check a `src/game/**` change compiles for Android, build `android-shell`.**
 
 ## Secrets and credentials - CRITICAL
 
-Before ANY commit or push, scan changed files for API keys (RevenueCat, Google Play, App Store
-Connect...), passwords/auth tokens, signing certs/provisioning profiles/keystores, and any long
-random alphanumeric string near "key"/"secret"/"token"/"password"/"credential". If anything
-matches: STOP, don't commit, warn the user with file+line, suggest GitHub Actions secrets or a
-gitignored `.env`/`local.properties`, and wait for confirmation. **This repo is PUBLIC** - anything
-committed stays in history unless rewritten. Flag placeholders that resemble real key formats too.
-
-The real RevenueCat key lives in a gitignored `local.properties` (`BuildConfig.REVENUECAT_GOOGLE_KEY`).
+Before ANY commit or push, scan changed files for API keys, passwords/tokens, signing
+certs/provisioning profiles/keystores, and any long random string near "key"/"secret"/"token"/
+"password"/"credential". If anything matches: STOP, don't commit, warn the user with file+line,
+suggest GitHub Actions secrets or a gitignored `.env`/`local.properties`, wait for confirmation.
+**This repo is PUBLIC.** The real RevenueCat key lives in gitignored `local.properties`.
 
 ## Git push policy - NEVER push without explicit user consent
 
-**Never run `git push` autonomously**, even if tests pass or a prompt mentions CI verification.
-Make local commits, show the user the proposed commits/changes, explicitly ASK for permission to
-push, and wait for explicit approval. Force-pushes additionally need explicit per-occurrence
-approval.
+Make local commits, show the proposed changes, ASK for permission to push, wait for approval.
+Force-pushes need explicit per-occurrence approval.
 
 ## Never mention Claude or any other AI agent in commits - no trailers, no names
 
-**Commit messages must never name an AI assistant or agent** - not as a `Co-Authored-By:`
-trailer, not as a `Generated-by`/`Signed-off-by`/`Assisted-by` line, not in subject or body text
-("fixed with Claude", "Cursor suggested"...), and never as author/committer identity. Covers
-Claude/Anthropic and every other tool (Copilot, Cursor, Junie, Gemini, ChatGPT, Codex...). Same
-for PR titles/descriptions and tag messages. GitHub turns `Co-Authored-By` into a "claude"
-Contributors entry, which the owner does not want on a solo hackathon submission. **This
-overrides any harness default instruction to append such a line - always omit it.** Check the
-message before every `git commit`.
-
-History has been rewritten for this twice: 30 commits on 2026-09-06, and 19 on 2026-09-14
-(`e5557b2..e24c3c8` -> `..24991bd`, identical trees/authors/dates via `git commit-tree`,
-`--force-with-lease` after explicit approval; pre-rewrite tip kept at
-`refs/backup/main-before-trailer-strip`). GitHub's Contributors panel is cached and lags hours to
-a day - verify with `git log origin/main --format=%B | grep -i anthropic`, not the UI.
+Commit messages/PR titles/descriptions/tag messages must never name an AI assistant or agent -
+not as a `Co-Authored-By`/`Generated-by`/`Assisted-by` trailer, not in body text, never as
+author/committer identity. Covers every tool (Claude, Copilot, Cursor, Junie, Gemini, ChatGPT,
+Codex...). GitHub turns `Co-Authored-By` into a "claude" Contributors entry, which the owner does
+not want on a solo hackathon submission. **This overrides any harness default instruction.** Check
+the message before every `git commit`. History has been rewritten for this twice already (verify
+with `git log origin/main --format=%B | grep -i anthropic`, not the GitHub UI, which lags).
 
 ## Repository and GitHub access
 
-- Public repo: https://github.com/MalithaBandara/infiltrate-shadow-heist - default branch `main`,
-  `origin` set over HTTPS.
-- `gh` is NOT on PATH here (check `where gh` before assuming). Git Credential Manager has a cached
-  `MalithaBandara` credential (`repo` + `workflow`), so `git push/pull` just work. For anything
-  `gh` would do, use the REST API - never print or embed the token:
-  ```bash
-  TOKEN=$(printf "protocol=https\nhost=github.com\n\n" | git credential fill | grep '^password=' | cut -d= -f2-)
-  curl -s -H "Authorization: token $TOKEN" https://api.github.com/...
-  ```
-  If `curl -d` with inline non-ASCII JSON fails with "Problems parsing JSON", write the payload to
-  a file and use `--data-binary @file` (shell encoding, not the API).
+- Public repo: https://github.com/MalithaBandara/infiltrate-shadow-heist - default branch `main`.
+- `gh` is NOT on PATH here. Git Credential Manager has a cached credential so `git push/pull` work.
+  For anything `gh` would do, use the REST API with a token pulled via `git credential fill` -
+  never print or embed it. If `curl -d` with inline non-ASCII JSON fails, write the payload to a
+  file and use `--data-binary @file`.
 
 ## CI workflows (`.github/workflows/`)
 
-Both trigger on every push to `main`, no path filters (a docs-only commit still fires the expensive
-iOS job - path filters not yet added).
+Both trigger on every push to `main`, no path filters.
 
 - `gradle.yml` - `./gradlew jvmTest`, `ubuntu-latest`, JDK 21.
-- `ios-build.yml` - `macos-latest`, JDK 21. `chmod +x ./gradlew` after checkout (the bit is lost
-  committing from Windows). Runs KorGE's `iosBuildSimulatorDebug` (unsigned Simulator only, no
-  signing/TestFlight) with `--no-configuration-cache` - **KorGE's Gradle plugin throws NPEs under
-  Gradle's configuration cache** (`gradle.properties` keeps it on project-wide; only KorGE's iOS
-  tasks need it off). Then several `continue-on-error: true` steps build/verify `paywall-build` and
-  `ios-shell/` (rule #2 applies when reading them). Only `iosSimulatorArm64` has ever been built;
-  `iosArm64` (real device) mirrors the config by construction but has never been run.
+- `ios-build.yml` - `macos-latest`, JDK 21. `chmod +x ./gradlew` after checkout. Runs KorGE's
+  `iosBuildSimulatorDebug` (unsigned Simulator only) with `--no-configuration-cache` (KorGE's iOS
+  tasks throw NPEs under Gradle's config cache). Then several `continue-on-error: true` steps build
+  `paywall-build`/`ios-shell/` (rule #2 above applies). Only `iosSimulatorArm64` has ever been built.
 
-**iOS CI history - the traps, each confirmed from raw logs:**
-- **`@Volatile` in commonMain** (`GameAudio.kt`, `PlayerAnimations.kt`) resolved to
-  `kotlin.jvm.Volatile`, which doesn't exist on Kotlin/Native -> `Unresolved reference 'Volatile'`.
-  Every push from `9acdf7c` (2026-09-08) failed while JVM CI stayed green. Fix: explicit
-  `import kotlin.concurrent.Volatile`. Confirmed fixed `e5557b2` (run 34643588882).
-- **Java `String.format()`** in `LevelSelectScene.kt` (`d7ab110`) - no Kotlin/Native impl. Fixed
-  (`eeb627d`) with `n.toString().padStart(2, '0')`.
-- **YAML-significant characters in `korge { name = ... }`**: `name = "Infiltrate: Shadow Heist"`
-  broke `:prepareKotlinNativeIosProject` (`mapping values are not allowed in this context`) -
-  KorGE writes `name` verbatim into a generated YAML spec as `PRODUCT_NAME: <name>` unquoted. Now
-  `name = "Infiltrate - Shadow Heist"` (was `unnamed.app` before `name` was set at all). Avoid
-  `: { } [ ] , & * # ? | < > = ! % @` backtick and leading `-` there.
-- **`NSDate().timeIntervalSince1970`** in `paywall-build/src/iosMain/kotlin/TimeProvider.ios.kt`
-  -> `Unresolved reference` under Kotlin 2.4.10, cascading into `Shell app: build` (`unable to
-  resolve module dependency: 'PaywallModule'`). Adding `@OptIn(ExperimentalForeignApi::class)` did
-  NOT fix it (run 34647810647). Fix: `platform.posix.time(null)`. Confirmed run 34650821928 (`0c1f53a`,
-  2026-09-11) - the first run where every `ios-build.yml` step passed for real: RevenueCat spike
-  `BUILD SUCCESSFUL`, `Shell app: build` `** BUILD SUCCEEDED **`, storage bridge
-  `OK:coins=350:unlocked=level_1;level_2;level_4`, `TRANSITION_OK`, AdMob
-  `OK:initializeCalled=true:bannerLoaded=true`.
-- The storage-bridge check's expected string includes `level_5` because `GameProfile.loadFromStorage()`
-  merges stored unlocks into the default set (level_5 unlocked from the start by design).
+**iOS CI history - traps confirmed from raw logs:**
+- **`@Volatile` in commonMain** resolves to `kotlin.jvm.Volatile`, which doesn't exist on
+  Kotlin/Native. Fix: explicit `import kotlin.concurrent.Volatile`.
+- **Java `String.format()`** has no Kotlin/Native impl. Fix: `n.toString().padStart(2, '0')`.
+- **YAML-significant characters in `korge { name = ... }`** break `:prepareKotlinNativeIosProject`
+  (KorGE writes `name` verbatim into a generated YAML spec). Avoid
+  `: { } [ ] , & * # ? | < > = ! % @` backtick and leading `-`. Current: `"Infiltrate - Shadow Heist"`.
+- **`NSDate().timeIntervalSince1970`** under Kotlin 2.4.10 -> `Unresolved reference`. Fix:
+  `platform.posix.time(null)`.
+- The storage-bridge check's expected string includes `level_5` because
+  `GameProfile.loadFromStorage()` merges stored unlocks into the default set (level_5 unlocked from
+  the start by design).
 
 ## RevenueCat status
 
-Two unrelated version lines - don't conflate them.
+Two unrelated version lines - don't conflate.
 
-**`:game`'s own dependency - REMOVED 2026-09-12.** Was `purchases-kmp-core:1.9.0+14.3.0` via
-`androidMainApi`, backing a `PurchasesBridge.kt` that stayed empty stubs on every platform and was
-never called (grepped before deleting). Deleted: the dependency, `PurchasesBridge.kt` + five platform
-actuals, the "Check for a generated Podfile" CI step, and every stale comment. Kept for the record:
-that line was pinned because of a **klib ABI ceiling** - Kotlin 2.0.20's compiler reads klib ABI
-`1.8.0`; RevenueCat moved to `1.201.0` at `2.0.0+15.0.0` and `2.3.0` (compiler 2.3.20) at `3.5.1`
-(confirmed via `unzip -p <klib> default/manifest`). It also needed `pod 'PurchasesHybridCommon',
-'14.3.0'` for iOS with no Podfile anywhere (`ld: framework 'PurchasesHybridCommon' not found`,
-2026-08-24). If `:game` ever wants purchases of its own, start from the `paywall-build` approach.
+**`:game`'s own dependency - REMOVED 2026-09-12.** Was pinned to `1.9.0+14.3.0` because of a klib
+ABI ceiling (compiler reads ABI `1.8.0`; RevenueCat moved past that at `2.0.0+15.0.0`). It also
+needed a CocoaPods dependency with no Podfile anywhere. `PurchasesBridge.kt` was empty stubs, never
+called - deleted along with the dependency. If `:game` ever wants purchases of its own, start from
+the `paywall-build` approach below.
 
 **`paywall-build`'s dependency - proven on iOS (2026-08-29).** `purchases-kmp-core:3.6.0` compiles
-and links into a real `PaywallModule.framework` for `iosSimulatorArm64` with a real
-`Purchases.configure(...)` call site; `3.x` bundles the native SDK via cinterop - **zero CocoaPods
-for RevenueCat**. Its klib (compiled at 2.3.20) is readable by the 2.4.10 compiler (newer
-Kotlin/Native reads older klibs, not the reverse). `:game` is unaffected.
+and links into a real `PaywallModule.framework` for `iosSimulatorArm64`; `3.x` bundles the native SDK
+via cinterop - zero CocoaPods for RevenueCat. Its klib (compiled at 2.3.20) is readable by the
+2.4.10 compiler. `:game` is unaffected.
 
-**Swift compatibility-shim link fix** (`paywall-build/build.gradle.kts`): Kotlin/Native's linker
-searches a stale hardcoded Xcode path for `libswiftCompatibility*` (`Undefined symbols ...
-__swift_FORCE_LOAD_$_swiftCompatibility56`). Compute the real developer dir at configuration time
-and add it as a linker search path per target:
-```kotlin
-val macDeveloperDir: String? = if (OperatingSystem.current().isMacOsX) {
-    val stdout = ByteArrayOutputStream()
-    exec { commandLine("xcode-select", "-p"); standardOutput = stdout }
-    stdout.toString().trim()
-} else null
-fun swiftLibPath(sdkName: String): String? =
-    macDeveloperDir?.let { "$it/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$sdkName" }
-```
-then `swiftLibPath("iphoneos"/"iphonesimulator")?.let { linkerOpts += listOf("-L$it") }` inside the
-framework block (now the `cocoapods { framework { ... } }` one - see AdMob). Re-check if the runner
-image bumps Xcode.
+**Swift compatibility-shim link fix**: Kotlin/Native's linker searches a stale hardcoded Xcode path
+for `libswiftCompatibility*`. Compute the real developer dir at configuration time
+(`xcode-select -p`) and add it as a linker search path per target inside the `cocoapods { framework
+{ ... } }` block (see AdMob's cocoapods block below for the exact shape - same helper is reused).
 
-**Real billing** lives in `paywall-build/src/commonMain/kotlin/com/infiltrate/billing/StoreBilling.kt`
-(`expect`/`actual`), calling `Purchases.sharedInstance.purchase(...)` from `StoreScreen.kt`'s coin
-packs. **Android wired** (`InfiltrateApplication.kt` -> `StoreBilling.initialize(BuildConfig.
-REVENUECAT_GOOGLE_KEY)`). **iOS wired** (`AppDelegate.swift` -> `StoreBilling.shared.initialize(apiKey: "appl_...")`,
-with `DEFAULT_APPLE_API_KEY` and lazy initialization fallback in `StoreBilling.ios.kt`). On success `profileStorage.addCoins(pack.amount)`
-credits a plain local integer: RevenueCat validates the money, local storage owns the balance.
-RevenueCat's Virtual Currency ledger is **deliberately not used** - most grants are gameplay-driven
-(level completion) and there is no backend; every level reward would become a network call in a
-single-player game meant to work offline. No paywall UI exists in `:game`'s KorGE scenes.
+**Real billing** lives in `paywall-build/.../StoreBilling.kt` (`expect`/`actual`), called from
+`StoreScreen.kt`'s coin packs. Android wired via `InfiltrateApplication.kt`; iOS wired via
+`AppDelegate.swift` + `StoreBilling.ios.kt`. On success, `profileStorage.addCoins(pack.amount)`
+credits a plain local integer - RevenueCat validates the money, local storage owns the balance.
+RevenueCat's Virtual Currency ledger is deliberately unused (no backend; most grants are
+gameplay-driven). No paywall UI exists in `:game`'s KorGE scenes.
 
 ## AdMob / ads
 
-**Library: `app.lexilabs.basic:basic-ads`** (the other KMP AdMob wrappers were 1-3 star personal
-projects with no Maven Central publication). **Proven on iOS**: run `33559815333` -
-`OK:initializeCalled=true:bannerLoaded=true`, a real Google-served banner on a real Simulator.
-Android runtime untested (no emulator here). `basic-ads` publishes Android/iOS only (no `jvm()`),
-which is why every ad host/bridge is `expect`/`actual` or per-platform.
+**Library: `app.lexilabs.basic:basic-ads`** (other KMP AdMob wrappers had no real Maven Central
+publication). Proven on iOS (real Google-served banner on a real Simulator). Android runtime
+untested (no emulator here). Publishes Android/iOS only (no `jvm()`) - every ad host/bridge is
+`expect`/`actual` or per-platform.
 
-**The CocoaPods gotcha** (`paywall-build/build.gradle.kts`): `basic-ads` needs
-`pod("Google-Mobile-Ads-SDK")`. A manually-declared `binaries.framework {}` alongside the
-`native-cocoapods` plugin fetched the pod but still failed `ld: framework 'GoogleMobileAds' not
-found`: `KotlinCocoapodsPlugin.configureLinkingOptions()` attaches pod search paths only to the
-**one framework it auto-creates per target**. Fix - configure that one in place:
+**The CocoaPods gotcha**: `basic-ads` needs `pod("Google-Mobile-Ads-SDK")`. A manually-declared
+`binaries.framework {}` alongside `native-cocoapods` still failed to link - `KotlinCocoapodsPlugin`
+attaches pod search paths only to the ONE framework it auto-creates per target. Fix - configure that
+one in place:
 ```kotlin
 kotlin {
     cocoapods {
@@ -274,2833 +192,1232 @@ kotlin {
 |---|---|---|
 | App ID | `ca-app-pub-7912148730700666~8824437805` | `ca-app-pub-7912148730700666~1768074863` |
 | `REWARDED_CONTINUE` | `ca-app-pub-7912148730700666/8683118378` | `ca-app-pub-7912148730700666/9506964083` |
-| `REWARDED_COINS` ("Coins Reward") | `ca-app-pub-7912148730700666/8440619376` | `ca-app-pub-7912148730700666/4233781051` |
-| `REWARDED_GADGET` ("Gadget Reward") | `ca-app-pub-7912148730700666/9048379643` | `ca-app-pub-7912148730700666/6397813920` |
+| `REWARDED_COINS` | `ca-app-pub-7912148730700666/8440619376` | `ca-app-pub-7912148730700666/4233781051` |
+| `REWARDED_GADGET` | `ca-app-pub-7912148730700666/9048379643` | `ca-app-pub-7912148730700666/6397813920` |
 | `INTERSTITIAL_LEVEL_EXIT` | `ca-app-pub-7912148730700666/7390779081` | `ca-app-pub-7912148730700666/5874999932` |
 
-Each placement has its own unit for reporting/frequency-cap
-granularity. JVM falls back to Google's published test IDs - the rewarded and interstitial test IDs
-differ (`ca-app-pub-3940256099942544/1033173712` is the interstitial one); don't reuse one for the other.
+JVM falls back to Google's published test IDs (rewarded and interstitial test IDs differ - don't
+reuse one for the other).
 
-**Both files are currently on REAL ad units** (`USE_TEST_ADS = false` in `AdUnitIds.android.kt`
-and `AdUnitIds.ios.kt` alike - one flag per file gates every placement in it). Flip both back to
-`true` for any Play Console Internal/Closed track or TestFlight build: those testers are people the
-developer invited, which AdMob's invalid-traffic policy treats like clicking your own ads. Real
-units are for Open testing and production. Not automatic - grep `USE_TEST_ADS` in both files before
-a build and set them deliberately. (One flag per file replaced an older per-value swap that sat
-unnoticed.)
-
-**This flag is the first thing to check when ads "don't work" on one platform.** A real ad unit on
-a freshly-created AdMob app has no serving history and answers most requests with no-fill for a
-while after it is set up, so a placement that works on the older Android app can look completely
-broken on the newer iOS one with identical code. Test units always fill, which is exactly what
-makes them the right way to prove the wiring before blaming it.
+**Both files are currently on REAL ad units** (`USE_TEST_ADS = false` in `AdUnitIds.android.kt` and
+`AdUnitIds.ios.kt`). Flip both back to `true` for any Play Console Internal/Closed track or
+TestFlight build (invited testers clicking real ads violates AdMob policy). Not automatic - grep
+`USE_TEST_ADS` before a build. **This flag is the first thing to check when ads "don't work" on one
+platform** - a freshly-created real ad unit has no serving history and no-fills for a while, while
+test units always fill.
 
 ### Watch ad to continue (`REWARDED_CONTINUE`)
 
-`:game` (2.0.20, no Compose) cannot call `basic-ads`; `paywall-build` can. On iOS the two are
-separately-compiled Kotlin/Native frameworks with no interop, so the request crosses via Swift
-polling bridge objects: `GameplayScene` -> `GameContinueAdBridge` (`:game`) -> polled by
-`AppDelegate.swift` -> `switchToCompose()` + `ContinueAdTrigger.requestShow()` (`paywall-build`) ->
-ad -> `ContinueAdTrigger.markRewardEarned()` -> polled -> `GameContinueAdBridge.grantContinue()` +
-`switchToKorGE()` -> `GameplayScene` sees `consumeContinueGranted()` and revives the player in-place at
-their last safe checkpoint (`world.respawnAtCheckpoint()`), capping at 1 continue per run. When continue is
-used, subsequent deaths in the same run hide the CONTINUE button and dynamically re-center RETRY and MAIN MENU
-across the bottom bar. Revival grants 3.0s grace cloak (`activePowerups.invisibilityTimer = 3.0`) and laser
-grace (`laserGraceTimer = 3.0`), returns guards to patrol, and snaps the camera to the player. When the **Checkpoints** gadget (`PowerupType.CHECKPOINTS`, 750 coins) is active in a level, the player is not capped at 1 continue—they continuously auto-respawn at their last safe checkpoint each time they die until they quit or complete the level. Tools in the Store are arranged in strictly ascending order of price: INVISIBILITY CLOAK (350), STEALTH BOOTS (500), LASER SHIELD (600), and CHECKPOINTS (750). To prevent instant deaths directly after spawn in any level, `spawnGraceTimer` (2.0s) activates upon level start and restart (`restartLevel()`), suppressing alert accumulation, laser hits, downward crate crushes, and conveyor fall-off while the player remains at spawn or checkpoint (`isAtSpawnOrCheckpoint()`). On Android
-everything runs in one process, so `ContinueAdBridge.android.kt` is a plain shared object; desktop JVM
-simulates immediate grant in `JvmContinueAdBridge` for local testing. The MISSION FAILED card has three buttons
-at the bottom when continue is available: **CONTINUE** (leftmost, watch-ad clapper icon), **RETRY** (bold circular reload arrow), and **MAIN MENU** (silhouette home icon), sized at 175x62px (upgraded from 44px, then 54px); button icons are vertically centered to the optical middle of the text glyphs (`textY + text.height * 0.44`, with `drawWatchAdIcon` offset by -1.5 so its body and play triangle align) rather than `height / 2.0` (which sat too low because Bebas Neue has no descenders and the torn-paper button frames have higher vertical centers); when continue is spent, CONTINUE is hidden and RETRY and MAIN MENU are centered; the victory overlay similarly features 56px buttons (**RETRY**, **MAIN MENU**, **NEXT MISSION** with double forward arrows); a failed ad never strands the player. Verified: JVM + Android compile. Never run on a device.
+`:game` (2.0.20) cannot call `basic-ads`; `paywall-build` can. On iOS the request crosses via a
+Swift polling bridge: `GameplayScene` -> `GameContinueAdBridge` -> `AppDelegate.swift` ->
+`switchToCompose()` + `ContinueAdTrigger` -> ad -> `GameContinueAdBridge.grantContinue()` +
+`switchToKorGE()` -> `GameplayScene` revives the player at their last safe checkpoint, capping at 1
+continue per run (uncapped if the **Checkpoints** gadget is active). Revival grants 3.0s grace
+cloak + laser grace, returns guards to patrol, snaps the camera. Android runs in one process
+(plain shared object); desktop JVM grants immediately for local testing. MISSION FAILED has
+CONTINUE / RETRY / MAIN MENU buttons (175x62px); when continue is spent, CONTINUE hides and the
+other two center. `spawnGraceTimer` (2.0s) suppresses alert/laser/crush/fall-off right after spawn
+or restart while the player is at spawn/checkpoint.
 
 ### Ad preloading (2026-09-10) and its two hazards
 
-`ContinueAdContent` (Android + iOS) and `InterstitialAdContent` (Android) hoist `rememberRewardedAd`/
-`rememberInterstitialAd` OUTSIDE the `showRequested` gate so the fetch starts at first composition.
-`rememberXAd` re-loads whenever the handler is `NONE` or `DISMISSED`. **There is no
-`InterstitialAd(loadedAd = ...)` overload** - preloading is done by hoisting, not a different API.
+`ContinueAdContent`/`InterstitialAdContent` hoist `rememberRewardedAd`/`rememberInterstitialAd`
+outside the show gate so the fetch starts at first composition; it re-loads whenever the handler is
+`NONE`/`DISMISSED`.
 
-- **Hazard 1: a background failure must not resolve a request never made.** `onAdClosed()`/
-  `cancelShow()` set `outcomeFinished`, which the scene / Swift loop reads as "flow ended". Every
-  hoisted load-failure callback is guarded on `showRequested.value`.
-- **Hazard 2: `FAILING` is a dead end.** `rememberXAd` only re-loads from `NONE`/`DISMISSED`
-  (basic-ads 1.2.1 sources - no branch for `FAILING`). With preloading one early failure leaves the
-  handler dead for the process and a later request gets no ad and no resolution. Android's show
-  sites answer this with an explicit `AdState.FAILING ->` branch that resolves the trigger like a
-  load failure. **iOS answers it by replacing the handler instead (2026-09-25)** - see below.
-- **Test ads cannot reproduce either hazard** (always fill, never fail) - force with airplane mode.
-- Store's `CoinsRewardAdHost`/`GadgetRewardAdHost` are NOT preloaded (gated at the call site in
-  `StoreScreen.kt`; a menu button tolerates a wait). iOS interstitial: see below.
+- **Hazard 1**: a background load-failure must not resolve a request never made. Every hoisted
+  failure callback is guarded on `showRequested.value`.
+- **Hazard 2**: `FAILING` is a dead end - `rememberXAd` never re-loads from it, so one early failure
+  leaves the handler dead for the process. Android's show sites answer with an explicit `FAILING ->`
+  branch that resolves like a load failure. **iOS answers it by replacing the handler instead** (see
+  below).
+- Test ads cannot reproduce either hazard (always fill) - force with airplane mode.
+- Store's coin/gadget reward hosts are NOT preloaded (gated at the call site; a menu button
+  tolerates a wait).
 
 ### iOS rewarded ads retry; Android's do not (2026-09-25)
 
-Reported as "on iOS I keep getting ad not ready when trying to watch ad" (the Store toast,
-`Localization.adNotReady`, which only `StoreScreen.kt`'s two reward-ad `onFailure` paths raise).
+Reported as "keep getting ad not ready" on iOS. Resolving hazard 2 by treating `FAILING` as final
+made one unlucky early load (racing SDK init, a momentary no-fill) permanent for the rest of the
+process - iOS falls into this more easily than Android because the SDK only starts when the Compose
+scene first composes, same frame as the preload.
 
-The first load answer was also the only one anything looked at: `basic-ads`' plain `RewardedAd()`
-composable reports `onFailure` and stops, and resolving hazard 2 by treating `FAILING` as final
-made that permanent for the preloaded continue ad - **one** unlucky request (racing
-`GADMobileAds.start()` at cold launch, a momentary no-fill, a blip) turned every later CONTINUE
-into an instant refusal for the rest of the process. iOS falls into that more easily than Android
-because the SDK is only started when the Compose scene first composes (`AdMobVerifyContent()`),
-in the same frame as the preload, rather than in an Activity's `onCreate`.
+**A handler cannot be restarted, but a new one always begins at `NONE`** - `key(attempt) { }` gives
+you one: bumping `attempt` discards the composition group the dead handler was remembered in.
 
-**A handler cannot be restarted, but a new one always begins at `NONE`** - and `key(attempt) { }`
-gives you one: bumping `attempt` discards the composition group the dead handler was remembered
-in. That is the whole mechanism, in two places:
-
-- **`RetryingRewardedAd.kt`** (iosMain, new) - drop-in for the Store's two tap-to-watch hosts
-  (`CoinsRewardAdHost.ios.kt`, `GadgetRewardAdHost.ios.kt`). 3 attempts, 1.2s apart; `onFailure`
-  fires once, at the end, so the Store's toast and `showXRewardAd = false` bookkeeping are
-  unchanged. `resolved` guards against a second callback - basic-ads reports dismissal and display
-  failure through the same delegate.
-- **`ContinueAdBridge.kt`'s `ContinueAdContent`** - same shape, folded into the preload. Budget is
-  3 per *offer* and is re-armed by each new `requestShow()`; while nothing is pending, retries stop
-  once spent rather than re-requesting forever in the background. `cancelShow()` still resolves the
-  flow when the budget runs out with an offer on screen, so a failed ad never strands the player
-  behind Swift's 30s poll. An offer that arrives to find a `FAILING` handler replaces it.
-- **Writes that pick the next attempt happen in `LaunchedEffect`s and load callbacks, never in the
-  composition body** - a state write from a `when (ad.state)` branch is a recomposition loop
-  waiting to happen. That is also where the backoff lives.
-- **Android deliberately keeps the plain composable**: its rewarded placements were reported
-  working, and the same retry there is an unrequested change to a path that fills first time.
-- Retrying does not touch `CoinsAdLimiter`/`GadgetAdLimiter`: they record a *watch*, and nothing
-  here can grant a reward more than once.
-- **None of this is the cause if the ad unit itself is not serving** - check `USE_TEST_ADS` first
-  (above). Retries make a flaky unit usable; they cannot conjure fill out of a brand-new one.
+- **`RetryingRewardedAd.kt`** (iosMain) - drop-in for the Store's two tap-to-watch hosts. 3 attempts,
+  1.2s apart; `onFailure` fires once at the end. `resolved` guards a second callback (basic-ads
+  reports dismissal and display failure through the same delegate).
+- **`ContinueAdBridge.kt`'s `ContinueAdContent`** - same shape, folded into the preload. Budget 3
+  per offer, re-armed per `requestShow()`. `cancelShow()` still resolves the flow when the budget
+  runs out, so a failed ad never strands the player. An offer arriving to a `FAILING` handler
+  replaces it.
+- Writes that pick the next attempt happen in `LaunchedEffect`s and load callbacks, never in the
+  composition body.
+- **Android deliberately keeps the plain composable** - its rewarded placements already fill first
+  time.
+- Retrying does not touch `CoinsAdLimiter`/`GadgetAdLimiter` - it can't grant a reward twice.
+- **None of this is the cause if the ad unit itself isn't serving** - check `USE_TEST_ADS` first.
 
 ### Watch ad for coins (Store, `REWARDED_COINS`)
 
-Previously an instant unlimited free-coins button. Now a real ad with a daily cap:
-- **`CoinsAdLimiter`** (`paywall-build/src/commonMain/kotlin/CoinsAdLimiter.kt`): `MAX_WATCHES_PER_DAY = 5`
-  per UTC-epoch day, keys `user_coin_ad_day_bucket`/`user_coin_ad_watch_count` via the same
-  `getRaw`/`setRaw` bridge as `GameProfileStorage`. 250 coins/watch (`coins_ad` in `StoreScreen.kt`);
-  5x250 = 1250/day, a bit above the $0.99/1000 pack if watched daily - a real but bounded alternative.
-  AdMob dashboard cap 10/day is a backstop against modified clients, not the mechanism. UI shows
-  "WATCH AD (N LEFT)" / "COME BACK TOMORROW". If 250/5 change, update this paragraph in place.
-- **`CoinsRewardAdHost`** (`expect`/`actual`) hosts `RewardedAd`; no poll bridge needed - tap and ad
-  are in the same Compose tree, `onRewardEarned` calls `addCoins` + `recordWatch()` directly.
+**`CoinsAdLimiter`**: `MAX_WATCHES_PER_DAY = 5` per UTC-epoch day, keys
+`user_coin_ad_day_bucket`/`user_coin_ad_watch_count`. 250 coins/watch; 5x250 = 1250/day. AdMob
+dashboard cap 10/day is a backstop against modified clients. `CoinsRewardAdHost` hosts `RewardedAd`
+directly - tap and ad are in the same Compose tree.
 
 ### Watch ad for a random gadget (Store, `REWARDED_GADGET`)
 
-Sixth Store card ("MYSTERY GADGET") in the 2x3 POWER-UPS grid. Grants one of the five real
-`PowerupType`s via `List.random()` chosen at request time (fixed before the ad shows), granted with
-`profileStorage.buyPowerup(type.id, cost = 0)` (`spendCoins(0)` always succeeds). Draws a vector die
-icon (`drawMysteryDiceIcon`). **Not `PowerupType.PROTOTYPE`** - that's a separate in-progress sixth
-gadget type (real id/cost/timer, no world effect, not in the Store); `gadget_prototype.png` is its.
-**`PROTOTYPE` removed from `GameplayScene.kt`'s `gadgetTypes` (the in-game HUD tray) on request,
-2026-09-20** - it was still listed there (a leftover from before it became a Store-excluded
-placeholder), so a player who somehow got one (e.g. the F2 debug-powerup grant below, which grants
-every `PowerupType` indiscriminately) saw a real, tappable-looking tray slot with a plain "?"
-mystery-box icon that did nothing when used - reported directly from a screenshot ("mystery item
-should not be inside the game play"). `grantDebugPowerups()` still grants it (harmless dead stock,
-invisible now that the tray skips it) rather than special-casing the storage method for one type.
-**`GadgetAdLimiter`**: separate class (precedent: `InterstitialAdLimiter`), `MAX_WATCHES_PER_DAY = 3`
-(a random gadget averages ~400 coins of value vs the coin card's 250), keys
-`user_gadget_ad_day_bucket`/`user_gadget_ad_watch_count`. **`GadgetRewardAdHost`** is a near-copy of
-`CoinsRewardAdHost` - one file per placement is the convention.
+Sixth Store card ("MYSTERY GADGET"), grants one of the five real `PowerupType`s via `List.random()`
+chosen at request time, granted with `spendCoins(0)`. **Not `PowerupType.PROTOTYPE`** - a separate
+in-progress sixth gadget type, Store-excluded, and removed from `GameplayScene.kt`'s in-game HUD
+tray (still granted by the F2 debug key as harmless dead stock). `GadgetAdLimiter`:
+`MAX_WATCHES_PER_DAY = 3`.
 
 ### Level-exit interstitial (`INTERSTITIAL_LEVEL_EXIT`)
 
-Triggered by `LevelExitBridge.requestReturnToMenu()` (QUIT/RETURN TO MENU/MAIN MENU/ALL CLEAR).
-NEXT LEVEL deliberately does not show one (an ad on every win was ruled too aggressive).
+Triggered by QUIT/RETURN TO MENU/MAIN MENU/ALL CLEAR. NEXT LEVEL never shows one (ruled too
+aggressive). **Gating (`InterstitialAdLimiter`)**: `totalLevelsCompleted >= 2`; `!isPremium`;
+in-memory 180s cooldown from app launch; 5-per-session cap. No AdMob dashboard cap on this unit.
 
-**Gating (`InterstitialAdLimiter`, commonMain)** - all must hold:
-- `totalLevelsCompleted >= 2` (`GameProfile.totalLevelsCompleted`, key `user_total_levels_completed`,
-  incremented once per *distinct* level in `GameplayScene`'s `world.onLevelComplete` by checking
-  `levelStorage.getBestResult(id)?.completed` *before* `saveResult()`). Level 1 is the tutorial,
-  level 2 builds a habit before any monetization interruption.
-- `!profile.isPremium` - the Remove Ads purchase promises "removes all interstitial
-  advertisements"; this is the first placement that promise had to be true for.
-- In-memory 180s cooldown seeded from app launch (a cold start always gets 3 min grace) and a
-  5-per-session cap (resets on cold launch). The owner chose NOT to enable an AdMob dashboard cap
-  on this unit.
-
-**Trigger shape**: plain per-platform files (`paywall-build/src/androidMain/kotlin/InterstitialAdBridge.kt`,
-`.../iosMain/kotlin/InterstitialAdBridge.kt`), not `expect`/`actual` - only ever invoked from
-platform-native host code. Uses `basic-ads`' real `InterstitialAd(adUnitId, onDismissed, onShown,
-onImpression, onClick, onFailure, onLoad)` (verified from `basic-ads-1.2.1-sources.jar`).
-**Android**: `MainActivity.kt`'s `AndroidLevelExitBridgeState.onReturnToMenuRequested` flips
-`showingGameplay.value = false` and separately calls `maybeShowLevelExitInterstitial()` - the menu
-flip is never gated on the ad. **iOS (wired 2026-09-12)**: `GameLevelExitBridge` (`@ObjCName(exact =
-true)`, `src@ios/LevelExitBridge.ios.kt`) replaced a true no-op - before this, QUIT/RETURN TO MENU on
-iOS silently did nothing at all. `AppDelegate.swift`'s `startObservingLevelEnd()` polls
-`consumeReturnToMenuRequest()`, switches to Compose, calls `InterstitialAdTrigger.maybeRequestShow(
-totalLevelsCompleted:isPremium:)` (checks the limiter itself; profile fields via `DebugStorageBridge.
-readTotalLevelsCompletedForDebug()`/`readIsPremiumForDebug()`). `InterstitialAdContent()` is composed in
-`MainMenuComposeViewController.kt`. The iOS content is gated on `showRequested` (load-on-demand) with
-both hazard branches - if it's ever hoisted to preload, keep the guards (`InterstitialAdBridge.kt`'s
-comment covers this). **Never run on a real device on either platform** - whether it shows at the right
-moment, respects the gate/cooldown, and is suppressed for premium are all unconfirmed. iOS not CI-verified.
+Plain per-platform files, not `expect`/`actual`. **Android**: `MainActivity.kt` flips the menu
+regardless of the ad. **iOS (wired 2026-09-12)**: `GameLevelExitBridge` polled by
+`AppDelegate.swift`'s `startObservingLevelEnd()`. Gated on `showRequested` (load-on-demand) with
+both hazard branches. **Never run on a real device on either platform.**
 
 ## Shared storage bridge: `paywall-build` <-> `:game`
 
-Read from KorGE 6.0.0's own source:
-- **iOS** (`DarwinNativeStorage`): `NSUserDefaults(suiteName = "korge")` - a named suite, keys
-  prefixed `"org.korge.storage."`. Same plist for any code in the same app sandbox, so no App Group
-  is needed while `PaywallModule.framework` is embedded in the same app.
-- **Android** (`NativeStorage`): `SharedPreferences("KorgeNativeStorage", MODE_PRIVATE)`, unprefixed.
-  **No `paywall-build` Android storage impl exists - deliberate** (`:game` talks to Android storage
-  directly; no boundary to bridge). If ever needed, target that same file.
+- **iOS**: `NSUserDefaults(suiteName = "korge")`, keys prefixed `"org.korge.storage."` - same plist
+  for any code in the same app sandbox, no App Group needed.
+- **Android**: `SharedPreferences("KorgeNativeStorage", MODE_PRIVATE)`, unprefixed. No
+  `paywall-build` Android storage impl exists (deliberate - `:game` talks to Android storage
+  directly).
 
-`paywall-build/src/iosMain/kotlin/PaywallStorage.kt` implements `getRaw`/`setRaw`/`removeRaw`;
-`KorgeStorageKey.kt` is a pure JVM-testable `iosKey()` helper. Verified by `StorageKeyCompatibilityTest`
-(4/4) and a real on-device round trip in CI. Persisted keys: `user_coins`, `user_is_premium`,
-`user_music_vol`, `user_sfx_vol`, `user_controls_swapped`, `user_language`, `user_unlocked_levels`,
-`user_powerups`, `user_total_levels_completed`, `level_result_<levelId>`, `level_results_ids`, plus the
-ad-limiter keys above. (Whether `user_powerups` is actually persisted was never explicitly reconciled -
-check `MapBackedGameProfileStorage` before assuming.)
+`paywall-build/.../PaywallStorage.kt` implements `getRaw`/`setRaw`/`removeRaw`. Verified by
+`StorageKeyCompatibilityTest` (4/4) and a real on-device round trip in CI. Persisted keys:
+`user_coins`, `user_is_premium`, `user_music_vol`, `user_sfx_vol`, `user_controls_swapped`,
+`user_language`, `user_unlocked_levels`, `user_powerups`, `user_total_levels_completed`,
+`level_result_<levelId>`, `level_results_ids`, plus the ad-limiter keys above.
 
 ## Native iOS shell (`ios-shell/`) - WORKING on real Simulator CI
 
-Hand-authored XcodeGen project (`ios-shell/project.yml`) embedding `:game`'s `GameMain.framework`
-and `paywall-build`'s `PaywallModule.framework` in one process. Confirmed (run `33385051973`):
-clean link/codesign, `Storage bridge result: OK` from a real PaywallModule-writes/GameMain-reads
-round trip. It is separate from KorGE's own generated `build/platforms/ios` and not wired into any
-release pipeline - no decision yet on how these converge for shipping.
+Hand-authored XcodeGen project embedding `:game`'s `GameMain.framework` and `paywall-build`'s
+`PaywallModule.framework` in one process. Confirmed clean link/codesign and a real storage-bridge
+round trip. Separate from KorGE's own generated `build/platforms/ios`; no decision yet on how these
+converge for shipping.
 
 **Why the triggers live in Swift**: `:game` (2.0.20) and `paywall-build` (2.4.10) produce
 ABI-incompatible klibs, so Kotlin can't call across; Swift calls both frameworks' exported ObjC APIs.
-Same reason every bridge is poll-based.
 
 **Settled - don't re-litigate without a new reason:**
-1. Duplicate Kotlin/Native runtime symbols (each framework embeds its own) - did not occur for this
-   pair. Re-verify if a *third* Kotlin/Native framework is ever added.
-2. `@ObjCName(name = "X")` without `exact = true` keeps the framework prefix on the linked symbol ->
-   undefined symbols from Swift. Use `@ObjCName(name = "X", exact = true)` +
-   `@OptIn(kotlin.experimental.ExperimentalObjCRefinement::class)` on every Swift-visible object.
-3. `EXCLUDED_ARCHS[sdk=iphonesimulator*] = x86_64` - the frameworks are arm64-only.
+1. Duplicate Kotlin/Native runtime symbols did not occur for this pair. Re-verify only if a third
+   Kotlin/Native framework is added.
+2. `@ObjCName(name = "X")` without `exact = true` keeps the framework prefix -> undefined symbols.
+   Use `@ObjCName(name = "X", exact = true)` + `@OptIn(ExperimentalObjCRefinement::class)` on every
+   Swift-visible object.
+3. `EXCLUDED_ARCHS[sdk=iphonesimulator*] = x86_64` - frameworks are arm64-only.
 4. **`CADisableMinimumFrameDurationOnPhone: true` in Info.plist is mandatory** - Compose's
-   `PlistSanityCheck` hard-aborts (`SIGABRT`) without it, on a delayed low-priority queue, so a fast
-   CI step can miss it. Any other Xcode project hosting Compose needs it too.
+   `PlistSanityCheck` hard-aborts without it.
 
-**Info.plist keys** (all in `project.yml`): `UISupportedInterfaceOrientations` landscape only
-(`c0ecff9`; every Compose screen assumes 720 is the SHORT dimension - portrait squished everything
-into a column); `AppDelegate.swift`'s `supportedInterfaceOrientationsFor` also forces `.landscape`
-(redundant belt-and-suspenders); `UIStatusBarHidden: true` + `UIViewControllerBasedStatusBarAppearance:
-false` (the latter defaults to `true`, which makes the global key get ignored; neither Compose's nor
-KorGE's view controller overrides `prefersStatusBarHidden`). Confirmed from CI screenshots. **The black
-rounded shape at the top is the Dynamic Island** of whichever iPhone CI picks - not removable by the app.
+**Info.plist**: landscape-only orientation everywhere (every Compose screen assumes 720 is the SHORT
+dimension); `UIStatusBarHidden: true` + `UIViewControllerBasedStatusBarAppearance: false`. The black
+rounded shape at the top is the Dynamic Island - not removable.
 
-**Screenshot trap (cost real time twice)**: `xcrun simctl io screenshot` and limrun captures are the
-raw portrait-shaped panel buffer with landscape content rotated 90 degrees inside it. Rotate
-(`img.rotate(90, expand=True)`) before concluding a layout is broken.
+**Screenshot trap**: `xcrun simctl io screenshot` captures the raw portrait-shaped buffer with
+landscape content rotated 90 degrees inside it. Rotate before concluding a layout is broken.
 
-**Debug overlay bug**: `addDebugOverlay()` added a `UIButton` at `(12, 44, 220, 36)` + label directly to
-the `UIWindow`, above every screen forever, overlapping `MenuTopBar`'s back button - "back doesn't work
-in Store/Settings". Removed outright (CI reads `storage_bridge_result.txt` from disk via `simctl
-get_app_container`, written by `runStorageBridgeCheck()` regardless). If a manual re-trigger is ever
-needed, gate it behind a debug flag and keep it away from the top-left corner.
+**Entry point**: `GameEntry.ios.kt`'s `gameMain()` (not the old spike scene). `GameLevelStartBridge`
+exposes `startLevel(levelId:)` since iOS never sets `Environment["startLevel"]`.
 
-**Entry point**: `ShellAppDelegate.ios.kt` was still wired to `spikeMain()` (the purple
-`SwitchSpikeScene` debug scene) long after the spike - every level launch on iOS showed it. Now
-`gameMain()` (`GameEntry.ios.kt`): commonMain's `main()` picks one level from
-`Environment["startLevel"]`/args, which iOS never sets, so like `android-shell/MainActivity.kt`'s
-`activeSceneContainer`, `GameLevelStartBridge` (`@ObjCName(exact = true)`) captures the
-`SceneContainer` and exposes `startLevel(levelId:)`; `AppDelegate.swift` uses `MainMenuComposeScreen`'s
-level-aware `makeViewController` overload and calls it before `switchToKorGE()`. Not yet observed
-whether picking a second, different level re-targets correctly.
+**`resources/` bundling (fixed `bc9e494`)**: `GameMain.framework` never embeds the root `resources/`
+folder on its own - only KorGE's own generated Xcode project has that copy phase. Fix: a
+`postbuildScripts` rsync of `resources/`'s contents into the built bundle (resources must land flat
+in `ShellApp.app/`, matching how `resourcesVfs` resolves against `NSBundle.mainBundle`'s root on
+iOS). Gameplay audio/art load silently as `null` when missing.
 
-**`resources/` bundling (fixed `bc9e494`)**: `GameMain.framework` (KorGE's `iosBuildSimulatorDebug`)
-never embeds the root `resources/` folder - only KorGE's own generated Xcode project has that copy
-phase. Gameplay showed a "LEVEL LOAD FAILED" screen with `korlibs.io.lang.IOException: File case not
-matched pathExpected=.../ShellApp.app/player/idle/0001.png != pathResolved=.../ShellApp.app/player`.
-**"case not matched" is misleading**: korlibs' `resolveOrError()` calls `realpath()` and compares
-only the final segment; Darwin returns a best-effort prefix for a missing intermediate directory. On
-iOS `resourcesVfs` resolves against `NSBundle.mainBundle`'s root (`StandardBasePathsDarwin.
-executableFolder`), so resources must land flat in `ShellApp.app/` (not under `resources/`). Fix: a
-`postbuildScripts` rsync of `resources/`'s *contents* (trailing slash on source) into the built bundle.
-Gameplay audio/art load silently as `null` when missing (`GameplayScene` catches each load), which is
-why the gap went unnoticed. Check the latest run's `gameplay_check.png` if this is doubted.
+**Gameplay screenshot handshake in CI**: `switchToKorGE()` writes `korge_visible.txt`; CI polls for
+it (90s), screenshots, writes `screenshot_taken.txt`; Swift's dwell polls for that (20s cap) before
+ending the level. Blind sleeps never hit the window reliably.
 
-**Gameplay screenshot handshake in CI** (`TRANSITION_OK` alone doesn't prove gameplay rendered - it
-calls `SpikeBridge.shared.requestLevelEnd()` directly): `switchToKorGE()` writes `korge_visible.txt`;
-CI polls for it (90s - 15s timed out because cold boot+install+launch can take minutes), screenshots,
-then writes `screenshot_taken.txt`; `AppDelegate.swift`'s dwell polls for that file (20s cap) before
-ending the level. Needed because `simctl io screenshot` itself takes 1-13s on this runner. Blind
-sleeps (2.5s, then six spread over 2-6s) never hit the window.
-
-**Compose/KorGE view-switching spike (viable - build around it)**: swapping `window.rootViewController`
-between a Compose screen and the warm KorGE `ViewController` 6 times: switch-to-KorGE latency well
-under 500ms cold, 60-120ms warm; **`hiddenDwellTicksAdvanced` = 0 every cycle** - KorGE's render loop
-genuinely stops while its view is out of the window (no pause plumbing needed on iOS; NOT true on
-Android, see bug #7); memory showed no monotonic growth over 6 cycles (small sample). Visual flash
-check inconclusive.
+**Compose/KorGE view-switching**: swapping `window.rootViewController` between Compose and the warm
+KorGE `ViewController` is viable - switch latency well under 500ms cold, 60-120ms warm; KorGE's
+render loop genuinely stops while its view is out of the window on iOS (NOT true on Android, see bug
+#7).
 
 ## `korge-video`: NOT VIABLE
 
-Tested and fully reverted. Stale (last real commit 2023), doesn't compile against KorGE 6.0.0, and
-its iOS backend is an empty stub that falls back to a fake generated video. If video is wanted,
-re-encode as a low-fps PNG/JPEG frame sequence or sprite sheet through KorGE's normal APIs.
+Tested and fully reverted. Stale, doesn't compile against KorGE 6.0.0, iOS backend is a stub that
+falls back to a fake generated video. If video is wanted, re-encode as a low-fps PNG/JPEG frame
+sequence or sprite sheet through KorGE's normal APIs.
 
 ## Responsive layout: one canvas rule for every device (2026-09-24)
 
-Both halves of the app used to be pinned to the reference phone. Gameplay ran in a fixed
-1040x480 virtual canvas under `ScaleMode.SHOW_ALL`, which letterboxes anything that is not that
-2.167 aspect - 8% of a 16:9 phone and **38% of a 4:3 iPad** went to black bars. Every Compose
-screen scaled itself off `(maxHeight / 720.dp).coerceIn(0.75f, 1.4f)`, and `MenuTopBar` did not
-scale at all (a hard 74dp with 26sp type - a fifth of a landscape phone's height).
+Gameplay used to run in a fixed 1040x480 virtual canvas under `ScaleMode.SHOW_ALL`, letterboxing
+anything not that 2.167 aspect (38% of a 4:3 iPad went to black bars). Compose screens scaled off a
+single formula that didn't account for width.
 
-**`src/game/model/ScreenLayout.kt` (pure Kotlin, shared with `paywall-build`) is the one rule:
-the virtual canvas carries the DEVICE's aspect and always CONTAINS the authored 1040x480.**
-Wider than 2.167 keeps the 480 height and grows the width; squarer keeps the 1040 width and grows
-the height. So **no device ever sees less of a level than the reference phone** - a wide screen
-sees a little more level width, a tablet sees more sky - and level pacing tuned against ~770
-visible world units (level 6's "the crane fills the frame from the lever", level 3's overwatch
-pair) still holds. 4:3 works out to 1040x780. `GameplayScene` needed no camera change for this:
-it already pinned the ground near the bottom of whatever canvas it was given and tiled the
-background to `canvasH`. The rejected alternative was keeping the height and letting the width
-follow the aspect, which hands a 4:3 iPad a 640x480 canvas and silently cuts the visible level
-width by a third.
+**`src/game/model/ScreenLayout.kt` (pure Kotlin, shared with `paywall-build`) is the one rule: the
+virtual canvas carries the DEVICE's aspect and always CONTAINS the authored 1040x480.** Wider than
+2.167 keeps 480 height and grows width; squarer keeps 1040 width and grows height - so no device
+ever sees less of a level than the reference phone. 4:3 works out to 1040x780.
 
-- **Who sets it, and when.** `DeviceScreen` (same file) holds what the host measured; every host
-  publishes and then `game.scene.DeviceViewport.apply(views, sceneContainer)` re-asserts it
-  **before** `changeTo` (a `Scene` copies `sceneContainer.size` once, when it is built - applying
-  it after does nothing until the next scene). Desktop knows its window up front, Android knows
-  in `onCreate`, **iOS does not**: `gameMain()` runs from inside
-  `ShellAppDelegate.applicationDidFinishLaunching`, which Swift calls as the first statement of
-  its own `didFinishLaunchingWithOptions`, before any window is laid out.
-- **Swift measures on iOS, deliberately.** `UIScreen.mainScreen.bounds` from Kotlin/Native is a
-  `CValue<CGRect>` needing `useContents` + `ExperimentalForeignApi`, and iOS is the one target
-  that cannot be compile-checked here. `GameScreenMetricsBridge` (`src@ios`) and
-  `MenuScreenMetricsBridge` (`paywall-build/src/iosMain`) take four plain `Double`s instead.
-  **Both are needed**: `GameMain` and `PaywallModule` each compile their own copy of
-  `src/game/model`, so there are TWO `DeviceScreen` objects in the process and a publish reaches
-  only one. `AppDelegate.swift` calls both, at launch and again on every switch into gameplay.
-  Android has one process-wide copy and publishes once in `MainActivity`.
-- **Landscape is assumed, defensively.** `viewportFor` normalises its inputs with max/min rather
-  than trusting which is "width" (iOS reports portrait-shaped bounds during the first moments of
-  launch; Android 16 ignores orientation locks on large screens) and clamps the aspect to
-  0.75..3.0 so a genuinely portrait window degrades into a tall canvas rather than something
-  absurd.
-- **Safe areas are now real, not guessed.** `GameplayScene`'s `edgeInset`/`bottomInset` (46/38)
-  are floors now: where a host reports an inset, the reported value plus a 12-unit margin wins.
-  An iPhone's Dynamic Island is 59pt wide and sits on a SIDE in landscape - wider than 46 - so
-  the left D-pad really was partly underneath it. The objectives block, the pause/gadget cluster
-  and both end-of-run cards take the same insets. Android reports `displayCutout() |
-  mandatorySystemGestures()`, NOT the full `systemGestures()` set (that reserves ~20dp down both
-  long edges for no real gain here), and its decor-view listener forwards via
-  `ViewCompat.onApplyWindowInsets` rather than returning early, or the dispatch never reaches
-  Compose. **This is the GAMEPLAY half only - the Compose menus opted Android out entirely, see
-  `menuAppliesSafeAreaInsets` below.**
-- **...except the TOP, which the gameplay HUD ignores in landscape** (`ScreenLayout.gameplayTopInset`,
-  used by `GameplayScene`'s `safeTopInset` for the objectives panel and the pause/gadget cluster).
-  In landscape the short edge - where a notch, a Dynamic Island or a hole-punch sits - is a SIDE,
-  so nothing physically occupies the top edge of this game. iOS reports 0 up there anyway; what
-  Android reports is `mandatorySystemGestures`' swipe-to-reveal strip, a gesture region rather
-  than something drawn over the app, and honouring it pushed the objectives text, the pause button
-  and the gadget bolt a visible fraction of the screen height down - reported from the owner's own
-  phone, 2026-09-25 ("not at the top of the screen"). It is the gameplay twin of
-  `menuAppliesSafeAreaInsets`. Left, right and bottom stay fully honoured everywhere. A genuinely
-  PORTRAIT canvas (only Android 16's large-screen orientation override makes one) still honours
-  the top, and `testTheGameplayHudTopRowIgnoresTheReportedTopInsetInLandscape` pins both branches.
+- **Who sets it, and when.** `DeviceScreen` holds what the host measured; every host publishes and
+  `DeviceViewport.apply(...)` re-asserts it BEFORE `changeTo` (a `Scene` copies size once, when
+  built). Desktop/Android know their window up front; **iOS does not** - `gameMain()` runs before
+  any window is laid out, so `GameScreenMetricsBridge`/`MenuScreenMetricsBridge` (Swift, four plain
+  `Double`s) measure and publish instead, called at launch AND on every switch into gameplay
+  (needed twice - `GameMain` and `PaywallModule` each compile their own copy of `DeviceScreen`).
+- **Landscape is assumed defensively** - `viewportFor` normalises with max/min rather than trusting
+  which is "width", clamped 0.75..3.0.
+- **Safe areas are real, not guessed.** `GameplayScene`'s `edgeInset`/`bottomInset` (46/38) are
+  floors; a reported inset plus a 12-unit margin wins where larger. Android reports
+  `displayCutout() | mandatorySystemGestures()`, not the full `systemGestures()` set. This is the
+  GAMEPLAY half only - Compose menus opted Android out entirely (see `menuAppliesSafeAreaInsets`).
+- **...except the TOP, which the gameplay HUD ignores in landscape** (`gameplayTopInset`) - in
+  landscape the short edge (notch/Dynamic Island) is a SIDE, so nothing occupies the top; Android's
+  top report is just a gesture-swipe region, and honouring it pushed the HUD visibly down. Left,
+  right, bottom stay fully honoured everywhere.
 
-**Compose: `paywall-build/src/commonMain/kotlin/ui/Responsive.kt`.** `menuMetrics(maxWidth,
-maxHeight)` gives one `scale = min(h/720, w/1280)` clamped 0.62..1.45, so the *smaller* axis
-limits. At the reference 1560x720 it is exactly 1.0 - the desktop/reference look is unchanged,
-which matters because these screens have been through many rounds of the owner's own feedback and
-this was not a redesign. **The main menu keeps its own lower floor** (`MAIN_MENU_MIN_SCALE` =
-0.55): its four stacked 84dp buttons plus the 158dp logo come to ~396dp at 0.62 against a
-390dp-tall phone and SETTINGS falls off the bottom - measured, not estimated, and 0.62 was tried
-first and does exactly that. Where scaling alone cannot fit a screen, `metrics.isShort` (height <
-520dp, i.e. every phone in landscape and nothing else) trims decoration instead of shrinking type
-further: a shorter chapter row and two description lines instead of three.
-`MenuTopBar`/`StatPill`/`CoinPill` all take `scale` now, defaulting to 1f.
+**Compose (`paywall-build/.../Responsive.kt`)**: `menuMetrics` gives `scale = min(h/720, w/1280)`
+clamped 0.62..1.45 (exactly 1.0 at the reference 1560x720). Main menu keeps its own lower floor
+(`MAIN_MENU_MIN_SCALE` = 0.55, measured against its four stacked buttons + logo). `isShort` (height
+< 520dp) trims decoration instead of shrinking type further once scaling alone can't fit a screen.
 
-**Two of these were wrong on the owner's own Android phone, reported 2026-09-25 and fixed there.**
-Both had only ever been looked at in a desktop window, where neither shows up:
-- **`isShort` also dropped the top-bar wordmark, which meant every phone lost it.** The logo is
-  unconditional again in `MenuTopBar` ("always show it"); `MenuMetrics.showsTopBarLogo` and the
-  `hideLogo` parameter are gone rather than left unused. It clears the centred title with room to
-  spare even at the 0.62 floor (~118dp wide against a title centred at half of 1040). **What the
-  old gate was right about is the wordmark's second line**: "SHADOW HEIST" is a smudge at this
-  size in a desktop capture. On a 3x phone it has 3x the device pixels of that capture, so it
-  should read - but that has not been looked at on the device.
-- **`safeAreaPadding()` is now gated on `menuAppliesSafeAreaInsets`** (`ui/MenuSafeArea.kt`,
-  `expect`/`actual`: iOS true, Android and JVM false). Android's published set - display cutout
-  plus the mandatory gesture strip - landed as a band down one long edge and another along the
-  bottom of MainMenu / Missions / Store / Settings: "in androids there should not be padding at
-  all ... for iphones use the safe area layout to do this to avoid dynamic island". The panels are
-  opaque flat colour and their content sits well inboard already, so a cutout over the edge costs
-  nothing there. iOS is unchanged, just explicit now. `testMenusOnlyInsetThemselvesOnAHostThatOptsIn`
-  (`ResponsiveTest`) runs the JVM actual, which is the same `false` branch Android takes.
+Two bugs found only on the owner's own Android phone (fixed 2026-09-25):
+- **`isShort` had also dropped the top-bar wordmark on every phone** - now unconditional in
+  `MenuTopBar`.
+- **`safeAreaPadding()` is now gated on `menuAppliesSafeAreaInsets`** (iOS true, Android/JVM false) -
+  Android's cutout+gesture band was landing as a visible strip on opaque menu panels whose content
+  already sits well inboard.
 
-**The top bar has a second scale, and it is not optional** (`topBarScaleFor`, `MenuComponents.kt`).
-The back button floors at 44dp (the touch minimum; it is the only way out of the screen) and
-`barHeight` follows it, but everything else in the bar kept using the screen's `scale` - so the
-stat pills came out at **52% of the back button's height where the reference bar has them at 74%**,
-reported from the owner's phone as "the coin and star counter is weird and too thin".
-`topBarScaleFor` is the scale the bar is actually drawn at, and **everything in the bar takes it**:
-the wordmark, the title, the pills, their spacing and the tracking, handed to the pills through
-`statPills: @Composable (barScale: Float) -> Unit`. **It binds on tablets too, not just phones** - a
-4:3 iPad is width-limited to 0.8, so `46 * 0.8` is already under the floor; the reference desktop
-window (scale 1.0) is the only thing above it, which is what keeps the signed-off look still.
+**The top bar has a second scale, and it is not optional** (`topBarScaleFor`). The back button
+floors at 44dp; everything else in the bar used to follow the screen's plain `scale`, coming out at
+52% of the back button's height where the reference sits at 74%. `topBarScaleFor` is a **taper**, not
+a hard floor (`max(scale, floor)` overshot - the bar then held size while the screen shrank around
+it): it keeps `TOP_BAR_SCALE_TAPER` (0.5) of the shrinkage below the floor, landing a phone at
+0.79-0.81. Also what lets the wordmark take `barScale` at all without overlapping the centred title.
 
-**It is a taper, not a floor, and that took a second round.** `max(scale, 44/46)` was the first
-shape and it overshot: the bar then held its size while the screen shrank around it, reported as
-"when screen gets smaller, scale down the logo the coin and star counter and title in middle a
-little". It now keeps `TOP_BAR_SCALE_TAPER` (0.5) of the shrinkage below the floor -
-`floor - (floor - scale) * 0.5` - so a phone lands at 0.79..0.81 rather than 0.62 (sliver) or
-0.96 (pinned). Measured on screen, the stat pill went 52% -> 84% -> **69%** of the back button's
-height against the reference bar's 74%. `testTopBarContentsStopShrinkingWithTheBackButton` pins
-all three properties: strictly above `scale`, strictly below the floor, and monotonic in screen
-size. **The taper is also what lets the wordmark take `barScale` at all** - pinned to the floor it
-is 148dp wide on a 667dp phone and the centred title comes within 6dp of it once a 59dp notch is
-taken off the leading edge. That is measured, not guessed, and
-`testTheTopBarTitleStillClearsTheWordmarkOnEveryPhone` exists to catch it; re-run it if
-`TOP_BAR_SCALE_TAPER` moves.
+**The Missions chapter row keeps build 11's own floor** (`CHAPTER_CARD_MIN_SCALE` = 0.75) - the
+card's star/count were crushed at 56dp when this was un-floored.
 
-**The chapter row on Missions has build 11's own floor back** (`CHAPTER_CARD_MIN_SCALE` = 0.75,
-`LevelSelectScreen.kt`). It used to be `if (isShort) 86 * scale else 110 * scale`, giving height
-away on a phone because three of its four cards were COMING SOON placeholders - and both halves of
-that reasoning are now gone (the placeholders went for the Play submission, and `scale` is no
-longer floored at 0.75). At 56dp the card's star and star-count were crushed into it: "the star in
-bar saying shipyard is not aligned properly and part of the text showing how many stars is half
-cropped ... i liked how it looked in build 11". It is build 11's `110 * scale` with build 11's
-0.75 floor, so a phone gets its 82.5dp back and nothing above the floor moves. **The card's star
-was a hard `14.dp` box and a hard `6.dp` gap beside type that scales** - fine at 0.75, visibly
-wrong under it; both track the type now, with a 0.06em lift because `CenterVertically` centres the
-text's line box and digits carry no descender (the same optical correction the torn-paper buttons
-needed).
-
-**Still open from the same reports, deliberately not changed:** the Missions chapter row shows one
-card at a quarter width with three invisible `Spacer(weight(1f))`s beside it (the Play-approval
-change below), and the menu scale on a phone is 0.667 where the previous shipped build floored it
-at 0.75. Both were shown to the owner and left as they are - don't "fix" either without being asked.
-
-**Verification, and what is NOT verified.** Desktop stands in for device aspects:
-`./gradlew runJvm -PwindowSize=1024x768` (iPad), `1280x720`, `1120x480` (21:9), and
-`./gradlew :paywall-build:run -PwindowSize=844x390` for the menus - both read the env var the same
-way `startLevel` already did. Screenshot recipe as always (`SetProcessDPIAware()` first), and
-**capture the CLIENT rect, not `GetWindowRect`**, which includes the invisible resize border and
-shows the desktop behind the window. Checked this way: gameplay at 4:3 / 16:9 / 21:9 on levels 1,
-4 (vignette) and 7 (its `canvasH * 488/724` background anchoring holds), and MainMenu / Missions /
-Store at 844x390 and 1024x768. `jvmTest` 228 green, `:paywall-build:jvmTest` 21 green,
-`android-shell:compileReleaseKotlin` clean.
-**The menus have since run on the owner's own Android phone, which is how the bugs above were
-found** - and the non-zero Android inset is now
-ignored by the menus rather than exercised by them, so the only safe-area plumbing anything has
-seen in anger is the Android gameplay HUD's. iOS safe areas remain unobserved end to end.
-**The desktop screenshot recipe needs `PrintWindow` or a fronted window, not both half-done**: a
-`CopyFromScreen` of a window that is not actually foreground captures whatever is on top of it
-(cost a wrong screenshot here), and `PrintWindow` on this Skiko window returns a stale frame after
-a click (cost another). What works: front the window with `AttachThreadInput` + `SetForegroundWindow`,
-click, settle, then `CopyFromScreen` the client rect - `tools`-less script kept out of the repo.
-iOS is not even compile-checked (CI only).
+**Verification**: desktop stands in for device aspects via `-PwindowSize=`. Checked gameplay at 4:3
+/ 16:9 / 21:9 on levels 1, 4, 7 and menus at 844x390/1024x768. `jvmTest` green,
+`android-shell:compileReleaseKotlin` clean. **The menus have since run on the owner's own Android
+phone** (which is how the two bugs above were found) - iOS safe areas remain unobserved end to end.
+**Screenshot recipe**: front the window (`AttachThreadInput` + `SetForegroundWindow`), click, settle,
+then `CopyFromScreen` the CLIENT rect (not `GetWindowRect`) after `SetProcessDPIAware()`.
 
 ### Three follow-ups from the owner's own iPad (2026-09-24)
 
-The canvas rule above is necessary but not sufficient: a few screens were still sized as a share
-of one axis, which is only a constant share of the screen on devices of one aspect. All three are
-pinned by tests in `ResponsiveTest`, and all three leave the reference phone and the desktop
-window byte-identical - that was the constraint, not an accident.
+The canvas rule is necessary but not sufficient - some screens were still sized as a share of one
+fixed axis. All three pinned by `ResponsiveTest`; all leave the reference phone/desktop
+byte-identical.
 
-**The splash sizes off HEIGHT, unlike the rest of `GameplayScene`** (`splashScale`,
-`setupLoadingScreen`). The logo held 34% of the *width* on every device, which is a quarter of the
-reference phone's height but only a seventh of a 4:3 iPad's, with the rest left as dead margin -
-"the logo is too small and the loading bar is too short". `canvasH / ScreenLayout.DESIGN_HEIGHT`
-(capped 1.6, a guard for a canvas squarer than any real device - a 4:3 iPad lands at 1.625 and
-gives up 1.5%) holds the share of height constant instead, which is what the eye measures against
-on a splash. The pieces are also centred as one block at `canvasH * 0.474` rather than each
-pinned to its own fraction, because fractions spread them apart as the canvas grows; 0.474 is
-where the reference stack's centre already sat, so a 1040x480 canvas still renders what it did
-(logo top 125.0 vs 124.8, bar top 277.9 vs 278.4). The bar's *width* drives its height so it keeps
-its flat proportion. `loadingbg.png` is deliberately still stretched, not cropped: it is an
-abstract grunge texture with no subject, so nothing in it reads as distorted.
-
-**The menu video fills the HEIGHT and overflows left** (`videoBoxFor` in `ui/VideoBackground.kt`,
-used by all three actuals so they cannot drift). It used to fit the width on a screen squarer than
-16:9, which left the bottom **37%** of a 4:3 iPad as a black bar under the menu. Now the surface
-is always `screenHeight * videoAspect` wide, pinned `TopEnd`, so a squarer screen runs the left of
-the frame off the edge and keeps the right - where the composition's subject (the figure on the
-roof) is. On a screen *wider* than the video nothing changes: the surface is narrower than the
-screen and the band it leaves on the left sits under the opaque end of the menu's dark gradient.
-Two mechanics matter: the caller must use **`requiredWidth`/`requiredHeight`** (plain
-`width`/`height` clamp to the incoming constraints and would silently fit instead of overflow),
-and the container must `clipToBounds()`.
-
-**The dossier card has two ceilings** (`dossierCardWidthFor`). `DOSSIER_HEIGHT_FRACTION` = 0.37 of
-the height is a quarter of the width on a ~2:1 phone or desktop window, but 42% on a 4:3 iPad and
-568dp on a 12.9" - a hand-sized sheet of paper reading as a poster.
-`DOSSIER_MAX_WIDTH_FRACTION` = 0.35 is set just above where every phone and desktop window already
-lands (the widest is 0.26), so it binds on tablets only; `DOSSIER_MAX_SCALE` = 1.0 additionally
-refuses to upscale the artwork past the 462dp it was drawn at, which only a 12.9" iPad reaches.
-
-Verified the same way as above, at 4:3 and at the reference aspect, with before/after captures of
-both the splash and the menu. Still not verified on a device: the same caveat applies.
+- **The splash now sizes off HEIGHT** (`splashScale` = `canvasH / DESIGN_HEIGHT`, capped 1.6). It
+  used to size off width, giving a 4:3 iPad only a seventh of its height for the logo vs a quarter on
+  the reference phone. Pieces are centred as one block at `canvasH * 0.474` (where the reference
+  stack's centre already sat) rather than each pinned to its own fraction.
+- **The menu video fills the HEIGHT and overflows left** (`videoBoxFor`) - surface is always
+  `screenHeight * videoAspect` wide, pinned so the frame's SUBJECT (figure on the roof, near the
+  right/trailing edge) stays on screen and the overflow spends itself on the left where nothing of
+  interest sits. Needs `requiredWidth`/`requiredHeight` (plain `width`/`height` would just fit
+  instead of overflow) and `clipToBounds()`.
+- **The dossier card has two ceilings** (`dossierCardWidthFor`): `DOSSIER_HEIGHT_FRACTION` (0.37 of
+  height) is a quarter of the width on a ~2:1 screen but 42% on a 4:3 iPad; `DOSSIER_MAX_WIDTH_FRACTION`
+  (0.35) binds on tablets only, `DOSSIER_MAX_SCALE` (1.0) additionally refuses to upscale the artwork.
 
 ### Two more from the owner's own iPad and foldable (2026-09-25)
 
-**The menu video was never actually pinned to the trailing edge** - the rule was right, the
-implementation was not, and it took a screenshot at 7:6 to see it. `Box(contentAlignment = TopEnd)`
-around an oversized child does nothing, because **a `Box` measures itself as
-`max(minConstraint, childSize)`**: a child wider than the box makes the *box* that wide, and a box
-exactly as wide as its child has nothing left to align. Worse, the oversized measurement propagates
-up - `fillMaxSize()` reports its child's size, not the constraint, so `clipToBounds()` clips to the
-oversized bounds too - until some ancestor centres the whole menu root. The video came out centred
-and the silhouette was sliced in half by the right edge.
+- **The menu video was never actually pinned to the trailing edge.** `Box(contentAlignment=TopEnd)`
+  does nothing for an oversized child - a `Box` measures itself as `max(minConstraint, childSize)`,
+  so a child wider than the box makes the box that wide, with nothing left to align, and the
+  oversized measurement propagates up through `fillMaxSize()`/`clipToBounds()`. Fix:
+  `wrapContentSize(align, unbounded = true)` on the CHILD - measures unbounded, reports the
+  constrained size, places the overflowing child inside it. Needed anywhere a child must overflow
+  its parent in Compose.
+- **Pinning the trailing edge was the wrong target anyway** - the silhouette spans 0.78..0.87 of the
+  video's width, so `videoBoxFor` returns an `offsetX`: overflow eats the leading edge first and
+  only spills past the trailing edge once it has consumed a fixed `SUBJECT_TRAILING_EDGE` strip,
+  keeping the silhouette ~4% clear of the screen edge at every aspect.
+- **The gameplay canvas has a zoom cap, and "never crop" has an exception.** Containing the design
+  rect at 4:3 gave a 1040x780 canvas with the action sitting in the bottom third under dead sky - "no
+  free lunch": the ground has nothing below it, so filling a squarer screen means magnifying, which
+  narrows visible width. `ScreenLayout` caps canvas height at `MAX_CANVAS_HEIGHT` (585, where 1040
+  exactly fills 16:9) with `MIN_CANVAS_WIDTH` (800) under it:
 
-The fix is `wrapContentSize(align, unbounded = true)` on the **child**, which measures unbounded,
-reports the *constrained* size, and places the overflowing child inside it. Anything that has to
-overflow its parent in Compose needs this; `contentAlignment` is not a substitute. All three hosts
-had the same bug because all three were written from the same (wrong) sketch.
+  | aspect | canvas | visible world width |
+  | --- | --- | --- |
+  | 2.17 reference and wider | unchanged | 770+ |
+  | 16:9 (squarest phone) | 1040x585 | 770 |
+  | 16:10 tablet | 936x585 | 693 |
+  | 4:3 iPad | 800x600 | 593 |
+  | 7:6 foldable | 800x687 | 593 |
 
-**And the trailing edge was the wrong thing to pin anyway.** The silhouette spans 0.78..0.87 of
-`bg1080p.mp4`'s width; past ~0.91 it is just the rooftop mast and dish. Pinning the frame's own
-right edge spends that whole scenery strip on screen and pays for it by cutting more off the left.
-`videoBoxFor` now returns an `offsetX` as well as a size: the overflow takes the leading edge first
-and only spills past the trailing edge once it has eaten the `SUBJECT_TRAILING_EDGE` strip, so the
-silhouette keeps ~4% of the frame width clear of the screen edge at every aspect. `ResponsiveTest`
-walks 2.33 down to 1.0 and asserts the silhouette's own span stays on screen - if the art is ever
-recut, move the two fractions in that test with it.
+  `FULL_WIDTH_ASPECT` = 16:9 exactly so no PHONE ever loses field of view - the cap is a
+  tablet/foldable concession only.
+- **Watch out**: `splashScale` was originally `canvasH / DESIGN_HEIGHT`, which only equals
+  `DESIGN_ASPECT / aspect` while the canvas is the design rect grown to fit - the zoom cap broke
+  that and silently shrank the iPad splash logo back down. Now written as the aspect ratio directly.
+  Any other constant derived from `canvasH` alone is suspect for the same reason.
 
-**The gameplay canvas now has a zoom cap, and the "never crop" rule has an exception.**
-Containing the design rect at every aspect handed a 4:3 iPad a 1040x780 canvas; the ground is
-pinned near the bottom and `worldZoom` is a fixed 1.35, so the action sat in the bottom third of a
-big screen with dead sky above it - the owner's words were "don't show too much extra sky in
-tablets, instead zoom in onto the game". There is no free lunch here: the ground has nothing below
-it to reveal, so the only way to fill more of a squarer screen is to magnify, and magnifying shows
-less width. `ScreenLayout` now caps the canvas height at `MAX_CANVAS_HEIGHT` (585, the height at
-which 1040 exactly fills a 16:9 screen) with `MIN_CANVAS_WIDTH` = 800 under it, so:
-
-| aspect | before | after | visible world width |
-| --- | --- | --- | --- |
-| 2.17 reference and wider | unchanged | unchanged | 770+ |
-| 16:9 (squarest phone) | 1040x585 | 1040x585 | 770 |
-| 16:10 tablet | 1040x650 | 936x585 | 693 |
-| 4:3 iPad | 1040x780 | **800x600** | 593 |
-| 7:6 foldable | 1040x893 | 800x687 | 593 |
-
-`FULL_WIDTH_ASPECT` is 16:9 exactly because that is the squarest a phone in landscape gets, so
-**no phone loses a unit of field of view** - the cap is a tablet-and-foldable concession only, and
-the level-pacing arguments above still hold on the devices they were reasoned against.
-`MIN_CANVAS_WIDTH` is deliberately the same 800 `GameplayScene` already clamps its own `canvasW`
-to, so the two floors cannot disagree; it is what actually binds at 4:3 and squarer.
-
-**Watch out:** the splash screen's `splashScale` was written as `canvasH / DESIGN_HEIGHT`, which is
-`DESIGN_ASPECT / aspect` *only while the canvas is the design rect grown to fit*. The zoom cap
-broke that identity and silently shrank the iPad logo from 54% of the screen back to 43%, undoing
-the fix above. It is now written as the aspect ratio directly. Any other constant derived from
-`canvasH` alone is suspect for the same reason.
-
-Verified with before/after captures of gameplay at 4:3 (`:runJvm -PwindowSize=1366x1024`, using
-`-PstartLevel` to land straight in a level), the reference aspect for comparison, the splash at
-4:3, and the menu at 7:6. Still not verified on a device.
+Verified with before/after captures at 4:3, the reference aspect, and 7:6. **Not verified on a
+device.**
 
 ## Non-gameplay UI in Compose - status
 
 MainMenu, LevelSelect, Store, Settings are real Compose screens in `paywall-build`. KorGE is entered
-via `rootViewController` swap on iOS. On Android the planned "warm engine" (one Activity, `FrameLayout`
-holding both views, toggle visibility) is NOT what ships - hiding `KorgeAndroidView` tears down its
-surface (bug #7), so the Compose menu draws opaquely on top of an always-visible KorGE view.
+via `rootViewController` swap on iOS. On Android the Compose menu draws opaquely on top of an
+always-visible KorGE view (hiding `KorgeAndroidView` tears down its surface for good - bug #7).
 
 ## Gameplay architecture (`commonMain`)
 
 - `game.model` (engine-agnostic, pure Kotlin): `Geometry.kt` (raycasting, LOS), `Player.kt` (96x50
   hitbox, jump/gravity/platform snapping, sub-stepped AABB collision, `NoiseLevel`, crouch),
-  `Guard.kt` (waypoint patrol, PATROL/INVESTIGATING, pause/hold options), `Vision.kt` (FOV polygon +
-  detection), `Camera.kt`, `MovingPlatform.kt`, `Conveyor.kt`, `Laser.kt`, `LevelData.kt`
-  (`LevelData`/`LevelLayout`/`LevelResult`/`LevelRegistry`/`LevelStorage`, all level definitions with
-  their reasoning in doc comments), `GameProfile.kt`, `Powerup.kt`, `GameWorld.kt` (orchestration,
-  detection/alert/noise, exit/win).
-- `game.scene` (KorGE): `UiComponents.kt` (UI constants + GPU vector helpers), `PlayerAnimations.kt`
-  / `GuardAnimations.kt` (atlas sprite animation), `LightConeView.kt`, `SceneAssets.kt` (process-wide
-  bitmap/font cache), `GameplayScene.kt` (HUD, touch controls, overlays, parallax, level rendering).
-- Collision is `Rect`-vs-`Rect` everywhere. **Pixel-perfect hitboxes were explicitly decided
-  against** (two parallel collision systems); `footWidth` narrowing is the intended answer to "the box
-  is bigger than what you see" - tune per case.
+  `Guard.kt` (waypoint patrol, PATROL/INVESTIGATING), `Vision.kt` (FOV polygon + detection),
+  `Camera.kt`, `MovingPlatform.kt`, `Conveyor.kt`, `Laser.kt`, `LevelData.kt` (level definitions with
+  their reasoning in doc comments), `GameProfile.kt`, `Powerup.kt`, `GameWorld.kt` (orchestration).
+- `game.scene` (KorGE): `UiComponents.kt`, `PlayerAnimations.kt`/`GuardAnimations.kt` (atlas sprite
+  animation), `LightConeView.kt`, `SceneAssets.kt` (process-wide bitmap/font cache),
+  `GameplayScene.kt` (HUD, touch controls, overlays, parallax, level rendering).
+- Collision is `Rect`-vs-`Rect` everywhere. Pixel-perfect hitboxes were explicitly decided against;
+  `footWidth` narrowing is the intended answer to "the box is bigger than what you see".
 - `dtSec` is clamped to 0.1s and `Player.update` sub-steps at 1/60, so a 100ms hitch runs six
-  physics steps - slow frames make themselves slower.
-- Levels: `01: Night Arrival` (`DEFAULT_LEVEL_1`, tutorial), `02: Cargo Yard` (`LEVEL_2_LAYOUT`,
-  `bgmg5.png`, procedural rain, lightning & thunder weather system; see its own section), `03: First Contact` (`LEVEL_3_LAYOUT`, WIP), `04: Moving Target` (`LEVEL_4_LAYOUT`, conveyor,
-  `bgmg6.png`, darkness vignette), `05: The Crane Yard` (`SIDE_SCROLL_LEVEL_LAYOUT` - the recovered
-  barrel-wall + hook-swing stub, see "The swing move"), `06: Stolen Manifest` (`LEVEL_6_LAYOUT` -
-  lever-crate swing, pit crossing, crane crossing; see its own section), `07: Service Tunnel`
-  (`LEVEL_7_LAYOUT` - linear vent crawling gauntlet, exhaust fans, camera bots, steam pipes; see its
-  own section), `08: Relocation` (`LEVEL_8_LAYOUT` - the suspended-load yard;
-  see its own section), `09: Déjà Vu` .. `12: Final Escape` (no layout of their own,
-  `GameWorld.createDefault` with a per-level `guardSpeed`). Other levels' backgrounds rotate through
-  `bgmg2..6` via `LevelData.resolvedBackgroundImage`.
+  physics steps.
+- Levels: 01 Night Arrival (tutorial), 02 Cargo Yard (rain/lightning/thunder), 03 First Contact
+  (WIP), 04 Moving Target (conveyor, vignette), 05 The Crane Yard (swing move), 06 Stolen Manifest
+  (lever-crate swing, pit, crane crossing), 07 Service Tunnel (vent gauntlet), 08 Relocation
+  (suspended-load yard, pushable cart), 09-12 (no layout yet, `GameWorld.createDefault` only).
 
 ## The camera follow (`src/game/model/CameraFollow.kt`) - 2026-09-25
 
-Reported as "when jumping forward the screen does not move smoothly ... for landing part the
-screen suddenly moves forward", with "make sure in every animation, screen moves very smoothly".
+Reported: jumping/landing made the screen move unevenly. **The old camera was a first-order lerp**,
+smooth in position but its acceleration was a step function of the player's own velocity - the
+instant `Player.vx` changed (landing speed dip, ledge drop, a body pinned against a platform's near
+face), the scroll rate's rate of change itself jumped. Those velocity steps are tuned gameplay, not
+bugs to smooth away.
 
-**The camera was a first-order lerp** (`worldView.x += (target - worldView.x) * (1 - exp(-16*dt))`).
-That is smooth in position but its *acceleration* is a step function of the player's own velocity:
-`dx/dt = k*(target - x)`, so the instant `Player.vx` changes, the scroll rate starts changing at a
-rate that itself jumped. **`Player.vx` steps constantly, and every one of those steps is a tuned
-rule, not a bug to fix in the model** - do not "smooth" the physics to fix a camera complaint:
+**Now a critically damped spring** (`CameraFollow`, pure Kotlin, `jvmTest`-able, closed-form so
+60/120Hz settle identically). Acceleration depends only on position error and its own velocity, both
+continuous, so scroll rate can never change in a single frame. `DEFAULT_SMOOTH_TIME` = 0.12,
+measured against the worst single-frame scroll-rate jolt (jump landing 10.1->4.1 px/s, crate-face
+pin 41.7->18.1 px/s) at a walking lag of 19.4px (1.9% of canvas, exists only while running - the
+spring settles exactly on target when the player stops). Move that constant only with a re-measure.
 
-- landing out of a jump drops to `jumpLandingSpeed` (100) for `jumpLandingDuration` (0.05s) then
-  restores 132 - two steps back to back, under the landing animation, which is the reported case;
-- walking off a ledge drops to `dropSpeed` (30) and the touchdown restores 132;
-- a body meeting a platform's near face mid-flight is pinned (132 -> 0 in ONE frame) and released
-  when the feet clear its top - the hardest step anything here produces;
-- climb and swing drive `x` off their own curves and hand control back at the end.
+**Teleports cut, they do not pan** (`snapIfFartherThan = canvasW / 8`, plus `isFirstCameraFrame` at
+every deliberate cut site). `worldView.y` is pinned to the ground, unaffected by any of this - a
+jump moves the character up the frame, not the frame up with them.
 
-**Now a critically damped spring** (`CameraFollow`, pure Kotlin so it is `jvmTest`-able and passes
-`ZeroKorlibsLintTest`), using the exact closed-form solution over each step so 60Hz and 120Hz
-settle along the same curve. Its acceleration depends only on the position error and its own
-velocity, both continuous, so the scroll rate can never change in a single frame whatever the
-player does. Critically damped specifically: under-damping wobbles on every landing, over-damping
-crawls.
-
-**`DEFAULT_SMOOTH_TIME` = 0.12 was measured, not picked.** Driving level 1 at 60fps and recording
-the worst single-frame change in scroll rate - the thing the eye reads as a jolt - against the old
-filter: jump landing 10.1 -> 4.1 px/s, crate-face pin 41.7 -> 18.1 px/s, at a walking lag of
-19.4px (the analytic lag is exactly `v * smoothTime`). That lag is 1.9% of the canvas and exists
-only while running; the spring settles exactly on target when the player stops, so standing and
-every static moment frame identically to before. The full table is in the class doc - **move that
-one number and re-measure the table rather than reaching back for a lerp.**
-
-**Teleports cut, they do not pan.** `update(..., snapIfFartherThan = canvasW / 8)` plus the
-existing `isFirstCameraFrame` at every deliberate site (scene build, conveyor fall-off reset,
-continue-ad revive, and now both checkpoint-respawn retry paths, which were missing it). Real
-movement is at most ~18px of camera travel in a frame even at the 0.1s `dtSec` clamp, against a
-130px threshold, so play can never trip it. `worldView.x` is still clamped to the level bounds
-after the spring - critical damping cannot overshoot a ramp that stops, so it only binds for one
-frame after a cut, but a camera past the level edge is a black bar.
-
-**The vertical does not follow at all and this did not change it**: `worldView.y` is pinned to the
-ground (`canvasH - (groundY + 70) * zoom`, or level 7's own anchoring), so a jump moves the
-character up the frame rather than the frame up with them.
-
-Pinned by `CameraFollowTest` (8 tests), two of which drive the real `GameWorld` loop and assert
-against the old filter measured on the identical run, so they do not rot as level tuning moves.
-**JVM only - not checked on Android or iOS, and not looked at on a screen** (screenshot testing
-was off for this pass at the owner's request).
+Pinned by `CameraFollowTest` (8 tests). **JVM only - not checked on Android/iOS or on a screen.**
 
 ## The level clock counts play, not wall time (`GameWorld.isSuspended`, 2026-09-25)
 
-`world.timeTaken` is what the MISSION FAILED / HEIST COMPLETE sheets print and what star 3 is
-judged against (`LevelResult.star3`), so it has to mean "time the player could act on", not
-"seconds since the level loaded". It only ever advances inside `GameWorld.update`, and
-`GameplayScene`'s updater already returned early while its own pause overlay was up - so the pause
-*menu* was never the leak. The holds that come from outside the scene were:
+`world.timeTaken` (shown on end cards, judged for star 3) must mean "time the player could act on".
+The scene's own pause overlay already returned early; the real leaks were the app backgrounding and
+a full-screen ad covering gameplay - neither visible to a scene-local flag, and on **Android the
+KorGE view is deliberately never hidden** (bug #7), so its loop keeps running underneath.
 
-- **the app backgrounded** (home button, a call, the app switcher), and
-- **a full-screen ad covering gameplay**.
+- **`AppLifecycleBridge.kt`** - `GameAppLifecycle.isForeground`, a plain process-wide flag, default
+  **true** (desktop/JS previews never report lifecycle and must play normally). Set from
+  `MainActivity.onPause`/`onResume` and `AppDelegate.swift`'s background/foreground callbacks plus
+  either side of the rewarded continue ad.
+- **`GameWorld.isSuspended`** - `update()` no-ops while set. `GameplayScene` mirrors `isPaused ||
+  !GameAppLifecycle.isForeground` onto it every frame, belt-and-braces since the scene isn't the only
+  thing that can drive `update()`. `restartLevel()` clears it.
 
-Neither is visible to a scene-local flag, and on **Android the KorGE view is deliberately never
-hidden** (real-device bug #7 below: hiding it tears down the `GLSurfaceView` for good), so its
-render loop and this updater keep running under whatever is in front of them.
-
-Two pieces, both small:
-
-- **`src/AppLifecycleBridge.kt`** - `GameAppLifecycle.isForeground`, a plain process-wide flag
-  (no `expect`/`actual`: there is nothing platform-specific to implement, only a flag to set).
-  Defaults to **true**, because a target with no native shell - desktop JVM, the JS/wasm previews -
-  never reports lifecycle at all and must play normally rather than sit frozen. iOS reaches it
-  through `src@ios/AppLifecycleBridge.ios.kt`'s `@ObjCName(exact = true)` wrapper, the same shape
-  as every other Swift-visible object here. Set from `MainActivity.onPause`/`onResume` and from
-  `AppDelegate.swift`'s background/foreground callbacks plus either side of the rewarded continue
-  ad (the iOS shell swaps the window away from KorGE for its whole duration).
-- **`GameWorld.isSuspended`** - `update()` is a no-op while set, so no clock, no physics, no alert,
-  no hazard phase. `GameplayScene` mirrors `isPaused || !GameAppLifecycle.isForeground` onto it
-  every frame. Deliberately belt-and-braces rather than the sole mechanism: the scene is not the
-  only thing that can drive `update()`, and a clock that can only be advanced by a frame the player
-  saw is much easier to keep honest than one that depends on every future call site remembering to
-  check a scene-local flag. `restartLevel()` clears it - a stuck flag would freeze the new attempt
-  outright.
-
-Covered by four tests in `GameplayModelTest.kt` (`testSuspendedWorldDoesNotChargeTheLevelClock`,
-`...FreezesTheRunItself`, `testRestartClearsSuspension`,
-`testAppLifecycleStartsForegroundAndTracksBothEdges`). The second one holds every input down
-through the hold: a player whose thumb is on the D-pad when a call arrives must not walk into a
-guard while the screen belongs to someone else.
+Covered by 4 tests in `GameplayModelTest.kt`.
 
 ## End-of-run dossier sheets (MISSION FAILED / HEIST COMPLETE)
 
 Both are the main menu's briefing sheet: `dossier_paper.png` stretched to a card, debrief in ink,
-verdict as a rubber stamp, torn-paper strips stacked to its left. FAILED = SITUATION REPORT (two
-columns of fields, red stamp, recon tip in the handwritten face along the foot); COMPLETE = OBJECTIVE
-REVIEW (three stars over objective fields, green stamp with rating, purse along the foot). **An
-earlier dark `#141416` card with hairline borders/coin pill was rejected as off-theme - don't
-reintroduce dark panels, hairline strokes or the coin pill here** (that pass's `COLOR_MENU_*` palette
-and `drawCoinIcon` were removed with it).
+verdict as a rubber stamp, torn-paper strips to the left. FAILED = SITUATION REPORT (two columns,
+red stamp); COMPLETE = OBJECTIVE REVIEW (three stars, green stamp, purse). **An earlier dark
+`#141416` card with hairline borders/coin pill was rejected as off-theme - don't reintroduce.**
 
-Ink side follows `MainMenuScreen.MissionDossierCard`: ink alphas 1.0/0.78/0.55/0.34 of `#17140F`,
-sheet **1.5 aspect** (never stretch one axis - it pulls the torn edge), insets start 15% (folder
-tab) / end 9% / top 5.5% / bottom 14%, **-5.2 degree tilt**. Stamp red/green `#96222A`/`#25603A`
-and gold `#A8781A` are deliberately NOT the menu's neon `#FF2A55`/`#00E676`/`#FFD700`. **A tilted
-sheet cannot carry label-left/value-right rows** - at 5.2 degrees a value climbs nearly a full row
-across a column and reads as the answer to the line above. Fields are **stacked**. Knobs: `sheetH0`/
-`sheetW0`, `S` (shrinks the whole group on a narrow canvas; 1.0 on the 1040x480 canvas), `dpx`/`dpy`
-(page -> tilted layer, pivoted on the sheet centre). `resources/dossier_paper.png` is a second copy of
-the Compose asset (no shared pipeline); it bumped `totalLoadSteps` to 20, which must match the number
-of `markLoadProgress()` calls. Verified on JVM desktop over four screenshot passes; not on device.
+Ink follows `MainMenuScreen.MissionDossierCard`: sheet 1.5 aspect (never stretch one axis), -5.2
+degree tilt. **A tilted sheet cannot carry label-left/value-right rows** (a value climbs nearly a
+full row across a column at this tilt) - fields are stacked instead. `resources/dossier_paper.png`
+bumped `totalLoadSteps` to 20 - must match the number of `markLoadProgress()` calls. Verified on JVM
+desktop; not on device.
 
-**Screenshot recipe (reused often)**: temporarily invoke `world.onGameOver?.invoke()` /
-`world.onLevelComplete?.invoke()` before the `addUpdater` block, `./gradlew runJvm`, capture from
-PowerShell. `GameWorld.spottedCount`/`timeTaken` have private setters, so previews show zeros. **Call
-`SetProcessDPIAware()` before `GetWindowRect`/`CopyFromScreen`** or the capture silently grabs only
-the top-left ~80% on this scaled display and looks like a layout bug.
+**Screenshot recipe (reused often)**: temporarily invoke `world.onGameOver?.invoke()`/
+`onLevelComplete?.invoke()` before the `addUpdater` block, `./gradlew runJvm`, capture from
+PowerShell with `SetProcessDPIAware()` called first (or captures grab only the top-left ~80% on this
+scaled display).
 
 ## Audio
 
-Two systems sharing no code: **gameplay** (`GameAudio.kt`, KorGE, `resourcesVfs` from
-`resources/sfx/`; a missing clip is a silent no-op) and **menus** (`ui/MenuSfx.kt`, `expect`/`actual`:
-4-voice `AVAudioPlayer` pool iOS, `SoundPool` Android, JavaFX `AudioClip` desktop - all
-overlap-capable). **Format: PCM s16le / 44.1kHz / mono WAV only** (iOS and JavaFX can't decode Ogg).
-Shared clips (`ui_click.wav`, toast sounds) are checked in twice: `resources/sfx/` and
-`ios-shell/Resources/`; Android's menu bus reads `assets/sfx/` (copied from `resources/`). Gameplay
-one-shots include steps, climb, impact, guard investigate, camera detect, and `thunder.wav` (2.8s low
-rumble/crack for Level 2 rain, `THUNDER_GAIN = 0.90`). Credits in `SOUND_CREDITS` (`SettingsScreen.kt`)
-kept in sync with `ATTRIBUTION.md` by hand.
+Two systems sharing no code: **gameplay** (`GameAudio.kt`, KorGE, `resources/sfx/`, missing clip is
+a silent no-op) and **menus** (`ui/MenuSfx.kt`, `expect`/`actual`: `AVAudioPlayer` pool iOS,
+`SoundPool` Android, JavaFX `AudioClip` desktop, all overlap-capable). **Format: PCM s16le / 44.1kHz
+/ mono WAV only** (iOS/JavaFX can't decode Ogg). Shared clips checked in twice (`resources/sfx/`,
+`ios-shell/Resources/`); Android reads `assets/sfx/`. Credits in `SOUND_CREDITS`
+(`SettingsScreen.kt`), kept in sync with `ATTRIBUTION.md` by hand.
 
 ### Android gameplay crackle - RESOLVED 2026-09-11 (Galaxy S25 Ultra)
 
-**Root cause**: korlibs' `Sound.play()` (`AndroidNativeSoundProvider`) constructs a **new
-`AudioTrack` per call**, so every footstep opened a new audio session next to `bgmusic.mp3`'s
-continuous one; this phone's "Voice Booster" DSP re-initializes on every session open, audible as a
-crackle. Proven by a screen recording whose extracted audio (`ffmpeg` + a `numpy` high-frequency
-energy score per 20ms window, frames pulled at the ranked timestamps) lined every click up with a
-state transition - including one from starting the phone's own screen recorder in the menu.
+**Root cause**: korlibs' `Sound.play()` constructs a new `AudioTrack` per call, so every footstep
+opened a new audio session next to `bgmusic.mp3`'s continuous one; this phone's "Voice Booster" DSP
+re-initializes on every session open, audible as a crackle. Proven by matching a screen recording's
+extracted-audio spike timestamps to state transitions.
 
-**Four narrower fixes tried first, each insufficient** (so the ground isn't re-covered): (1) pooling
-SFX through `SoundPool` - reduced, didn't close; logcat showed `SoundPool` requests the "fast" output
-path per play (`AudioFlinger: createTrack_l(): mismatch between requested flags (00000004) and
-output flags (00000000)`) with no API to refuse it. (2) A `MODE_STATIC` `AudioTrack` pool with
-`PERFORMANCE_MODE_NONE`. (3) Keep-warm pings / a looping silence stream - reverted (the latter bled
-bgmusic into the menu). (4) Matching korlibs' `AudioAttributes` (`USAGE_GAME` + `CONTENT_TYPE_UNKNOWN`)
-and joining its shared session via `AndroidNativeSoundProvider.audioSessionId`/`ensureAudioManager()`.
+**Narrower fixes tried first, each insufficient** (don't re-cover this ground): pooling through
+`SoundPool` (still requests the "fast" output path per play, no API to refuse it); a `MODE_STATIC`
+pool; keep-warm pings/looping silence (bled bgmusic into the menu); matching korlibs'
+`AudioAttributes`/session id.
 
-**Actual fix - `GameSfxOutput`, a software mixer with ONE `AudioTrack`** (`MODE_STREAM`,
-`PERFORMANCE_MODE_NONE`, joined to korlibs' session id defensively), opened once per process, fed by
-one `THREAD_PRIORITY_URGENT_AUDIO` thread summing voices (bgmusic + one-shots) into 20ms/882-frame
-buffers. Files: `src/GameSfxOutput.kt` (common interface: `prepare`/`play`, `prepareMusic`/
-`setMusicVolume`/`stopMusic`), real impl `android-shell/src/main/kotlin/com/infiltrate/androidshell/
-GameSfxOutput.kt`, mirrored in `src@android/GameSfxOutput.android.kt`. Every other platform returns
-`null` and `GameAudio.kt` falls back to korlibs' per-call path. `bgmusic.mp3` is decoded once via
-`MediaExtractor`/`MediaCodec` (44.1kHz stereo, confirmed with `ffprobe`); mixer output is fixed
-44.1kHz stereo, mono SFX upmixed. **Lifecycle**: `AudioTrack.pause()`/`play()` on `MainActivity`
-`onPause`/`onResume` (`AndroidGameSfxOutputState.pauseEngine()`/`resumeEngine()` via `PausableAudioEngine`)
-- without it audio kept playing after leaving the app.
+**Actual fix - `GameSfxOutput`, a software mixer with ONE `AudioTrack`** (`MODE_STREAM`, opened once
+per process, fed by one urgent-priority thread summing voices into 20ms buffers).
+`android-shell/.../GameSfxOutput.kt` is the real impl; every other platform returns `null` and
+`GameAudio.kt` falls back to korlibs' per-call path. `bgmusic.mp3` decoded once via
+`MediaExtractor`/`MediaCodec`. **Lifecycle**: `AudioTrack.pause()`/`play()` on
+`MainActivity.onPause`/`onResume` - without it audio kept playing after leaving the app.
 
-Two unrelated bugs fixed alongside: a background `GameplayScene` reloaded by QUIT/RETURN TO MENU was
-starting bgmusic in `sceneMain()` ("menu music after quitting") - fixed with a `startDormant: Boolean`
-constructor flag that skips `syncBgMusicVolume()`; and the D-pad/jump/crouch/interact buttons had a
-quiet click (`HUD_TAP_GAIN`) that the old latency swallowed - **removed outright per owner feedback;
-don't re-add a tap sound to `createTouchBtn`/`createImgBtn`** (deliberate presses still click).
+Two unrelated bugs fixed alongside: a reloaded background `GameplayScene` was restarting bgmusic on
+QUIT/RETURN TO MENU (fixed with a `startDormant` constructor flag); the D-pad/jump/crouch/interact
+buttons had a quiet tap click that the old latency swallowed - **removed outright, don't re-add**.
 
-Confirmed fixed on the S25 Ultra across several rounds; unknown on other OEMs (mechanism is
-Samsung-specific by evidence) and cost unmeasured elsewhere. A KorGE-community write-up is planned.
+Confirmed fixed on the S25 Ultra; unknown on other OEMs (mechanism appears Samsung-specific).
 
-**Bad source clip**: `climb.wav` (also used for swing launch) was 1.75s with the grunt in the first
-0.66s, silence, then an unrelated three-spike burst - heard as a delayed crackle after climb/swing.
-Trimmed to 0.66s with a 40ms fade (`ffmpeg -af "atrim=0:0.66,afade=t=out:st=0.62:d=0.04"`). Same
-category as the earlier `takeoff.wav` removal. Only one copy exists.
+**Bad source clip**: `climb.wav` (also used for swing launch) had a delayed unrelated burst after
+the grunt - heard as a delayed crackle. Trimmed to 0.66s with a 40ms fade.
 
 ## Real device bugs found and fixed (engine/platform gotchas)
 
-1. **KorGE `Canvas` icons don't scale with density** - `drawXIcon()` in `MenuComponents.kt` plotted
-   literal pixels. Fix: `size.minDimension / REFERENCE_PX` scale per icon (some already did this).
+1. **KorGE `Canvas` icons don't scale with density** - fix: `size.minDimension / REFERENCE_PX` scale
+   per icon.
 2. **A `verticalScroll` parent gives `weight()` nothing** - use `Modifier.height(IntrinsicSize.Min)`.
-3. **`USAGE_ASSISTANCE_SONIFICATION` silently mutes on many phones** (system-sounds stream). Menu SFX
-   switched to `USAGE_GAME`.
-4. **KorGE's `.play()` builds a new `AudioTrack` per call** - perceptible delay. Mitigated by priming
-   every clip once at `volume = 0.0` at load - **once per process, not per scene** (re-priming per
-   reload accumulates `AudioTrack`s toward the per-process ceiling; one cause of the grey-screen bug).
-   Superseded on Android by the mixer above.
+3. **`USAGE_ASSISTANCE_SONIFICATION` silently mutes on many phones** - menu SFX uses `USAGE_GAME`.
+4. **KorGE's `.play()` builds a new `AudioTrack` per call** - mitigated by priming every clip once at
+   volume 0.0 at load, ONCE per process (re-priming per reload accumulates `AudioTrack`s toward a
+   ceiling - a cause of the grey-screen bug). Superseded on Android by the mixer above.
 5. **`PlayerAnimations.load()` reallocated a 2048x2048 atlas + re-decoded the spritesheet every scene
-   load**, nothing releasing the old one -> real on-device `OutOfMemoryError` (found via on-screen
-   exception diagnostics added to `sceneMain()` after three audio theories failed). Fixed with a
-   `@Volatile` process-wide singleton. The other per-scene bitmap loads got the same treatment later
-   (`SceneAssets`).
+   load**, nothing releasing the old one -> real `OutOfMemoryError`. Fixed with a `@Volatile`
+   process-wide singleton; other per-scene bitmap loads got the same treatment (`SceneAssets`).
 6. **AdMob's `onRewardEarned` fires before the ad Activity is dismissed** - reloading on reward raced
-   the Activity lifecycle (the other grey-screen cause). Finish the outcome only on `onDismissed`/
-   `onFailure`. `markRewardEarned()` still does NOT resolve the outcome on Android.
+   the lifecycle (the other grey-screen cause). Finish the outcome only on `onDismissed`/`onFailure`.
 7. **Toggling `KorgeAndroidView` visibility tears down its `GLSurfaceView` and doesn't resume** -
-   permanent grey screen. Never hide it; the Compose menu draws opaquely on top. Trade-off: KorGE
-   renders under every menu on Android (battery impact unmeasured).
+   permanent grey screen. Never hide it; the Compose menu draws opaquely on top instead. Trade-off:
+   KorGE renders under every menu on Android.
 8. **Negative `scaleX` on a detailed KorGE `Image` corrupts rendering** on this GL backend at large
-   downscale (a torn transparent smear on the truck). `truck.png` and `entrance.png` are
-   **pre-mirrored on disk**; no runtime flip anywhere. Pre-mirror future detailed assets.
-9. **Vertical collision seam - "flying past the end of terrain."** `Player.updateStep()` branched on
-   the live `vy`; a foot span straddling two platforms resolved to the taller one until fully clear.
-   Fix: capture `wasFalling = vy > 0.0` before the loop; resolve to the candidate keeping the player
-   closest to their current y.
-10. **A `nav_target` storage flag was written by four buttons and read nowhere** - "returning to
-    menu" silently reloaded the level. Replaced by the real `LevelExitBridge` (Android impl; iOS poll
-    loop 2026-09-12, see interstitial section).
-11. **Settings sliders had no live effect on the Settings screen** - `NavigationRoot` re-read volume
-    only on screen change. Volume state lifted into `NavigationRoot` as `mutableStateOf` with
-    `onXChange` callbacks.
-12. **`View.size(w, h)` is MULTIPLICATIVE - calling it every frame shrinks a sprite to nothing.**
-    `View.unscaledSize`'s setter is `scaleXY *= value / currentSize` (korge 6.0 `View.kt:399`), so
-    every call re-scales relative to the sprite's *current* size. Once at creation is correct; in an
-    updater it is a decay loop. Level 7's steam particles called `p.size(currentSize, currentSize)`
-    per frame against a 48px source drawn at ~20-45, so their `scaledWidth` reached **~1e-72 within
-    a second of the level starting** - which is the whole reason the steam pipes looked like they
-    were not rendering at all, after several wrong theories about blend modes and z-order.
-    **`SolidRect` overrides `unscaledSize` with a plain backing field and IS safe** (GameplayScene's
-    darkness-vignette rects depend on that); `Image` does not. In a frame loop write the transform
-    directly: `img.scaleX = w / sourceWidth`. Checked repo-wide - `VentFxAssets` was the only site.
-13. **`Bitmap32(w, h)` is flagged PREMULTIPLIED**, so whatever RGB is written is what the renderer
-    blends - it never divides the colour back out by alpha. Every procedural particle texture in
-    `VentFxAssets.kt` used to write straight-alpha colour into one, which makes a feathered edge as
-    bright as its core: that is why level 7's wind read as hard glowing scratches instead of air.
-    Write `RGBA(r * a / 255, g * a / 255, b * a / 255, a)` (`VentFxAssets.premul`). korim's PNG
-    decoder already premultiplies, so only hand-built bitmaps are affected.
+   downscale. `truck.png`/`entrance.png` are pre-mirrored on disk; no runtime flip anywhere - do the
+   same for future detailed assets.
+9. **Vertical collision seam - "flying past the end of terrain."** A foot span straddling two
+   platforms resolved to the taller one until fully clear. Fix: capture `wasFalling = vy > 0.0`
+   before the loop; resolve to the candidate keeping the player closest to their current y.
+10. **A `nav_target` storage flag was written but read nowhere** - replaced by the real
+    `LevelExitBridge`.
+11. **Settings sliders had no live effect** - volume lifted into `NavigationRoot` as
+    `mutableStateOf`.
+12. **`View.size(w, h)` is MULTIPLICATIVE - calling it every frame shrinks a sprite to nothing**
+    (`unscaledSize`'s setter is `scaleXY *= value / currentSize`). Once at creation is correct; in an
+    updater it's a decay loop - level 7's steam particles hit ~1e-72 scale within a second this way.
+    `SolidRect` overrides `unscaledSize` with a plain field and IS safe; `Image` is not. In a frame
+    loop write the transform directly: `img.scaleX = w / sourceWidth`.
+13. **`Bitmap32(w, h)` is flagged PREMULTIPLIED** - straight-alpha colour written into one makes a
+    feathered edge as bright as its core (why level 7's wind read as hard glowing scratches). Write
+    `RGBA(r*a/255, g*a/255, b*a/255, a)` (`VentFxAssets.premul`). korim's PNG decoder already
+    premultiplies - only hand-built bitmaps are affected.
 
-**Lesson**: the grey-screen symptom had two unrelated real causes (#5 dominant, #6) after three
-wrong audio theories. What broke the loop was adding on-screen exception diagnostics to `sceneMain()`
-- reach for that first on any "blank screen, no error" report.
+**Lesson**: the grey-screen symptom had two unrelated real causes (#5, #6) after three wrong audio
+theories. On-screen exception diagnostics in `sceneMain()` is what broke the loop - reach for that
+first on any "blank screen, no error" report.
 
 ## HUD: objectives panel and gadget-slot bolt (2026-09-11)
 
-Objectives panel (`objPanel`) stays on **Bebas Neue** - Inter was tried and rejected by the owner.
-`objTitle` 15; `objMainText`/`objOptTag`/`objOptText` all 12.5 (keep the three body rows equal). The
-gadget slot's idle icon is `resources/gadget_bolt.png` (from `Downloads/charAnimations/assets/
-lighting.png`, alpha-cropped 102x235 then resized to 32x64 POT), drawn 16x22 (deliberately wider than
-the source aspect - "make it more thick"), recoloured via `colorMul` like the paper-strip buttons;
-`drawPowerupIcon` remains as fallback (`slotIconImg`/`slotIconFallback`). Closing the pause-bars/bolt
-gap needed the art shifted inside each 42px box, not just a smaller `slotGap`: `pauseBarsShiftLeft =
-4.0`, `slotBoltShiftRight = 2.0`, `slotGap = 3.0`, cluster right inset 14 (both `pauseBtn` and `slotX`
-use `canvasW - 14.0 - pauseRadius * 2.0`). Adjust the two shifts first. JVM-only verified.
+Objectives panel stays on Bebas Neue (Inter was tried and rejected). Gadget slot idle icon is
+`resources/gadget_bolt.png`, drawn 16x22 (deliberately wider than source aspect, recoloured via
+`colorMul` like the paper-strip buttons). `drawPowerupIcon` remains the fallback. JVM-only verified.
 
 ## Player foot-planting (2026-09-11)
 
-Technique: per-column alpha scan of the actual PNG frames, every frame of a clip, and bias past the
-measured value in the direction of the fix.
-- `GameWorld.kt` `truckFront.width` 38 -> **29** (`29/(29+45+179) = 11.46%` matches the hood-to-
-  windshield step measured at ~11.2% of `truck.png`); `truckMiddle`/`truckBack` and `truckBedHeight =
-  96.0` unchanged. A "floating on the truck" screenshot was a landing frame after a debug spawn - let
-  the pose settle before trusting one screenshot.
-- `IDLE_FEET_Y` = **245.0** (measured sole at 248 back / 255 front, stable across all 45 frames).
-  In idle stance, `idleFeetOffset` shifts the sprite downward so the higher (back) shoe touches
-  the floor/surface, while the lower (front) shoe extends slightly below the surface by design.
-  `CROUCH_FEET_Y = 250.0`, `JUMP_LAND_FEET_Y = 247.0` follow the same method.
-- `WALK_FEET_Y = 245.0`: on elevated/contoured surfaces like the truck where the art sits below the
-  collision top, `GameplayScene` applies `walkFeetOffset` so the planted foot firmly contacts the
-  truck bed without floating above it. On the flat floor and platforms, `GameplayScene` uses a flush
-  grounding offset (0.0) so the planted shoe does not sink underground into the floor.
-  Transitions between idle and walk smoothly interpolate the offset to prevent vertical popping.
-  `crouchwalk` uses `crouchFeetOffset` and `landAbsorb` uses `jumpLandFeetOffset`. `interactAngle`
-  settled at 60 degrees down-right.
+Technique: per-column alpha scan of the actual PNG frames, bias past the measured value toward the
+fix. Key constants: `truckFront.width = 29` (matches the hood-to-windshield step at ~11.2% of
+`truck.png`); `IDLE_FEET_Y = 245.0`, `CROUCH_FEET_Y = 250.0`, `JUMP_LAND_FEET_Y = 247.0`,
+`WALK_FEET_Y = 245.0` (with `walkFeetOffset` on contoured surfaces like the truck bed, flush 0.0 on
+flat floor/platforms, smoothly interpolated between idle/walk to avoid vertical popping).
+`interactAngle` settled at 60 degrees down-right.
 
 ## Level 1 geometry - current state
 
-`GameWorld.kt`'s `createDefault()` / `DEFAULT_LEVEL_1`, `worldWidth = 3900`: start gates -> ~130 units
-ground -> `smallCrate` (48x68) -> 3-tier `truck` (`truckFront`/`truckMiddle`/`truckBack`, drawn once as
-a single image over the union footprint) -> `longPlatform` (900x96, carries the hanging chained crate
-the player crouches under) -> `stepDownCrate` (48x68) -> open ground -> `block2` -> seven `barrel`
-boxes (32x48) tiling the `block2`->`block3` gap with zero bare ground -> `block3` -> a **permanently
-disabled guard zone** (`LevelData.guardEnabled = false`: a real `Guard` parked at `x = -500`, `speed =
-0`, wide patrol range so it can't drift in - reads as removed without breaking tests that read
-`world.guard.*`) -> exit (`entrance.png`, booth-only crop 531x612, pre-mirrored; `exitfence.png` after
-it; `exitZone` widened to the booth's visual footprint). `cameras` is empty. Every rise is exactly
-48 units, under `Player.maxJumpHeight = jumpSpeed^2/(2*gravity) ~= 51.2`.
+`GameWorld.createDefault()`/`DEFAULT_LEVEL_1`, `worldWidth = 3900`: start gates -> ground ->
+`smallCrate` -> 3-tier `truck` -> `longPlatform` (carries a hanging chained crate to crouch under) ->
+`stepDownCrate` -> open ground -> `block2` -> seven `barrel` boxes tiling the gap to `block3` ->
+`block3` -> a permanently disabled guard zone (`guardEnabled = false`, parked off-screen) -> exit.
+Every rise is exactly 48 units, under `Player.maxJumpHeight ~= 51.2`.
 
 **Test-coordinate lesson (learned 4+ times)**: never hardcode corridor x-coordinates in tests that
-need generic open ground - derive from `world.levelData.guardPatrolMinX/MaxX` (e.g. `guardPatrolMinX
-+ 75.0`). "Occluders cleared" and "platforms cleared" are different guarantees; a leftover box in
-`platforms` silently relocates the player.
-
-**Mission dossier card spacing** (`MainMenuScreen.kt` `MissionDossierCard`, five rounds): `.offset(y =
-30 * dossierScale)`, 4dp bottom padding, one flexible spacer at the foot, five fixed 6-8dp (scaled)
-gaps with explicit `lineHeight` on the file-number/chapter labels. Reasoned from screenshots, not
-final - those are the knobs for a sixth round.
+need generic open ground - derive from `world.levelData.guardPatrolMinX/MaxX`. "Occluders cleared"
+and "platforms cleared" are different guarantees.
 
 ## The swing move (`Player.kt` / `resources/player/swing`) - built 2026-09-10, live on level 5
 
-**In use by `05: Restricted Zone` (`SIDE_SCROLL_LEVEL_LAYOUT`)** - the original "Blind Spot" barrel-wall
-+ hook layout (built for level 4, replaced there by the conveyor layout - see Level 4) was recovered
-from git history (`24991bd`, before `c45c231`) and restored verbatim as level 5's content on
-2026-09-16, guards and all (there are none - deliberately brought back as-is, not fleshed out).
-`GameplayModelTest`'s swing tests (`testSwingNeedsTheWalkAndTheHook` etc.) now run directly against
-`LevelData.SIDE_SCROLL_LEVEL_LAYOUT`/`SIDE_SCROLL_LEVEL` rather than a parallel test-only copy, so they
-double as level 5's own walkthrough verification. Any other level can still use the mechanic by
-populating its own `swingHooks`. What a future session needs:
-
-- Entry: walk into the hook and press JUMP (same button as the climb). From a standstill it is an
-  ordinary jump, deliberately - the clip opens on a push-off stride (owner-confirmed).
-- **Clip**: 52 frames at 165x264 from a 200-frame 360x640 plate set: raw 59-69, 77, 114-153. Cut: the
-  backswing (78-113, reads wrong after a run-up), the settle (70-76, reads as waiting), walk-in and
-  run-out. Every remaining frame kept (84 fit one atlas page). Reasoning in `PlayerAnimations`'
-  header.
-- **Hang**: `Player.SWING_GRIP_ABOVE_CURVE`/`SWING_GRIP_AHEAD_CURVE` are the hand measured per frame;
-  `advanceSwing` places the body so the hand meets the hook. The rect sits still under the hook while
-  the silhouette sweeps - correct, not a bug; travel comes from launch and release.
-- **Grip on the art**: `HOOK_GRIP_X/Y_FRACTION = (0.481, 0.960)` - two thirds down the hook's bell
-  (rows 2040..2089 of 2136), not the lowest pixel. **Re-measure if `hook.png` is recropped**
-  (`hookHeight = hookWidth * (2136.0 / 154.0)` hardcodes the same aspect).
-- **Pacing**: `swingDuration` 0.92s, `SWING_PACING_CURVE`: ~0.38s frames 0-11 (push-off/leap), ~0.12s
-  11-29 (whip under the hook, instant release at apex), ~0.29s 29-45 (flight to touchdown at frame
-  44.5 = `SWING_LAND_PHASE`), ~0.13s 45-51 (plant and stand). `SWING_LAUNCH_ARC` bows the launch 16
-  units.
-- **Geometry from the move**: `swingLandAhead` (109) is where the player lands; `findSwingTarget`
-  refuses unless solid ground is there level with the ledge left (works both directions). With the
-  hook at the centre of a 150 gap, touchdown lands 34 onto the far ledge - a matched pair.
-  `swingMinReach`/`swingMaxReach` (75..97) confine the push-off to within a few units of the lip.
-  **The camera caps hook height**: ~140 units visible above a high tier; grip 112 above the ledge
-  keeps the hook on screen. For real vertical gain, lower the ledges, not raise the hook.
-- Tuned on JVM desktop over ~8 screenshot rounds; five swing tests in `jvmTest`, one of which
-  (`testSwingCarriesThePlayerOverLevel5sGapAndLandsThemOnIt`) drives a full player-input walkthrough
-  of level 5 end to end and asserts `world.isLevelComplete` - not a point-sampled check.
+**Live on `05: Restricted Zone`** (the original barrel-wall + hook layout, restored verbatim from
+git history). Entry: walk into the hook and press JUMP (from a standstill it's an ordinary jump).
+52-frame clip cut from a 200-frame plate. Hang position is measured per-frame off the art
+(`SWING_GRIP_ABOVE_CURVE`/`AHEAD_CURVE`); the rect sits still under the hook while the silhouette
+sweeps - correct, not a bug. Grip point on the hook art: `HOOK_GRIP_X/Y_FRACTION = (0.481, 0.960)` -
+re-measure if `hook.png` is recropped. `swingDuration` 0.92s over a pacing curve
+(push-off/leap/whip/flight/plant). `findSwingTarget` refuses unless solid ground is level with the
+far ledge (works both directions); `swingLandAhead`/`swingMinReach`/`swingMaxReach` tune the geometry.
+**The camera caps hook height**: for real vertical gain, lower the ledges, not raise the hook.
+`testSwingCarriesThePlayerOverLevel5sGapAndLandsThemOnIt` drives a full walkthrough end to end.
 
 ## Level 2 ("02: Cargo Yard") - procedural rain, lightning & thunder (`RainEffect.kt`)
 
-Built 2026-09-24, reworked 2026-09-25 ("put the rain effect behind the characters and all the
-element. also it is too opaque and too much rain. make it less rain and more transparent. also add
-a splat effect when rain hits platforms if it is not too resource consuming"). Gated by
-`LevelData.hasRain`, **`true` on level 2 and nowhere else**. It had been switched off for the
-Google Play production review and was switched back on with the 2026-09-25 rework.
+Gated by `LevelData.hasRain` - `true` on level 2 only. **Both drop layers draw BEHIND the world**
+(both handed the same container as bgLayer and fgLayer). The lightning wash stays on the scene root
+above `worldView` (a flash parented behind the level would light the sky and leave the yard dark).
 
-**Both drop layers now draw BEHIND the world.** `GameplayScene` hands `bgmgContainer` as *both*
-`bgLayer` and `fgLayer`, so the whole curtain sits over the sky and behind every crate, guard and
-the player; "foreground" survives only as the name of the near half of the volumetric pair (bigger,
-faster, brighter, and the only half that lands on anything), not as a position in front of the
-level. The **lightning wash deliberately did NOT move with them** - `flashLayer` is still the scene
-root, above `worldView` and below the HUD, because a full-screen flash parented behind the level
-lights the sky and leaves the yard dark, which is backwards.
+- Zero per-frame allocations: fixed pools of recycled `Image` views sharing one procedural
+  premultiplied drop slice and one splash slice.
+- 40 background drops (alpha 0.16-0.26, parallax 0.20) and 55 near drops (alpha 0.30-0.44, parallax
+  0.85) - halved from an earlier pass on "too much rain" feedback; re-lower these same constants if
+  it comes back, rather than adding a second dimming mechanism.
+- Wind drift + viewport wrapping (angled fall, wraps around the camera window with margins) - zero
+  off-screen particles simulated regardless of level width.
+- Impact crowns on landing (a V opening upward, not a dome/arch - `RainEffectTest` pins the shape).
+  Surfaces are a static height map (`MAX_SURFACE_HEIGHT = 400` filters out the 1200-tall side walls),
+  bucketed by 16-unit columns keeping the highest top per bucket. Moving platforms deliberately
+  excluded (O(1) lookup price, not visible in a downpour).
+- Multi-pulse lightning strobe (initial 2.5-4.5s, then 8-16s) and a jagged sky bolt, both
+  independent of the rain rework.
+- Thunder delay 0.4-0.9s (speed-of-sound), `sfx/thunder.wav`, `THUNDER_GAIN = 0.90`.
 
-- **Zero per-frame allocations**: fixed pools of recycled `Image` views sharing one procedural
-  premultiplied 6x48 drop slice (`RainAssets.dropSlice`) and one 16x10 splash slice.
-- **Counts and alphas were roughly halved** in the same pass: 40 background drops (scale 0.85,
-  alpha 0.16..0.26, 650..780 px/s, parallax 0.20) and 55 near drops (scale 1.1, alpha 0.30..0.44,
-  920..1150 px/s, parallax 0.85), down from 110/140 at 0.38..0.55 / 0.70..0.92. All five numbers
-  are pure look knobs - **re-lower these same constants if "too much rain" comes back**, rather
-  than adding a second dimming mechanism on top.
-- **Wind drift & viewport wrapping**: particles fall angled at ~11.3 degrees (`WIND_SLOPE = 0.20`)
-  and wrap around the camera window plus margins (`MARGIN_X = 100`, `MARGIN_Y = 120`), so zero
-  off-screen particles are simulated or drawn regardless of level width.
-- **Impact crowns (`SPLASH_*`)**: a near drop whose streak HEAD reaches a landable surface is
-  consumed there and re-seeded above the top edge, leaving a short-lived crown (`SPLASH_LIFE`
-  0.24s) that flares outward, pops up on a half-sine and fades from `SPLASH_ALPHA` 0.34. Pool of
-  22, and only `SPLASH_CHANCE` (0.34) of landings spawn one - a flat level lands on the order of a
-  hundred drops a second, so splashing every one is both a wall of white and more live views than
-  any sane pool holds.
-  - **The surfaces are a static height map, not a per-frame scan.** `GameplayScene` passes
-    `world.platforms` (floors + boxes + the two side walls); `RainEffect` filters anything taller
-    than `MAX_SURFACE_HEIGHT` (400) - **the walls are 1200 tall with their tops at y = -400, so
-    without that filter every level reports a landing surface above the sky at both ends** - and
-    buckets the rest by `SURFACE_BUCKET` (16 world units), keeping the HIGHEST top per bucket so a
-    drop over a crate lands on the crate. Lookup is O(1) per drop. Moving platforms are
-    deliberately absent: rain lands on the floor under a level 2 container rather than on it, which
-    is the price of the O(1) lookup and is not something the eye picks out of a downpour.
-  - The crown is a **V opening upward**, not an arch. The obvious shape - the top half of an
-    ellipse outline - reads as a dome or a bubble sitting on the floor rather than water leaving
-    it; `RainEffectTest` pins the difference (wider at the tips than at the feet, open between the
-    arms).
-  - Crowns are positioned from the **full** world transform (`worldViewX`/`worldViewY`/`worldZoom`,
-    the last two added to `update()` for this) rather than the parallax drift the drops get by on,
-    because a splash has to stay stuck to its surface while the camera pans.
-  - Because the whole effect is behind the world, a crown draws behind the crate it is standing on
-    - which is fine, since it stands ABOVE that crate's top edge - and behind the player's legs,
-    which is what it should do.
-- **Multi-pulse lightning strobe**: periodic strikes (initial timer 2.5-4.5s, then 8-16s). Profile:
-  initial flash (0.70 alpha, 50ms), dip (0.25, 30ms), main return stroke (0.92, 60ms), secondary
-  flicker (0.40, 50ms), exponential fade (260ms), on a `SolidRect` above the world and below the
-  HUD. Untouched by the 2026-09-25 pass - the "too opaque" report was about the rain.
-- **Sky lightning bolt**: 7 connected jagged segments (width 3.5px) in the sky during the strobe.
-- **Physics speed-of-sound thunder delay**: 0.4s to 0.9s between the flash and `sfx/thunder.wav`
-  (2.8s PCM s16le / 44.1kHz mono, `THUNDER_GAIN = 0.90`).
-- Verified by `RainEffectTest` (asset generation, lifecycle, frame updates, lightning/thunder
-  cycle, the crown's shape, drops actually landing on a Cargo-Yard-shaped floor without landing on
-  a side wall, and the diagnostic preview `level2_rain_preview.png`, whose layer order and counts
-  track the real constants). **The 2026-09-25 pass was never compiled or run** - `dl.google.com` is
-  blocked in that session's container, and both the KorGE Gradle plugin and `paywall-build` pull
-  the Android Gradle Plugin from it, so no Gradle task could configure at all. Treat the rework as
-  unbuilt until `jvmTest` and `android-shell:compileReleaseKotlin` have been run somewhere with
-  network access, and nothing here has been seen on a screen on any platform.
+Verified by `RainEffectTest` (asset gen, lifecycle, lightning/thunder cycle, crown shape, landing
+correctness, and a diagnostic preview PNG). **The 2026-09-25 rework was never compiled or run** in
+that session (blocked network) - treat as unbuilt until `jvmTest` and
+`android-shell:compileReleaseKotlin` run with network access; nothing seen on a screen on any
+platform.
 
 ## Level 3 ("03: First Contact") - `LEVEL_3_LAYOUT`
 
-**The layout's doc comment and inline comments in `LevelData.kt` are the source of truth** - every
-constant carries its reasoning there. Summary of the current shape:
-- Start, one crate, a 420-wide cantilevered table (`table.png`, 2048x512: the owner's `beam.png` with
-  its flat midsection repeated 8x; leg+brace baked into the rightmost ~8.7%; `GameplayScene` crops it)
-  blocking the ground path, then a ground gauntlet, then the exit.
-- **The table is a floating climb target** (`LevelLayout.floatingClimbTargets`): a real mantle from
-  the crate (rise 96, inside `climbMinHeight..climbMaxHeight` 51.2..115.0) with nothing bridging the
-  gap - every bracing shape tried (stretched plank texture, solid block, invisible box) was rejected
-  by the owner on sight. `tablePlank` 30 deep; the far-end leg (`rightLeg`, 30 wide, `legLift = 16`)
-  is a real solid, sight-blocking obstacle (`boxes`, `tableDecorations`).
-- **Roof guard** (30x96, `patrolPauseDuration = 3.0`, speed 55, range 220): near post `crate.right +
-  120` (facing left; the crouch-behind-crate tutorial's premise - verified against `VisionSystem` that
-  a crouched head is hidden across the whole tutorial window), far post `tablePlank.right - 120` (the
-  lens is 28 ahead of him; at -78 it was 5 units from the leg and the "drop is seen from the far post"
-  beat had no floor). `holdUntilPlayerCrouches = true` roots him at the near post until the player's
-  first crouch. Nothing occludes the climb - timing is the mechanic.
-- `hideCrate` on the roof at the leg corner; then two long crates (174x38, level 2's chained-crate
-  look) at `longCrateElevation = 300` with **overwatch guards** (30x96, speed 35, pause 3.0,
-  `visionTilt = 25 degrees` down - a level cone left a blind wedge under and a sliver past; tilted, most
-  of the gap between crates is theirs while directly underneath stays hidden).
-  **Guard1/guard2 timing - a real trade-off, not a bug that got fully fixed**: guard1 starts dwelling
-  at his crate's gap-side corner. Guard2 USED to start at the mirror-image corner of his own crate,
-  with the same speed/pause as guard1 - which, worked through directly, meant his entire motion (not
-  just his facing, but exactly when he walks vs. dwells) was identical to guard1's, just mirrored by
-  which side of the gap his crate is on. That mirroring is exactly what guaranteed they'd never BOTH
-  face the gap at once, but it also meant they always moved and stopped at the exact same instant -
-  reported directly as looking wrong (the gap is only 150 units wide, so both guards are on screen
-  together). Proven directly, not just suspected, that this is a real trade-off: ANY nonzero timing
-  offset between two guards sharing an identical route/speed/pause reopens SOME window where they
-  could both actually detect a player standing in the gap - a guaranteed-safe crossing and a visibly
-  staggered pair are mutually exclusive with this simple back-and-forth mechanic. The owner chose to
-  accept a small risk window in exchange for the guards actually looking different: guard2 now starts
-  mid-route (`longCrate2.x + overwatchGuardMargin + 90`, not either endpoint) instead of at his own
-  patrolMaxX. Verified by simulation (not derived on paper) that this keeps guard1/guard2 out of
-  lockstep a meaningful fraction of the time (`testLevel3OverwatchGuardsMoveOnDifferentTimingNotLockstep`)
-  while keeping the "both facing the gap" fraction well under half
-  (`testLevel3OverwatchGuardsRarelyBothFaceTheMiddleAtOnce`) - both are now tolerance-based, NOT the old strict
-  `assertEquals(0, ...)`, because a strict zero is no longer achievable once the guards are offset.
-  If this ever needs re-tuning (different crate size/speed/pause), don't just pick a phase and hope -
-  simulate many candidate offsets directly and check both the lockstep fraction and the real
-  gap-detection fraction, the same way this one was chosen; the relationship between offset and risk
-  is not smooth or intuitive (small offset changes can flip the outcome drastically) and even a fixed
-  offset's risk fraction drifts over a long simulated session rather than settling to one number.
-- Built on `Guard.patrolPauseDuration`/`isWalking`/`holdUntilPlayerCrouches`/`visionTilt` (via
-  `GuardSpawn`, which grew `width`/`height`; other guards default to 26x48). Tests: `testLevel3*`,
-  `testGuardWithoutPauseStillTurnsOnTheSpot` (`GameplayModelTest.kt`).
-- Past the overwatch pair: `stepCrate2` -> a second floating-climb beam (`cameraBeam`, same 96-unit
-  rise, `floatingClimbTargets`) with a fixed, sweeping **camera** (`Camera.kt`, `beamCamera`) mounted
-  at the beam's own LEFT CORNER (`cameraBeam.x` exactly, not +20 - moved there on request) instead of
-  a guard: sweeps 55..111.3 degrees (`sweepPauseDuration = 3.0`, dwelling at each extreme like the guards
-  do), `visionFov = 80 degrees`, `visionRange = 220`, NOT a symmetric sweep either side of
-  straight-down - see `Camera.eyePosition` below for why. Body art (`cameranew2.png`) splits at the
-  ball joint into a
-  static mount (plate+neck+collar) and a lens piece (ball+arm+body+end-cap) that rotates with
-  `currentAngle`, both pieces measured directly off the PNG (`GameplayScene.kt`'s
-  cameraMountCrop/cameraLensCrop/cameraPivotRaw - column/row alpha scans, same method as the guard
-  sprite crops; re-measured from scratch each time the art asset itself is swapped - the render
-  scale/crop rectangles are asset-specific pixel geometry, unlike the gameplay constants below).
-  **`Camera.eyePosition` is the lens tip, not a fixed point the cone swivels around**
-  (`NECK_LENGTH`/`LENS_LENGTH`, 9.5/20 world units - see Lesson 4 below for the resize history): the
-  eye itself moves along a short arc as the body rotates around the joint, so "the cone starts at the
-  end of the camera" is literal.
-  **Tuning history and the two hard-won lessons in it** (every round owner-reported against a
-  screenshot, not derived on paper): early passes (fixed eye, then a too-wide 165, then 140-degree
-  sweep with a 50-unit arm) each either never reached stepCrate2 at all or made the cone's shallow FOV
-  edge sail clean over the crate's top into the corridor beyond - fixed by shrinking the arm
-  (`NECK_LENGTH`/`LENS_LENGTH`) and narrowing the sweep together, landing on a 135-degree sweep /
-  45-degree FOV pairing that a **point-sampled** check (probing specific x,y positions past the crate)
-  found clean.
-  **Lesson 1 - a point-sampled check has a real blind spot.** A probe point reads as "not detected"
-  for two very different reasons that look identical to the check: "correctly blocked by an occluder"
-  and "simply outside visionRange". The owner reported the cone STILL crossing the crate at those
-  exact values. Re-verified against `VisionSystem.computeVisionPolygon` directly - the exact call
-  `GameplayScene.kt` makes to draw the cone - and this confirmed the 135/45 pairing itself was fine at
-  that instant, but revealed range is close to a free variable for "never past the crate": every ray
-  this cone can cast is blocked by either the crate or the GROUND (which runs the full level width)
-  well within ~220 units of this mount, so a bigger nominal range past that point changes nothing
-  visually - which is how visionRange grew from 110 to 220 across two rounds with no added risk.
-  **Lesson 2 - a stepped floating-point sweep can miss the one angle that matters.** Repeated requests
-  for a WIDER cone kept running into "135/45 is the only nearby combo that still reaches stepCrate2's
-  FAR corner" - which turned out to be true for a bad reason: reaching that corner requires aiming
-  almost exactly at the edge of the FOV, at the crate's own corner - and THAT is precisely the
-  condition where `VisionSystem`'s corner-anchored ray sampling casts one ray that just barely clips
-  the corner (stops there, fine) and its immediate angular neighbour that just barely clears it
-  (keeps going to the GROUND far beyond, sometimes 100+ units past the crate). Filled in as part of
-  the polygon, that reads as a thin wedge of light stabbing out past the crate - reported directly as
-  "light rays going out of the camera", and it was a REAL, currently-shipped bug, not a stale
-  screenshot: at `currentAngle == maxAngle` (135 degrees) exactly - precisely where the camera sits
-  for its whole 3-second dwell - the polygon really did contain that far-away vertex. The regression
-  test in place at the time missed it because its own sweep (`angle += 2 degrees`, accumulated in
-  floating point many times over) drifted just far enough off the exact 135.0-degree mark to dodge the
-  one bad angle - a stepped/accumulated loop is not the same as checking the angle the camera actually
-  dwells at.
-  **The fix for both**: re-searched the whole (maxAngle, visionFov) space directly against the
-  rendered polygon (not nudges off the old values), checking exactly at min/maxAngle rather than a
-  drifting stepped sweep, and scanning every angle in the sweep for any adjacent-vertex RADIAL jump
-  (the actual signature of a ray grazing past a corner - NOT just a big Euclidean gap between
-  vertices, which also happens completely normally when the polygon traces straight down a tall
-  occluder's own side face). stepCrate2's far corner turned out to be reachable ONLY inside a
-  razor-thin band of (maxAngle, visionFov) pairs, every one of them sitting right on the cliff edge
-  that produces the spike - "see the far corner" and "never spike" are not simultaneously achievable
-  from this mount position. Dropped the far-corner requirement (the near corner, still covered, keeps
-  the crate a real risk) and landed on 115/80: nearly double the old 45-degree FOV - genuinely wider,
-  the thing actually being asked for round after round - with a comfortable ~25-unit margin before the
-  crate's edge and zero stray-ray spikes anywhere in the sweep, both checked, not assumed.
-  **Lesson 3 - moving the eye itself reopens a trade that looked closed.** The next round asked for the
-  far corner back specifically ("the cone should just touch it") once the mount also moved to the
-  beam's own left corner. Moving `x` changes exactly which (maxAngle, visionFov) pairs graze the
-  corner, so "reachable only in a razor-thin band right on the spike's cliff edge" from the old mount
-  position was NOT a fact about the corner - it was a fact about that specific eye position. Re-ran the
-  same polygon-based (maxAngle, visionFov) search from the new `x = cameraBeam.x` and found the safe
-  margin before the cliff had grown from razor-thin to a comfortable 0.5 degrees - landed on
-  `maxAngle = 116` (visionFov stays 80, unchanged) with the cone's leftmost reach landing ~1.6 units
-  short of the crate's exact far corner (visually flush) and zero spikes anywhere across 55..116,
-  checked the same way as lesson 2 (exact min/maxAngle, plus a fine stepped sweep, scanning for the
-  radial-jump signature - not a point-sampled grid or paper estimate). See
-  `testLevel3CameraConePolygonNeverPastCrate` (checks exactly at min/maxAngle, not just a stepped
-  sweep), `testLevel3CameraConeHasNoStrayRaySpikes` (the radial-jump scan), and
-  `testLevel3CameraLeftmostSweepReachesStepCrateFarCorner` (asserts the leftmost reach lands close to,
-  never past, the crate's own edge) - reverify the SAME way, not a point-sampled grid or a paper
-  estimate, any time the mount position, arm length, sweep range, visionFov or visionRange change.
-  **Lesson 4 - the arm length is part of the same geometry, not a separate concern.** The camera still
-  read as oversized next to the player on a later screenshot even at 13/27 - the third resize pass in
-  a row to get this complaint. `NECK_LENGTH`/`LENS_LENGTH` drive `Camera.eyePosition` directly (see
-  `Camera.kt`'s own doc comment), so shrinking them to 6/13 moved the eye again and reopened the exact
-  same search as Lesson 3: re-ran it at the new arm length and found the safe margin before the spike
-  cliff had shrunk back down to roughly its original razor-thin width (~0.1 degree) at this shorter
-  reach - shorter arm, shorter reach, less room to sit comfortably clear of the corner. Landed on
-  `maxAngle = 107` at the time. That overshot the other way - the very next screenshot called the
-  camera too SMALL - so the arm settled at 9.5/20 (splitting the difference between 13/27 and 6/13,
-  same ~0.475 ratio), which moved the eye a third time and needed a third re-run of the same search:
-  safe margin back to ~0.5 degrees, `maxAngle = 111.3` (`visionFov` still 80, unchanged), leftmost
-  reach at stepCrate2.x + ~1.6 units, zero spikes across 55..111.3 - checked the identical way each
-  time (exact min/maxAngle, fine stepped sweep, radial-jump scan). **Any future resize of
-  `NECK_LENGTH`/`LENS_LENGTH` needs this same re-tune of `beamCamera.maxAngle` right alongside it** -
-  the two are not independent knobs; changing one without re-running the search is exactly how the
-  "far corner vs. spike" cliff gets crossed by accident, and this has now happened three times in a
-  row. The beam has its own far-end support leg (`cameraLeg`, same `rightLeg`/`table.png` pattern,
-  `tableDecorations` + `boxes`) so it doesn't float - see the "nothing should visibly float" rule
-  above.
-- Ground dressing right after the camera, ALL under the beam's own span (between the mount and
-  `cameraLeg`, not past the leg): `fillerBarrels`, then three wood crates in a brick-like stagger -
-  `woodCrateBaseLeft`/`woodCrateBaseRight` (two full crates side by side, touching - zero gap between
-  them, `woodCrateBaseRight.x == woodCrateBaseLeft.right`) with `woodCrateTop` resting on both
-  (bottom flush with the base pair's own top), offset 20 units into `woodCrateBaseLeft`'s own 68-unit
-  width so most of it (~71%) sits over the left crate and the rest (~29%) over the right one. **Only
-  these three crates and `stepCrate2` draw with `woodencratenew.png` (`LevelLayout.woodCrates`) - the
-  two barrels stay `barrel.png` (`LevelLayout.barrels`), unchanged.** A first pass swapped all four
-  ground-dressing boxes to wood-crate art, misreading a screenshot where all four happened to look
-  roughly crate-shaped; corrected on request back to two-and-two. Whichever art a box uses, its
-  footprint/height and place in `boxes` (so collision/climbing/occlusion) never changed. `woodCrates`
-  is a tag on `LevelLayout`/`GameWorld`, wired through `GameWorld.createFromLayout` and
-  `GameplayScene.kt`'s box loop exactly the way `barrels` already was (tiled in real 48-unit
-  increments, same as barrels/tactical crates) - the general pattern for giving a box distinct art
-  without touching its collision behaviour at all. `stepCrate2` (the climb-up-to-the-beam crate,
-  defined earlier in `LEVEL_3_LAYOUT`) was added to `woodCrates` too on a later request ("replace the
-  solid crate left to the two barrels with these new crates as well") - it's the only crate-shaped
-  box positioned before/left of `fillerBarrels` in this section, so that request is read as referring
-  to it.
-  **The wood-crate art needs a crop, unlike crate.png/barrel.png**: its own alpha content (strict
-  bbox, threshold >10, same measuring method as table.png's own crop) sits well inside the raw
-  canvas - stretching the RAW image into a box's exact bounds left visible empty space below the
-  art, reading as the crate floating above the ground. The asset itself was swapped once already
-  (`woodcrate.png` 1376x1143 -> `woodencratenew.png` 1536x1024, on request, "replace the wooden
-  crates with woodencratenew.png") and the crop re-measured from scratch for the new file each
-  time - do not reuse an old crop rect across an asset swap, the margins are different. Current
-  crop is `RectangleInt(68, 86, 1401, 839)` for `woodencratenew.png`. `GameplayScene.kt` slices to
-  that rect once before the box loop and reuses that slice, the same approach as `tableBitmap`'s own
-  `legSlice`/`plankSlice`. Re-measure this crop (a bitmap bounding-box scan) if the wood-crate
-  asset is ever replaced again - **Python 3.12 with Pillow 12.3 IS on PATH here** (`python`/`py`),
-  which is what `tools/art/*.py` and level 6's crane-silhouette scan use; PowerShell +
-  `System.Drawing.Bitmap.GetPixel` works too. No ImageMagick. See
-  `testLevel3GroundDressingUnderBeamHasBarrelsAndWoodCratesSeparately`.
-  **This staggered arrangement replaced an earlier straight-up "single crate + a 2-tall stacked
-  pair" layout, on request** ("arrange the three wooden crates in a new way: two crates touching
-  each other, other one on top of them but more part of it is on the crate on the left"). That
-  earlier layout also had a `LevelLayout.messyWoodCrates` tag giving the crate/stacked-pair group a
-  small per-tile rotation jitter for a "not neatly kept" look - on a later request ("make the
-  properly horizontal without that weird alignment"), the jitter was dropped rather than combined
-  with the new stagger: `messyWoodCrates` (the field, the wiring through `GameWorld`, and
-  `GameplayScene.kt`'s rotating-pivot rendering code) was **removed entirely**, not just left unused
-  with an empty list - it's genuinely gone from the codebase now. Every crate in the ground-dressing
-  cluster sits perfectly square; the stagger itself is what reads as "not neatly kept" now.
-   **The top crate is lowered 2 units (`woodCrateStackSink = 2.0`)** into the base pair to eliminate
-   a visible floating gap: `woodencratenew.png`'s corner tabs/ears extend 32px above (1.83 units) and
-   34px below (1.94 units) the horizontal slats, so staggering the crate by 20 units horizontally left
-   its bottom ears hanging over the base crates' recessed slats with ~2 units of visible sky; sinking
-   by 2 units seats the ears firmly on the base crate's top beam and meets the base crate's middle ear
-   with the top crate's bottom beam. Then, past the beam
-  and its leg: `finalHangingCrate` (an unguarded crate, jumped across at beam height - same-height
-  jump, matching the crate -> beam move at the level's own opening), `hangingEndCrate` (a crate
-  perched on TOP of it, flush with its right corner, resting on finalHangingCrate's own top surface,
-  not floating, tall enough - 48, under `Player.maxJumpHeight` 51.2 - that crossing it is a hop, not a
-  climb), then `finalPlatform` - a plain 340-wide ground block with no crate/table art (falls through
-  to GameplayScene.kt's generic rough-block render, the same "normal platform" look as level 1's
-  `block2`/`block3` in `GameWorld.createDefault`). Width was bumped 260 -> 340 on request ("increase
-  the length of the platforms right of the unmanned crate") - a pure landing-zone size change; it
-  doesn't touch the jump gap (only platform height/player size affect that) and `platformCrate`'s own
-  centering re-derives automatically from `finalPlatformWidth`.
-  **Height dropped 144 -> 96 on a LATER request** ("make the platform on the right smaller to be
-  able to climb up") - it used to be raised to the SAME rise as `cameraBeam` itself
-  (`finalPlatform.top == finalHangingCrate.top`, a same-height jump across both gaps, not a drop then
-  a climb back up); now it's inside `Player`'s own climb window (`climbMinHeight = maxJumpHeight =
-  51.2`, `climbMaxHeight = 115.0` - see `Player.findClimbTarget`), matching this level's own other two
-  climbs (crate -> tablePlank, stepCrate2 -> cameraBeam, both exactly 96). It still rests flush on the
-  ground below (`bottom == groundY`), so it's not a floating ledge and needs no
-  `floatingClimbTargets` exemption to be climbable. This also means `finalHangingCrate -> finalPlatform`
-  is no longer close to a same-height jump - it's now a real ~50-unit DOWNWARD jump across the same
-  56-unit gap, which only ever makes an already-cleared same-height jump easier, never harder (see
-  the gap's own binary-search history below), so it wasn't re-verified at the same razor precision -
-  just confirmed directly via the walkthrough test after the height change.
-  **The `cameraBeam -> finalHangingCrate` and `finalHangingCrate -> finalPlatform` gaps were never
-  actually jumpable at their original 120/70(/80) values, for two whole rounds, and nothing caught
-  it** until a walkthrough test finally drove a real player through them. Simple projectile
-  arithmetic (`moveSpeed * flightTime`, 132 * 0.64s = ~84 units) overstates what this engine's
-  collision code actually allows: once the falling body's OWN HEIGHT starts vertically overlapping
-  the target platform's slab while the player is still short of it horizontally,
-  `Player.updateStep`'s horizontal collision pass treats the incoming platform as a WALL (not "still
-  airborne, still falling toward it"), pinning the player against its near face until they've sunk
-  well past it and simply drop into the gap. Binary-searching the real `Player.update`/`GameWorld`
-  loop (not arc math, and not a reused old number) against THIS exact geometry (296 top, 144 tall,
-  real player size) puts the true ceiling at ~56.5-56.66 units. Both gaps were first fixed to a very
-  safe 40 (leaving a lot of that budget unused - a trivial walk-across, not a felt jump), then on
-  request ("increase the gap ... just enough to be jumpable") widened to 55: re-ran the same binary
-  search fresh rather than assuming the old 62-67 estimate still applied, and separately scanned how
-  early a jump press can land before the edge and still clear it (a wide 0-22-unit-early window
-  succeeds at 55, so it's forgiving on timing, not a hairline). On a further request for "a little
-  bit" more, re-scanned that same timing window at several points between 55 and the ~56.5 ceiling
-  and found NO drop-off anywhere in that range (still the same 0-22-unit-early window at every point
-  tested up to 56.5) - so there was no reason to stay at 55. Landed on **56**: genuinely wider, while
-  still holding back ~0.5-0.66 units from the hard ceiling (56.5 itself was judged too close - it
-  sits in the same 0.25-unit search bracket as the first confirmed failure at ~56.66). **If either gap (or any other
-  same-height jump in this game) is ever widened again, re-run both the binary search AND the
-  timing-slack scan against the CURRENT geometry (not reused numbers from a prior round) with a real
-  walkthrough test (drive `world.update` through it end to end, assert the player actually lands on
-  the far side)** - not point-sampled probes, not projectile arithmetic, and not a test that only
-  checks some downstream X was reached, since the level's own full-width ground floor can satisfy
-  that on its own even when every elevated jump in between is missed (this is exactly how
-  `testLevel2HangingCratesGapIsBeatable` gave false confidence for two rounds - it asserts a target
-  X, which the ground path alone already reaches). See
-  `testLevel3CanJumpFromCameraBeamAcrossToFinalHangingCrateAndOnToFinalPlatform`.
-  `finalPlatform` holds a crate and a two-stacked pair on ITS OWN top surface, centred along its width
-  and touching each other (`platformCrate`, `platformStackedCrates` - resting on the platform, not
-  floating above it, and their y-position derives from `finalPlatform.top` so they followed the height
-  change automatically), then the exit.
-- **A second camera (`poleCamera`), added on request, watches this same crossing.** Mounted not on
-  a beam but on a freestanding post - `pole` (`LevelLayout.poles`, pole.png), standing at
-  `finalPlatform`'s own left corner ("the left corner of the platform right of the unmanned hanging
-  crate"). The pole itself is deliberately **not** in `boxes` ("make it not interactable" - no
-  collision, the player walks straight past/under it) - see
-  `testLevel3PoleStandsAtFinalPlatformLeftCornerAndIsNotInteractable`.
-  **Poles are explicitly EXCLUDED from `GameWorld.createFromLayout`'s `occluders` list, unlike
-  `tableDecorations`** - a first pass included them (real drawn geometry, same reasoning as any
-  other solid prop), but reported directly against a screenshot: `poleCamera` mounted right on top
-  of its own pole had that pole block its own downward view, and the shadow-casting turned that
-  self-occlusion into a polygon that reads as a flat-edged rectangle instead of a cone ("light cone
-  becomes weird ... it become rectangular"). A camera occluding its own mount is a real geometric
-  consequence of a thin vertical occluder sitting directly below the eye, not a bug in the strict
-  sense, but it looks broken on screen - so a pole now blocks nothing, the same as a swing hook or
-  any other prop that's real geometry but not solid enough to matter for sightlines.
-  **The pole no longer has a chain above it - removed on request** ("remove the chain from the
-  camera pole"). `GameplayScene.kt`'s `renderChainAbove(parent, sourceBmp, cropX, cropY, cropW,
-  width, topY)` helper (pulled out of `renderHangingCrate` when the pole first got a chain) is still
-  there and still used by `renderHangingCrate` itself - only the pole's own call to it was removed,
-  the helper wasn't deleted.
-  **Instead, the pole (and now `poleCamera` itself, see below) gets the OTHER half of what made that
-  chain read as different from every other (fully opaque, near-black) element in this game: its
-  opacity** ("add the same effect that is added to the chains (opacity etc.) to the camera pole
-  which makes it look different from other elements"). Sampled directly from `chainedcrate.png`'s
-  own chain pixels rather than guessing a number: R=18 G=22 B=28 **A=137** (~54% opaque), against
-  that same asset's solid crate at R=0 G=0 B=0 A=255 - the chain isn't drawn with any runtime
-  filter, that translucency is baked into the art. Applied as a runtime `translucentEffectAlpha =
-  137.0 / 255.0` in `GameplayScene.kt` (shared between the pole and `poleCamera` - see below) instead
-  of baking a second translucent asset - same visual effect (lighter, washed-out, reads as different
-  from the fully-opaque crates/barrels/etc. around it) without needing new art.
-  **On a further request ("also make the camera in that position same effect as the pole"),
-  `poleCamera` itself (the mount plate + rotating lens, not just the pole under it) also renders at
-  that same `translucentEffectAlpha`** - `beamCamera` is unaffected, still fully opaque.
-  `LevelLayout.translucentCameras` (a subset of `cameras`, matched by `CameraSpawn` identity, not by
-  index) carries this tag through `GameWorld.createFromLayout` into `GameWorld.translucentCameras`
-  (the same `Camera` instances as in `cameras`, not reconstructed) - `GameplayScene.kt`'s
-  `cameraContainers` creation checks `c in world.translucentCameras` per camera and sets `.alpha`
-  accordingly. This is the general pattern to reuse if another camera ever needs its own distinct
-  look: tag it via `LevelLayout.translucentCameras` (or a new list, if the visual differs), don't
-  special-case by array index.
-  **`poleCamera`'s own sweep (minAngle 20 / maxAngle 160 / visionFov 50 / visionRange 230) is a
-  genuinely wide, mostly-horizontal left-right pan, not beamCamera's mostly-downward nod** - on
-  request, "rotates left and right ... the light cone of it should go from the boxes in the right
-  [`platformCrate`/`platformStackedCrates`, sitting on `finalPlatform` itself] to the box in the
-  left [`finalHangingCrate`, across the jump gap]". Checked the same way beamCamera's own reach was
-  checked (`VisionSystem.computeVisionPolygon` directly, not the angle numbers alone) - see
-  `testLevel3PoleCameraSweepsLeftAndRightAndReachesBothFlankingBoxGroups`. FOV/range were both
-  reduced from an earlier 70/260 on request ("reduce the cone size of that camera") - re-derived the
-  sweep's reach at the smaller size rather than just shrinking the numbers and hoping: at 220 range
-  the leftward reach fell just short of `finalHangingCrate.x` (a ~0.2-unit miss - the earlier
-  `testLevel3PoleCameraSweepsLeftAndRightAndReachesBothFlankingBoxGroups` genuinely failed at that
-  value), so range was bumped to **230**, which clears it with a real ~10-unit margin - not a
-  hairline fit. **Whenever this camera's cone size, mount position, or target box positions change,
-  re-run the same reach check (not just eyeball a smaller-looking cone)** - a "smaller cone" can
-  silently stop reaching one of its two targets, which is exactly what happened here on the first
-  attempt at the reduction.
-  `Camera.NECK_LENGTH`/`LENS_LENGTH` are shared, global constants (no per-instance override) -
-  `poleCamera` uses the exact same 9.5/20 arm as `beamCamera`, not a value tuned for its own mount.
-   **Mount lowered to `pole.y`** (flush with the pole's top cap, was `pole.y - 5.0` which hovered the
-   ceiling-bracket plate 5 units in the air with empty sky beneath; at `pole.y` the plate rests solidly
-   on top of the column cap) - a pure render-position change. Sweep speed increased 0.6 -> **0.85** on request.
-   **Exit path and ground length**: the corridor from `finalPlatform.right` to the extraction booth
-   (`finalExitX`) was lengthened 150 -> **300 units** on request; `finalWorldWidth` extends `finalExitX + 460.0`
-   so the ground spans the entire extraction checkpoint booth (~117) and exit fence (~312) with margin.
-- **`finalHangingCrate` sits 2 units above `cameraBeam`, not exactly flush anymore** ("lift the
-  unmanned hanging crate a little bit"). This one DOES have a physics budget, and it is almost
-  entirely spent already: the 56-unit gap (see its own history above) sits only ~0.5-0.66 units under
-  the hard ceiling for a TRUE same-height jump, so any required vertical rise eats directly into that
-  sliver. Binary-searched the real `Player`/`GameWorld` loop again (same method as the gap search,
-  this time with an asymmetric launch/landing height) and found the beam -> crate leg (now a small
-  upward jump) stops clearing 56 units at a lift of ~2.03 - picked **2.0**, which keeps the exact
-  same jump-timing slack as an unlifted same-height jump (0-22 units early, unchanged) with a thin
-  sliver of distance margin left (~56.48 max reach at this lift, vs the 56 actually needed). **2.0 is
-  not a stylistic pick - it is close to the max this specific 56-unit gap can absorb. A bigger lift
-  needs a narrower gap to go with it; re-run the same binary search (not a bumped-up number) if that
-  trade is ever wanted.** (The crate -> platform leg was ALSO a small downward jump at the time this
-  lift was picked, and falling toward a lower target only ever makes a same-height jump easier, so it
-  wasn't re-checked at the same precision then - a LATER, separate request dropped finalPlatform's
-  own height a lot further, turning that leg into a real ~50-unit drop; see finalPlatform's own
-  paragraph above.) See `testLevel3CameraBeamSection` and
-  `testLevel3CanJumpFromCameraBeamAcrossToFinalHangingCrateAndOnToFinalPlatform` for both jumps'
-  current exact numbers (`beam.top - finalCrate.top == 2.0`, `finalPlatform.top - finalCrate.top ==
-  50.0`) - neither is a same-height jump by exact equality any more, on either leg.
-- Verified on JVM desktop screenshots in stages; **not on Android or iOS**. The uncommitted working
-  tree is ahead of the last commit here - check `git status` before assuming which state is pushed.
+**The layout's doc comment and inline comments in `LevelData.kt` are the source of truth.** Shape:
+start, one crate, a 420-wide cantilevered table (`table.png`) blocking the ground, then a ground
+gauntlet, then the exit.
+
+- **The table is a floating climb target** (`floatingClimbTargets`, rise 96) - every bracing shape
+  tried (stretched plank, solid block, invisible box) was rejected on sight. `tablePlank`'s far-end
+  `rightLeg` is a real sight-blocking obstacle instead.
+- **Roof guard**: near post `crate.right + 120` (crouch-behind-crate tutorial premise), far post
+  `tablePlank.right - 120`. `holdUntilPlayerCrouches = true` roots him at the near post until the
+  player's first crouch. Timing, not occlusion, is the mechanic.
+- **Overwatch pair** at two long crates with `visionTilt = 25 degrees` down (a level cone left
+  blind spots; tilted, most of the gap is theirs while directly underneath stays hidden). **Guard2
+  starts mid-route rather than mirroring guard1's endpoint** - a real, measured trade-off: any
+  nonzero timing offset between two guards on an identical route re-opens some detection window
+  (proven by simulation, not derived on paper); mirroring guaranteed they'd never both face the gap
+  but also that they'd always move/stop in lockstep, which read as visibly wrong on a 150-unit-wide
+  gap with both guards on screen. `testLevel3OverwatchGuardsMoveOnDifferentTimingNotLockstep`/
+  `...RarelyBothFaceTheMiddleAtOnce` are tolerance-based, not strict-zero. **Re-tune by simulating
+  candidate offsets directly, not by picking one and hoping** - the relationship isn't smooth and
+  even a fixed offset's risk drifts over a long session.
+- **A fixed sweeping camera** (`beamCamera`) past the overwatch pair, mounted at a second
+  floating-climb beam's own left corner. `Camera.eyePosition` is the LENS TIP, which moves along an
+  arc as the body rotates around its joint (`NECK_LENGTH`/`LENS_LENGTH`), not a fixed swivel point.
+  **Two hard-won lessons from tuning this**:
+  1. **A point-sampled check has a blind spot** - "not detected" means either "blocked by an
+     occluder" or "outside visionRange", and they look identical to a probe. Verify against
+     `VisionSystem.computeVisionPolygon` directly.
+  2. **A stepped floating-point sweep can miss the one angle that matters** - a bug ("light rays
+     going out of the camera") only showed up exactly at `currentAngle == maxAngle`, where the
+     camera actually dwells for 3s; the old regression sweep's accumulated float drift dodged that
+     exact value. Re-verify by checking exactly at min/maxAngle plus a fine sweep scanning for a
+     RADIAL JUMP between adjacent vertices (the real signature of a ray grazing a corner) - not just
+     a big Euclidean gap, which also happens normally along a tall occluder's own face.
+  Current tuned values: `maxAngle = 111.3`, `visionFov = 80`, arm `NECK_LENGTH/LENS_LENGTH = 9.5/20`.
+  **Any future resize of the arm needs the same re-tune of `maxAngle` right alongside it** - the two
+  are not independent knobs; this has happened three times already. `testLevel3CameraConePolygonNeverPastCrate`,
+  `...HasNoStrayRaySpikes`, `...LeftmostSweepReachesStepCrateFarCorner` are the way to re-verify.
+- **Ground dressing under the beam**: two barrels stay `barrel.png`; three crates use
+  `woodencratenew.png` art in a brick-like stagger (two base crates touching, one on top offset 20
+  units in, sunk 2 units to seat its corner ears on the base crates' slats). Wood-crate art needs an
+  alpha-bounds crop, unlike crate/barrel art, or it floats above the ground. Re-measure the crop if
+  the asset is ever swapped again.
+- **The final crossing gaps were binary-searched against the real physics, not projectile
+  arithmetic** - once a falling body's own height starts overlapping the target platform's slab
+  while still short of it horizontally, the collision code treats the platform as a WALL, pinning the
+  player until they sink past it. `cameraBeam -> finalHangingCrate -> finalPlatform`: current gap 56
+  (ceiling ~56.5-56.66, measured by binary search + a timing-slack scan, not reused numbers), lift
+  2.0 (near the max this specific 56-unit gap can absorb - re-run the search if either changes).
+  **Any same-height jump anywhere in this game needs the same treatment if it's ever widened**: a
+  real walkthrough test driving `world.update` end to end, not a point-sampled probe or a test that
+  only checks a downstream X the ground path alone could satisfy
+  (`testLevel3CanJumpFromCameraBeamAcrossToFinalHangingCrateAndOnToFinalPlatform`).
+- **`finalPlatform`** height was dropped 144->96 on request (now a real climb, matching the level's
+  other two 96-unit climbs) - this turned the leg after it into a real ~50-unit downward jump, only
+  ever easier than the same-height version, so not re-verified at the same precision.
+- **A second camera (`poleCamera`)** watches the same crossing from a freestanding, non-collidable
+  pole (poles are explicitly excluded from `occluders` - a camera on its own pole would self-occlude
+  and render its cone as a flat rectangle instead of a cone). Both the pole and this camera render at
+  a sampled `translucentEffectAlpha = 137/255` (matched to the chain art's own baked translucency,
+  applied at runtime via `LevelLayout.translucentCameras` rather than a second asset) - the general
+  pattern for giving one camera a distinct look without special-casing by array index. Sweep
+  `minAngle 20 / maxAngle 160 / visionFov 50 / visionRange 230` - wide, mostly-horizontal, re-derived
+  (not just shrunk) whenever the cone size changes, since a "smaller cone" can silently stop reaching
+  one of its two flanking targets (`testLevel3PoleCameraSweepsLeftAndRightAndReachesBothFlankingBoxGroups`).
+- Verified on JVM desktop screenshots in stages; **not on Android or iOS**.
 
 ## Level 4 ("04: Moving Target") - conveyor belt run, `LEVEL_4_LAYOUT`
 
-Replaced the barrel-wall + hook-swing layout of the same name, later recovered from history as level 5
-(see "The swing move"). Current:
-- Ground `y = 440`, `worldWidth = 8600`, no start fences, exit zone at `x = 7680` (width 80),
-  `timeTargetSeconds = 115`, `backgroundImage = "metalbg.png"`, `hasDarknessVignette = true`,
-  `canClimb = false` (all progression by jump/crouch), `restartOnConveyorFallOff = true` (instant
-  in-place reset, no reload), `conveyorsStartOnMove = true` (belt frozen until first move/jump
-  input). *(These five numbers were corrected 2026-09-25 against the source - the entry had kept
-  the pre-conveyor layout's 5500/5380/90/bgmg6.png. The crate and clearance arithmetic below was
-  spot-checked against `LEVEL_4_LAYOUT` at the same time and is right.)*
-- Conveyor `x 0..7760`, `y = 414`, height 26, `speed = -45` (against the player: net run 87 px/s,
-  crouch crawl 20). Drawn from three sliced repeating layers `conveyor_top/mid/bot.png` inside
-  `clipContainer` with `cullable()`.
-- **This level is where the game's metre scale is defined, and it is defined by decals.** Six
-  stencils `wall_{150,120,90,60,30,0}m.png` at `242.0 + stepIndex * 1500.0`, counting 150m down to
-  0m, drawn into the parallax layer (metalbg.png's background scale is canvas-independent, so they
-  are a fixed world size). 1500 units per 30m step is the only statement of distance anywhere in
-  the game - there is no HUD readout and no units-per-metre constant - and it makes the scale **50
-  units = 1 metre**. Level 7 reuses that spacing; see "Level 7's 120 metres".
-- **Floor crates are all 1-stacks** (68x48, top at 366) riding the belt (`loopMaxX = 5000`, no
-  `shouldLoop` - looping would teleport crates across zones). A grounded player on a crate is carried.
-- **Four hanging crates** (`isHanging = true`, `y = 302`, height 38, bottom 340, `shouldLoop = true`,
-  `speedMultiplier = 1.0`; `DEFAULT_HANGING_SPEED_MULTIPLIER` is `1.0`): small at 1100 and 3400 (76
-  wide), long at 2250 and 4550 (174). Two bob vertically (`minY = 220`, `maxY = 302`, periods 3.5s /
-  4.0s with a 2.0s phase offset). Zero-clipping arithmetic: crate top 366 vs hanging bottom 340 = 26
-  of air; a crouching player (56 tall, head 358) clears by 18; standing (head 318) is blocked; standing
-  or crouching on a crate (head 270/310) is blocked - you must drop to the belt and slide. `Player.kt`
-  treats a platform as an overhead blocker when `playerFeetY <= platform.top + 30.0`.
-- **Eight timed lasers** (`Laser.kt` / `LaserDef`, ceiling `topY = 150` to the belt at 414, thickness
-  6, tilt <= 45 degrees, `activeDuration`/`inactiveDuration`/`phaseOffsetSeconds`; contact fires
-  `GameWorld.onLaserHit`; small black target pads mark impact points): vertical at 670; +25 degrees
-  landing at 1600; -25 degrees at 2750; a scissor pair at 3780/3840 (+-16.9 degrees, 0.6s offset); a
-  triple gauntlet at 4820/4900/4980 (1.5s/1.5s, 0.5s steps). Ids `lvl4_laser_*`.
-- **Darkness vignette**: a 640x640 radial gradient centred on the player (~110 px clear radius fading
-  to `#05070A` at alpha 0.97 by 250 px) plus edge fillers, rendered between `worldView` and
-  `hudLayer`/`controlsContainer` so HUD and controls stay bright.
-- **Culling rule (CRITICAL)**: never register moving entities in the static `cullTargets`
-  (`cullable(...)` captures spawn bounds and they go stale). Dynamic crates are culled per frame:
-  `conveyorCrateContainers[i].visible = crate.bounds.right >= cullLeft && crate.bounds.left <= cullRight`.
-- Verified: an end-to-end JVM playthrough of an earlier iteration reached MISSION SUCCESSFUL with the
-  background tiling; the laser/bobbing version is in the uncommitted working tree. Not on device.
+Ground `y = 440`, `worldWidth = 8600`, exit at `x = 7680`, `timeTargetSeconds = 115`,
+`backgroundImage = "metalbg.png"`, `hasDarknessVignette = true`, `canClimb = false`,
+`restartOnConveyorFallOff = true`, `conveyorsStartOnMove = true`.
+
+- Conveyor `speed = -45` against the player (net walk 87 px/s, crouch crawl 20).
+- **This level defines the game's metre scale via decals, and it's the only statement of distance
+  anywhere in the game.** Six stencils `wall_{150..0}m.png` at 1500 units per 30m step = **50 units
+  per metre**. Level 7 reuses this spacing.
+- Floor crates (68x48) ride the belt; four hanging crates (`isHanging`, some bobbing) force a
+  crouch-and-slide under two of them (crate top 366 vs hanging bottom 340 = 26 of air, a crouching
+  head clears by 18).
+- Eight timed lasers (`Laser.kt`), varied angles/timing/pairs/triples.
+- Darkness vignette centred on the player, rendered between world and HUD so HUD/controls stay
+  bright.
+- **Culling rule (CRITICAL)**: never register moving entities in the static `cullTargets` (spawn
+  bounds go stale) - dynamic crates are culled per-frame against the camera window instead.
+- **The wall grows taller, never wider** (2026-09-26). `metalbg.png` hangs from the screen top at a
+  fixed scale (tile = exactly 1000 world units); on any canvas taller than 480 it used to stop short
+  of the belt, leaving a band of bare stage colour (reported as "a brown thing"). Scaling it up was
+  tried and rejected on paper: the 1500-apart stencils only land on bare panels because the tile is
+  1000 wide - any other width walks most of them onto pillars at 4:3/7:6. Instead texture rows
+  560..630 (plain panel + pillar shaft, no horizontal detail) are stretched by `canvasH - 480`, so the
+  plinths sit at the same world height as on the reference phone, behind the belt.
+- **The end machine is `l4end.png` cropped to its black silhouette** - the file's grey open-doorway
+  frame (and the dark interior, striped hazard hood, beacon and baseplate drawn in code to dress it)
+  were removed on request; the belt now runs straight into the black face. Because the tall block
+  now ends ~277 units past the belt instead of ~362, wrapped crates (re-entering at x ~8026..8124)
+  are hidden while their left edge is inside the machine (`crateHiddenFromX`), or a hanging crate
+  would show above the machine's low section.
+- **Emitters hang from the screen's top edge** (`LaserVisual.createAll(visualTopY = ...)`, level 4
+  only): each is slid up its own beam line to the screen-top world y for that aspect. Drawing only -
+  the lethal segment is still `topY = 150..bottomY`, which nothing the player can reach exceeds.
+- Verified: an earlier iteration reached MISSION SUCCESSFUL end to end on JVM; the laser/bobbing
+  version is in the uncommitted working tree. The three 2026-09-26 changes above are `jvmTest` +
+  `android-shell` compile only - **not seen on any screen**. Not on device.
 
 ## Level 6 ("06: Stolen Manifest") - `LEVEL_6_LAYOUT`
 
-Five sections; the layout's own doc comments in `LevelData.kt` carry the reasoning, as with
-level 3. Section 1 is a lever-fired moving crate ridden into a swing hook; section 2 is a forced
-fall into a pit under an overwatch guard, then a climb; section 4 is a timed climb under a swinging
-gantry load and section 5 a plank, a patrolling guard and a switched laser curtain (both below);
-section 3 is the crane crossing, rebuilt
-2026-09-23 on request ("take the crane to left, so that the player can climb onto it from the
-otherside of the gap ... the vehicle part of the crane should be just right of the lever ... if it
-is too high to be climbable, make the height of the platform after the lever shorter and put the
-crane there").
+Five sections; layout doc comments in `LevelData.kt` carry the reasoning.
 
-**The crane is now the way across, not scenery.** Its machine (`CraneDef`, placed by
-`boomLength` so the tracked base - not the boom tip - lands where the level wants it) stands ~33
-units past `lever_3`, and its boom reaches ~460 units back over the lever, the two ground barrels,
-the ground gap and the last ~176 units of `tallBlock`. The player walks into the boom on
-`tallBlock`, climbs onto it, walks its whole length and comes down the machine's own silhouette to
-the exit, which moved past the machine. The ground-level walk only reaches the tracks, which are
-deliberately unclimbable, so it dead-ends (the retreat to `tallBlock` stays open and is covered by
-a test).
+**Section 3 - the crane crossing (rebuilt 2026-09-23), the way across, not scenery.** The player
+climbs onto the boom from `tallBlock`, walks its length, comes down the machine's own silhouette to
+the exit.
 
-**The boom's height is pinned exactly, and the crane's SIZE is what falls out of it.** "For the
-climbing animation to work, this long beam should be his head height": `boomBounds.top` lands on
-the crown of a player standing on `tallBlock` (`tallBlockTopY - 96`), which also makes the mantle
-a 96-unit rise - this game's own canonical climb height, shared with crate -> terrain and
-stepCrate -> cameraBeam. An earlier pass had the beam at chest height (75-unit rise; legal by
-`climbMinHeight..climbMaxHeight` = 51.2..115, but the climb animation read wrong against it), so
-**a rise that merely sits inside the window is not good enough here - it has to be 96.**
-`CraneDef.heightForBoomTop(baseY, boomTopY)` derives `craneHeight` (~146, up from a hand-picked
-125) from that requirement plus the platform height, so moving either end re-sizes the machine
-instead of silently breaking the climb - never hand-pick `craneHeight` again. The platform stays
-`groundY - 48` (392), flush with the barrels, which is why `endTerrain` AND `cranePlatform` both
-dropped from 96 to 48 tall and the barrel stack became two barrels side by side. Headroom under
-the boom comes along for free: a crane's base always sits `0.8053 * height` below the boom's
-underside (118 here, against the 96 a standing player needs).
+- **The boom's height is pinned exactly** (`boomBounds.top` at head height above `tallBlock` - this
+  game's canonical 96-unit climb rise), and the crane's SIZE falls out of that requirement via
+  `CraneDef.heightForBoomTop(...)` - never hand-pick `craneHeight` again.
+- **`CraneDef` collides as three boxes** (boom, body, house) - "walking on it shouldn't feel like
+  flying." The tracks' deck is deliberately NOT a step (the boom hangs too low above it at this
+  crane's size - checked directly).
+- **Climbing under the boom finishes crouched** (`ClimbTarget.endsCrouched`) - there's crouch room
+  but not standing room under the beam; without this the player was hauled up standing and wedged.
+  The fix generalised: the headroom check now tests at `climbLandingX` (direction-aware), not always
+  `box.left`.
+- **The crane's top is denied the mantle but stays jumpable if it's in jump range**
+  (`LevelLayout.unclimbableBoxes` skips a box's mantle only, collision/landing/jumping unaffected).
+  The owner's own words after three rounds: "MAKE IT JUMPABLE ONLY IF IT IS" - don't bend collision
+  geometry to force a move to apply; deny the move instead. `maxJumpHeight` (51.2) is the analytic
+  apex, not what a jump actually clears at 60fps stepping (~48.5) - leave margin under 48.5, not 51.2,
+  wherever a jump has to land. A climb only fires on a jump PRESS against a face, consumed on the
+  first frame of a held button - pulse it in any simulation.
 
-**`CraneDef` collides as three boxes, not one** ("dont just use 1 bounding box ... so walking on it
-doesnt feel like flying"): `boomBounds` (the hanging lattice, crop rows 7..88), `bodyBounds` (the
-front section, crop columns 730..1390, topped at the boom's own height because the boom art runs
-right over it) and `houseBounds` (the superstructure past the boom's end, roof at crop row 169).
-Edges came from a per-column alpha scan of `crane.png`'s crop, same method as the guard/table
-crops. **The tracks' own deck is deliberately NOT a step**: the boom hangs only `scale * 226` above
-it (73 units at this crane's size, vs a 96-tall player), so at any size this game would use, a box
-with its top down there just lets the player jump in and wedge under the boom - checked directly,
-not assumed. The boom needs `floatingClimbTargets` (a hanging boom fails the floating-ledge check
-by construction); nothing else on the machine does.
+**Section 4 - the gantry-gated climb.** `lever_3` sweeps a hanging crate left/right
+(`phaseOffsetSeconds = periodSeconds/2` so it starts parked, blocking, not teleporting on trigger).
+The gate is the CLEARANCE (`gateCrateClearance = 30`, well under the crouch-climb threshhold of ~56),
+not the crate's mere presence. Sweep goes LEFT and stops 8 units clear of the cab (`gateCrateMinX =
+houseBounds.right + 8`) so the exit route off the boom stays clear and the load never sweeps through
+the machine or its own walkway. Landing window is ~53% of a 7s cycle against a ~2s climb.
 
-**Climbing under the boom finishes crouched** (`Player.findClimbTarget`/`ClimbTarget.endsCrouched`,
-added for this level on request: "when he climbs up this, make him climb up crouched"). Coming back
-along the ground and climbing `tallBlock` from the gap side lands the player under the boom, where
-there is crouching room (56) but not standing room (96): the climb is allowed and ends in a crouch,
-and the existing can't-stand-up-under-a-ceiling rule holds it until they crawl out. Without it they
-hauled up into a standing pose inside the beam and were wedged - unable to move either way - until
-they happened to press crouch themselves. **The engine fix that came with it applies everywhere**:
-the headroom check used `box.left` regardless of direction, so a climb approached from the right
-tested the wrong edge of the box entirely. It now tests at `climbLandingX`, the same helper
-`startClimb` positions with, so the check and the landing cannot disagree.
+**Section 3 cont'd - crane's top is climbable-not-jumpable on request history; see above.**
 
-### Section 4: the gantry-gated climb (2026-09-23)
+**Section 5 - hanging platform, switch, laser curtain.** `endCrate` bridges block->platform (48 rise,
+a jump; the platform hangs level with the crate's TOP, not the block's). The 65-unit gap to the
+platform is a hinge with two jobs: jump physics caps it near ~78 (measured by simulation, not
+arithmetic - `84.5` units of flight minus `~6.5` spent landing), and it's wider than the player so
+simply WALKING off the lip drops into the corridor below - jump across for the switch, walk off for
+the way out. **Nothing may stand in that chute** (tried and rejected twice) and **nothing is drawn
+holding the platform up** (chain removed on request - this platform is a deliberate exception to the
+"nothing floats" rule). Three lasers hang from the platform's own tip (moving the bank would let the
+platform bypass its own hazard) with `mechanismId = "lvl6_exit_lasers"`, disabled permanently by
+`lever_4`. The patrolling guard's 170-unit beat is what makes the jump-while-he's-turned-away
+actually work.
 
-Added on request: "after the crane, add a platform that is climbable but there is a hanging crate
-very close to the surface level which makes it unclimbable. pressing that lever makes it move left
-and right so the player has to time when the crate is not there to climb up." It is the last thing
-before extraction - `exitX` moved past it and `worldWidth` to 4390.
+**`MovingPlatformDef.crushesOnContact`** (new, section 4's gantry crate) - a mistimed climb caught
+under the load's underside is now Mission Failed, checked only from below so standing on top of a
+moving platform is unaffected.
 
-**The gate is the CLEARANCE, not the crate.** `Player.findClimbTarget` only refuses a candidate
-when the landing has room for neither a standing body (96) nor a crouched one (`crouchHeight`, 56)
-- with anything above 56 it just returns `endsCrouched` and the climb still goes through (see
-section 3's own boom). `gateCrateClearance` is **30**, so the parked crate refuses the climb
-outright. Anyone re-tuning this has ~26 units of headroom before the puzzle quietly turns into a
-crouch-climb. The crate parks over the landing itself, which is `climbLandingX` - 6 units in from
-the edge the player comes over, not the middle of the block.
+### The two stance animations this needed (both cut from existing frames, no new art)
 
-**`lever_3` is the trigger** ("the lever for the hanging crate should be the one left of the
-crane"), which finally makes the ground dead-end worth walking: the floor route stops at the
-machine's tracks, and that lever is what the trip buys. It is thrown BEFORE the boom crossing, on
-the far side of the machine from the crate it drives, so the sweep is **not `oneShot`** - one pull
-powers the gantry for good and the player has however long the crossing takes. (Section 1's swing
-crate is the opposite: one attempt, re-armed when it returns to rest.) A player who crosses the
-boom without pulling it arrives at a block they cannot climb; the retreat back over the machine and
-down to the lever is open (the cab roof and the machine's top are both climbable from the platform
-side), and a test drives exactly that whole route.
+- **Climb that ends crouched** (`CLIMB_CROUCH_END_PHASE`) - the climb clip already holds
+  mantle->settled-crouch->stand-up; a crouched climb just stops mid-clip (raw frame 182, picked by
+  silhouette-overlap scoring) instead of playing the stand-up. Height gain finishes earlier in the
+  clip, so this cuts pose frames only.
+- **Crouch -> jump** - gated on the same headroom test standing up uses. Launch plays the crouch clip
+  BACKWARDS over 90ms into the jump clip's launch frame, instead of a hard snap.
+  `crouchSuppressedByJump` drops the crouch stance for the whole jump, or the hitbox stays 56 tall
+  under a 98-unit sprite and clips through ceilings.
+- **`CEILING_ART_MARGIN` (3.0)** - the character is drawn up to 2.6 units taller than his collision
+  box, so ceilings stop the box that much lower. Not applied while crouching (drawn shorter than its
+  box). A first attempt also widened the ceiling detection rect and swapped `vy<0` for a captured
+  flag - that combination isn't covered by tests; keep changes to the stop position unless there's a
+  reason.
+- **A crouch survives a fall, and the stand-up happens on landing** (`crouchedAtTakeoff`/
+  `mustStayCrouched`) - nothing stands the player up mid-air.
+- **The crouched climb's settled-on-top footage runs at 3.0x** - the deep tuck read as "the
+  character seems smaller" at normal pacing; nothing moves during it, so speeding it up costs
+  nothing.
+- **The climb clip really is drawn 12-22% smaller than life, and that's deliberate** - reverted once
+  already on request ("change back the size... to original") - don't "fix" this again without being
+  asked. The shipped scale is what makes the climb's reach exactly one body height, so the hand lands
+  flush on a 96-unit ledge.
 
-**`phaseOffsetSeconds = periodSeconds / 2`**, so the cosine starts at `t = 1` - the parked blocking
-position. Without it the crate teleports to the far end of its own sweep the instant the lever is
-thrown, because `MovingPlatform.update` drives `x` straight off its clock.
-
-**The sweep goes LEFT and stops 8 units clear of the cab, and that limit places the whole
-section.** Left, because everything right of the landing then stays permanently clear - whoever
-just climbed can walk out from under the gantry instead of being swept off the block (a right-hand
-sweep pins them at the landing, which is where the crate parks). It stops at the cab because the
-route down off the boom walks along the machine's top and across that roof: a load crossing there
-sweeps through the player standing on it, and further left it would pass through `bodyBounds`
-itself. So `gateCrateMinX = houseBounds.right + 8`, the rest position is one sweep (150) right of
-that, and the block is 100 right of the rest position - i.e. the section is placed **from the
-crane's own cab outwards**, which is as far left as it goes ("take the platform and the hanging
-crate more to the left"). `testLevel6GantryCrateNeverSweepsIntoTheMachineOrOverItsWalkway` pins
-both halves of that.
-
-**It is still not visible from the lever, and cannot be.** The camera shows 1040/1.35 = ~770 world
-units - the authored canvas width, which the responsive viewport rule guarantees is the NARROWEST
-any device gets (a screen wider than 2.167 sees a little more; nothing ever sees less) - so
-standing at `lever_3` the view ends at ~3330, and the crane's own cab ends at 3303. The
-machine fills the frame from the lever to the right edge. Moving the load any further left is the
-one thing the paragraph above forbids. If that has to change, the options are moving the crane
-itself right (which re-tunes section 3's boom, and the boom's height is pinned to the tallBlock
-climb) or giving the crate its own sweep on the near side of the machine.
-
-Sizing, for whoever re-tunes it: the crate must travel 68 before its right edge passes the
-landing's left, which against a 150 sweep with cosine easing leaves the landing clear for ~53% of
-every cycle - a ~3.7s window at `periodSeconds = 7`, against a ~2s climb. The crate is level 2's
-own hanging container (`isVariant1 = true`, 174x38 - the same box and the long `chainedcrate.png`
-rigging as `LEVEL_2_LAYOUT`'s `hangingCrate1`), on request: "use the hanging crates from level 2".
-
-Verified in the running game, not just the model: thrown from the lever, crossed, timed, climbed,
-walked out and extracted.
-
-### The crane's top: denied the mantle, and NOT made jumpable (2026-09-24)
-
-"he should not be able to climb this" -> "he should be able to climb this but not to the top part
-from the crane" -> "if this is jumpable height, let the player jump onto it but just not climb" ->
-"he is floating here now. YOU DONT HAVE TO MAKE THIS JUMPABLE. MAKE IT JUMPABLE ONLY IF IT IS."
-
-The machine is crossed one way: in off the boom from tallBlock (96, a climb), east along it, **down**
-onto the rear deck (52.4), **down** onto the platform (91.6). The deck is still climbable from the
-platform beside it. The machine's top is not reachable from the deck at all.
-
-**`LevelLayout.unclimbableBoxes`** (carried through `GameWorld` into `Player.findClimbTarget`, which
-skips any box in it) denies the **mantle only** - the box still collides, is still landed on, and is
-still jumped onto if the rise is inside jump height. Level 6 lists `crane.bodyBounds`.
-
-**Why the deny list rather than geometry.** `Player.climbMinHeight` IS `Player.maxJumpHeight`
-(51.2), so climbing and jumping are complementary: inside jump range a ledge is jumped and never
-mantled, above it a ledge is mantled and never jumped. The deck-to-top rise is 52.4 - just over the
-line, so it read as a climb. Lifting the deck's collision 6 units off its drawn roof to buy the jump
-**was tried and rejected**: the deck's art is flat all the way across, so the player simply floats
-above it. **Do not bend collision off the art to change which move applies** - deny the move and let
-the ledge be out of reach.
-
-**`maxJumpHeight` is the analytic apex, not what a jump clears.** Stepping at 1/60s the feet peak
-about **48.5** above the take-off, so a rise of 48.4 "fits" on paper and in practice scrapes the lip
-and drops back (measured). Leave a few units under 48.5, not under 51.2, whenever a jump has to land.
-
-**A climb is a jump PRESS against a face** (`Player.updateStep` consults `findClimbTarget` when the
-jump is consumed), not a walk into it. A simulation driving `moveInput` into a wall with
-`jumpInput = false` never climbs and proves nothing, and a HELD press is consumed on the first frame
-- pulse it. `testLevel6CraneTopIsNeitherClimbedNorJumpedFromItsOwnRearDeck` covers all of it.
-
-### Section 5: the hanging platform, the switch and the laser curtain (2026-09-23)
-
-"after that section, continue that platform and add a crate at the end. after that add a hanging
-platform from level 3. there should be a lever on top and a guard after that moving left and right.
-the lever turns off 3 lasers that are there from the hanging platform to the ground. the bottom is
-the only path out." Reworked twice the same day. Current shape, after the second pass ("lift the
-floating platform to the level of the top of the crate on the edge of the platform before it",
-"move the crate to the edge of the platform", "reduce the size of the laser emittors and
-receivers", "remove the chain holding the floating platform", "move the lasers to the left", "move
-the floating platform to the right"):
-
-**The step crate is the crossing.** `endCrate` (68x48) stands flush with `gateBlock`'s far lip and
-the platform hangs past the gap at the CRATE's top, not the block's. So the block is walked to its
-end, the crate is jumped (48 is inside `maxJumpHeight`'s 51.2), and the jump across leaves from the
-crate's lip and lands level. Everything in the section is derived from `gateBlock.right`, so the
-whole arrangement moves together if the block ever does.
-
-**The 65-unit gap between the crate and the platform is the section's hinge, and it does two jobs.**
-(45, then 55, then 65 - "move the floating platform to the right", then "increase gap between the
-platform and floating thing".) The ceiling is physics: `jumpSpeed` 320 against `gravity` 1000 is
-0.64s of flight, `moveSpeed` 132 carries the body **84.5** units in that time, and the landing
-spends about 6.5 of them getting a foot onto the far lip - so **~78 is impossible** and everything
-below it is margin for pressing jump early. 65 leaves ~13 units of margin, 70 leaves 8, and the test
-measures that margin rather than trusting arithmetic. It is also wider than the player's own 36, so
-simply WALKING off the lip drops them to the corridor instead ("he should be able to drop down to
-reach the place with lasers"). Jump across for the switch; walk off for the way out.
-
-**An earlier version of this note said the ceiling was 61, from a stale "needs `gap + 18` to land"
-figure.** That was wrong and cost a round of guessing; the 84.5/6.5 numbers above are measured by
-simulation in `testLevel6HangingPlatformIsLevelWithTheCrateAndDropsIntoTheCorridor`, which scans how
-early the jump may be taken and still land. **A probe like that has to use a `<=` threshold, not a
-1-unit window**: the body moves 2.2 units per frame, so a narrow window is stepped straight over and
-the probe reports a false "no margin".
-
-**Nothing may stand in that chute**, and this was tried twice before settling: a prop there has to
-be climbable from the corridor floor AND leave a body-width lane beside it, which does not fit - and
-worse, the platform's near face pins a standing body on top of anything 48 tall in the chute with no
-way down at all (Player's horizontal pass pushes it back on rather than letting it fall). The drop
-is therefore **one-way**, which is what the checkpoint on the platform is for: a player who goes
-down before throwing the switch walks into the curtain, dies, and respawns up top to try again.
-
-**Nothing is drawn holding the platform up either.** It was briefly hung from the hanging crates'
-chain art (`LevelLayout.suspendedTableParts`, since deleted along with its `GameWorld` field and the
-`GameplayScene` branch) - "remove the chain holding the floating platform" took that back out, so
-this platform is a deliberate, asked-for exception to the "nothing floats with no structure under
-it" rule. Do not re-add rigging to it without being asked.
-
-**The lasers stand 45 apart at the platform's far end** ("put the 3 lasers close together"), hung
-from its underside to the floor, `isAlwaysActive`, all carrying `mechanismId = "lvl6_exit_lasers"`.
-`lever_4` on the platform matches it and `GameWorld.triggerLever` calls `Laser.disable()` on every
-one - permanent for the run (`Laser.isDisabled`, cleared only by `reset()`). This is the first
-switched laser in the game; everything before it only cycles. **The third beam hangs off the
-platform's own tip on purpose**: anywhere else and the platform is its own bypass - walk to the tip,
-step off, land past every beam with the switch never thrown. That is why "move the lasers to the
-left" was done by **shortening the platform** (420 -> 370) rather than sliding the bank inwards: the
-beams hang off the tip and travel with it.
-
-**`LaserDef.emitterScale`** (new, 1.0 everywhere else, 0.55 on this curtain): scales the drawn
-emitter/receiver housings only - `LaserVisual`'s `unitLength`. Collision is still `beamThickness`
-and does not move with it. "Reduce the size of the laser emittors and receivers", and it is per-beam
-rather than global so the other levels' hazards are untouched.
-
-**The guard patrols the platform past the lever**, which is the section's actual ask: there is no
-cover up there, so the jump across has to happen while he is walking away, and the way out is back
-down the chute rather than along the platform past him. His beat runs **170 units** now, opened up
-at both ends on request ("increase the length of the path of guard from either side"), and
-`lever_4` sits 24 from the platform's near end rather than 46 ("take the lever little more to
-left"), so the switch is under the body almost as the jump lands.
-
-**Lengthening that beat moved where the player can wait.** With his near turn at `plank.left + 110`
-he can see a body standing on the step crate (the crate's top is level with the platform, well
-inside his 220 of vision), so the whole approach is now one burst from the block below: wait a
-body-length short of the crate's face, then hop the crate and jump the chute while he walks away.
-`testLevel6SecondSectionCrossesPitAndReachesExit` drives exactly that, and it is the reason that
-test failed when the beat was first lengthened - the autopilot was still waiting up on the crate.
-
-**The exit is `exitlvl7.png`**, level 6 only: one silhouette carrying the shed and its yard fence,
-instead of the shared `entrance.png` booth + `exitfence.png` pair. Authored size 1505x809 (the
-source drop's own file, cropped to its alpha bounds); on disk it is the 1024x512 POT resample of
-that, which is why the aspect is written out as a literal rather than read off the bitmap.
-
-**Its box lives in the level, not the scene** - `LevelLayout.exitStructure` (new; `GameplayScene`
-just draws it, and falls back to the booth + fence pair when a level has none). It has to, because
-this building is placed against the level's own geometry rather than against `exitZone`: **401 tall
-standing on `groundY`** (200, then 335, then this - "increase size of the building at end and make
-sure it is on the floor", then "you can increase its size"), with its left edge tucked 8 units under
-the hanging platform's far tip. The height is what does the connecting - the art's own balcony deck
-starts 0.5215 of the way down from its roof, so `440 - 0.4785 * 401` puts that deck's **top surface
-flush with the platform's own top**, and the platform reads as a walkway running off the building's
-balcony ("the middle part should be connected to the balcony"), which is also what stops it reading
-as a slab hanging in mid-air now that its chains are gone. Past ~400 the extra height is only roof
-that the camera's 356-unit window cannot show while the player is down on the corridor floor.
-`worldWidth` is 5300 to cover the building's far edge, and `exitZone` sits 53 units INSIDE the
-silhouette rather than flush with its left edge, so on this level the player walks into the building
-rather than touching its corner.
-
-**It hung 12 units off the floor for a round, and the cause is worth knowing: `PIL.Image.getbbox()`
-is not an alpha crop.** It bounds every channel, so it kept 27 rows of fully transparent pixels that
-still carried RGB under the building - invisible in the file, 3.3% of dead space at the bottom of
-the draw box, and the taller the art is drawn the bigger the gap gets. **Crop art on `alpha > 0`
-explicitly** (`np.nonzero(alpha > 8)`), then POT-resample; check afterwards that the silhouette
-reaches the last row. exitlvl7.png's authored size is 1501x780 after a proper alpha crop (it was
-recorded as 1505x809).
-
-**`MovingPlatformDef.crushesOnContact`** (new, and so far only section 4's gantry crate): "when
-trying to climb if he touches the bottom side of the crate it should be mission failed". A mistimed
-climb has the body still coming up when the load sweeps back over the landing - that is a kill now,
-not a wedge. Checked in `GameWorld.update` against the player's own box and **only from below**
-(feet under the crate's underside), so standing on top of a moving platform is still standing on a
-platform.
-
-### The two stance animations this needed (2026-09-23) - both cut from existing frames
-
-Reported against a screenshot ("try to generate an animation for climbing + crouching and also
-crouching -> jumping because current one also goes through the beam"). Neither needed new art, and
-that mattered: the player atlas is the game's biggest memory consumer and grows in 16.8MB pages.
-
-- **Climb that ends crouched** (`Player.CLIMB_CROUCH_END_PHASE = 0.73`). The climb clip already
-  holds the whole action: mantle (raw 100-144) -> settled deep crouch on top (145-175) -> standing
-  up (176-224). A crouched climb simply stops at raw **182** instead of 224, so the stand-up never
-  plays. 182 is measured, not chosen: scoring feet-aligned silhouette overlap of every frame from
-  140 to 215 against the crouch clip's held pose picks the frames coming back out of the settled
-  crouch, and 182's silhouette is 141 frame-px against the crouch pose's 139. Every unit of height
-  is already gained by phase 0.603 (`CLIMB_RISE_CURVE`), so this cuts pose frames only, never the
-  ascent. `GameplayScene` then hands
-  straight to the **held** crouch pose - going through the crouch machine's own "entering" phase
-  would start it at the clip's standing frame and snap the character upright through the ceiling
-  before lowering him back into it, which is the same bug in a different place.
-- **Crouch -> jump** (`crouchJumpSpring*` in `GameplayScene`, `crouchAllowsJump` in `Player`). A
-  jump can now start from a crouch, gated on the same headroom test standing up uses - under a
-  ceiling it stays impossible, which is what keeps a standing pose out of the beam. The launch
-  plays the **crouch clip backwards** over 90ms (139 -> 245 frame-px, then the jump clip's own
-  launch frame at 240, a 5px handover) instead of cutting from the held crouch straight to the
-  launch pose, which was a 139 -> 240 snap in a single frame. `Player.crouchSuppressedByJump` drops
-  the stance for that whole jump even if the crouch button is still held - **without it the hitbox
-  stays 56 tall while the sprite is the 98-unit standing jump, which is what "jumping while
-  crouching goes through the beam" looked like**: the head stops 40+ units inside the beam because
-  the box under it is crouch-sized.
-- **`Player.CEILING_ART_MARGIN` (3.0)** - the character is DRAWN up to 2.6 units taller than his
-  collision box (jump clip peak 251 frame-px against the 244.36 the box is scaled from; climb 248
-  before its own scale correction, idle/crouch 246, walk 242), so a jump stopped with its box flush
-  under a beam still put the head a few units inside it. Ceilings now stop the box that much lower. It is deliberately NOT applied
-  while crouching, whose poses are drawn shorter than their own box. **Careful with this one**: a
-  first attempt also widened the ceiling DETECTION rect and swapped the live `vy < 0.0` for a
-  captured `wasRising`, and that combination is not covered by the suite - keep it to the stop
-  position unless there is a reason.
-- **A crouch survives the fall, and the stand-up happens on the floor** (`Player`'s
-  `crouchedAtTakeoff` + `mustStayCrouched`; `GameplayScene`'s jump machine skips a crouching player
-  and its crouch machine runs while `crouchedInTheAir`). Nothing stands a player up in mid-air, so
-  crouch-walking off a ledge fell with the 56-unit crouched box while the sprite switched to the
-  ~98-unit drop pose - the drawn head jumped 40 units above the body and came out the top of the
-  boom ("when dropping while crouching, the player goes above that beam"). Releasing the button in
-  the air uncoiled him on the spot for the same reason, so the stance is now **held until the feet
-  land** and the crouch machine's own "exiting" phase plays the stand-up there ("make him drop down
-  in the crouch position and then get up"). Only a fall that *began* crouched is locked: pressing
-  crouch after the feet are already off the ground is a tuck the player can come out of, and a jump
-  out of a crouch drops the stance at the launch (`crouchSuppressedByJump`). The gait is held still
-  while airborne rather than walking the legs through the air, and because such a fall never
-  reaches the jump machine, its touchdown plays the landing thud from the crouch machine instead.
-- **The crouched climb's tail runs at 3.0x** (`CLIMB_CROUCH_TAIL_PHASE`/`_SPEEDUP`). The clip's
-  settled-on-top footage is a deep tuck, 80-116 frame-px against the crouch pose's 139, so at
-  normal pacing the character sits balled up far smaller than anywhere else in the game for ~0.29s
-  - reported twice, as "it feels like the character is smaller" and "the character seems smaller
-  when he is climbing than in other positions". Nothing moves in that stretch (rise and shift
-  curves are both already at 1.0), so speeding it to ~0.08s costs nothing.
-- **The climb clip really is drawn 12-22% small, and that is now deliberate.** Measured on the raw
-  plates in `art-source/climb/`: the character grows **24-26%** between the hang and the last
-  standing frame (head-to-toe 416.8 -> 517.9 px and tracked head radius 23.81 -> 30.01, two
-  independent measures agreeing to 1.5%, so it is a plain uniform camera dolly, not perspective),
-  while the scale baked into the processed frames only removes 13% (0.5357 -> 0.4743, recoverable
-  per frame as `sqrt(processedAlphaArea / rawAlphaArea)`). The old "the correction cancels the
-  camera to within 0.2%" note in this file was wrong: it compared a *hanging* silhouette's
-  hand-to-toe span (457) against a *standing* one (516), which is not the same measurement twice.
-  A per-phase correction that held the character at one size for the whole move was built, tested
-  and then **reverted on request** ("change back the size of the person in climbing animation to
-  original size that was there"), so **do not "fix" this again without being asked.** What it costs
-  is visible: the character is smaller through the hang and the tuck and grows back during the
-  stand-up. What the shipped scale buys is the hang's geometry - the drawn reach is exactly one
-  body height, so on a ledge the player's own height (this game's canonical 96-unit climb) the hand
-  lands flush on the lip instead of a head above it, and `CLIMB_GRIP_CURVE` is measured off these
-  plates as shot.
-
-**The jump plate's raw 1-11 is NOT usable as a crouch wind-up** despite what this file's own
-`PlayerAnimations` note calls it: measured on the plate it dips from 1031 to 991 px, a 4% knee
-bend, nowhere near the crouch pose's 57% of standing. The crouch clip in reverse is the only real
-"rising out of a crouch" footage in the set.
-
-Verified by a full walkthrough test that drives the real loop from `farTerrain` to the exit over
-the boom, plus JVM desktop screenshots of the three areas (boom tip over `tallBlock`, machine
-beside the lever, exit past the machine). **Not on Android or iOS.**
+Verified by a full walkthrough test plus JVM screenshots of three areas. **Not on Android or iOS.**
 
 ## Level 7 ("07: Service Tunnel") - `LEVEL_7_LAYOUT`
 
-Designed 2026-09-23 as a high-tension linear crawling gauntlet similar in structure to Level 4's
-conveyor run. The player infiltrates the secure facility through a continuous ventilation duct,
-**rebuilt to 120m / 6410 units on 2026-09-25** - see "Level 7's 120 metres" below for the metre
-scale, the white wall stencils that state it, and the six-beat difficulty curve:
+Linear crawling gauntlet, rebuilt to 120m / 6410 units on 2026-09-25 (see below for the metre scale).
 
-- **The duct is STANDING height for its whole length.** `ceilingBottomY = 304.0` against
-  `groundY = 440.0` is 136 units of clearance, so a 96-tall standing player fits with room to
-  spare, and `LevelLayout.playerStartCrouched` is `false`. Three crouch restrictions were built
-  here on 2026-09-25 and taken out again the same day on the owner's call ("remove the crawl under
-  things"); `plainPlatforms` is empty and a test says so. Do not reintroduce them without asking.
-  With `canClimb = false` and a flat floor, the corridor's whole vocabulary is wind, steam and
-  drones - which is the constraint the six-beat curve is built inside, not an oversight.
-- **Vent Fans (`VentFanDef` / `VentFan`, `src/game/model/VentObstacles.kt`)**: industrial exhaust
-  fans blowing 135-145 u/s of air back down the duct. Ordinary walking cannot beat it
-  (`GameWorld.WIND_WALK_FACTOR` cuts the player's own walk to 0.6 inside a zone, so 79 against 135);
-  spam-tapping forward is what moves you. **Rebuilt 2026-09-24** - see "The wind stance" below for
-  the mechanic's numbers, why they are what they are, and the three boundary bugs the rebuild
-  turned up. `GameplayScene.kt` latches `touchRightTap` so fast on-screen taps are never dropped
-  across frame cycles.
-- **Camera Bots (`CameraBotDef` / `CameraBot`)**: Small wheeled surveillance rovers that patrol
-  back and forth along the vent floor, casting a forward vision light cone (`visionRange = 120.0`,
-  FOV 40 degrees). Walking into their vision cone raises an alert and triggers Mission Failed. The
-  player must sneak up from behind within `deactivationRange = 52.0` and press the INTERACT button
-  to permanently deactivate the drone. **Art replaced 2026-09-25** with the owner's rover plus a
-  rotating road wheel - see "The level 7 patrol rover" below, which also covers the one gameplay
-  number that moved with it (`EYE_HEIGHT_FRACTION`, where the cone starts).
-- **Pressurized Steam Pipes (`SteamPipeDef` / `SteamPipe`)**: Top-mounted, bottom-mounted, and paired
-  nozzles blasting lethal pressurized steam on timed cycles (1.3..1.5s active, 2.0..2.5s inactive)
-  with a 0.45s warning progress flare. Touching active steam causes instant Mission Failed,
-  deflectable once by the Laser Shield gadget (`activePowerups.isLaserShieldActive`). **Nozzle art
-  replaced 2026-09-25** - see "The level 7 fixtures pass" below, which also covers where the
-  full-screen red hit flash went and why its removal reaches every other level too.
-- **Sequencing & decoupled hazard zones**: hazards are staged so that one does not shove the
-  player into another, with recovery room between them and **7 manual checkpoints** (one per 20m
-  beat, plus one inside the final gauntlet). **One deliberate exception since 2026-09-25**:
-  `lvl7_pipe_9` at 4700 stands inside `lvl7_fan_3`'s zone (4660..5000), which is the level's one
-  "take a steam window at spam-tap pace" beat. It is exactly one, on purpose - the walkthrough
-  sim's behaviour there (stop tapping to wait out the jet, get blown back down the duct, walk in
-  again) is the cost of that combination, and it is why the sim's budget is 400s rather than 160s.
-  No checkpoint sits under a duct: a checkpoint respawns the player standing (`groundY - 96.0`),
-  which under one would put them inside its block.
-- **Visuals and performance discipline**: procedural textures, volumetric vision cones, nozzle LED
-  indicators and duct frame structures are housed in `VentFxAssets.kt` to protect
-  `GameplayScene.sceneMain` against the JVM 64KB bytecode limit.
-  `src/game/model/VentObstacles.kt` remains 100% pure Kotlin with zero `korlibs.*` imports, verified
-  by `ZeroKorlibsLintTest`. Every emitter culls itself (`update` returns early when its zone is off
-  camera), which is what keeps the particle counts affordable: at most one fan and a couple of pipes
-  are ever simulated or drawn.
-- **The wind and the steam were rebuilt 2026-09-24** (reported simply as "not realistic").
-  `VentFanVisual` and `SteamPipeVisual`'s own doc comments carry the reasoning per decision - read
-  them before touching either. The headline facts:
-  - **The steam was not visible at all in play**, and had not been for as long as the level existed.
-    Gotcha #12 above is why (a per-frame `size()` collapsed every particle to ~1e-72 units wide);
-    additive blending over `bglvl7.png`'s brightly lit steel wall would barely have shown it even at
-    the right size. Both effects now blend normally and OCCLUDE the wall.
-  - Particles have real lifetimes and are re-seeded on death (lane, speed, reach, spread, sway,
-    brightness) instead of cycling `% span` in fixed lanes; the jet and the wind both decelerate
-    with distance; steam curls upward on buoyancy at the tail and bursts out of the nozzle on the
-    rising edge of each cycle; the ~2-5 Hz sine strobes on brightness and position are gone.
-  - Textures are one 128x128 four-puff page shared by both effects plus a 96x40 two-row wisp sheet.
-    Variants are **baked** rather than made with a negative `scaleX` (bug #8) or a runtime rotation.
-  - **The plume must span the full corridor.** `SteamPipe.bounds` kills across the whole
-    `topY..bottomY` and a fixed `jetWidth`, so `reach` stays at 0.86..1.06 of the span - never tune
-    the visual shorter than the box that kills.
-  - Verified on JVM desktop against real screenshots (top, bottom and paired nozzles, plus a fan's
-    wind zone) and `jvmTest` 194 green, `android-shell:compileReleaseKotlin` clean. **Not on Android
-    or iOS.**
-- Verified by unit tests in `GameplayModelTest.kt`: `testLevel7LayoutStructureAndProperties`,
-  `testLevel7VentCeilingEnforcesContinuousCrouch`, `testLevel7VentFanPushbackAndSpamTapForwardImpulse`,
-  `testLevel7CameraBotPatrolAndDeactivationFromBehind`, `testLevel7SteamPipeHazardsAndLaserShieldDeflection`,
-  and full end-to-end traversal `testLevel7SimulationPlayableWalkthrough`.
+- **The duct is STANDING height for its whole length** (`ceilingBottomY=304` vs `groundY=440`, 136
+  clearance) - three crouch restrictions were built and then removed the same day on the owner's
+  call ("remove the crawl under things"). Don't reintroduce without asking. The corridor's vocabulary
+  is wind, steam and drones instead.
+- **Vent Fans**: blow 135-145 u/s back down the duct; ordinary walking can't beat it
+  (`WIND_WALK_FACTOR = 0.6` inside a zone) - spam-tapping forward is the mechanic (see "The wind
+  stance" below).
+- **Camera Bots**: patrol, forward vision cone (range 120, FOV 40 deg); walking into the cone is
+  Mission Failed. Sneak up from behind within `deactivationRange = 52.0` and press INTERACT to
+  deactivate permanently.
+- **Pressurized Steam Pipes**: top/bottom/paired nozzles on timed cycles with a warning flare;
+  contact is instant Mission Failed, deflectable once by the Laser Shield gadget.
+- **Sequencing**: hazards staged with recovery room between, 7 manual checkpoints (one per 20m beat).
+  **One deliberate exception**: `lvl7_pipe_9` sits inside `lvl7_fan_3`'s zone on purpose - the
+  level's one "take a steam window at spam-tap pace" beat, which is why the walkthrough sim's time
+  budget is 400s rather than 160s. No checkpoint sits under a duct (a checkpoint respawns standing).
+- **Performance**: procedural textures/vision cones/LEDs/duct frames live in `VentFxAssets.kt` (keeps
+  `GameplayScene.sceneMain` under the JVM 64KB bytecode limit). `VentObstacles.kt` is pure Kotlin,
+  zero `korlibs.*`. Every emitter culls itself off-camera.
+- **Wind and steam were rebuilt 2026-09-24** ("not realistic") - both now blend normally and OCCLUDE
+  the wall (previously invisible in play due to bug #12's `size()` collapse); particles have real
+  lifetimes and re-seed on death instead of cycling in fixed lanes; textures are baked variants, not
+  runtime-rotated/negative-scaled (bug #8). **The plume must span the full corridor** -
+  `SteamPipe.bounds` kills across the whole span, so the visual must never be tuned shorter than the
+  box that kills. Verified on JVM screenshots and `jvmTest`; **not on Android or iOS**.
 
-## Level 7's 120 metres (2026-09-25) - the metre scale, the stencils, and the curve
+### Level 7's 120 metres - the metre scale, the stencils, the curve
 
-### How distance is "calculated" - it isn't
+Nothing in the game converts world units to metres at runtime - level 4 states its own length
+entirely in wall decals (50 units = 1 metre, see above). Level 7 at 120m is five stencils 1500 units
+apart, defined by `LEVEL_7_MARKER_*` and asserted against the layout - move the exit and move the
+markers too, or the level stops meaning what it says.
 
-Nothing in this game converts world units to metres at runtime. There is no distance HUD, no
-`unitsPerMetre` constant, nothing. **Level 4 states its length entirely in wall decals**: six
-stencil PNGs (`resources/wall_{150,120,90,60,30,0}m.png`) drawn at `242.0 + stepIndex * 1500.0`
-across a 7760-unit conveyor, counting down 150m -> 0m. 1500 units per 30m step is the whole
-definition, and it makes the scale **50 world units = 1 metre**. If you want a level to "be" a
-distance, you place stencils; there is nothing else to change.
+`tools/art/prep_wall_markers.py` converts level 4's ochre stencils to white on disk (an exact
+conversion since the art carries its shape entirely in alpha - `colorMul` can only darken, never
+lift to white). They hang inside `worldView`, not the parallax layer level 4 uses, because
+`bglvl7.png`'s background scale is canvas-dependent (level 4's isn't) - placed there, they'd grow and
+shrink with the window.
 
-So level 7 at 120m is five stencils 1500 units apart, 190 -> 6190, defined by
-`LevelData.LEVEL_7_MARKER_{FIRST_X,SPACING,LABELS}` and asserted against the layout in
-`testLevel7IsExactly120MetresOnLevel4sOwnMetreScale`. Move the exit and you move those, or the
-level stops meaning what it says.
+**The painted duct is pinned to the world duct at every aspect (2026-09-26).** `bglvl7.png` used
+to scale to `canvasH / 724` against a fixed `worldZoom`, so the painted duct only matched the world's
+304..440 on the reference 480 canvas - on a 16:9 phone it was 166 tall, on a foldable 194, and the
+owner saw ceiling nozzles hanging below the black beam and fans sliding across the wall art on
+tablets. Now `LEVEL_7_BG_SCALE` is fixed at the reference scale; texture rows 186..526 (the duct,
+split inside both black beams) are always drawn at it, and the distant scenery above and below
+stretches vertically by the same factor (`level7SceneryStretch`, up to ~1.8 on 7:6) to fill a taller
+canvas. `level7FloorScreenY` anchors worldView. Pinned by
+`testLevel7PaintedDuctMatchesTheWorldDuctAtEveryViewport`. Not seen on a screen.
 
-### The white stencils (`resources/wall7_*.png`)
+**Landing them on bare wall required a live search, not baked positions** - written when the
+background's world scale still changed with device aspect; with the fixed scale above, every device
+now gets the reference canvas's answer. `GameplayScene.findClearWallX` nudges each stencil up to
+300 units along the corridor until its footprint clears both fans/pipes (a hard requirement - a
+stencil under one is hidden outright) and busy background art (soft requirement, two-stage search).
+The owner pre-authorised the trade-off (position need not be exact). Stencils are drawn 28 units
+tall (not 32 - the widest plate needs exactly the widest available window at 28). A stencil with
+no bare wall in range falls back to the nearest machinery-free spot. `VentVisualsTest` checks all
+five at the (now single) background scale.
 
-The owner asked for level 4's markers "but white" on level 7. `colorMul` cannot do it: it
-multiplies, so it darkens the ochre source and can never lift it to white. `tools/art/prep_wall_markers.py`
-does it on disk instead, and the conversion is exact because the stencils carry all of their shape
-in alpha - keep the alpha channel, replace RGB with white, resample nothing. Worn edges, grain and
-the loose speckle around the glyphs all survive. `minified = false`, like level 4's: drawn at
-roughly 1:1, so there is nothing for mipmaps to do and no power-of-two rule to meet.
+**A real bug this turned up**: level 4's decal pass was gated on a shared, label-keyed bitmap map
+rather than its own background - filling that map for level 7 drew level 4's stencils a second time
+at level 4's old positions. Now gated on `bgFileName == "metalbg.png"`. Lesson: a shared map keyed by
+label is not a level gate.
 
-Two placement things that were found by looking at the screen, not by reasoning:
+**The difficulty curve** is measured, not asserted by feel
+(`testLevel7DifficultyRisesFromStartToExit`): every back-half steam window is tighter than every
+front-half window, drones get faster, fans push harder, no 20m beat is empty. Six beats, each adding
+one thing and folding it into what came before (headwind alone -> steam alone -> first drone -> gate
++ faster drone -> jet inside a wind zone -> gust + tightest pair + drone on the door). A lone pipe is
+never the difficulty by itself - only pairs and fan-overlapped pipes are.
 
-- **They hang inside `worldView`, not in the parallax layer level 4 uses.** metalbg.png's
-  background scale is canvas-independent (`1000 * worldZoom / tileWidth`), so level 4's decals are
-  a fixed world size. bglvl7.png's is `canvasH / 724`, so a stencil sized off it would have grown
-  and shrunk with the window while the corridor painted around it did not. Added before anything
-  else in the world so they still draw behind all of it, which is the only thing level 4 gained by
-  putting its own in the background layer.
-- **`0m` stops 70 units short of the exit trigger.** The extraction booth (entrance.png) is drawn
-  from `exitZone.x` rightwards, so a 0m plate centred on the zone had its right half swallowed by
-  the booth on screen - only the "0" and a sliver of the "m" were readable. Level 4 has the same
-  arrangement and presumably the same problem. The first stencil is likewise 90 units ahead of the
-  spawn rather than on it, because at 130 the player's own silhouette covered the "m" of "120m" on
-  the very first frame of the level.
-
-### Landing them on bare wall
-
-"Put the name only on places where background is empty. no other objects." The wall is not empty
-anywhere in particular: bglvl7.png carries louvred vents, junction boxes, conduits and standpipes,
-and the ideal grid position dropped "120m" straight onto a junction box.
-
-This cannot be solved by choosing positions in `LevelData`, because **the background's world scale
-is not fixed**. bglvl7.png is drawn at `canvasH / 724`, and `canvasH` is the virtual canvas, which
-`ScreenLayout.viewportFor` sizes from the device aspect: 480 on a wide phone or desktop, 585 on
-16:9, up to ~1067 on 4:3. One tile of background therefore spans 1066 world units on one device and
-2369 on another, so the same world x sits over different wall detail on each. A baked position is
-right on exactly one aspect ratio.
-
-The level's own machinery counts too, and that part was found on screen rather than in a test:
-the first version only knew about detail painted into bglvl7.png, so it pushed "60m" 240 units
-right - directly onto `lvl7_fan_2`, 36 units of opaque machinery sitting across the stencil band.
-Fans and steam jets are now part of the same search, and they are the HARD requirement: a stencil
-under a fan or inside a jet is hidden outright, where one on busy background is merely untidy. So
-the search is two-stage - bare wall AND clear of machinery first, then clear of machinery alone.
-A single-stage version that fell back to the ideal position put "30m" inside `lvl7_pipe_9`'s jet
-on a 4:3 viewport, which is worse than the thing the search exists to avoid.
-
-So `GameplayScene.findClearWallX` does it at scene build time against the live `bgScale`:
-`(x * worldZoom / bgScale) mod textureWidth` is the texture pixel under a world x, and each stencil
-is nudged up to 300 units (6m) along the corridor until its whole footprint lands inside one of
-`LEVEL_7_CLEAR_WALL_WINDOWS`. The owner pre-authorised the trade ("it is okay for it to not be in
-the exact correct place to find a correct spot"). It returns the ideal position rather than drawing
-nothing when the wall is busy everywhere nearby, and it is bounded so the nudge can never carry a
-stencil behind the extraction booth or back past the spawn.
-
-The windows come from `tools/art/prep_wall_markers.py`, which scores each column by the worst
-**vertical** luminance step inside the stencil band. That is the discriminator that matters: a
-panel seam is a vertical line and has no vertical step, so it passes; a vent's louvres, a box's rim
-and a pipe's shading all fail. Measured in the band a 480-unit canvas uses, which is the demanding
-case - it needs the widest footprint in texture pixels AND has the narrowest windows, and every
-window it finds is contained in the equivalent window for a taller canvas.
-
-Two consequences worth knowing. The stencils are drawn **28 units tall, not 32**: at 32 the widest
-plate needed 148 texture pixels against a widest useful window of 148, with nowhere to place it.
-And one window runs off the right edge of the tile and continues at the left - the wall is
-continuous across the seam - so the fit test tries each position in this tile and in the next.
-
-Measured outcome: 18 of the 20 (canvas, stencil) combinations find bare wall; the other two fall
-back to the nearest machinery-free position. `VentVisualsTest` checks all twenty against every fan
-and every jet, and that no stencil drifts past the search radius or out of order.
-
-**A real bug this turned up**: level 4's decal pass was gated on `wallMarkerBitmaps.isNotEmpty()`
-rather than on its own background. Filling that same map for level 7 made the pass run there too,
-drawing every white stencil a SECOND time at level 4's positions and level 4's y - ghost
-duplicates a beat away from the real ones all down the corridor. It is gated on
-`bgFileName == "metalbg.png"` now. The lesson is the ordinary one: a shared map keyed by label is
-not a level gate.
-
-### The difficulty curve
-
-"Progressively harder" is only meaningful if it is measurable, so `testLevel7DifficultyRisesFromStartToExit`
-measures it: every steam window in the back half is tighter than every window in the front half,
-every wait is longer, each drone is faster than the one before it, each fan pushes harder, and no
-20m beat of the 120 is empty.
-
-Six 20m beats, each introducing one thing and then folding it into what came before:
-
-| beat | metres | what it adds |
-| --- | --- | --- |
-| 1 | 0-20 | headwind alone (the spam-tap tutorial, `lvl7_fan_1` untouched) |
-| 2 | 20-40 | steam alone, 300+ apart, longest windows |
-| 3 | 40-60 | the first drone, alone, with steam either side of it |
-| 4 | 60-80 | headwind, then a two-jet gate, then a faster drone |
-| 5 | 80-100 | a jet standing inside a wind zone |
-| 6 | 100-120 | gust -> tightest jet pair -> a drone on the door |
-
-The steam knobs carry the fine tightening, and they are indirect: `SteamPipe` clamps whatever it
-is handed (active 2.2..3.8s, dormant 0.8..1.8s, plus a fixed 1.0s warning flare), so the declared
-numbers only choose where inside those clamps a pipe lands. `inactiveDuration` 1.7 -> 1.3 -> 0.9
-shrinks the safe window from ~2.7s to ~1.8s; `activeDuration` 2.6 -> 3.0 -> 3.5 stretches the
-minimum wait from ~2.2s to ~3.0s.
-
-**A lone pipe is never the difficulty.** At a 132 u/s walk even the ~1.8s window covers 238 units
-against a jet 24 wide. Pairs are: the gate at 3620/3790 and the pair at 5560/5700 have to be read
-as one crossing on one window. So is `lvl7_pipe_9` at 4700, which stands inside `lvl7_fan_3`'s
-gale and so has to be taken at spam-tap pace.
-
-### What moved in the tests
-
-- `maxSimTime` in the walkthrough sim went 160s -> 400s, and the walker learned two things: to
-  crouch under ducts (without it, it stops dead at one and the level looks unfinishable), and to
-  size its commit window off the speed actually available - `(pipe.x + 20 - px) / crossSpeed +
-  0.35` instead of a flat 0.7s, which was tuned when every crossing was made standing against a
-  window no shorter than 2.5s.
-- `timeTargetSeconds` is back to 85.0, calibrated the way level 4's 115s is: just under what its
-  own sim takes. The sim clears the level in **85.3s with zero deaths**; 6160 units is 46.7s of
-  pure walking, so the target is roughly twice the theoretical floor. It was briefly 95 while the
-  crouch ducts were in.
-
-**Verified**: `jvmTest` 231 green, `android-shell:compileReleaseKotlin` clean, and on JVM desktop
-the 120m, 90m and 0m stencils were read off the screen at their own positions, the first crouch
-duct renders as the ceiling stepping down with `step_crouch_duct` firing at it, and the
-crawl-space jet's floor fixture and LED are visible under `duct2`. **Not checked**: the 60m and
-30m stencils (the three that were checked cover both ends and the middle), and anything on Android
-or iOS.
+`timeTargetSeconds = 85.0` (the sim clears it in 85.3s with zero deaths; 46.7s of pure walking is the
+theoretical floor). **Verified**: `jvmTest` green, `android-shell:compileReleaseKotlin` clean, and
+120m/90m/0m stencils read off the screen at their own positions on JVM desktop. **Not checked**: 60m
+and 30m stencils, anything on Android or iOS.
 
 ## The level 7 patrol rover (`resources/robot_{body,wheel}.png`) - replaced 2026-09-25
 
-The camera bots were rect-built in `CameraBotVisual` (treads, hull, bevel plate, dome turret). They
-are now the owner's art: a wheeled rover with an articulated sensor boom, cut by
-`tools/art/prep_robot.py` into **two** plates - a body with holes where its wheels were, and the
-cogged road wheel on its own. That script's header is the source of truth for the cut and for every
-fraction in `CameraBotVisual`'s companion; re-run and paste rather than hand-editing them.
+Cut by `tools/art/prep_robot.py` into two plates (body with wheel-holes, one cogged wheel) - that
+script's header is the source of truth for every fraction in `CameraBotVisual`; re-run and paste
+rather than hand-editing.
 
-- **The body plate is cut because the rim is the only thing that can show motion.** The rover is a
-  flat silhouette, so a cog drawn inside its outline is invisible - the rolling read comes entirely
-  from tooth tips breaking the wheel's circle. Leaving the drawn-on wheels in the body would union
-  them with the rotating sprite into a ring that is toothy all the way round at every angle, which
-  shimmers instead of turning. The cut is a disc of `r + 2` raw px (slightly WIDER, so no tooth tip
-  survives the resample) minus the chassis rectangle the wheels hide, which is reconstructed rather
-  than traced: the chassis floor is the last scanline that crosses the silhouette in ONE run
-  (y=799), its walls are read from the last scanline above the wheels' tops (y=650, x 331..1204).
-- **Everything about the wheels is measured, not assumed.** Below the chassis floor the only thing
-  left is wheels, so each one's bounding box gives its centre and outer radius directly: (359.0,
-  809.0) and (1174.5, 809.5), both r≈155 of a 1126x894 crop - they agree to half a raw pixel in
-  both, which is the check that the detection worked.
-- **The wheel plate is cropped to its bbox and forced square, which is also what makes it round.**
-  The raw cog is drawn 3.8% wider than tall, and rotating that wobbles the silhouette once per
-  turn. It rotates about the bbox centre, not the centroid (which sits ~7 raw px lower), because
-  that fixes the outer extent by construction - moving the rim is the more visible of the two errors.
-- **Wheels are driven by ground distance, not by time**, same rule as the guard's walk and the
-  player's: `rollAngle += dx / r`. That is what stops them dead when the bot pauses at the end of a
-  leg or is deactivated, and keeps them in step at whatever `speed` a level picks without a second
-  constant to hold in sync. `abs(dx) <= bot.width` swallows a respawn teleport, which would
-  otherwise whip them through however many turns the patrol is long.
-- **The mirrored chassis reverses the sense of a child's rotation.** `chassisContainer.scaleX = -1`
-  when facing left flips positions AND rotations, so the local angle is negated there. Sign errors
-  here are invisible in a still and obvious in motion, so `CameraBotWheelTest` asserts on
-  `wheels[i].rotation` - the angle that actually reaches the renderer - rather than on an internal
-  accumulator.
-- **The lens is dark unless the rover has the player** (2026-09-25 - see the fixtures pass
-  below). The blue glow/lens/pip stack this section was first written against is gone.
-- **The lens moved up the boom: `CameraBot.EYE_HEIGHT_FRACTION` is 0.20, was 0.45.** This is a
-  gameplay-visible change, not a cosmetic one. Mid-box suited a squat crawler with a turret on top;
-  the rover carries its sensor out over the front wheel and the front of the box at mid-height is
-  empty air, so the cone used to leave from beside the machine rather than from anything on it. The
-  cone is horizontal, 40 degrees over 120 units, so at full range it still covers most of a standing
-  player; what changes is that someone crouched right under the boom is slightly safer and someone
-  on a crate slightly less so. All 217 jvm tests pass either way.
-- **Which way it faces is a judgement, not a measurement**, and it is the one thing here worth
-  re-checking on screen. The plate is kept in source orientation and treated as facing RIGHT, which
-  puts the boom's slab reaching forward over the front wheel and the chassis's sloped fender over
-  it, and drops the cone out from under the slab's tip. Read the other way round the slab overhangs
-  the tail and the cone comes off a blank nose. If it is backwards, flip the plate in
-  `prep_robot.py` - do NOT invert the sign in `CameraBotVisual`, which follows the same
-  `facing < 0 -> scaleX = -1` convention as every other actor.
-- Sizes are the POT rule: body 128x128 (32 virtual units drawn x3 = 96), wheel 64x64 (~8.8 units x3
-  = 26, doubled because it is the one asset resampled at every angle rather than axis-aligned).
-  Together 20K px - the collision box (`width = 32`, `height = 26`) is untouched, so nothing in the
-  level's balance moves; the art is bottom-aligned inside it at its own 0.794 aspect and the wheels
-  sit on the floor the model walks the bot along.
-- **The procedural crawler is still there as a fallback** and `createAll` takes both bitmaps as
-  nullables defaulting to `null`, exactly like the fan's blade and cover, so a failed load degrades
-  instead of taking the level down. `testTheProceduralFallbackHasNoWheelsAndDoesNotCrash` pins it.
+- **The body is cut because a flat silhouette can only show motion through its rim** - a cog drawn
+  inside the outline would union with the rotating wheel into a shape that's toothy at every angle
+  and shimmers instead of turning. The cut disc is slightly wider than the wheel so no tooth tip
+  survives the resample.
+- **Wheels are driven by ground distance, not time** (`rollAngle += dx / r`) - stops dead when the
+  bot pauses, stays in sync with any level's own `speed` with no second constant needed. A respawn
+  teleport is swallowed via `abs(dx) <= bot.width`.
+- **The mirrored chassis reverses a child's rotation sense** - `CameraBotWheelTest` asserts on the
+  rendered `wheels[i].rotation`, not an internal accumulator, for exactly this reason.
+- **The lens is dark unless the rover has the player** (`alertLens`, a single red rect) - the old
+  always-lit cyan glow/lens/pip stack is gone entirely (see fixtures pass below).
+- **The lens moved up the boom** (`EYE_HEIGHT_FRACTION = 0.20`, was 0.45) - the rover carries its
+  sensor over the front wheel, not mid-box like the old squat crawler; this is gameplay-visible
+  (crouching under the boom is slightly safer now, standing on a crate slightly less so).
+- **Facing is a judgement call, not a measurement, and worth re-checking on screen** - the plate is
+  treated as facing RIGHT (boom reaching forward over the front wheel). If it's backwards, flip the
+  plate in `prep_robot.py` - do NOT invert the sign in `CameraBotVisual`.
+- Sizes follow the POT rule; the collision box (32x26) is untouched by any of this.
+- **The procedural crawler is still the fallback** if either bitmap fails to load.
 
-**A black rover on a dark duct floor is hard to see, and that is not new** - the rects it replaced
-were `#0f172a`/`#1e293b`, barely lighter. It reads against the lit wall panels and disappears
-against the louvre vents, which is the same deal the player's own silhouette gets. Do not "fix" it
-by tinting: `colorMul` on art whose RGB is 0 does nothing at all (black times anything is black),
-so a tint means baking a lighter RGB into the plate and giving up the silhouette look the rest of
-the game is drawn in.
+A black rover on a dark duct floor is intentionally hard to see (same silhouette treatment as the
+player) - don't "fix" with `colorMul` tinting, which does nothing on RGB-zero art.
 
-Verified: `jvmTest` 217 green including the eight in `CameraBotWheelTest`, and
-`android-shell:compileReleaseKotlin` clean after `:paywall-build:publishToMavenLocal`. On JVM
-desktop the rover renders at the right size and place, bottom-aligned on the duct floor, mirrors
-correctly with `facing`, and the cone leaves from under the sensor slab - confirmed against
-screenshots with the shadows lifted, because at the level's own exposure it is nearly black.
-**The wheels turning was NOT resolved visually**: on screen the wheel is ~10px across with 16
-teeth, and the captures could not be aligned well enough to separate a rotating rim from the bot's
-own travel. It is pinned by test instead. **Not checked on Android or iOS.**
+Verified: `jvmTest` green including 8 `CameraBotWheelTest`s, `android-shell:compileReleaseKotlin`
+clean, on-screen size/placement/mirroring/cone-origin confirmed on JVM (shadows lifted to see the
+near-black art). **Wheels visibly turning was NOT confirmed on screen** - too small a rim to separate
+rotation from travel in a capture; pinned by test instead. **Not checked on Android or iOS.**
 
 ## The level 7 fixtures pass (2026-09-25) - three removals and one art swap
 
-Four requests in one go. Three of them are removals, and a removal is the kind of change that
-quietly comes back, so `VentVisualsTest` pins the absences rather than trusting a comment.
+`VentVisualsTest` pins each absence rather than trusting a comment, since a removal is the kind of
+change that quietly comes back.
 
-- **The exit terminal is gone, and `VentCorridorVisual` with it.** It was the whole class: a
-  `#334155` pedestal at x=5050 with a `#0284c7` bar, an additive `#38bdf8` "holographic manifest"
-  and a white strip - the blue-and-grey shape the owner pointed at. Nothing else lived in that
-  class, so the class, its `create` call and the `isL7`/`l7Layout` locals that fed it all went. If
-  level 7 ever wants architectural framing again, start a fresh one; do not resurrect this.
-- **The rovers carry no running lights.** They used to wear an additive cyan glow
-  (`botEyeGlowBitmap`, a 16x16 radial ramp) pulsing at 12 rad/s, plus a `#38bdf8` lens and a white
-  pip, lit the entire time they were alive. All three are gone and so is the generator - nothing
-  referenced it any more. What replaced them is `CameraBotVisual.alertLens`: a single 4x4 `#ef4444`
-  rect, **invisible unless the rover actually has the player**. That keeps the one moment the lamp
-  was information (the light cone and the detection pip carry the rest of that tell) and drops the
-  decoration. A deactivated rover still throws its amber sparks on a 1.5s blink.
-- **The steam nozzles are the owner's art** (`resources/steam_nozzle_{up,down}.png`, cut by
-  `tools/art/prep_steam.py`) in place of four stacked `solidRect`s. Two files rather than one and a
-  negative scale, because bug #8 tears a detailed `Image` under a negative scale at this downscale;
-  `truck.png`/`entrance.png` are pre-mirrored for the same reason. **Both mounts now sit INSIDE the
-  corridor** - the floor one stands on `bottomY`, the ceiling one hangs from `topY` - which is a
-  change from the rects, which sat *outside* the duct line. Recessed above the ceiling the black
-  silhouette lands on the dark background beyond the duct and vanishes: on screen only its LED was
-  visible. The jet still starts exactly at `topY`/`bottomY`, inside the fixture, and the plume is
-  built BEFORE the fixture so the plate draws over the mouth it leaves from. That the kill box runs
-  under the fixture is honest rather than sloppy - `SteamPipe.bounds` spans the full corridor, and
-  the fixture is what fills the last 19 units of it.
-- **The status LED survived the swap and had to.** Red while dormant, green from the 0.45s warning
-  flare through the whole eruption, it is the tell that lets a player time the run. The art has no
-  lamp drawn on it, so `prep_steam.py` measures the left bolt block (the scanlines where the
-  silhouette breaks into exactly three runs are the two blocks plus the trunk) and the LED is
-  placed there, on solid metal rather than floating in the taper.
-- **No more red wash on a lethal hit, on any level.** A `#ff0033` rect covered the whole canvas at
-  0.45 alpha for 0.25s whenever `GameWorld.onLaserHit` or `onSteamPipeHit` fired. Those callbacks
-  are shared model hooks, so one subscription in `GameplayScene` put it on every level with a laser
-  or a steam pipe - removing the subscription removes it everywhere, which is what "propagate to
-  the other levels" needed and why there is nothing per-level to check. The hooks themselves stay
-  (`GameplayModelTest` still asserts they fire); nothing subscribes to them now. It also fired on
-  the same tick as the game over, painting red over the last frame the player gets to read before
-  the MISSION FAILED card - the frame that tells them what killed them.
+- **The exit terminal (`VentCorridorVisual`) is gone entirely** - the owner pointed at its
+  blue-and-grey shape and asked for it removed. Start fresh if level 7 ever wants architectural
+  framing again; don't resurrect this class.
+- **The rovers carry no running lights** - the always-lit cyan glow/lens/pip is gone, replaced by
+  `alertLens` (a single red rect, visible only while the rover has the player). A deactivated rover
+  still throws amber sparks on a 1.5s blink.
+- **The steam nozzles are the owner's art** (`resources/steam_nozzle_{up,down}.png`), replacing
+  stacked `solidRect`s. Two files (not one + a negative scale, per bug #8). Both mounts sit INSIDE
+  the corridor now (floor on `bottomY`, ceiling on `topY`) - recessed above the ceiling, the old
+  rects vanished against the dark background beyond the duct with only their LED visible. The plume
+  is built before the fixture so it draws over the mouth it leaves from.
+- **The status LED survived the swap** (red dormant, green from the warning flare through the
+  eruption) - it's the player's timing tell, so the new art was measured to place it on solid metal.
+- **No more full-canvas red wash on a lethal hit, on any level** - it painted over the very frame
+  that told the player what killed them, and painted the same red over the MISSION FAILED card's
+  first frame. Removing one subscription in `GameplayScene` removed it everywhere (the model hooks
+  themselves are unchanged and still tested).
 
-Sizes: the fixture is drawn 64 units wide at the plate's own 0.295 aspect, stored 256x64 (the POT
-rule: 64x3 = 192 -> 256, 19x3 = 57 -> 64). 64 is not arbitrary - it puts the nozzle mouth at 25.7
-units against `SteamPipe.jetWidth` of 24, so the plume leaves a mouth that is actually as wide as
-the column that kills.
-
-Verified: `jvmTest` 223 green, `android-shell:compileReleaseKotlin` clean, and on JVM desktop both
-mounts render with their plumes erupting out of them and their LEDs cycling red -> green. The red
-wash is gone by measurement, not by eye: walking into an active jet, the whole-frame count of
-red-dominant pixels stays at ~211 (the LEDs) through the death and drops to 0 on the failure card,
-against the ~1.75M a full-canvas wash would have put there. **The exit terminal's removal was not
-re-checked on screen** - it is at x=5050, most of a level away from anywhere reachable in a test
-run, and the class that drew it no longer exists. **Nothing checked on Android or iOS.**
+Verified: `jvmTest`/`android-shell` clean; red-wash removal confirmed by pixel count, not eye
+(~211 red pixels from LEDs through the death vs ~1.75M a wash would add). **Exit terminal removal not
+re-checked on screen** (it's a level away from anywhere reachable in a test run and the drawing class
+no longer exists). **Nothing checked on Android or iOS.**
 
 ## The vent fixtures pass 2 (2026-09-25) - lamp meaning, burial, fan rate, prompt timeout
 
-Four more owner notes on the same level, all small and all with a measurement behind them.
+- **The steam lamp is red only while gas is actually out** - it used to run green through the whole
+  eruption (i.e. said "safe" at the moment the pipe kills). Each phase now owns its own colour
+  (green/amber/red), swept and asserted across a full cycle in `VentVisualsTest`.
+- **The nozzles are bolted through the duct wall** (`BURY_FRACTION = 0.22`, not the 0.5 first tried) -
+  measured off the art: the bolt blocks only exist in the outer half of the plate, so burying a full
+  half hides them AND narrows the visible silhouette, which looked worse than the floating gap it was
+  meant to fix. 0.22 is the deepest bury that still leaves the lamp's disc fully on solid silhouette.
+- **Fan blades run at 16.0 rad/s** (~2.5 rev/s, up from 8.0) - capped by the strobe effect, not taste
+  (an N-bladed rotor reads as stopped/backwards once N rev/s crosses 30 at 60fps). Pinned by test - a
+  still frame can't show a rate.
+- **`TutorialStep.autoDismissSeconds`** is new and opt-in (0.0 = wait indefinitely, the default for
+  every pre-existing step). Level 7's deactivate-bot prompt sets 5.0, since disabling the drone is
+  optional. A test asserts no other step got a timeout.
 
-- **The steam lamp is red only while gas is out.** It used to run green from the warning flare
-  through the whole eruption, i.e. it said "safe" at the one moment the pipe kills. Each phase of
-  the cycle now owns a colour - dormant green, warning amber (`#f59e0b`, 1.0s), active red - so red
-  means one thing and the timing tell the lamp exists for is intact. `VentVisualsTest` sweeps 30
-  seconds of a real cycle and asserts the colour in every phase.
-- **The nozzles are bolted through the duct wall, not stuck to it.** They were pushed 4 units clear
-  of the corridor edge, which left a lit sliver of wall under the floor nozzle and over the ceiling
-  one - "they look like floating". `BURY_FRACTION` now pushes 22% of the plate's height past the
-  edge into the black band, and the plume starts at `topY`/`bottomY` exactly, which is where the
-  kill box starts anyway.
-- **Why 22% and not the half that was asked for.** Measured off `steam_nozzle_up.png`: the bolt
-  blocks the lamp stands on only exist in the outer half of the plate (solid rows 32..63 of 64 at
-  `LED_X`), and the only part spanning the plate's full height is the central trunk - which sits
-  entirely inside the `jetWidth` column the plume covers, so a lamp there would be behind the steam
-  exactly when it matters. Bury a full half and both blocks go under with it, leaving the lamp
-  hanging on bare wall beside a narrower silhouette - which is *worse* than the floating it was
-  meant to fix, and is what the first attempt at 0.35 actually looked like on screen. 0.22 is the
-  deepest bury that still leaves the lamp's whole 4.8-unit disc on solid silhouette: it needs 16 of
-  the plate's 64 rows clear below row 32, and 0.22 leaves 17.9.
-- **Fan blades run at 16.0 rad/s** (~2.5 rev/s), up from 8.0. The ceiling on this is the strobe,
-  not taste: blades are sampled once a frame, so an N-bladed rotor reads as stopped or backwards
-  once N revolutions per second passes 30 at 60fps. 2.5 rev/s leaves room for an 8-bladed rotor.
-  Pinned by a test, because a still frame cannot show a rate and this number has now moved twice.
-- **`TutorialStep.autoDismissSeconds`** is new and opt-in (0.0 = wait indefinitely, which is what
-  every pre-existing step still does and what is right when the action is the only way past). Level
-  7's `step_deactivate_bot` sets 5.0: disabling the drone is one option, not the only one, so the
-  prompt cannot camp on screen waiting for a choice the player may never make. A test asserts no
-  other step in any level was given a timeout.
+**Screenshots are not the tool for a prompt's lifetime** - the world updates behind the loading
+screen's fade, so a 5s prompt can open and close before any capture's first frame. A `println` on
+activate/dismiss settled it in one run where 0.6s screenshot bursts caught nothing.
 
-Verifying the prompt took instrumentation rather than screenshots, and the reason is worth
-remembering: the world updates behind the loading screen's fade, so a 5s prompt can open and close
-before the first frame a screen capture can see. A `println` on activate and on dismiss showed
-`activate step_deactivate_bot auto=5.0` then `auto-dismiss after 5.003s`. Screenshot bursts at
-0.6s spacing across the same window caught nothing and would have been read as "it never appeared".
-
-**Verified**: `jvmTest` 236 green and `android-shell:compileReleaseKotlin` clean. On JVM desktop,
-before the owner asked for screenshot testing to stop, the 120m and 90m stencils were seen on bare
-panels clear of the boxes either side, a ceiling nozzle showed red with steam pouring out of it
-while a floor nozzle showed amber in its warning phase, and both fixtures met the black band with
-no gap. **Not checked on screen**: the stencils after prop avoidance moved them again, the lamp's
-final seating after `LED_X` was nudged to 0.185, the fan rate (a still frame cannot show a rate -
-pinned by test), and anything on Android or iOS.
-
-**Screenshots are not the tool for a prompt's lifetime.** The world updates behind the loading
-screen's fade, so a 5s prompt opens and closes before the first frame a capture can see; bursts at
-0.6s spacing across the whole window caught nothing and would have been read as "it never
-appeared". A `println` on activate and dismiss settled it in one run.
+**Verified**: `jvmTest`/`android-shell` clean. On JVM (before screenshot testing was called off for
+this pass): stencils clear of boxes, nozzle LED colours correct, fixtures meet the black band with no
+gap. **Not checked**: stencil positions after the avoidance search moved them again, final lamp
+seating, fan rate (untestable by screenshot), anything on Android or iOS.
 
 ## The wind stance (`resources/player/wind{transition,walk}`) - built 2026-09-24, live on level 7
 
-Two clips cut by `tools/art/prep_wind.py` from `Downloads/charAnimations/windtransition` (96 raw
-frames) and `windwalk` (144), both 360x640 half-res plates. **That script's header is the source of
-truth for every cut and the crop geometry - re-run and paste, don't hand-edit the Kotlin**, same
-rule as `prep_guard.py`/`prep_push.py`.
+Cut by `tools/art/prep_wind.py` - **that script's header is the source of truth, re-run and paste,
+don't hand-edit.** `windwalk`'s source frames arrived empty and were reconstructed by
+reverse-engineering the rule the shipped `windtransition` plates used (`alpha = 255 - luma, rgb = 0`)
+- reproduces the shipped plates to h.264 noise level.
 
-**The `windwalk` folder arrived EMPTY** - only `windwalk.mp4` was there. The frames were made by
-reverse-engineering the rule the shipped `windtransition` plates were produced by rather than
-guessing at one: the video is a black silhouette on white, and the plate is
-`alpha = 255 - luma, rgb = 0`. Re-applying that to `windtransition.mp4` reproduces the shipped
-plates to a mean alpha error of 2.15/255, i.e. h.264 noise. The recipe is in the script's header.
+- Shares push's scale/body-centre framing (frame 0 of the transition IS the standing pose, free
+  handover in/out of idle). Frames are 192 wide (push's leading arm needs the extra width).
+- **`WIND_STRIDE_PER_HEIGHT` = 0.33 is a cadence knob, not a foot-planting constraint** - the feet
+  are MEANT to slide (gale drags the character back while he strides forward), so anywhere in the
+  measured 0.31-0.39 bracket reads fine.
+- **What plays when is the owner's explicit rule**: standing in the airflow holds a still braced
+  pose; the wind walk plays only while spam-tapping (`GameWorld.isWindPushing`), NOT gated on ground
+  speed - ground speed is nearly zero exactly when the player is straining hardest, which froze the
+  legs at the wrong moment when tried first.
 
-- **The framing is push's, exactly.** `windtransition` frame 1 measures a 484-row standing
-  silhouette centred on raw column 173.0 - the same pair `prep_push.py` measured on its own plates
-  - so these share push's scale and body centre, and frame 0 of the transition IS the standing pose,
-  which makes the handover in and out of idle free. Do not re-derive this from `windwalk`; that clip
-  never contains a standing pose.
-- **Frames are 192 wide, not push's 180, and that is forced.** The wind walk throws its leading arm
-  to raw x = 351 against push's crop-box right edge of 351.26 - a quarter of one raw pixel. 192
-  leaves ~6 sprite px of clearance. Width is free to differ per clip (climb is 200), because the
-  sprite is anchored at the frame's horizontal centre and the crop is symmetric about the body.
-- **Cuts**: transition raw 10..96 every 3rd (29 frames; raw 1-9 are a hold - frame 10 differs from
-  frame 1 by 0.29 of a mean step); walk raw 55..104 every 2nd (25 frames). The gait period is 50 raw
-  frames by self-similarity (26 is the half-cycle and looping on it makes both legs the same leg).
-  Start 55 beats the tighter-seam candidates at 66/67 because those enter from the braced lean with
-  a 6.2-step pose jump against 55's 2.18, and beats start 1 - which has the best entry of all -
-  because raw frame 6 runs off the left edge of the plate. **Atlas cost: 54 frames at 192x256 =
-  2.65M px**, taking the player atlas from 26.4M to 29.1M.
-- **`WIND_STRIDE_PER_HEIGHT` = 0.33, and it is a CADENCE knob, not a foot-planting constraint.**
-  Walk and push drive their loops from ground distance so a planted foot does not slide, and being
-  wrong there shows up at once as skating. Here the feet are meant to slide - the gale drags the
-  character backwards while he strides forward - so anywhere in the measured 0.31..0.39 bracket
-  reads fine. Measure it at the plate's own full rate over one whole period, never on the halved
-  output: at 2-frame spacing the correlation locks onto the wrong foot and comes out 45% high.
+### The tap mechanic, rebuilt ("slower and smoothly")
 
-**What plays when, and this is the owner's rule, not an inference:** standing in the airflow HOLDS
-a still braced pose - no gait at all - and the wind walk plays only while the player is spam-tapping.
-So the gait is gated on `GameWorld.isWindPushing` (the tap surge still being alive) and **not** on
-ground speed. Ground speed was the first gate tried and is wrong exactly where it matters: pushing
-into the mouth of a fan the player makes almost no headway while tapping hardest, so the legs froze
-precisely when the character should have looked like he was straining.
+The old rule moved `player.x` by a flat 10-unit jolt per press (four jolts/sec at human tapping
+rate). Now a tap buys decaying velocity (`fanSurgeSpeed`), spread over following frames by normal
+integration. Every constant here came from simulating the real loop, not arithmetic - `WIND_WALK_FACTOR`
+(0.6) exists because a touch player can only hold an on-screen button down for part of each tap cycle,
+unlike a keyboard hold-and-tap; at the old numbers the level ran BACKWARDS at a realistic phone
+tapping rate.
 
-### The tap mechanic, rebuilt (same day, same request: "slower and smoothly")
+**Three boundary bugs found in the running game, none by reasoning:**
+1. Clearing the surge on leaving the fan zone stalled the player at its lip (the gale bounces a
+   leaning body in and out of the zone boundary every few frames) - only the WIND itself is
+   zone-gated now; surge decays on its own everywhere.
+2. Momentum outliving the zone also outlives the player's intent, which is lethal next to a timed
+   steam jet - `FAN_INTENT_WINDOW` (0.35s, refreshed by any tap/hold) switches to a fast release decay
+   once the player stops.
+3. Taps must register slightly OUTSIDE the zone too (grace via `windStanceBlend > 0`), or most land
+   on frames the wind has just pushed the player out on.
 
-The old rule moved `player.x` by a flat **10 units on the frame of the press**. A position jump is a
-jolt at any size, and at a human 4 Hz it was four of them a second. A tap now buys **velocity**
-(`GameWorld.fanSurgeSpeed`), decaying exponentially, which the normal integration spreads over the
-frames that follow. Every constant below was picked by simulating the real loop
-(`testFanTapAdvanceIsSmoothAndSlowerThanTheOldImpulse`), never from arithmetic - the duty cycle of a
-real tap is a guess and the simulation is not.
+`FAN_TAP_FLOOR` (40) is a fourth measured value - without it, a cold-start burst nets negative
+velocity for its first second (reads as broken input).
 
-| input style | old | now |
-|---|---|---|
-| hold + tap, 3.3 Hz (keyboard) | +62 u/s | +43.5 u/s |
-| touch tap 4 Hz, 35% duty | **-16 u/s** | +9.7 u/s |
-| touch tap 5 Hz, 50% duty | +24 u/s | +56.5 u/s |
+**`windOwnsSprite` in `GameplayScene` is load-bearing** - the scene's frame driver was silently
+overwriting the wind clip with the walk gait in the same frame the state machine picked "wind" (a
+mystery `else`-branch race, traced frame by frame rather than fixed at its root). The wind branch
+claims the sprite with its own flag and the driver checks that first. **Any future stance should do
+the same rather than trust `playerAnimState` to survive the trip.**
 
-That middle row is the reason `WIND_WALK_FACTOR` (0.6) exists at all. A keyboard player HOLDS the
-key and taps it, banking full walk speed under every surge; a touch player pressing the same
-on-screen button can only have it down for part of each tap. At the old numbers the level ran
-**backwards** on a phone at a realistic tapping rate. Cutting ordinary walking inside a zone costs
-the holder much more than the tapper and closes most of that gap.
+Verified by `jvmTest` (207 green) and `android-shell` clean. On JVM the lean renders and the
+handover works; **the fully-settled braced pose and mid-zone gait cycling were not confirmed
+visually** (synthetic key input kept stalling or overshooting). **Not on Android or iOS.**
 
-**Three boundary bugs the rebuild turned up, all found in the running game, none by reasoning:**
+## The push stance (`resources/player/push{,transition}`) - built 2026-09-24, shipped 2026-09-26
 
-1. **Clearing the surge on leaving the zone stalls the player at its lip.** The gale bounces a body
-   leaning into the mouth of a fan out of the zone on alternating frames; zeroing momentum there
-   throws away every tap. Observed as the character stuck at x=453 against a zone starting at 490,
-   tapping continuously, going nowhere. Only the WIND is gated on the zone now - the surge decays on
-   its own wherever the player is.
-2. **...but momentum that outlives the zone also outlives the player's INTENT**, and in a corridor
-   of timed steam jets that is lethal. The walkthrough sim caught it immediately, drifting into a
-   pipe it had deliberately stopped to wait out. `FAN_INTENT_WINDOW` (0.35s, refreshed by a tap OR a
-   held button, because a touch player's button is up for most of every cycle) switches the decay to
-   `FAN_SURGE_RELEASE_SECONDS` (0.12) once they stop.
-3. **Taps have to register slightly OUTSIDE the zone too** (`windStanceBlend > 0` is the grace), for
-   the same reason as #1 - otherwise most of them land on the frames the wind has just pushed the
-   player out on, and neither the surge nor the lean ever builds.
+Cut by `tools/art/prep_push.py` - same rule, re-run and paste, don't hand-edit.
 
-`FAN_TAP_FLOOR` (40) is a fourth measured value: without it the first second of a burst from cold
-nets -4.6 u/s - the player goes backwards while already tapping, which reads as the input not
-working. 40 puts that at +7.8 and leaves the steady state alone; 55 was tried and binds in steady
-state, taking the net back up to 62 and undoing the slowdown.
+**It now has something to push** - `LevelLayout.pushCarts` (level 8's cart, see below) is the real
+prop the stance was built ahead of. `pushStanceDemo` (nothing to brace against) is dev-only, off the
+shipped list, reachable by id (`LevelData.PUSH_STANCE_DEMO`, `-PstartLevel=push_stance_demo`) - two
+tests pin that nothing shipped sets it and that it stays reachable.
 
-**`windOwnsSprite` in `GameplayScene` is load-bearing, not tidiness.** The scene has two passes over
-the player sprite - a state machine that picks `playerAnimState` and loads clips, then a frame driver
-keyed off that same string - and something in the updater puts the state back to `"walk"` between
-them, so the walk gait overwrote the wind clip every frame. Traced frame by frame in the running
-game: the state machine really did set `"wind"` and the driver really did read `"walk"` in the same
-frame, with the chain's `else` branch demonstrably not running. Rather than keep hunting that, the
-wind branch claims the sprite with its own flag and the frame driver checks it first. **If another
-stance is ever added here, do the same rather than trusting `playerAnimState` to survive the trip.**
-
-Verified by `jvmTest` (207 green, including `testWindStanceHoldsBracedPoseIdleAndOnlyStridesWhile
-Tapping` and `testWindTapsRegisterAtTheZoneBoundaryNotJustInsideIt`) and `android-shell:
-compileReleaseKotlin` clean. On screen on JVM desktop the lean renders and the stance takes the
-sprite over correctly; **the fully-settled braced pose and the gait cycling deep inside a zone were
-NOT confirmed visually** - driving the game with synthetic key input kept either stalling at the
-zone lip or overshooting into a steam jet. **Not on Android or iOS.**
-
-## The push stance (`resources/player/push{,transition}`) - built 2026-09-24, dev stage only
-
-Two clips cut by `tools/art/prep_push.py` from `Downloads/charAnimations/push` (144 raw frames) and
-`pushtransition` (96), both 360x640 half-res plates. **That script's header is the source of truth
-for every cut and the crop geometry - re-run and paste, don't hand-edit the Kotlin**, same rule as
-`prep_guard.py`. Currently a stance with nothing to push: `INTERACT` toggles it, and a real
-pushable prop would gate it on range the way levers do.
-
-**It is not in any shipped level.** It lived on level 8 until 2026-09-25, when level 8 became a
-real level; the bare stage moved to `LevelData.PUSH_STANCE_DEMO` (id `push_stance_demo`), which is
-deliberately NOT in `DEFAULT_LEVELS` and appears in no menu. Reach it by id through
-`LevelData.findById` - `./gradlew runJvm -PstartLevel=push_stance_demo`, or the desktop
-`.debug_level` file hook. `testPushStanceIsTheDevStageOnlyAndLeavesEveryShippedLevelAlone` pins
-that nothing shipped sets `pushStanceDemo`, and
-`testPushStanceStageIsOffTheShippedListButStillReachableById` pins that the stage stays reachable.
-
-- **These plates are framed ~6.4% smaller than every other clip** - standing measures 484 rows
-  against crouch's 517 and swing's 503 on plates of the identical size. The scale that maps them to
-  the shared sprite size is this clip's own `244.36 / 484`. Get that wrong and the character changes
-  size the moment he braces; both clips come out with idle's own 245px standing silhouette, and
-  `pushtransition` frame 0 IS the standing pose (2.7% silhouette disagreement against idle frame 0),
-  which is what makes the handover in and out of idle free.
-- **Frames are 180x256, cropped symmetric about the STANDING body centre** (raw column 173), not
-  about the union bbox. The sprite is anchored at the frame's horizontal centre, so keeping the
-  standing centre means entering the stance shifts the character by nothing; the braced pose then
-  leans out over the collision box's front edge with its feet planted behind it, which is what
-  pushing looks like. Same idea as climb's 200-wide frames.
-- **The loop keeps EVERY raw frame while the transition is halved, and that is about the move's
-  slowness, not the footage.** The loop is distance-driven, so the braced move speed sets its
-  display rate: 56.6 world units per cycle at ~53 u/s is 1.07 **seconds**, so 20 frames would be
-  19fps and read as a flick-book, where the full 40 is 37fps - walk's own 36. This is the swing
-  clip's lesson arriving from the opposite direction (there, halving hurt because the action was
-  fast). **Redo that arithmetic rather than reusing the conclusion if `PUSH_MOVE_FACTOR` moves.**
-- **`PUSH_STRIDE_PER_HEIGHT` = 0.59, and getting it took four goes.** Measure it by sub-pixel phase
-  correlation of the ground-contact alpha profile between consecutive frames of the **processed**
-  output, pooled over both feet: 3.629 +/- 0.039 sprite px/frame, i.e. 0.594 +/- 0.006. What does
-  NOT work, each tried first: integer bbox edges on the raw plates over short partial stances (gave
-  0.58 - the ends of a stance are the foot rolling heel-to-toe, not the body translating); a
-  least-squares fit of one foot's contact centroid (gave 0.61, while the other foot on the same
-  frames gave 0.58 - a centroid moves with the patch's shape and the two boots differ); and
-  anything measured at the wrong end of the raw clip, since **the character accelerates through the
-  footage** (2.8 px/frame over the opening cycle against 7.4 late, because it opens with him
-  leaning into a load that is not moving yet). The in-game check below can only resolve this to
-  +/-5%, so it confirms the number but cannot pick between candidates.
-- The loop window is raw 94..133. Start 88 has the tightest seam (0.53 of an adjacent frame) but
-  the worst entry from the braced rest pose (5.7 frames of motion); 94 trades that for a 1.09 seam
-  and a 2.82 entry, which is the right way round - the seam is crossed every cycle, the entry only
-  when the player starts moving. `GameplayScene` therefore always re-enters the loop at frame 0.
-- `GameAudio.PUSH_STEP_PHASES` = `[0.33, 0.90]`, measured by a contact-band scan of the shipped
-  frames. **Not** walk's `STEP_PHASES` - this gait's stance/swing split is different.
-- The state machine is split the usual way: `GameWorld` owns `isPushStanceHeld` / `pushStanceBlend`
-  (0..1, running both directions so one clip serves the lean-in and the stand-up, exactly as the
-  crouch clip does) and suppresses jump/crouch and scales movement to `PUSH_MOVE_FACTOR` while
-  braced; `GameplayScene` owns which frame that draws as. **The toggle is edge-detected inside
-  `GameWorld`** because the scene hands over the raw button LEVEL, not an edge - reading it directly
-  flips the stance every frame of one press. `canInteract` is forced true in a `pushStanceDemo`
-  level, otherwise the scene's own `interactPressed` gate swallows the press before the world sees
-  it. Facing is **locked** for the whole stance (walking backwards drags the load, it does not spin
-  the braced silhouette around).
-- Verified by `jvmTest` (`testPushStance*`, `testLevel8*`) and on JVM desktop end to end: idle ->
-  lean -> braced -> push forward -> push backward with the facing held -> jump and crouch both
-  refused -> stand up -> idle -> normal walk and jump restored. The planted foot was measured
-  against the ground in the running game by screenshot burst (the camera is locked to the player, so
-  a planted foot must slide backwards at exactly the player's own speed) and it does, within the
-  +/-5% that method resolves. **Not on Android or iOS.**
+- Framed ~6.4% smaller than every other clip (own `244.36/484` scale) - get this wrong and the
+  character visibly changes size entering the stance.
+- Frames 180x256, cropped symmetric about the STANDING body centre (not the union bbox) - the sprite
+  doesn't shift entering the stance; the braced pose then leans out ahead of the collision box's own
+  edge, which is what pushing looks like.
+- **The loop keeps every raw frame while the transition is halved - a slowness/speed argument, not a
+  footage one.** The braced move is slow (1.07s/cycle), so keeping all 40 frames gives 37fps (walk's
+  own rate); halving it would read as a flip-book. Redo this arithmetic, don't reuse the conclusion,
+  if `PUSH_MOVE_FACTOR` ever moves.
+- **`PUSH_STRIDE_PER_HEIGHT` = 0.59** - took four measurement attempts to get right (sub-pixel phase
+  correlation of ground-contact alpha, pooled over both feet, on the PROCESSED output only). Integer
+  bbox edges, single-foot centroid fits, and measuring the wrong (accelerating) part of the raw clip
+  all gave wrong answers.
+- **The rest pose is a GAIT frame (push frame 0), not the transition's own last frame** - the two
+  clips are separate takes that settled on visibly different poses (a standing-still braced body had
+  its hand short of the cart while a walking one made contact). Fixed on both sides: the scene pins
+  push frame 0 while braced-and-stopped, and the transition was re-cut (raw 10..72) to end on the
+  best-matching pose by silhouette IoU (index 31, 0.803) - re-run that scan, don't assume index 31, if
+  this is ever re-cut.
+- Facing is LOCKED for the whole stance (walking backwards drags the load without spinning the
+  silhouette). `isPushStanceHeld`/`pushStanceBlend` (0..1, both directions) live in `GameWorld`; the
+  toggle is edge-detected there since the scene hands over a raw button level, not an edge.
+- Verified by `jvmTest` and a full JVM walkthrough (idle->lean->braced->push->pull->refused
+  jump/crouch->stand up->normal restored); planted-foot slide measured within +/-5% by screenshot
+  burst. **Not on Android or iOS.**
 
 ## Level 8 ("08: Relocation") - `LEVEL_8_LAYOUT`, the suspended-load yard (built + reworked 2026-09-25)
 
-Unhidden and built the same day, then reworked the same day again against a nine-point rewrite.
-Before this the slot held the bare push-stance stage (now `PUSH_STANCE_DEMO_LAYOUT`, off the
-shipped list - see the push stance section) and the level was gated out of the menus by the
-`.take(7)` production restriction. That gate is now `.take(8)` in all three places that carry it:
-`LevelSelectScreen.kt`, `MainMenuScreen.kt` and `GameplayScene.kt`. Levels 9 to 12 are still
-hidden - they are name-and-description stubs with no layout. **The level ships with no tutorial
-steps at all**, on request; the crouch it used to teach here is taught long before.
+Unhidden the same day it was built (`.take(7)` -> `.take(8)` in `LevelSelectScreen.kt`,
+`MainMenuScreen.kt`, `GameplayScene.kt`; levels 9-12 remain hidden stubs). Shipped with no tutorial
+steps at first; the cart's two steps were added 2026-09-26 since nothing earlier teaches it.
 
-Seven numbers do all the work, and they are the only things to re-tune:
+Seven numbers do all the work:
 
 | number | value | what it decides |
 | --- | --- | --- |
-| `hangClearance` | 62 | the shared hang line for the three crates over the first half. Between `crouchHeight` (56) and `height` (96) |
-| `periodSeconds` (sweep crate) | 8.0 | with the 200 sweep, the window the 1.95s climb has to fit inside |
-| `bobLowClearance` / `bobHighClearance` | 62 / 90 | the bobbing pair's travel: crouch always fits, standing never does |
-| `noCrouchClearance` | 130 | the long load after the gauntlet, which is deliberately not an obstacle |
-| `visionFov` (pole camera) | 20 deg | the only width at which the camera can watch the load WITHOUT watching the crate you cross to reach the lever |
-| `sweepPauseDuration` | 7.0 | the blind window, against a ~5s run through the lever and both mantles |
+| `hangClearance` | 62 | shared hang line for the first-half crates - crouch fits, standing never does |
+| `periodSeconds` (sweep crate) | 8.0 | window the 1.95s climb has to fit inside |
+| `bobLowClearance`/`bobHighClearance` | 62/90 | bobbing pair's travel |
+| `noCrouchClearance` | 130 | post-gauntlet load, deliberately not an obstacle |
+| `visionFov` (pole camera) | 20 deg | narrowest that avoids watching the crate you must cross to reach the lever |
+| `sweepPauseDuration` | 7.0 | the blind window, against a ~5s run through lever + both mantles |
 
-### The hang line is boxed in on both sides
+- **In flux (2026-09-26): section 1's two loads (`overheadCrate`, `sweepCrate`) hang
+  `sectionOneDrop` = 50 BELOW the shared hang line** on the owner's request, with solvability
+  explicitly set aside for now - the sweep crate leaves 12 units over the landing, which no climb
+  fits. `testLevel8HangsAllThreeLoadsOnOneLineJustAboveThePlatform` and
+  `testLevel8IsBeatableByReadingTheLoadSwingingAway` fail until the level is re-tuned. Max drop is
+  62 (the sweep crate then parks inside the platform).
+- **`hangClearance = 62` is boxed in on both sides** - below `crouchHeight` (56) the platform seals
+  shut with no safe pocket (worked through on paper before building, dead-ends at every sweep
+  range); at `height` (96) or above, a standing body just walks under and it isn't an obstacle. 62
+  leaves 6 units of headroom, the minimum this geometry allows.
+- **The crush behaves differently at 62 than an earlier 44** - `Player.bounds` uses `currentHeight`,
+  and `isCrouching` is only set at the END of the climb animation, so a climbing body is 96 tall for
+  the whole 1.95s climb. At 44 neither crouch nor stand fit, so the climb was refused outright; at 62
+  it's allowed and the crate can kill mid-ascent instead - a more literal read of "it can crush him if
+  he tries to climb." **The real tuning target was the WORST window** (clear-and-swinging-BACK, not
+  clear-and-swinging-away) - simulated, not derived, at ≥2.99s vs 1.95s+0.25s needed.
+- **No `unclimbableBoxes` entry anywhere in this level** - `findClimbTarget`'s own 4-unit-tolerance
+  rule and `climbMaxHeight` (115) naturally rule out every hanging crate; the bobbing pair's low point
+  (100, inside range) is refused by the floating-ledge rule alone.
+- **The pole camera problem is bearing overlap, not range**: from a lens on a pole, a body on a crate
+  and a load further left occupy overlapping bearings, so a cone wide enough to see the load also
+  lights anyone crossing between the lens and it. Fixed by moving the crate right (to clear the
+  bearing by 2.3 deg) AND narrowing the cone to 20 deg together - neither alone works. Any future
+  change to camera position/cone/crate placement here needs the bearing math re-checked, not just a
+  smaller-looking cone.
 
-`hangClearance` is not free choice. All three crates over the first half (the long stationary one
-on the plane, the sweeping one at the landing, the one that crosses the platform) put their
-undersides 62 above the platform surface, and 62 is the FLOOR of a 40-unit window:
+### The push cart - `LevelLayout.pushCarts`, added 2026-09-26
 
-- **under 56 (`crouchHeight`) the platform seals shut.** The crate that sweeps it is 76 wide on a
-  240-wide platform; with no duck-under there is no safe pocket to wait in, only a corridor that
-  closes from whichever side the load is returning from. Worked through on paper before it was
-  built - it dead-ends at every sweep range and period.
-- **at 96 (`height`) or more a standing body walks straight under** and the crossing is not an
-  obstacle.
+The old fixed step-crate onto the mid platform is now a loaded flatbed (`cart.png`) parked 248 units
+short of the platform face - the player must walk it there. First shipped use of the push stance.
 
-62 leaves a crouched body 6 units of headroom - the lowest the geometry allows - so the crates read
-as low as the rework asked for without sealing anything. Lowering it further means moving
-`Player.crouchHeight` first.
-
-### The crush works differently at 62 than it did at 44
-
-`crushesOnContact` on the sweep crate - the same flag LEVEL_6_LAYOUT's gantry crate introduced,
-biting only from below, so it is never a platform that kills whoever stands on it. The first build
-hung it at 44 and the parked load REFUSED the climb (neither height fit, `findClimbTarget` returned
-nothing). At 62 a crouched body fits the landing, so the climb is allowed and the crate kills it
-mid-ascent instead - **`Player.bounds` uses `currentHeight`, and `isCrouching` is only set at the
-END of `advanceClimb`, so a climbing body is 96 tall for all 1.95s of it.** That is a more literal
-read of "when it is at right it can crush the person if he tries to climb" than the refusal was.
-
-**The number that actually had to be tuned is the WORST window, not the average one.** A player
-who starts the climb the instant the load swings clear still has it coming back. Off the cosine, a
-crate that is clear AND travelling left has at least `0.3734 * period` before it covers the landing
-again - 2.99s here, against 1.95s of climb plus the ~0.25s walk out from under it. So **"clear and
-swinging away" is a cue that always pays off, and "clear and swinging back" is the trap.** A
-shorter period, a wider crate, or a rest position closer to the lip all eat that same margin. The
-rest position stops 40 short of the lip for exactly this reason.
-
-The crate that crosses the platform is deliberately **not** a crusher: a mistimed crossing there is
-a shove, not a restart. Its sweep also starts past `climbLandingX + Player.width`, so the landing
-belongs to the sweep crate alone and the two hazards never stack on one tile.
-
-### Nothing is declared unreachable - the heights do it
-
-No `unclimbableBoxes` entry anywhere in this level. `findClimbTarget` refuses any box whose
-underside sits more than 4 above the climber's feet, which covers every hanging crate here, and the
-plane's two loads are 206 above the floor besides - past `climbMaxHeight` (115) and four times
-`maxJumpHeight` (51.2). The bobbing pair is the interesting case: at the bottom of its travel the
-tops are 100 up, INSIDE `climbMaxHeight`, and only the floating-ledge rule refuses them. Both
-facts are pinned by tests, one measured and one driven with the jump button pulsed.
-
-### The pole camera: bearings overlap, and that is the whole problem
-
-**Worth reading before touching anything from `groundWoodCrate` rightward.** From a lens up on a
-pole, a standing body on a crate at some x and a load hanging further left occupy OVERLAPPING
-bearings - so a cone wide enough to see the load also sees anyone standing on anything between the
-lens and it. The first cut put the striped crate at 1960 with a 380/40deg camera, and crossing that
-crate was lit at exactly the moment the camera was supposed to be looking away: a guaranteed death
-with no tell. Two changes fix it together, and neither works alone:
-
-- **the striped crate moved right to 2075.** A head on its leftmost point sits at bearing 144.7
-  deg; `crateAngle` minus half the cone is 147 deg, clearing it by 2.3 deg.
-- **the cone narrowed to 20 deg.** At 40 deg no placement separates them at all.
-
-With `visionRange` 370 the floor is out of reach at `crateAngle` entirely, and a standing body is
-out of range altogether left of about 1935 - which is why the approach waits back under the long
-load and why the walkthrough test stages at 1900. The blind window is then the whole 7s pause,
-against a ~5s run from the staging ground through the lever, the drop and both mantles. Full cycle
-15.9s.
+- Two numbers inherited from the crate it replaced and must not drift: 48 tall (a jump, not a
+  mantle) and its right edge lands exactly on `platformLeft` (the climb off the top is the same
+  already-tuned 96-unit rise).
+- **Pinned to the body, not pushed by it** (`gripCart` records the offset, `followGrippedCart`
+  re-applies it) - the cart can never shove the player, the player can't walk into what he's pushing,
+  and the cart's own bounds become his movement limits.
+- **The character is drawn 5% larger than he collides** (`VISUAL_HEIGHT_SCALE = 1.05`) purely so the
+  fixed push-pose plate's fist reaches the cart handle's corner - collision, jump arcs, climb windows
+  and every level's crouch gaps are untouched. **The ceiling on this number is level 8's own 62-unit
+  hang line** - a crouched body drawn at `56*1.05=58.8` leaves 3.2 units of headroom where there were
+  6; check that gap before raising this again (`testTheDrawnBodyStillFitsTheTightestCrouchGap`).
+- **Grabbing is gated on range + being grounded**, and refuses a body standing on the cart itself (no
+  way to jump/crouch off it otherwise).
+- **The grab offset eases to contact rather than freezing as pressed** (`settleIntoCart`,
+  `GRIP_REACH = 22`) - freezing left the hands visibly short of the cart if pressed from a step back.
+  Move input is zeroed for the 0.85s settle so steering can't fight it. The offset must be
+  RE-DERIVED from the blend on every tick (not just while easing) or the frame the blend hits 1.0
+  pins whatever partial offset the last tick left.
+- **Solved for the HAND, not the body's leading edge** (`handleGripX`/`bracedFistX`) - flush-to-face
+  put the fist inside the cart, over the crate rather than on the handle. The 4.7-unit resulting gap
+  between collision boxes is the character's actual arm length.
+- The tutorial's MOVE step measures cart travel, not player position, since the body moves on its
+  own during the settle.
 
 ### The lever is mandatory
 
-`HookCrate` + `hangingHooks` rigging, same as level 5's minus the swing. `Lever.targetMechanismId`
-detaches the box and `HookCrate.update` drops it under gravity. It lands flush against the high
-platform's left face, turning a 144-tall wall (past `climbMaxHeight`, unclimbable from the floor)
-into the same jump-then-mantle pair the step crate makes of the mid platform. **Nothing else
-reaches the high platform**, so the camera guards a required action rather than an optional one.
-Note the drop lands on the GROUND - `HookCrate.update` only tests against `groundY`, it does not
-stack on boxes - so it cannot be hung over something and expected to land on it.
+Same `HookCrate`/`hangingHooks` rigging as level 5, minus the swing - drops the crate to the ground
+(not onto boxes) against the high platform's face, turning an unclimbable 144-tall wall into a
+jump-then-mantle pair. Nothing else reaches the high platform, so the camera guards a required
+action.
 
 ### Measured, not estimated
 
-The walkthrough driven at 12 different arrival phases finishes in 32.9-47.2s, never dies, and peaks
-at 0.43 of the alert bar. `timeTargetSeconds = 80` leaves room for one missed read of each
-mechanism plus a full extra camera cycle. `testLevel8IsBeatableByReadingTheLoadSwingingAway` drives
-the whole route; twelve more tests pin the tutorial-free level data, the opening spacing, the hang
-line, the reach, the climb chain, the platform crossing, the barrels, the bobbing pair twice, the
-walk-under load, the lever chain and the camera sweep.
+The walkthrough at 12 arrival phases finishes in 32.9-47.2s, never dies, peaks at 0.43 of the alert
+bar. `timeTargetSeconds = 80`. Two traps for future tests here: read a moving crate's position AFTER
+`world.update`, not before; the sweep crate starts its cycle at the far LEFT end, so a test wanting it
+parked over the landing must run the world forward to get there.
 
-Two traps for whoever writes the next test here:
+**This is the first shipped level with a camera and no guards** - `GameWorld`'s spotted-guard branch
+used to assume `allGuards.first()` existed as a fallback, which would have crashed here; changed to
+`firstOrNull()` with a null guard while building this level.
 
-- **Read a moving crate's position AFTER `world.update`, not before.** The crate moves inside that
-  call and the climb decision is made against where it ends up, so a climb that starts on the frame
-  the load finally clears is the mechanism working, not a violation.
-- **The sweep crate starts its cycle at the far LEFT end.** A test that wants it parked over the
-  landing has to run the world forward until it gets there; asserting on frame 1 asserts nothing.
-
-### Guardless levels with cameras
-
-This is the first shipped level with a camera and no guards. `GameWorld`'s spotted branch used to
-read `seeingGuards.firstOrNull() ?: allGuards.first()`, which would throw on such a level - it only
-escaped being a live crash because Kotlin's `?.` short-circuits before evaluating arguments and
-nothing currently assigns `onSpotted`. Changed to `firstOrNull()` with a null guard while building
-this level.
 ## Guard sprite (`GuardAnimations.kt`, `resources/guard/{idle,walk}/`) - replaced 2026-09-14
 
-Copy of `PlayerAnimations`' recipe (own 2048x2048 atlas, cached per process, feet-anchored, scaled so
-the standing silhouette equals hitbox height, `scaleX` negated to face left). **`tools/art/prep_guard.py`
-cuts both clips from the raw 360x640 plates (`Downloads/charAnimations/guardidle` / `guardwalk`, 144
-each, copied to gitignored `art-source/guard/`) and prints the constants the Kotlin needs - re-run and
-paste, don't hand-edit.** He holds a torch at arm's length, so the crop box is symmetric about the
-*body* (head centre column 146 idle / 150 walk) not the union bbox, padded with transparent columns on
-the left (idle 149x246, walk 153x245; 3.18 Mpx, one page).
-- Idle: every third frame (48), ping-ponged (doesn't loop). `IDLE_FEET_Y` = feet row 245.
-- Walk: raw 42..79 every frame (38), tightest-wrapping cycle. **Walk plates are framed ~14% smaller
-  than idle** - `WALK_PLATE_SILHOUETTE = 530` is the one judgement call; if he shrinks/grows when he
-  starts walking, move that. Driven by distance (`WALK_STRIDE_PER_HEIGHT = 0.523`).
-- Torch lens measured relative to body centre/feet: `Guard.TORCH_AHEAD_PER_HEIGHT = 0.29`,
-  `TORCH_ABOVE_FEET_PER_HEIGHT = 0.56`.
-- Levels 6+ guards (`GameWorld.createDefault`'s per-level `guardSpeed`) still have 48-tall hitboxes and
-  draw as half-height men; they need a 96-tall pass (that default's patrol geometry is tuned to 48).
-  Level 5 (`SIDE_SCROLL_LEVEL_LAYOUT`) has no guards at all, so it isn't part of this.
-- Owner decisions: the red "visor" rect is gone (only in the no-art fallback); guard beams are one
-  colour in every state (the pip over his head shows detection) - **don't reintroduce a colour ramp on
-  the cone**. Camera cones similarly stay one steady white color (`Colors.WHITE.withAd(0.32)`) in every state
-  on owner request (the pip above the camera indicates detection) - no yellow/red alert ramp.
-- **Camera rotation stops on player detection (`Camera.detectionPauseDuration = 2.5s`)**: When a camera's
-  vision cone detects the player, the camera stops rotating immediately (`Camera.isDetectingPlayer = true`).
-  While the player remains in vision, the camera stays stopped at that angle. When visual is lost (player
-  ducks into cover or exits the cone), the camera remains stopped for the same duration guards stop moving to
-  investigate (`Guard.investigateDuration = 2.5s`, via `Camera.detectionPauseTimer = 2.5`), resuming its sweep
-  only once that pause completes. Checkpoint respawn and `SMOKE_SCREEN` activation reset this pause.
-- If `GuardAnimations.load()` throws, the scene logs `[GuardAnimations] load failed` and falls back to
-  the rect + visor.
+Same recipe as `PlayerAnimations` (own atlas, feet-anchored, `scaleX` negated to face left).
+`tools/art/prep_guard.py` cuts both clips and prints the constants - re-run and paste. Crop is
+symmetric about the torch-holding body, not the union bbox. Idle: every third frame, ping-ponged.
+Walk: distance-driven (`WALK_STRIDE_PER_HEIGHT = 0.523`), framed ~14% smaller than idle
+(`WALK_PLATE_SILHOUETTE = 530` - move this if he shrinks/grows entering a walk). Torch lens position:
+`TORCH_AHEAD_PER_HEIGHT = 0.29`, `TORCH_ABOVE_FEET_PER_HEIGHT = 0.56`.
+
+Levels 6+ guards (`GameWorld.createDefault`'s per-level `guardSpeed`) still have 48-tall hitboxes and
+draw as half-height men pending a 96-tall pass. Level 5 has no guards at all.
+
+Owner decisions: no colour ramp on guard beams or camera cones (one steady colour in every state; the
+pip over the head/camera shows detection instead) - don't reintroduce. **Camera rotation stops on
+player detection** (`detectionPauseDuration = 2.5s`, mirrors `Guard.investigateDuration`) and resumes
+its sweep only after that pause. Checkpoint respawn and Smoke Screen reset the pause.
 
 ## Guard vision = the torch beam (`Guard.eyePosition`, `LightConeView.kt`) - 2026-09-14
 
-`Guard.eyePosition` (name kept - `VisionSystem` uses it for cameras too) = `centre.x + facing * 0.29 *
-height, bottom - 0.56 * height` - for 96-tall guards, 28 ahead and 54 above the feet (old eye: 4 inside
-the edge, 84 up). Drawn beam and detection rays share this origin: what the player sees lit is exactly
-what can see them. `visionTilt` rotates the cone down.
+`Guard.eyePosition` (name shared with cameras in `VisionSystem`) = 28 ahead / 54 above the feet for a
+96-tall guard. Drawn beam and detection rays share this origin - what the player sees lit is exactly
+what can see them.
 
-**`LightConeView`**: the vision polygon uploaded as one triangle fan with per-vertex colour (lens
-bright, inner ring at 40% range, rim at `RANGE_FLOOR` = 40% of lens brightness then a hard stop; sides
-no dimmer than `EDGE_FLOOR` = 70%), additive blend, 1x1 white texture, one draw call. No `Graphics`:
-the SYSTEM renderer rasterised a ~4MB bitmap per cone per frame, and the GPU renderer's non-convex
-path does a full-framebuffer stencil render-to-texture per view per frame (`GpuShapeView.
-renderInternal`, `shape.requireStencil = !isConvex`). `GameplayScene` rebuilds a beam only when lens/
-facing/range change (`guardConeLensX/Y/Facing/Range`) and skips guards outside the half-screen culling
-window - which finally stops level 1's parked guard from costing anything. Look after three owner
-rounds: `DEFAULT_COLOR` alpha 0.28, warm `(255, 232, 178)`, firm floor to the range edge, **no
-outline**. Backdrops are pale fog, so additive light saturates fast; raise these if the palette darkens.
+**`LightConeView`** uploads the vision polygon as one triangle fan with per-vertex colour, additive
+blend, one draw call - replacing KorGE's SYSTEM renderer, which rasterised a multi-MB bitmap per cone
+per frame (and whose GPU path does a full-framebuffer stencil pass per non-convex shape per frame).
+`GameplayScene` only rebuilds a beam when lens/facing/range actually change, and skips guards outside
+a half-screen culling window.
 
 ## Device heating on Android - measured root causes (2026-09-09)
 
-Measured on JVM against real level data plus KorGE's decompiled Android classes, not on device.
-1. **Vision cones drawn with the SOFTWARE rasterizer, rebuilt every frame** - `worldView.graphics()`
-   defaults to `GraphicsRenderer.SYSTEM`; `BaseGraphics.redrawIfRequired()` allocates a new
-   `NativeImage` (bounds x device scale), rasterises, uploads a fresh texture per dirty frame, and
-   `updateShape` dirties every frame. At zoom 1.35 on a 1440p device: level 1 = 1053x1053 = 4.23 MB/
-   frame (254 MB/s at 60fps, 508 at 120) for a guard that doesn't exist in play; level 2 = 2.01 MB;
-   level 4 (3 cones) = 3.34 MB. **Guards: DONE via `LightConeView`. Camera cones still use this path**
-   (one per camera, rebuilt every frame) - the remaining instance.
-2. **Cone polygon build allocates ~275 KB/cone/frame** (`castRay` -> `Rect.edges()` allocates 4
-   `Segment2d` + 8 `Vec2d` per occluder per ray; `intersects` 3 more). 23 us/frame level 1 vs `world.
-   update` 0.9-3.2 us and <2.5 KB - the simulation is not the problem. Closed for guards (static
-   occluders, rebuild only on change).
-3. **Nothing caps the frame rate** - runs at panel refresh (120 Hz here). `continuousRenderMode`
-   defaults `true`, `KorgwSurfaceView` is `RENDERMODE_CONTINUOUSLY`, `onDrawFrame` unthrottled.
-   **`KorgeConfig.targetFps` is a dead knob** (written to `Views.targetFps`, read nowhere). **Trap:
-   `Views.forceRenderEveryFrame = false` does NOT cap** - it switches to `RENDERMODE_WHEN_DIRTY` and
-   hands updates to the `korgw-updater` thread, an infinite loop with `Thread.sleep(1)` (~1000 Hz).
-4. That `korgw-updater` thread spins ~1000 wakeups/s regardless; only stopped in
-   `onDetachedFromWindow`, which backgrounding doesn't fire.
-5. Oversized textures (fixed, below) and always-rendering-under-the-menu (bug #7).
+Measured on JVM against real level data plus decompiled Android classes, not on device.
+1. **Vision cones drawn with the SOFTWARE rasterizer, rebuilt every frame** - up to several MB/frame
+   per cone at 1440p. **Guards: DONE via `LightConeView`. Camera cones still use this path** - the
+   remaining instance.
+2. Cone polygon build allocates hundreds of KB/cone/frame in raycasting - closed for guards (static
+   occluders, rebuild only on change); still open for cameras.
+3. **Nothing caps the frame rate** - runs at panel refresh (120Hz on this device).
+   `Views.forceRenderEveryFrame = false` does NOT cap it - it switches to an infinite ~1000Hz update
+   loop instead, which backgrounding doesn't stop.
+4. Oversized textures (fixed, below) and always-rendering-under-the-menu (bug #7).
+
 Next: camera cones, then a real frame cap.
 
 ## Runtime performance: where the frame budget goes (2026-09-08..10)
 
-Reasoned from assets and the render path; the on-device improvement is unmeasured (`adb shell
-dumpsys gfxinfo com.infiltrate.androidshell framestats` before trusting any ranking).
+Reasoned from assets and the render path; on-device improvement unmeasured.
 
-1. **The player atlas is the biggest memory consumer.** `MutableAtlas(2048, 2048)` adds a whole page
-   at a time: 16.8MB heap + 16.8MB texture per page. Trimming unreachable frames (climb's raw 1-69
-   run-up - `CLIMB_START` clamps to raw 70; crouchwalk's raw 145-192 tail) took it 26.2M -> 20.3M px;
-   the swing clip put it at ~22.5M, the two push clips at 26.4M and the two wind clips at **29.1M** (84 frames at 180x256,
-   roughly one more page of heap and one of texture - accepted, see "The push stance").
-   **Adding frames is not free** - see the ATLAS BUDGET
-   comment on `load()`. Climb START/END constants are in loaded-index space (`loadAnimation(firstFile
-   = ...)`).
-2. **Textures authored 10-26x larger than drawn, and `bitmap.mipmaps(true)` is a SILENT no-op on
-   non-POT art** (`AGObjects.kt` `doMipmaps()` requires POT; no error, no log). Every asset was NPOT,
-   so no mip level ever existed. FIXED 2026-09-10 - see "Adding new art".
-3. **Per-frame allocation in the updater** (fixed): `InMemoryGameProfileStorage.getProfile()` returns a
-   deep copy (now read once per frame into `cachedProfile`, refreshed after `tryActivatePowerup`);
-   `GameWorld.update` rebuilt `platforms`/`boxes`/`occluders` concatenations every frame (now reuses
-   the level's lists when `movingPlatforms` is empty, scratch buffer otherwise); powerup HUD chips
-   called `updateShape` every frame (now skip when identical) and rebuilt labels + measured
-   `countText.width` every frame even when hidden (now only when live/count/timer-tenths change).
-4. **KorGE renders continuously under the Compose menu on Android** (bug #7) - first suspect for a
-   *menu* lag report.
+1. **The player atlas is the biggest memory consumer** (`MutableAtlas(2048,2048)` adds a whole
+   16.8MB page at a time). Trimming unreachable frames plus adding the swing/push/wind clips nets out
+   around **28.5M px** currently. Adding frames is not free - see the ATLAS BUDGET comment on
+   `load()`.
+2. **Textures authored 10-26x larger than drawn, and `mipmaps(true)` silently no-ops on non-POT
+   art** (no error, no log) - FIXED 2026-09-10, see "Adding new art" below.
+3. Per-frame allocation in the updater (fixed): profile deep-copies, platform/box/occluder list
+   rebuilds, powerup HUD shape/label rebuilds all now cache and only recompute on change.
+4. KorGE renders continuously under the Compose menu on Android (bug #7) - first suspect for a menu
+   lag report.
 
-**Dead assets removed** (`resources/` 75MB -> ~39MB): `a1-a5`, `bg1-bg5`, `bg10-bg13`, `bglayer`,
-`bgmg`, `bgmg_warehouse`, `mglayer`, `mglayer2`, `card_bg`, `chainedhook`, `korge`, `store_*`, `bg_menu.jpg`, `logo.jpg`
-(the `Res.drawable.*` ones resolve to `paywall-build`'s own `composeResources/drawable/` copies). Live
-backgrounds: `bgmg2..6` (rotation across levels, with `bgmg5` explicitly set on level 2). App icon is `icon.png` at the
-repo root. `test_minimal.ldtk` is KEPT (`test/LdtkLoaderTest.kt`). **Before deleting, grep the whole
-repo excluding `build/`** - `build/intermediates/.../merger.xml` hits are packaging evidence, not use.
-Dead code removed: `UiComponents.drawAtmosphericBackdrop()`/`drawAtmosphericBackdropBitmap()`.
+**Dead assets removed** (`resources/` 75MB -> ~39MB): a long list of unused backgrounds/UI images.
+**Before deleting, grep the whole repo excluding `build/`** - packaging-evidence hits in
+`build/intermediates/.../merger.xml` are not use.
 
-**`SceneAssets.kt` caches bitmaps and fonts process-wide** - `sceneMain()` was calling `readBitmap()`
-~20 times and `readTtfFont()` twice on every scene load (RESTART, QUIT-relaunch, watch-ad, level
-change), re-decoding ~87MB of PNG. Only successful loads are cached (a missing file still retries).
+**`SceneAssets.kt` caches bitmaps/fonts process-wide** - was re-decoding ~87MB of PNG on every scene
+load. Only successful loads are cached.
 
-**Lossless PNG recompression** (Pillow `optimize=True, compress_level=9`): 229/604 files smaller,
-1.29MB saved, all byte-identical decoded vs `git HEAD`; player frames left alone (came out larger).
-Safe because korim's decoder reads only `IHDR`/`PLTE`/`tRNS`/`IDAT`/`eXIf`/`IEND`. Download-size win
-only. oxipng/zopflipng would beat it if size matters later.
+**Lossless PNG recompression** (Pillow, `optimize=True, compress_level=9`): 229/604 files smaller,
+byte-identical decoded - download-size win only.
 
-**Off-screen culling** (third pass): KorGE does no frustum culling. Static decor registers its
-world-space x-span via `cullable(view, left, width)` at six sites (platforms, boxes, entrance, exit
-fence, truck, hanging crates); the updater toggles `visible` from the camera window with a **half-screen
-margin either side** (generous by design - pop-in impossible). Static only; player/guards/cameras/moving
-platforms excluded (their pips and cones are children). `bgmusic.mp3` re-encoded 256 -> 128 kbps
-joint stereo (2.22 -> 1.11MB; kept stereo - the side channel is real at -32.8dB vs mid -15.7dB; the
-Xing/LAME header is kept for gapless looping - **loop seam unheard on device**; if a tick appears at
-the loop, that header is the first suspect).
+**Off-screen culling**: static decor registers its world-space span via `cullable(...)`, toggled
+`visible` off camera with a half-screen margin. Static only - player/guards/cameras/moving platforms
+excluded (children of their own pips/cones).
 
-**DECIDED NO: do not atlas the static world art - not "not yet", not at all.** `MutableAtlas`
-allocates its whole 2048x2048 page (16.8MB) up front; after the POT pass the seven stretch-to-box
-textures total 1.96M px (~7.8MB held individually) - less than half a page, so atlasing more than
-doubles them. The benefit is ~10 fewer texture binds per frame on level 1 (~14 sprites across 7
-textures, fewer after culling) - inside a mobile GPU's noise floor. And it conflicts with mipmaps
-(mip levels bleed across slice boundaries without gutters). Atlasing pays for hundreds of small sprites,
-not a dozen large props. **Count both cost and benefit before proposing it again.**
+**DECIDED NO: do not atlas the static world art - not "not yet", not at all.** After the POT pass the
+combined stretch-to-box textures are under half of one atlas page, so atlasing more than doubles
+their memory for a sub-noise-floor bind-count win, and conflicts with mipmaps (bleed across slice
+boundaries). Atlasing pays for hundreds of small sprites, not a dozen large props.
 
 ### POT + mipmaps pass - DONE 2026-09-10
 
-Ten assets re-encoded: **50.5 MB -> 9.8 MB of texture memory** (~13 MB with mipmaps), disk 10.2 -> 2.1
-MB. Each rendered into its exact device-pixel draw box before/after and diffed: mean error under
-0.6/255 for all ten (worst `fence2.png`). JVM desktop screenshotted. **Originals live in git history at
-`77a65b9`** (`git show 77a65b9:resources/interact.png > interact.png`).
+Ten assets re-encoded: **50.5 MB -> 9.8 MB of texture memory**, disk 10.2 -> 2.1 MB. Each verified by
+rendering into its exact device-pixel draw box before/after and diffing (mean error under 0.6/255).
+Originals live in git history at `77a65b9`.
 
-| asset | source | drawn | @3x | now | was -> is |
-|---|---|---|---|---|---|
-| `barrel.png` | 832x1274 | 32x48 | 96x144 | 128x256 | 4.04 -> 0.13 MB |
-| `crate.png` | 851x595 | 68x48 | 204x144 | 256x256 | 1.93 -> 0.25 MB |
-| `fence.png` | 1225x1134 | 151x140 | 453x420 | 512x512 | 5.56 -> 1.05 MB |
-| `fence2.png` | 1289x1007 | 172x140 | 516x420 | 512x512 | 5.19 -> 1.05 MB |
-| `truck.png` | 1683x617 | 262x96 | 786x288 | 1024x512 | 4.15 -> 2.10 MB |
-| `left.png` | 1202x1194 | 108x108 | 324x324 | 512x512 | 5.47 -> 1.00 MB |
-| `right.png` | 1083x1083 | 108x108 | 324x324 | 512x512 | 4.47 -> 1.00 MB |
-| `jump.png` | 1261x1247 | 96x96 | 288x288 | 512x512 | 6.00 -> 1.00 MB |
-| `crouch.png` | 1268x1241 | 96x96 | 288x288 | 512x512 | 6.00 -> 1.00 MB |
-| `interact.png` | 1267x1241 | 96x96 | 288x288 | 512x512 | 6.00 -> 1.00 MB |
+**DO NOT SHRINK - already at or below device resolution at 1440p**: `bgmg2-6.png`,
+`loadingbg.png`/`logo_main.png`, `dossier_paper.png`, `success3.png`, `failedscreen.png`, the button
+sprite sheets.
 
-(`fence1Width = 151.0`, `fence2Width = 172.0`, `fenceHeight = 140.0`; truck `29+45+179` wide x
-`truckBedHeight = 96`; `moveRadius = 54`, `actionRadius = 48` doubled.) `fence2.png` needed 516 and got
-512 - the refined rule: round up unless within a couple of percent of the lower POT. `truck.png` grew on
-disk 8 -> 27 KB (flat silhouette art gains gradients) - texture memory still halved; **do not revert**.
-
-**DO NOT SHRINK - already at or below device resolution at 1440p**: `bgmg2-6.png` (~1992x724 for 480
-virtual = 1440 device px tall, already upscaled ~2x, and tiled edge-to-edge with a 1px overlap over a
-hand-healed seam - resampling disturbs it), `loadingbg.png`/`logo_main.png` (2172x724), `dossier_paper.png`
-(1200x800 -> 1872x1248 device), `success3.png` (1536x1024 -> ~1987x1325 device, under-resolution; feeds
-`winCardAspect` at runtime), `failedscreen.png` (1215x1295 -> ~1320x1407 device, feeds failed card aspect),
-`button1-4.png` / `victorybutton1-3.png` / `failedbutton1-3.png` (~677x167 -> 900x156 device, already under).
-
-**Still hardcoded to file dimensions** (resample and geometry moves - pin as literals/fractions first,
-or leave the file alone): `chainedcrate.png`/`chainedcrate2.png` sub-slices `(26, 1222, 971, 226)` /
-`(235, 1134, 555, 287)` + `chainDrawH = cropY * scale`; `stars.png` slices `(69, 33, 636, 611)`,
-`(760, 33, 647, 611)`, `(1464, 33, 641, 611)` (hand-painted, unequal widths); `hook.png`'s
-`hookHeight = hookWidth * (2136.0 / 154.0)`. `entranceWidth`/`exitFenceWidth`/`hookHeight` are now
-literals with comments naming the authored size. `GameWorld.kt`'s `barrelWidth = 32.0` comment about
-"832x1274" is stale.
+**Still hardcoded to file dimensions** (pin as literals/fractions first, or leave the file alone if
+resampling): `chainedcrate.png`/`chainedcrate2.png` slices, `stars.png` slices, `hook.png`'s aspect.
 
 ### Adding new art: shrink it on the way in - a standing rule
 
-1. Find the size it is **drawn** at in virtual units (`size(w, h)` or its `Rect`), not painted at.
-2. **Multiply by 3** - the authored canvas is 1040x480 (`ScreenLayout.DESIGN_WIDTH/HEIGHT`; the
-   real canvas now carries the device's aspect and is never smaller than that - see "Responsive
-   layout"); a 1440p phone renders at 3x (2.25x on 1080p). Sizing from virtual numbers gives a
-   third of the needed resolution; it looks fine on desktop and mushy on the phone.
-3. **Round to a power of two** in both dimensions (up, unless within a couple of percent of the lower).
-4. **Resample, never pad** - transparent padding is stretched into the draw box with the art.
-5. `python tools/art/pot_resize.py resources/newthing.png 512 512` - premultiplied-alpha LANCZOS,
-   refuses non-POT targets; `--check` reports sizes.
-6. Verify what reaches the screen: render old and new into the device-pixel box and diff (<~1/255 mean).
-7. Wire via `SceneAssets.bitmap("x.png")` (default `minified = true`: asks for mipmaps, warns if not
-   POT) or `minified = false` for anything drawn ~1:1 or larger and anything **sub-sliced** (mip
-   levels bleed across slices).
+1. Find the size it's **drawn** at in virtual units, not painted at.
+2. **Multiply by 3** (authored canvas 1040x480, real canvas up to the device's aspect, phones render
+   at up to 3x) - sizing from virtual numbers alone gives a third of the needed resolution.
+3. Round to a power of two (up, unless within a couple percent of the lower).
+4. **Resample, never pad** - transparent padding stretches into the draw box with the art.
+5. `python tools/art/pot_resize.py resources/newthing.png 512 512` (premultiplied-alpha LANCZOS,
+   `--check` reports sizes).
+6. Verify by rendering old vs new into the device-pixel box and diffing (<~1/255 mean).
+7. Wire via `SceneAssets.bitmap("x.png")` (default `minified = true`); use `minified = false` for
+   anything drawn ~1:1/larger or sub-sliced (mip levels bleed across slices).
 
-**Crop new art on ALPHA, not `Image.getbbox()`** - that helper bounds every channel, so a source
-whose transparent margin still carries RGB (most exports do) keeps an invisible border that becomes
-dead space inside the draw box. `exitlvl7.png` was cropped that way and the building floated 12
-units off the ground; `np.nonzero(np.array(im)[:,:,3] > 8)` is the crop that matters, and the check
-is that the silhouette reaches the first and last row of the finished file.
+**Crop new art on ALPHA, not `Image.getbbox()`** - that helper bounds every channel, so a
+transparent-margin-with-RGB source keeps invisible dead space in the draw box (this floated
+`exitlvl7.png`'s building 12 units off the ground). Use `np.nonzero(alpha > 8)`.
 
-**Aspect ratio is NOT a concern for stretch-to-box assets** (stated backwards twice before) - every
-draw is `size(box.width, box.height)`, the file's aspect never reaches the screen. **Never derive a
-drawn size from a loaded bitmap's dimensions** - write a literal naming the authored size. Use a
-premultiplied-alpha-aware resampler or silhouette edges pick up fringes. `truck.png`/`entrance.png`
-are pre-mirrored - a tool that normalises orientation would undo bug #8's fix.
+**Aspect ratio is NOT a concern for stretch-to-box assets** - every draw is `size(box.width,
+box.height)`, so the file's own aspect never reaches the screen; write a literal naming the authored
+size instead of deriving it from the bitmap. Use a premultiplied-alpha-aware resampler.
+`truck.png`/`entrance.png` are pre-mirrored on disk - a tool that "normalises" orientation would undo
+bug #8's fix.
 
-**The guardrail**: `SceneAssets.warnIfNotPowerOfTwo` prints one line per offending asset per run:
-`[SceneAssets] 'hook.png' is 154x2136 - NOT power-of-two, so mipmaps are silently skipped for it.`
-**Expected output as of 2026-09-23: 15 lines** - `hook.png` (extreme aspect, rounds badly),
-`woodcrate2`, `pole`, `lever_bottom`, `lever_top`, `newrope` and the nine `rope_dissolve_*` frames,
-all of which arrived with the lever/rope work and have not been resized. A **sixteenth** line means
-something new needs sizing; the list itself is worth shortening when someone is in the art pipeline
-anyway.
+**The guardrail**: `SceneAssets.warnIfNotPowerOfTwo` prints one line per offending asset per run. A
+new line in that output means something new needs sizing.
 
 ## Asset prep techniques
 
 Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
-- **Tileable parallax backgrounds** (`bgmg*.png`, tiled by placing copies edge-to-edge): (1)
-  circularly roll horizontally by `width // 2` so the wrap edge is adjacent by construction and the
-  real seam moves to the centre; (2) heal that seam with a narrow falloff-weighted blend against a
-  Gaussian-blurred copy; (3) verify by diffing left/right edge columns and rendering a tile-join strip.
-  **Band width and blur must scale with source detail**: 170px half-width / 24px blur (fine on foggy
-  `bgmg5`) left a visible haze band on crisper `bgmg6`; **80px half-width / 10px blur with a smoothstep
-  falloff** matched the shipped set. Wrap-edge diffs on `bgmg2-5` sit around mean 0.7-2.7, max 16-138 -
-  a sanity check, not a target. `bgmg6.png` = `darkbg3.png` at native 2172x724 (an earlier `darkbg2`
-  version was replaced before commit; no trace).
-- **Character animation plates** (`tools/art/prep_guard.py`, `tools/art/prep_push.py`): crop one
-  shared box per clip, symmetric about the character's own body centre so a horizontal flip does
-  not shift him, feet pinned per frame to the bottom edge, resampled premultiplied. **Measure this
-  plate's own standing silhouette rather than reusing another clip's scale** - the push plates are
-  framed 6.4% smaller than the crouch plates at the identical file size, and the climb plates dolly
-  mid-shot. Pick loop windows by autocorrelation plus a seam scan, and measure any
-  `*_STRIDE_PER_HEIGHT` by phase-correlating the ground-contact profile of the **processed output**
-  (see "The push stance" for the three ways of measuring it that are wrong).
-- **Splitting a prop so one part can move** (`tools/art/prep_robot.py`, the level 7 rover): when
-  the art is a flat silhouette, the only thing that can read as motion is its OUTLINE, so the
-  moving part has to be cut OUT of the static plate, not drawn over it - overlaying leaves the
-  original's outline in the union at every angle. Cut slightly WIDE of the part (its radius plus
-  a couple of raw px) so nothing of it survives the resample, then add back whatever it was
-  occluding, reconstructed from scanlines the part does not reach. Find the part by structure
-  rather than by hardcoded coordinates - for the rover, the last scanline crossing the body in a
-  single run is the chassis floor, and everything under it is wheels. Both plates must be
-  cropped to the SAME box (the whole prop's bbox) or their coordinate frames do not line up.
-- **Anything that rotates gets cropped to its bbox and forced square.** That divides out any
-  ellipticity in the drawing (the rover's cog is 3.8% wider than tall, which would wobble once
-  per turn) and, by rotating about the bbox centre rather than the centroid, fixes the outer
-  extent by construction. Give it one extra POT step over the usual 3x rule - it is resampled at
-  every angle, not axis-aligned.
-- **Tight-crop a silhouette to its alpha bounds** before stretching it into a box (dead margin
-  stretches too); re-derive box width from the cropped aspect at the fixed height.
-- **Wood crates (`woodcrate2.png`)**: 1536x1024 silhouette crate with rustic horizontal planks (replaced
-  striped `woodencratenew.png`). Cropped to strict alpha bounds (`RectangleInt(165, 144, 1206, 721)`,
-  threshold A > 10) so it sits flush on the ground without floating empty space. Used in Level 3 for
-  `stepCrate2` and the 3-crate ground stack under the camera beam (`woodCrates`).
-- **Chroma-key an opaque JPEG-style asset**: R/G/B all >= 200 -> transparent, else opaque, then crop.
-- **Find a seam inside a composite illustration**: scan column-wise opaque density for a sharp drop.
+- **Tileable parallax backgrounds**: circularly roll horizontally by half-width so the wrap seam
+  lands at the centre, heal it with a narrow falloff-weighted blend against a blurred copy, verify by
+  diffing edge columns. **Band width/blur must scale with source detail** - a wide/blurry heal that's
+  fine on a foggy background leaves a visible haze band on a crisper one.
+- **Character animation plates** (`prep_guard.py`/`prep_push.py`): crop one shared box per clip,
+  symmetric about the body centre (so a flip doesn't shift it), feet pinned per frame to the bottom
+  edge, resampled premultiplied. **Measure each plate's own standing silhouette rather than reusing
+  another clip's scale** - clips can be framed at meaningfully different sizes at the same file size.
+  Measure `*_STRIDE_PER_HEIGHT` by phase-correlating ground-contact alpha on the PROCESSED output.
+- **Splitting a prop so one part can move** (`prep_robot.py`): on a flat silhouette, cut the moving
+  part OUT of the static plate (don't overlay a new one on top - the original outline unions into
+  every angle) slightly wide of it so nothing survives the resample, and reconstruct whatever it
+  occluded from scanlines the part doesn't reach. Find the part by structure, not hardcoded
+  coordinates.
+- **Anything that rotates gets cropped to its bbox and forced square** - divides out drawing
+  ellipticity and fixes the outer extent by rotating about the bbox centre, not the centroid.
+- **Tight-crop a silhouette to its alpha bounds** before stretching into a box; re-derive box width
+  from the cropped aspect at the fixed height.
+- **Chroma-key an opaque JPEG-style asset**: R/G/B all >= 200 -> transparent, then crop.
 
 ## Smaller features and decisions
 
-- **REMOTE_TRIGGER powerup was a complete no-op, plus a real shared-mutable-state bug found while
-  fixing it (2026-09-20)**: `ActivePowerups.activate()` (`Powerup.kt`) had
-  `PowerupType.REMOTE_TRIGGER -> Unit` - activating it (buying it, pressing its tray slot) did
-  **nothing at all**, on every platform, confirmed by the owner testing it on level 6. Its own
-  Store description ("Triggers closest mechanism without needing to find its switch." -
-  `StoreScreen.kt`) was never implemented. Fixed in `GameWorld.kt`: `activatePowerup()` now special
-  -cases `REMOTE_TRIGGER` - picks the nearest `!isActivated` lever by `player.center.distanceTo(...)`
-  and throws it exactly as an in-range interact would (extracted the shared cascade into a new
-  private `triggerLever(lever)`, also now used by the normal `interactInput` path so there's one
-  code path, not two). Returns `false` (refuses) if no un-thrown lever exists in the level - checked
-  ahead of spending the item via a new `GameWorld.hasRemoteTriggerTarget()`, called from
-  `GameplayScene.kt`'s `tryActivatePowerup` before `profileStorage.consumePowerup(type)`, so a level
-  with no levers (or one already fully thrown) never burns the item for nothing. It remains a true
-  one-shot - `isActive(REMOTE_TRIGGER)` is still always `false` (no running state to block a second
-  use; the "already active" guard below doesn't apply to it, only whether a target exists).
-  **While building the test for this** (`testRemoteTriggerActivatesNearestLeverWithoutBeingInRange`,
-  right before `testLevel6LeverCrateSwingCrossesToLandingCrate`), a real pre-existing bug surfaced:
-  `GameWorld.createFromLayout` passed `layout.levers`/`layout.hookCrates` straight through
-  (`levers = layout.levers`, no copy), unlike every other level object (`MovingPlatform`/`Camera`/
-  `ConveyorCrate`/`Laser`), which are freshly built from an immutable Def/spawn each call. Since
-  `LEVEL_6_LAYOUT` etc. are top-level `val`s (computed once per process) holding the actual mutable
-  `Lever`/`HookCrate` instances, every `GameWorld` built from the same layout shared and mutated the
-  SAME objects - `createFromLayout` already reset them at the top (`for (lever in layout.levers)
-  lever.reset()`, pre-existing, meant for "quit and replay the same level without restarting the
-  app") but that only protects sequential re-creation, not two `GameWorld`s alive at once (exactly
-  what a test suite does, and what surfaced this: my remote-trigger test threw the shared lever and
-  left it thrown, which broke the swing test that ran after it in the same JVM). Fixed by giving
-  `createFromLayout` its own fresh copies - `levers = layout.levers.map { it.copy() }`,
-  `hookCrates = layout.hookCrates.map { it.copy() }` - both are plain data classes so `.copy()` is
-  sufficient (no nested mutable refs beyond `HookCrate.bounds`, itself an immutable `Rect`). The old
-  reset-on-create loop is now redundant defense-in-depth, not load-bearing, but left in place.
-  `jvmTest` green on a forced `--rerun-tasks` full run (129 tests, 0 failures) - this class of bug
-  is exactly the kind a partial/up-to-date test run can hide, so a real rerun mattered here more than
-  usual.
-- **F2: desktop-only debug key to top up every gadget by +3 (2026-09-20)**: `GameplayScene.kt`,
-  same `Platform.isJvm`-gated pattern as F1's noclip fly (see below) - calls
-  `profileStorage.grantDebugPowerups(3)` (`GameProfile.kt`; the method already existed, fully wired
-  to `GameProfileStorage`/`MapBackedGameProfileStorage`/tested in `GameplayModelTest.kt`, but had
-  never actually been called from anywhere in the app before this). Added so a session can try out
-  every gadget without grinding coins first - JVM's own `PlatformStorage` impl
-  (`paywall-build/src/jvmMain/kotlin/PlatformStorage.jvm.kt`) is a plain in-memory
-  `ConcurrentHashMap`, never persisted to disk, so this only ever affects the current desktop run
-  and never touches a real save on Android/iOS.
-- **Gadget tray polish + no re-activating a running gadget (2026-09-20)**: `GameplayScene.kt`'s
-  `TrayEntry` boxes (the powerup row that unfolds from the corner bolt, `trayEntries`/
-  `refreshTrayLabels`): (1) the 30px icon is now centred on both axes in the 42px box (was
-  horizontally centred but pinned 2px from the top to leave room under it) - `xy((slotSize -
-  slotIconSize)/2.0, (slotSize - slotIconSize)/2.0)`. (2) The stock-count text is always
-  `COLOR_TEXT_LIGHT` (white) now, not the old gold/green swap keyed on live state - it only shows at
-  all while idle. (3) A live gadget no longer prints "ON"/"`Xs`" text; it shows a semi-transparent
-  white overlay across the WHOLE box instead (`TrayEntry.drain`, a dedicated `Graphics` layered on
-  top of both the icon and the count text - added last among the box's children, so it paints over
-  them), like a curtain: bottom edge fixed, top edge sinking toward the bottom as
-  `getRemainingTime(type)/type.duration` runs out. Alpha `Colors.WHITE.withAd(0.14)` - started at
-  0.42, lowered to 0.22 then to 0.14 across two rounds of "make it more transparent"; re-lower this
-  same constant if asked again. Shape: `roundRect(x, y, w, h, corner, corner)` (with `corner =
-  drainCornerRadius.coerceAtMost(filledH / 2.0)` applied to both top and bottom corners). The overlay
-  covers the entire box when active; for level-duration gadgets (`PowerupType.isLevelDuration` -
-  `LASER_SHIELD`, `NOISE_SUPPRESSION`, `CHECKPOINTS`) it stays at 100% full for as long as it is on.
-  For timed gadgets that wear down, the overlay drains downward while remaining curved at the top to
-  match the rounded shape of the box behind it (owner request from screenshot 2026-09-20: square top
-  corners looked discordant with the curved frame). Quantised to fortieths like the corner bolt's own
-  horizontal drain bar (`slotDrain`, same file) to avoid a per-frame vector rebuild.
-  **Corner clamp**: clamping `corner = drainCornerRadius.coerceAtMost(filledH / 2.0)` guarantees
-  that once `filledH` drains below `drainCornerRadius * 2`, the corner radii never exceed available
-  height, preventing korlibs tangent-point overflow. Inset: `drainInset = 1.6` keeps the overlay
-  neatly inside the frame's stroke outline.
-  **Second corner-overflow bug, fixed same day, this one mid-animation not just at full/empty**:
-  reported against a mid-drain screenshot of INVISIBILITY (a real 10s timed gadget, so it actually
-  passes through every fraction, unlike a level-duration one pinned at 1.0). Root cause is in
-  korlibs' own per-corner `roundRect(x, y, w, h, rtl, rtr, rbr, rbl)` (`korlibs.math.geom.vector.
-  VectorBuilder`, via `Arc.arcToPath`): unlike its single-radius `roundRect(x, y, w, h, rx, ry)`
-  overload (which clamps `rx`/`ry` down to `w/2`/`h/2` when the box is smaller than the requested
-  radius), the per-corner overload does **no clamping at all** - each corner's rounding is a
-  canvas-style tangent construction that places its tangent point `radius` units from the corner
-  along both adjoining edges, with zero awareness of the other corner sharing that same edge. Once
-  `filledH` (the overlay's current height) drains below `drainCornerRadius` (9), the bottom
-  corners' tangent points land PAST the shrunken rect's own top edge, so the rounded corner arc
-  bulges outside the nominal box bounds - visible as white spilling past the frame while the
-  animation is actively draining, not only at the full/empty extremes. Fixed by clamping:
-  `val bottomRadius = drainCornerRadius.coerceAtMost((filledH - topRadius).coerceAtLeast(0.0))`,
-  same discipline korlibs' own single-radius overload already applies, just done by hand since the
-  per-corner one doesn't. **Any per-corner `roundRect` call anywhere in this codebase needs the same
-  manual clamping if the rect's own size can ever shrink smaller than a requested corner radius** -
-  korlibs will not catch this for you on that overload. Not verified with a real screenshot after
-  this specific fix (traced `Arc.arcToPath`'s actual tangent-point math from its own source jar to
-  confirm the mechanism, rather than guessing) - if it recurs, the JS/Wasm target
-  (`build.gradle.kts`, declared for local browser preview only, see "Tech stack") could be launched
-  in the Browser pane tool for a real visual check without needing the JVM desktop screenshot
-  PowerShell recipe.
-  **Third round, still reported after the corner clamp fix ("still it overflows from side and
-  bottom")**: attempted a real screenshot check this time via `./gradlew runJvm` + the documented
-  PowerShell GDI capture recipe, with a temporary rig in `GameplayScene.kt`'s `addUpdater` (grant +
-  activate INVISIBILITY, force its timer to a fixed fraction every frame so there's no race against
-  a live 10s countdown) - **inconclusive, not a dead end worth reproducing verbatim**: this machine
-  had a SECOND, pre-existing "Infiltrate: Shadow Heist" window already running (the owner's own,
-  separate from anything this session launched - confirmed by PID/start-time, never touched), which
-  cost real time to safely disambiguate window handles from (by PID + process start time, never by
-  title alone - two windows shared the exact same title and, at least once, the exact same screen
-  rect). One relaunch's window also rendered with only ONE tray icon instead of five despite the
-  model-level state being confirmed correct via temporary `println`s (`isActive=true`, a real
-  quantized 0.5 fraction) - never root-caused (plausibly transient from rapid kill/relaunch
-  process churn, not a code bug; the very first capture that session, on a window that had been
-  running undisturbed the longest, DID show a normal 5-icon tray). **Debug rig fully reverted** -
-  grep `debugScreenshotSetupDone`/`TEMP screenshot`/`TEMP:` in `GameplayScene.kt` to confirm none of
-  it is still there if this is ever picked up again. Given repeated difficulty pinning the exact
-  mechanism (and now two fixes that didn't fully resolve it), the fix this round is deliberately
-  **geometry-proof rather than another targeted patch**: `drainInset = 1.6` (matching the frame
-  stroke's own inner edge - stroke sits at inset 0.95, thickness 1.3) and `drainCornerRadius`
-  lowered `9.0 -> 7.0` to match; the overlay's rect is now built entirely from `(drainInset,
-  drainInset)` to `(slotSize - drainInset, slotSize - drainInset)`, never from `(0, 0)` to
-  `(slotSize, slotSize)` - it is drawn a fixed, generous margin inside the frame's visible stroke
-  line, so it cannot reach that line regardless of whatever the remaining overflow mechanism turns
-  out to be (sub-pixel rounding, the fill/stroke inset mismatch between the frame's own two
-  `roundRect` calls, or something not yet identified). The corner clamp from the previous round is
-  kept (still needed - `filledH` here is `boxH * fraction` off the smaller inset box, so it can
-  still shrink below `drainCornerRadius`). **If a fourth report comes in, don't add a fourth patch
-  on top of this one - get a real, clean screenshot FIRST** (the JS/Wasm Browser-pane route noted
-  above is likely more reliable on this machine than another JVM desktop window hunt) and diagnose
-  from an actual pixel-level view rather than reasoning further from korlibs' source alone. **First cut of
-  this was a thin vertical gauge bar along the box's edge - corrected on request** ("by a drain bar
-  i mean like a half
-  transparent white overlay on the whole square that drains down") - if this is ever revisited,
-  it's the full-box curtain that's wanted, not an edge gauge. (4) A gadget
-  already active can no longer be re-triggered until it ends: guarded in both
-  `GameWorld.activatePowerup()` (returns `false` if `activePowerups.isActive(type)` - the
-  authoritative gate, covered by `testActivatePowerupRefusesReactivationWhileAlreadyActive`) and
-  `GameplayScene.kt`'s `tryActivatePowerup` (checked *before* `profileStorage.consumePowerup(type)`,
-  so a refused re-press doesn't burn an inventory item for nothing). `jvmTest` green (128 tests);
-  the tray's visual geometry itself (icon centring, bar rendering) is not verified on a real
-  screenshot/device - same caveat as the detection-pip entry below, no headless KorGE canvas
-  harness exists.
-- **Detection pip: "!" for heard noise vs the clock for actually seen (2026-09-20)**:
-  `GameplayScene.kt`'s per-guard/camera pip (`guardPips`/`cameraPips`, drawn above the head). The
-  clock only ever renders for a guard/camera actually in `world.detectingGuards`/`detectingCameras`
-  (a real vision hit, progress = `world.alertProgress`). When sound is heard (`Guard.onNoiseHeard`,
-  flagged via `g.investigatedFromNoise`), `drawInvestigateMark` draws a plain "!" badge above the
-  guard without any background circle (circle backdrop/outline removed on owner request 2026-09-20).
-  **Stealth Boots suppression**: When `world.activePowerups.isNoiseSuppressed` is active (Stealth Boots),
-  `g.onNoiseHeard` is never triggered and `paintPip` completely suppresses the "!" mark so guards
-  never show a sound indicator while the player is wearing stealth boots. Furthermore, `onVisualLost`
-  (losing line-of-sight mid-alert) sets `investigatedFromNoise = false`, preventing guards from showing
-  the sound "!" mark when visual was simply lost rather than sound heard. Seeing always wins over
-  investigating in `paintPip` (checked first). Cameras have no INVESTIGATING state, so they only ever
-  get the clock, unchanged. Tested via `testGuardInvestigatedFromNoiseFlag`.
-- **Debug noclip flight (F1, JVM desktop only, 2026-09-20)**: `GameplayScene.kt` toggles
-  `world.noclipFlying` on `Key.F1`, gated on `korlibs.platform.Platform.isJvm` (a real multiplatform
-  runtime check from the transitive `korlibs-platform` dependency - no new expect/actual needed,
-  and it stays off on Android/iOS even with a physical keyboard attached). `GameWorld.update()`
-  branches on `noclipFlying` right after the `isLevelComplete||isGameOver` guard: free 2D movement
-  at 420 u/s (arrows/WASD horizontal, jump=up, crouch=down), zero collision, zero gravity, and it
-  skips detection/alerts/hazards entirely (guards, cameras, lasers, conveyors, timers all freeze) -
-  a pure level-layout inspection tool, not a "play while invincible" mode. Only clamped so feet
-  can't go below `groundY` and x stays within `0..worldWidth - player.width`; vertical is otherwise
-  unbounded. Toggling off just resumes normal physics next frame (player falls from wherever it
-  stopped). Covered by `testNoclipFlyingBypassesCollisionGravityAndDetection` in
-  `GameplayModelTest.kt`. JVM `jvmTest` green; not run on a real device (F1 has no touch-control
-  equivalent by design, so there's nothing to verify there).
-- **App icon**: real set from a 1254x1254 illustration wired into Android (`android-shell/`, legacy +
-  round + adaptive, manifest updated), iOS (`ios-shell/Resources/Assets.xcassets/AppIcon.appiconset/`,
-  Xcode 14+ single-size, `ASSETCATALOG_COMPILER_APPICON_NAME` in `project.yml`), and `korge { icon =
-  file("icon.png") }`. Not verified on a device.
-- **Language system & French localization** (`Localization.kt`, `SettingsScreen.kt`): 15 languages in native script
-  in the Settings dropdown with persistence via `user_language`. French (`fr`) is implemented across all menus
-  (MainMenu buttons & mission dossier briefing, LevelSelect chapter cards and mission cards/reasons, Store tabs/items/cards/toasts,
-  and Settings panels/dialogs) and in-game overlays (Loading screen, Objectives HUD, Pause overlay, Mission Failed card,
-  and Victory debrief review). In-game tutorials remain untranslated in English by design. Shared via `src/game/model/Localization.kt`
-  (pure Kotlin standard library, zero `korlibs.*` imports) with extension functions `LevelData.localizedName`,
-  `LevelData.localizedDescription`, and `LevelData.localizedObjectiveHint`. Composed screens consume the language reactively via
-  `LocalAppLanguage` in `NavigationRoot.kt`. No Bebas Neue for non-Latin names and no `letterSpacing` on the names (breaks Arabic joining).
-- **Reset Progress** (`SettingsScreen.kt`, 2026-09-12): confirmation dialog (`showResetConfirmDialog`,
-  `#16161A` with `#FF5252` accent, CANCEL / RESET EVERYTHING). `profileStorage.resetProgress(preservePremium
-  = true)`: coins 100, starter inventory (2 jammer, 2 smoke, 1 bomb, 2 darts, 2 phantom, 2 invis, 2 boots,
-  1 trigger), unlocks `["level_1", "level_5"]`, `totalLevelsCompleted` 0, controls Default, language
-  "en", volumes 0.8/1.0; **`isPremium` preserved**. `levelStorage.clear()` purges `level_result_*` and
-  `level_results_ids`; ad-limiter counts removed. `PlatformStorage.removeRaw(key)` added across JVM
-  (`ConcurrentHashMap.remove`), Android (`Editor.remove().apply()`), iOS (`removeObjectForKey`).
-- **Layers Events SDK - REMOVED 2026-09-12** (was `com.layers.sdk:layers-android:3.3.0` on Android).
-  Dependency, `InfiltrateApplication.kt` config, `GameplayScene.kt` calls, all 7 `AnalyticsBridge` files
-  and the privacy-policy disclosure are gone. **Zero third-party analytics SDKs remain.**
-- **In-App Review (Google Play & iOS StoreKit)**: Multiplatform review prompting via `InAppReview` (in
-  `paywall-build`) and `InAppReviewBridge` (in `:game`). On Android, uses `com.google.android.play:review:2.0.2`
-  (`ReviewManagerFactory`) wired to `MainActivity`. Prompted automatically upon completing level 4
-  (`GameplayScene.kt` -> `getInAppReviewBridge().requestReview()`) and manually via the "RATE US" button
-  in the About section of Settings (`SettingsScreen.kt`).
-
-  **iOS RATE US opens the App Store, it does not call StoreKit (fixed 2026-09-25)** - reported as
-  "rate us button in ios is not working", and it genuinely could not work. `SKStoreReviewController`
-  is Apple's *automatic* prompt, not a rate-us action: Apple decides whether it appears, it is
-  **never shown in a TestFlight build**, it is capped at three appearances per device per year in
-  production, and it is silently ignored otherwise. There is no callback and no error, so a correct
-  call and a suppressed one are indistinguishable from the app's side - which is what made this hard
-  to see. Apple's own guidance is that a deliberately-pressed button goes to the App Store review
-  page, so `InAppReview.ios.kt` now opens
-  `itms-apps://apps.apple.com/app/id<APP_STORE_ID>?action=write-review` (falling back to the `https`
-  form, then to the StoreKit prompt if neither opens). **`APP_STORE_ID = "6815256409"`** lives at the
-  top of that file. The StoreKit fallback also picks the window scene that owns a key window rather
-  than whatever `connectedScenes` (an unordered `NSSet`) hands back first - with more than one scene
-  alive that could be one not on screen, which StoreKit refuses without a word.
-
-  The **automatic** post-level-4 prompt deliberately still uses StoreKit on both platforms (`:game`'s
-  `InAppReviewBridge` -> `GameInAppReviewBridge` -> `AppDelegate.swift`'s `InAppReviewHelper`) - an
-  unprompted moment of goodwill is exactly what that API is for. **Android's RATE US is unchanged**
-  and still uses Play's in-app review; it was reported working.
-- **Settings → About panel (`SettingsScreen.kt`)**: Links order is "PRIVACY POLICY" (opens `https://infiltrate.saysplit.app/privacy/` via `LocalUriHandler`), "CONTACT US" (opens `https://infiltrate.saysplit.app/support/`), "CREDITS & LICENSES" (expandable third-party sound attributions), and "RATE US" (at the bottom of the links list with highlighted white outline: `Color.White.copy(alpha = 0.5f)` vs unhighlighted `0.08f`). Terms of service row removed. Version string is pinned to the bottom of the screen and resolves dynamically across platforms via `com.infiltrate.platform.PlatformInfo` (`expect`/`actual`: `versionName` and `buildNumber` read from `PackageManager` on Android, `NSBundle` on iOS, system/package properties on JVM).
-- **Web presence (`site/`, Netlify, e.g. `infiltrate.saysplit.app`)**: `index.html`, `support/`
-  (App Store Guideline 1.5 page, Netlify Form with Name/Email/Category/Message, no visible email, no
-  FAQ), `privacy/` (on-device storage, AdMob/UMP consent, RevenueCat, COPPA/GDPR/CCPA), `styles.css`,
-  `_redirects`, `netlify.toml`. iOS RevenueCat in-app purchase billing is wired (`com.infiltrate.shadowheist`,
-  Apple Distribution codesigning & automated TestFlight release workflow in `.github/workflows/ios-testflight.yml`).
-  **App Tracking Transparency - resolved 2026-09-26 by going non-personalized, not by adding the ATT
-  prompt.** No ATT prompt exists anywhere in the app; instead `AdMobVerifyScreen.kt`'s
-  `AdMobVerifyContent()` (iOS's sole production `BasicAds.Initialize()` call site, despite its own
-  "SPIKE / THROWAWAY" header - see that file before assuming it's dead code) sets `BasicAds.configuration`
-  with `publisherPrivacyPersonalizationState = DISABLED` right after init. That maps to
-  `GADMobileAds.sharedInstance().requestConfiguration.setPublisherPrivacyPersonalizationState(.disabled)`
-  under the hood (confirmed from `basic-ads-1.2.1-sources.jar`'s `BasicAds.ios.kt`) - the SDK-level
-  equivalent of `npa=1` on every request, applied once rather than per ad unit. No IDFA is requested,
-  so no ATT prompt is required (Guideline 5.1.2 only applies when tracking actually occurs). Trade-off:
-  lower eCPM than personalized ads, accepted deliberately over building + shipping the ATT flow before
-  submission. **Android is untouched** - `BasicAds.configuration` is only set from `iosMain`, ATT is an
-  iOS-only requirement, and Android's ad personalization stays on. **Not verified on a real device or
-  simulator** - compile-only, same caveat as every other iOS-only change in this file; if `basic-ads`
-  is ever upgraded past `1.2.1`, re-check `RequestConfiguration`'s shape before assuming this still
-  compiles. If personalized ads are ever wanted back, build the real ATT prompt
-  (`ATTrackingManager.requestTrackingAuthorization`) and gate this same `DISABLED` value on the
-  user's answer instead of hardcoding it.
-  A `/delete` page was built and reverted the same day - the game holds no server data (local-only, deleted
-- **Temporary gating for Google Play production approval (2026-09-25)**:
-  - **Levels 8 to 12 hidden**: `LevelData.DEFAULT_LEVELS` contains 12 levels (where level 8 was the push stance stage and levels 9–12 are future chapters). Kept `DEFAULT_LEVELS` intact so model tests pass. Restricted active levels via `.take(7)` in `LevelSelectScreen.kt` (max stars is computed from the list, not hardcoded), `MainMenuScreen.kt` (mission dossier briefing card cycles only within the active levels), and `GameplayScene.kt` (clearing the last active level yields `nextLevel = null`, showing "ALL CLEAR!" and returning to the main menu). **Level 8 unhidden 2026-09-25**: it got a real layout (see its own section above) and all three gates are now `.take(8)`; the push-stance stage it displaced moved to `LevelData.PUSH_STANCE_DEMO`, out of `DEFAULT_LEVELS` entirely. Levels 9 to 12 are still hidden and still have no layout - unhiding one means building it first.
-  - **"Coming Soon" chapter boxes hidden**: In `LevelSelectScreen.kt`, the loop generating placeholder cards for Chapters 2–4 with lock icons and "COMING SOON" text was removed. Chapter 1 ("THE SHIPYARD") is followed by 3 Compose `Spacer(modifier = Modifier.weight(1f))` elements to preserve exact 4-column alignment with the mission grid below without presenting non-functional buttons to reviewers.
-  - **Settings language selection restricted**: In `SettingsScreen.kt`, `ALL_SUPPORTED_LANGUAGES` preserves all 15 language definitions, while `SUPPORTED_LANGUAGES` exposes only English (`en`) and French (`fr`), as these two are the only fully localized languages in `Localization.kt` (preventing fallback to English from reading as broken language switching to Play Store reviewers).
-  - **Level 2 rain temporarily removed**: In `LevelData.kt` (`DEFAULT_LEVEL_2`), set `hasRain = false` (was `true`), completely disabling the `RainEffect` particle layers, lightning flash/bolt, and thunder audio for Level 2 during the review/production phase. **Reverted 2026-09-25**: `hasRain = true` again, along with the rain rework (behind the world, thinner, more transparent, impact crowns). If a Play review ever needs the weather gone again, this one flag is still the whole switch.
+- **REMOTE_TRIGGER powerup was a complete no-op (fixed 2026-09-20)**: activating it did nothing on
+  any platform despite a real Store description. Now picks the nearest un-thrown lever by distance
+  and throws it exactly as an in-range interact would; refuses (without spending the item) if no
+  lever exists to trigger. **While building its test, a real pre-existing shared-mutable-state bug
+  surfaced**: `createFromLayout` passed `layout.levers`/`layout.hookCrates` straight through instead
+  of copying, so two `GameWorld`s built from the same top-level layout `val` (as a test suite does)
+  mutated the SAME lever/crate objects - one test's thrown lever broke a later test in the same JVM
+  run. Fixed with `.map { it.copy() }` on both. **This class of bug is exactly what a partial/
+  up-to-date test run can hide** - re-verified with a forced `--rerun-tasks` full run.
+- **F2 (JVM-only debug key)**: tops up every gadget by +3 via `grantDebugPowerups(3)`, gated on
+  `Platform.isJvm`. Never persisted - JVM's `PlatformStorage` is an in-memory map only.
+- **Gadget tray polish (2026-09-20)**: icon centred on both axes in its box; stock-count text always
+  white; a live/running gadget shows a semi-transparent white curtain draining top-to-bottom across
+  the whole box instead of "ON"/countdown text (alpha `0.14`, lowered twice from an initial `0.42` on
+  request - re-lower the same constant if asked again). **Per-corner `roundRect` needs manual
+  clamping** - unlike its single-radius overload, korlibs' per-corner `roundRect` does zero clamping
+  when a box shrinks below the requested corner radius, so a draining overlay's corners can bulge
+  past the box bounds mid-animation. Fixed by clamping the bottom radius to remaining height, AND by
+  keeping the whole overlay rect inset a fixed generous margin inside the frame's own stroke line
+  (`drainInset = 1.6`) so it can't reach that line regardless of any further rounding-math surprise.
+  **Any future per-corner `roundRect` call anywhere in this codebase needs the same manual clamp.** A
+  gadget already running can't be re-triggered until it ends (guarded both in the model and before
+  the inventory is spent, so a refused re-press doesn't burn an item).
+- **Detection pip**: "!" badge (no background circle) for a heard noise, a filling clock for an
+  actual sighting - seeing always wins when checked. Stealth Boots suppresses the noise pip entirely,
+  and losing line-of-sight (vs. losing the sound cue) is tracked separately so the right icon shows.
+- **Debug noclip flight (F1, JVM-only)**: free 2D movement, zero collision/gravity, freezes all
+  hazards/timers - a pure layout-inspection tool, gated on `Platform.isJvm` so it can't appear on
+  Android/iOS even with a keyboard attached.
+- **App icon**: real 1254x1254 source wired into Android/iOS/KorGE icon slots. Not verified on
+  device.
+- **Language system**: 15 languages in Settings; French fully localized across menus and in-game
+  overlays; in-game tutorials stay English by design. Pure-Kotlin `Localization.kt`, zero
+  `korlibs.*`.
+- **Reset Progress**: confirmation dialog, resets coins/inventory/unlocks/level results while
+  preserving `isPremium`.
+- **Layers Events SDK - REMOVED 2026-09-12.** Zero third-party analytics SDKs remain.
+- **In-App Review**: automatic StoreKit/Play prompt after level 4 completion on both platforms.
+  **iOS's manual RATE US button opens the App Store review page directly (fixed 2026-09-25)** -
+  `SKStoreReviewController` is Apple's automatic-only prompt (never shown in TestFlight, capped 3/year
+  in production, silently ignored otherwise, no callback) so a deliberately-pressed button can't
+  meaningfully use it; `APP_STORE_ID = "6815256409"` lives at the top of `InAppReview.ios.kt`.
+  Android's RATE US is unchanged (Play in-app review, reported working).
+- **App Tracking Transparency - resolved by going non-personalized, not by adding an ATT prompt**
+  (2026-09-26). No ATT prompt exists; `AdMobVerifyContent()` (iOS's sole production ad-init call
+  site) sets `publisherPrivacyPersonalizationState = DISABLED` once at startup - the SDK-level
+  equivalent of `npa=1`, so no IDFA is requested and no prompt is required. Trade-off: lower eCPM,
+  accepted over building the ATT flow before submission. Android untouched. **Not verified on a real
+  device or simulator.** If personalized ads are ever wanted back, build the real
+  `ATTrackingManager.requestTrackingAuthorization` flow and gate this value on the user's answer.
+- **Temporary gating for Google Play production approval (2026-09-25)**: levels 8-12 were hidden via
+  `.take(7)` in three places (level 8 since unhidden, `.take(8)`); "Coming Soon" chapter placeholders
+  removed (replaced with layout-preserving spacers); Settings language list restricted to
+  English/French (the only two fully localized); level 2 rain was briefly disabled then reverted.
+  **If a Play review ever needs the rain gone again, `LevelData.DEFAULT_LEVEL_2.hasRain` is the whole
+  switch.**
 
 ## Keep this file up to date
 
 This file is the first thing a new chat/agent should read. Whenever you make a decision, discover a
 constraint, or change something a future session would need (tooling gaps, CI status, build quirks,
-unresolved issues), update the relevant section - or add one - before ending your turn. Treat stale
-info as a bug: fix it in place rather than leaving it for the next chat. **Prefer editing the
-current-state description over appending a dated "pass" entry** - the file was consolidated on
-2026-09-08 and compressed on 2026-09-14 to stop multi-round sagas accumulating; keep it that way.
-Where the code carries its own reasoning in doc comments (level layouts, `PlayerAnimations`,
-`prep_guard.py`), point there rather than duplicating it here.
+unresolved issues), update the relevant section - or add one - before ending your turn. **Prefer
+editing the current-state description over appending a dated "pass" entry.** Where the code carries
+its own reasoning in doc comments (level layouts, `PlayerAnimations`, `prep_guard.py`), point there
+rather than duplicating it here.

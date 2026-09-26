@@ -20,10 +20,7 @@ import platform.UIKit.UIApplication
 @ObjCName(name = "ShellAppDelegate", exact = true)
 object ShellAppDelegate : KorgwBaseNewAppDelegate() {
     override fun applicationDidFinishLaunching(app: UIApplication) {
-        // Was temporarily pointed at spikeMain() (SwitchSpikeScene) for the Compose<->KorGE
-        // switch spike (see .junie/guidelines.md, "PROVEN VIABLE") - that was never reverted,
-        // so every real level launch showed the spike's debug scene instead of gameplay. Points
-        // at gameMain() (GameEntry.ios.kt) now - the real, non-spike entry point, same shape as
+        // Points at gameMain() (GameEntry.ios.kt), the real entry point - same shape as
         // commonMain's main() but with dynamic level-switching wired in (see
         // GameLevelStartBridge's own doc comment for why that's needed on iOS specifically).
         applicationDidFinishLaunching(app) { gameMain() }

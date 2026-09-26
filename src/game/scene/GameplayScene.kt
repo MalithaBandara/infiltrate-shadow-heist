@@ -182,6 +182,10 @@ class GameplayScene(
     /** Wall time the current prompt has been on screen - drives [TutorialStep.autoDismissSeconds]. */
     private var stepVisibleTimer: Double = 0.0
     private var stepActivatedX: Double = 0.0
+
+    /** Where the cart stood when a TutorialStep.requiresPushCartGrip step opened - its MOVE is
+     *  measured on the CART, not on the body. See the completion test below. */
+    private var stepActivatedCartX: Double = 0.0
     private var lastUsedKeyboard: Boolean = false
     private var prevRightPressed: Boolean = false
 
@@ -200,7 +204,7 @@ class GameplayScene(
     }
 
     override suspend fun SContainer.sceneMain() {
-        canvasW = sceneWidth.toDouble().coerceAtLeast(800.0)
+        canvasW = if (Platform.isJvm) sceneWidth.toDouble() else sceneWidth.toDouble().coerceAtLeast(800.0)
         canvasH = sceneHeight.toDouble().coerceAtLeast(480.0)
 
         // What the OS keeps of this screen, converted from the host's dp/points into this canvas's
@@ -308,6 +312,7 @@ class GameplayScene(
         val fenceBitmap = bitmaps.fenceBitmap
         val fence2Bitmap = bitmaps.fence2Bitmap
         val barrelBitmap = bitmaps.barrelBitmap
+        val cartBitmap = bitmaps.cartBitmap
         val woodCrateBitmap = bitmaps.woodCrateBitmap
         val poleBitmap = bitmaps.poleBitmap
         val craneBitmap = bitmaps.craneBitmap
@@ -348,22 +353,81 @@ class GameplayScene(
 
         // Combined background & midground layer container (parallax rate 0.2x, looping, unzoomed at native screen height)
         val bgmgContainer = container()
-        val bgmgImages = mutableListOf<Image>()
+        val bgmgImages = mutableListOf<View>()
         val bgScale = if (bgFileName == "metalbg.png" && bgmgBitmap != null) {
             (1000.0 * worldZoom) / bgmgBitmap.width
+        } else if (bgFileName == "bglvl7.png") {
+            LEVEL_7_BG_SCALE
         } else if (bgmgBitmap != null) {
             canvasH / bgmgBitmap.height
         } else {
             1.0
         }
+        // metalbg.png hangs from the top of the screen at a fixed scale, so on a canvas taller
+        // than the reference 480 (every 16:9 phone and squarer) its bottom edge stopped short of
+        // the belt and left a band of bare stage colour between them. The scale itself can't
+        // grow to cover it: level 4's distance stencils sit 1500 units apart and land on bare
+        // panels only because a tile is exactly 1000 units wide - any other width walks them onto
+        // pillars. So the wall grows TALLER instead: texture rows [STRETCH_TOP, STRETCH_BOTTOM)
+        // are plain lower panel and plain pillar shaft with no horizontal detail at all (row-to-row
+        // change ~1/255), and stretching that band vertically is invisible. Everything above it,
+        // stencils included, stays exactly where it was; everything below it (pillar plinths, base
+        // line) lands at the same world height it has on the reference canvas, tucked behind the
+        // belt. worldView pins the ground to the screen's bottom edge, so that is exactly the
+        // canvas height beyond the reference 480.
+        val metalStretchTop = 560
+        val metalStretchBottom = 630
+        val metalWallExtra = if (bgFileName == "metalbg.png") {
+            max(0.0, canvasH - ScreenLayout.DESIGN_HEIGHT)
+        } else {
+            0.0
+        }
+        // Horizontal bands of the background texture, each drawn at the tile's width and its own
+        // height: (first texture row, end texture row, drawn height). Null draws the texture whole.
+        val bgBands: List<Triple<Int, Int, Double>>? = when {
+            bgmgBitmap == null -> null
+            metalWallExtra > 0.0 -> listOf(
+                Triple(0, metalStretchTop, metalStretchTop * bgScale),
+                Triple(metalStretchTop, metalStretchBottom, (metalStretchBottom - metalStretchTop) * bgScale + metalWallExtra),
+                Triple(metalStretchBottom, bgmgBitmap.height, (bgmgBitmap.height - metalStretchBottom) * bgScale)
+            )
+            // See LEVEL_7_BG_SCALE: the duct keeps the reference scale, the scenery above and
+            // below it absorbs the rest of a taller canvas.
+            bgFileName == "bglvl7.png" && canvasH > ScreenLayout.DESIGN_HEIGHT -> {
+                val stretch = level7SceneryStretch(canvasH)
+                listOf(
+                    Triple(0, LEVEL_7_BG_DUCT_TOP_ROW, LEVEL_7_BG_DUCT_TOP_ROW * bgScale * stretch),
+                    Triple(LEVEL_7_BG_DUCT_TOP_ROW, LEVEL_7_BG_DUCT_BOTTOM_ROW, (LEVEL_7_BG_DUCT_BOTTOM_ROW - LEVEL_7_BG_DUCT_TOP_ROW) * bgScale),
+                    Triple(LEVEL_7_BG_DUCT_BOTTOM_ROW, bgmgBitmap.height, (bgmgBitmap.height - LEVEL_7_BG_DUCT_BOTTOM_ROW) * bgScale * stretch)
+                )
+            }
+            else -> null
+        }
         val bgmgTileW = if (bgmgBitmap != null) {
             val tileW = bgmgBitmap.width * bgScale
             val count = max(6, (canvasW / tileW).toInt() + 4)
             for (i in 0 until count) {
-                val img = bgmgContainer.image(bgmgBitmap) {
-                    size(tileW + 1.0, if (bgFileName == "metalbg.png") bgmgBitmap.height * bgScale else canvasH)
-                }.xy(i * tileW, 0.0)
-                bgmgImages.add(img)
+                val tile: View = if (bgBands != null) {
+                    bgmgContainer.container {
+                        var y = 0.0
+                        for ((index, band) in bgBands.withIndex()) {
+                            val (fromRow, toRow, drawH) = band
+                            // Each piece but the last runs 1 unit under the next so fractional
+                            // edges can't open a hairline seam between them.
+                            val overlap = if (index < bgBands.lastIndex) 1.0 else 0.0
+                            image(bgmgBitmap.slice(RectangleInt(0, fromRow, bgmgBitmap.width, toRow - fromRow))) {
+                                size(tileW + 1.0, drawH + overlap)
+                            }.xy(0.0, y)
+                            y += drawH
+                        }
+                    }
+                } else {
+                    bgmgContainer.image(bgmgBitmap) {
+                        size(tileW + 1.0, if (bgFileName == "metalbg.png") bgmgBitmap.height * bgScale else canvasH)
+                    }
+                }
+                tile.xy(i * tileW, 0.0)
+                bgmgImages.add(tile)
             }
             tileW
         } else {
@@ -409,7 +473,7 @@ class GameplayScene(
         val initialWorldViewX = initialDesiredWorldViewX.coerceIn(initialMinWorldViewX.coerceAtMost(0.0), 0.0)
         val baseWorldViewY = if (bgFileName == "bglvl7.png") {
             val lvl7GroundY = world.platforms.firstOrNull { it.y >= 400.0 && it.width >= 1000.0 }?.y ?: 440.0
-            canvasH * (488.0 / 724.0) - (lvl7GroundY * worldZoom)
+            level7FloorScreenY(canvasH) - (lvl7GroundY * worldZoom)
         } else {
             canvasH - (baseGroundY + 70.0) * worldZoom
         }
@@ -437,12 +501,11 @@ class GameplayScene(
         // apart, but each one is then nudged along the corridor onto bare wall - see
         // LEVEL_7_CLEAR_WALL_WINDOWS and findClearWallX.
         //
-        // These go inside worldView rather than the parallax layer level 4 uses. Level 4 can put
-        // its own in the background because metalbg.png's scale is fixed (1000 * worldZoom / tile
-        // width); bglvl7.png's is canvasH / 724, so a sign sized off it would grow and shrink with
-        // the window while the corridor painted around it did not. Added before anything else in
-        // the world, so they still draw behind all of it - which is the only thing level 4 gained
-        // by putting them in the background layer in the first place.
+        // These go inside worldView rather than the parallax layer level 4 uses. They were put
+        // here while bglvl7.png's scale still followed the canvas height (a sign sized off it
+        // would have grown and shrunk with the window); it is fixed now (LEVEL_7_BG_SCALE), so
+        // either layer would do. Added before anything else in the world, so they still draw
+        // behind all of it.
         if (bgFileName == "bglvl7.png" && bitmaps.wallMarkerBitmaps.isNotEmpty() && bgmgBitmap != null) {
             // 28 units tall, down from 32: the stencil has to fit inside a bare panel, and the
             // widest plate ("120m") at 32 needed 148 of bglvl7.png's own pixels against a widest
@@ -490,7 +553,7 @@ class GameplayScene(
             val platCont = worldView.container().xy(platform.x, platform.y)
             if (bgFileName == "bglvl7.png" && platform.y >= 400.0 && platform.width >= 1000.0) {
                 // Black colour platform over the black floor beam in bglvl7.png (Y=488..534 in background)
-                val beamHeightWorld = (534.0 - 488.0) * (canvasH / 724.0) / worldZoom
+                val beamHeightWorld = (534.0 - 488.0) * LEVEL_7_BG_SCALE / worldZoom
                 platCont.solidRect(platform.width, beamHeightWorld, Colors.BLACK)
             } else {
                 renderRoughBlock(platCont, platform.width, platform.height, seed = (platform.x * 47.0 + platform.y).toLong())
@@ -974,22 +1037,36 @@ class GameplayScene(
             crateCont
         }
 
-        val isL4 = levelData.id == "level_4"
-
-        // Level 4 Facility Interior Chamber & Overhead Crane Monorail:
-        // Rendered behind crates and conveyor so newly spawned crates/cranes emerge from inside the facility.
-        if (isL4) {
-            val conveyorRight = world.conveyors.firstOrNull()?.bounds?.right ?: 7760.0
-            val groundY = 440.0
-            val chamber = worldView.container().xy(conveyorRight, groundY - 360.0)
-            // Dark interior shadow depth behind the portal opening
-            chamber.solidRect(180.0, 360.0, Colors["#07090d"]).xy(0.0, 0.0)
-            // Vertical structural depth perspective ribs inside warehouse
-            for (i in 1..4) {
-                chamber.solidRect(3.0, 360.0, Colors["#131720"]).xy(i * 38.0, 0.0)
+        // Pushable flatbed carts (LevelLayout.pushCarts). The load goes down first so the cart's
+        // own handle posts and deck draw in front of it, which is what makes the crate read as
+        // riding BETWEEN the handles rather than balanced on a silhouette. Both rects come from
+        // the cart itself (PushCart.loadBounds), in its local space, so nothing here has to know
+        // cart.png's proportions.
+        val pushCartContainers = world.pushCarts.map { cart ->
+            val cartCont = worldView.container().xy(cart.x, cart.y)
+            val load = cart.loadBounds
+            if (woodCrateSlice != null) {
+                cartCont.image(woodCrateSlice) {
+                    size(load.width, load.height)
+                }.xy(load.x - cart.x, load.y - cart.y)
             }
-            cullable(chamber, conveyorRight, 180.0)
+            if (cartBitmap != null) {
+                cartCont.image(cartBitmap) {
+                    size(cart.width, cart.height)
+                }.xy(0.0, 0.0)
+            } else {
+                cartCont.solidRect(cart.width, cart.height, Colors["#101318"])
+            }
+            cartCont
         }
+
+        val isL4 = levelData.id == "level_4"
+        // Level 4's crates wrap back in at x ~8026..8124, behind l4end.png. Its tall block only
+        // covers the first ~277 units past the belt's end; beyond that the machine is its low
+        // section, and a hanging crate riding at y 145..250 would show above it. So a crate is
+        // simply not drawn while its left edge is still inside the machine - it appears the moment
+        // it starts to leave through the machine's face, where the tall block still covers it.
+        val crateHiddenFromX = if (isL4) world.conveyors.firstOrNull()?.bounds?.right ?: Double.MAX_VALUE else Double.MAX_VALUE
 
         // Conveyor crates (crates carried dynamically with the conveyor belt)
         val conveyorCrateContainers = world.conveyorCrates.map { crate ->
@@ -1009,7 +1086,12 @@ class GameplayScene(
         }
 
         // Laser hazards: realistic volumetric gradient beams with blooming contact flares
-        val laserVisuals = LaserVisual.createAll(worldView, world.lasers, laserEmitterBitmap)
+        // Level 4's emitters hang from the very top of the screen. worldView.y never moves
+        // vertically, so the screen's top edge is one fixed world y per device aspect.
+        val laserVisuals = LaserVisual.createAll(
+            worldView, world.lasers, laserEmitterBitmap,
+            visualTopY = if (isL4) -baseWorldViewY / worldZoom else null
+        )
 
         // Level 7 Vent Infiltration: duct corridor framing, exhaust fans, camera bots, and steam pipes
         val ventFanVisuals = VentFanVisual.createAll(
@@ -1034,7 +1116,10 @@ class GameplayScene(
         )
 
         // Level 4 Extraction Terminal Machine (l4end.png): large industrial housing enclosing
-        // the crate loop spawn point so newly wrapped crates emerge naturally from inside.
+        // the crate loop spawn point so newly wrapped crates emerge naturally from inside. The
+        // belt runs straight into its black face - the file used to carry a grey open-doorway
+        // frame on its left (with a dark "interior" and a striped hazard hood drawn in code to
+        // fill it); the owner asked for that doorway gone, so it was cropped off on disk.
         if (isL4 && l4endBitmap != null) {
             val conveyorRight = world.conveyors.firstOrNull()?.bounds?.right ?: 7760.0
             val l4endHeight = 360.0
@@ -1046,28 +1131,6 @@ class GameplayScene(
                 size(l4endWidth, l4endHeight)
             }.xy(l4endX, l4endY)
             cullable(l4endImg, l4endX, l4endWidth)
-
-            // Portal entrance frame accents:
-            // 1. Overhead lintel hood with safety hazard stripes above portal (x in [l4endX - 2, l4endX + 75], y in [138, 150])
-            val portalFrame = worldView.container()
-            val hoodW = 75.0
-            val hoodH = 10.0
-            val hoodY = 140.0
-            portalFrame.solidRect(hoodW, hoodH, Colors["#222732"]).xy(l4endX - 2.0, hoodY)
-            var sx = l4endX - 2.0
-            while (sx < l4endX + hoodW - 6.0) {
-                portalFrame.solidRect(7.0, hoodH, Colors["#e5b014"]).xy(sx, hoodY)
-                sx += 14.0
-            }
-            // Warning beacon above doorway
-            portalFrame.solidRect(6.0, 6.0, Colors["#f59e0b"]).xy(l4endX + hoodW - 12.0, hoodY - 8.0)
-
-            // 2. Heavy steel doorway baseplate connecting conveyor belt corner flush to machine (zero gap)
-            val baseplate = worldView.container()
-            baseplate.solidRect(6.0, 26.0, Colors["#2d3544"]).xy(l4endX - 3.0, 414.0)
-            baseplate.solidRect(2.0, 26.0, Colors["#4a576e"]).xy(l4endX - 3.0, 414.0)
-            cullable(portalFrame, l4endX, hoodW)
-            cullable(baseplate, l4endX - 3.0, 6.0)
         }
 
         // Guards: torch beams first so they render beneath the bodies. LightConeView, not
@@ -1214,7 +1277,9 @@ class GameplayScene(
         val playerSourceFrameHeight = PlayerAnimations.SOURCE_FRAME_HEIGHT
         val playerSourceSilhouetteHeight = PlayerAnimations.SOURCE_SILHOUETTE_HEIGHT
         val playerSourceFeetY = PlayerAnimations.SOURCE_FEET_Y // Ground line within the frame
-        val playerVisualHeight = world.player.height
+        // Drawn slightly larger than the collision box - see Player.VISUAL_HEIGHT_SCALE. Every
+        // stride constant below is "per height", so they scale with it and the feet stay planted.
+        val playerVisualHeight = world.player.visualHeight
         val playerBaseScale = playerVisualHeight / playerSourceSilhouetteHeight
         val playerFeetAnchorY = playerSourceFeetY / playerSourceFrameHeight
         val idleFeetOffset = (playerSourceFeetY - PlayerAnimations.IDLE_FEET_Y) * playerBaseScale
@@ -1537,9 +1602,9 @@ class GameplayScene(
         // effect behind the characters and all the elements". The near layer used to be a child of
         // the scene root, over the top of everything.
         //
-        // The lightning wash does NOT move with them: a full-screen flash parented behind the
-        // level would light the sky and leave the yard dark, which is backwards. It stays on the
-        // scene root, above worldView and below hudLayer, exactly where it was.
+        // Sky lightning also renders inside bgmgContainer behind the world silhouettes with no
+        // full-screen white flash (owner request 2026-09-26: "dont flash the screen with white
+        // when lightning").
         //
         // world.platforms already carries the level's floors, its boxes and its two side walls;
         // RainEffect filters the walls out by height and builds its own landing height map from
@@ -1550,12 +1615,11 @@ class GameplayScene(
                 fgLayer = bgmgContainer,
                 initialCanvasW = canvasW,
                 initialCanvasH = canvasH,
-                flashLayer = this,
                 splashSurfaces = world.platforms
             )
         } else null
 
-        val hudLayer = container()
+        val hudLayer = container().also { it.visible = !(Platform.isJvm && debugHideAllUi) }
 
         // --- Objectives panel: what the run is for, and how it is going --------------------
         // One block, up for the whole run. It replaces the pair this used to be - a mission toast
@@ -1782,7 +1846,7 @@ class GameplayScene(
         touchCrouch = false
         touchInteract = false
 
-        val controlsContainer = container().xy(0.0, 0.0)
+        val controlsContainer = container().xy(0.0, 0.0).also { it.visible = !(Platform.isJvm && debugHideAllUi) }
 
         // Helper to create circular virtual touch button with GPU vector rendering
         fun createTouchBtn(
@@ -2581,6 +2645,7 @@ class GameplayScene(
         stepActionTimer = 0.0
         stepVisibleTimer = 0.0
         stepActivatedX = 0.0
+        stepActivatedCartX = 0.0
         lastUsedKeyboard = false
 
         prevRightPressed = false
@@ -2644,6 +2709,18 @@ class GameplayScene(
                 refreshProfile()
             }
 
+            if (Platform.isJvm && views.input.keys.justPressed(Key.F3)) {
+                debugHideAllUi = !debugHideAllUi
+            }
+
+            if (Platform.isJvm && views.input.keys.justPressed(Key.R)) {
+                stopBgMusic()
+                launchImmediately {
+                    sceneContainer.changeTo { GameplayScene(levelData) }
+                }
+                return@addUpdater
+            }
+
             if (Platform.isJvm) {
                 debugLevelCheckTimer += dtSec
                 if (debugLevelCheckTimer >= 0.15) {
@@ -2652,9 +2729,32 @@ class GameplayScene(
                         try {
                             val debugFile = localCurrentDirVfs[".debug_level"]
                             if (debugFile.exists()) {
-                                val targetId = debugFile.readString().trim()
+                                val rawCmd = debugFile.readString().trim()
                                 debugFile.delete()
-                                val targetLevel = LevelData.findById(targetId)
+                                val parts = rawCmd.split("|").map { it.trim() }
+                                val targetId = parts.getOrNull(0).orEmpty()
+                                val sizePart = parts.getOrNull(1).orEmpty()
+                                val uiPart = parts.getOrNull(2).orEmpty()
+
+                                if (uiPart.startsWith("hideUi=", ignoreCase = true)) {
+                                    debugHideAllUi = uiPart.substringAfter("=").equals("true", ignoreCase = true)
+                                }
+
+                                if (sizePart.contains("x", ignoreCase = true)) {
+                                    val wh = sizePart.lowercase().split("x")
+                                    val w = wh.getOrNull(0)?.toDoubleOrNull()
+                                    val h = wh.getOrNull(1)?.toDoubleOrNull()
+                                    if (w != null && h != null && w >= 200.0 && h >= 200.0) {
+                                        DeviceScreen.publish(w, h)
+                                        DeviceViewport.apply(views, sceneContainer)
+                                    }
+                                }
+
+                                val targetLevel = if (targetId.isEmpty() || targetId.equals("current", ignoreCase = true)) {
+                                    levelData
+                                } else {
+                                    LevelData.findById(targetId)
+                                }
                                 if (targetLevel != null) {
                                     stopBgMusic()
                                     sceneContainer.changeTo { GameplayScene(targetLevel) }
@@ -2665,7 +2765,16 @@ class GameplayScene(
                 }
             }
 
-            pauseOverlay.visible = isPaused
+            if (Platform.isJvm && debugHideAllUi) {
+                hudLayer.visible = false
+                controlsContainer.visible = false
+                tutorialLayer.visible = false
+            } else if (Platform.isJvm) {
+                hudLayer.visible = true
+                controlsContainer.visible = true
+            }
+
+            pauseOverlay.visible = isPaused && !(Platform.isJvm && debugHideAllUi)
 
             // Everything below reads volumes and the powerup inventory off this one snapshot.
             refreshProfile()
@@ -2751,11 +2860,15 @@ class GameplayScene(
                     val candidate = tutorialSteps.firstOrNull { step ->
                         step.id !in completedTutorialStepIds &&
                             playerX >= step.triggerMinX &&
-                            playerX <= step.triggerMaxX
+                            playerX <= step.triggerMaxX &&
+                            // See TutorialStep.requiresPushCartGrip - an X window cannot say
+                            // "now that you are holding it".
+                            (!step.requiresPushCartGrip || world.grippedCart != null)
                     }
                     if (candidate != null) {
                         currentTutorialStep = candidate
                         stepActivatedX = playerX
+                        stepActivatedCartX = world.grippedCart?.x ?: 0.0
                         stepActionCompleted = false
                         stepActionTimer = 0.0
                         stepVisibleTimer = 0.0
@@ -2783,6 +2896,17 @@ class GameplayScene(
                             TutorialAction.MOVE -> {
                                 if (step.id == "step_spam_fan") {
                                     (world.isWindSpamming && (playerX >= stepActivatedX + 35.0 || playerX >= 420.0)) || playerX > step.triggerMaxX
+                                } else if (step.requiresPushCartGrip) {
+                                    // Measured on the CART, in either direction. Either half of
+                                    // that matters: a pull counts, so the forward-only test below
+                                    // would strand a player who dragged it back; and the body
+                                    // moves on its own during the settle (GameWorld.settleIntoCart
+                                    // walks it up to PushCart.GRIP_REACH into contact), which a
+                                    // test on the body would read as the player having answered a
+                                    // prompt he has not touched yet.
+                                    val cartX = world.grippedCart?.x
+                                    (cartX != null && abs(cartX - stepActivatedCartX) >= 24.0) ||
+                                        playerX > step.triggerMaxX
                                 } else {
                                     (moveInput != 0.0 && playerX >= stepActivatedX + 30.0) || playerX > step.triggerMaxX
                                 }
@@ -3144,6 +3268,10 @@ class GameplayScene(
                         tutorialHighlightGraphics.updateShape { clear() }
                     }
                 }
+                if (Platform.isJvm && debugHideAllUi) {
+                    tutorialLayer.visible = false
+                    tutorialLayer.alpha = 0.0
+                }
             } else {
                 if (tutorialLayer.visible) {
                     tutorialLayer.visible = false
@@ -3201,6 +3329,10 @@ class GameplayScene(
                 val mp = world.movingPlatforms[i]
                 movingPlatformContainers[i].xy(mp.x, mp.y)
             }
+            for (i in world.pushCarts.indices) {
+                val cart = world.pushCarts[i]
+                pushCartContainers[i].xy(cart.x, cart.y)
+            }
             for (i in world.conveyorCrates.indices) {
                 val crate = world.conveyorCrates[i]
                 conveyorCrateContainers[i].xy(crate.x, crate.y)
@@ -3226,7 +3358,7 @@ class GameplayScene(
             }
 
             // Camera: Center player on zoomed gameplay worldView, clamped to level bounds
-            val currentCanvasW = sceneWidth.toDouble().coerceAtLeast(800.0)
+            val currentCanvasW = if (Platform.isJvm) sceneWidth.toDouble() else sceneWidth.toDouble().coerceAtLeast(800.0)
             val currentCanvasH = sceneHeight.toDouble().coerceAtLeast(480.0)
             val halfScreen = currentCanvasW / 2.0
             val playerCenterX = world.player.x + world.player.width / 2.0
@@ -3250,7 +3382,7 @@ class GameplayScene(
             worldView.x = cameraFollow.position.coerceIn(minWorldViewX.coerceAtMost(0.0), 0.0)
             val baseWorldViewY = if (bgFileName == "bglvl7.png") {
                 val lvl7GroundY = world.platforms.firstOrNull { it.y >= 400.0 && it.width >= 1000.0 }?.y ?: 440.0
-                currentCanvasH * (488.0 / 724.0) - (lvl7GroundY * worldZoom)
+                level7FloorScreenY(currentCanvasH) - (lvl7GroundY * worldZoom)
             } else {
                 currentCanvasH - (baseGroundY + 70.0) * worldZoom
             }
@@ -3282,7 +3414,8 @@ class GameplayScene(
             }
             for (i in world.conveyorCrates.indices) {
                 val crate = world.conveyorCrates[i]
-                val isVis = crate.bounds.right >= cullLeft && crate.bounds.left <= cullRight
+                val isVis = crate.bounds.right >= cullLeft && crate.bounds.left <= cullRight &&
+                    crate.bounds.left < crateHiddenFromX
                 conveyorCrateContainers[i].visible = isVis
             }
             for (visual in laserVisuals) {
@@ -3476,7 +3609,14 @@ class GameplayScene(
                     pushCycleProgress = 0.0
                     pushStriding = false
                     pushLoopClipLoaded = false
-                    pushFacingLeft = playerFacingLeft
+                    // With a cart in hand the braced body faces the cart, whichever way he
+                    // happened to be looking when he grabbed it; the bare dev stage has nothing
+                    // to face, so it keeps whatever direction he walked in on.
+                    pushFacingLeft = when {
+                        world.pushCartSide > 0.0 -> false
+                        world.pushCartSide < 0.0 -> true
+                        else -> playerFacingLeft
+                    }
                     playerSprite.playAnimationLooped(playerAnimations.pushTransition, manualFrameTime)
                 }
                 val braced = world.isPushing
@@ -3493,8 +3633,14 @@ class GameplayScene(
                         pushStriding = true
                     }
                     val previousPhase = pushCycleProgress
-                    pushCycleProgress =
-                        (pushCycleProgress + abs(world.player.vx) * dtSec / pushCycleDistance) % 1.0
+                    // Signed, unlike every other gait here: GameWorld.pushGaitDirection is -1
+                    // while the cart is being DRAGGED back, and the same clip run backwards is
+                    // the pull - the footage is a body leaning into a load, which reads correctly
+                    // either way round. The +1.0 before the modulo is what keeps a reversed cycle
+                    // wrapping to 0.99 instead of a negative frame index.
+                    val cycleStep =
+                        world.pushGaitDirection * abs(world.player.vx) * dtSec / pushCycleDistance
+                    pushCycleProgress = (pushCycleProgress + cycleStep + 1.0) % 1.0
                     if (!pushLoopClipLoaded) {
                         playerSprite.playAnimationLooped(playerAnimations.push, manualFrameTime)
                         pushLoopClipLoaded = true
@@ -3506,10 +3652,21 @@ class GameplayScene(
                     // Same crossing test the walk stride uses, against this gait's own contact
                     // phases - see GameAudio.PUSH_STEP_PHASES.
                     for (phase in GameAudio.PUSH_STEP_PHASES) {
-                        val crossed = if (pushCycleProgress >= previousPhase) {
-                            phase > previousPhase && phase <= pushCycleProgress
+                        // Mirrored for a pull. The forward test alone would have taken the
+                        // wrap-around branch on EVERY reversed frame (progress is always below
+                        // the previous one going backwards), firing both footsteps every tick.
+                        val crossed = if (world.pushGaitDirection >= 0.0) {
+                            if (pushCycleProgress >= previousPhase) {
+                                phase > previousPhase && phase <= pushCycleProgress
+                            } else {
+                                phase > previousPhase || phase <= pushCycleProgress
+                            }
                         } else {
-                            phase > previousPhase || phase <= pushCycleProgress
+                            if (pushCycleProgress <= previousPhase) {
+                                phase < previousPhase && phase >= pushCycleProgress
+                            } else {
+                                phase < previousPhase || phase >= pushCycleProgress
+                            }
                         }
                         if (crossed && !world.activePowerups.isNoiseSuppressed) {
                             val step = if (stepAlternate) sounds.stepB else sounds.stepA
@@ -3520,14 +3677,33 @@ class GameplayScene(
                             )
                         }
                     }
+                } else if (braced) {
+                    // Braced but not moving holds the GAIT's own first frame, not the end of the
+                    // transition clip.
+                    //
+                    // The transition's settled brace is a deeper lean than the cycle ever
+                    // reaches, and its leading fist sits lower and further back, so a body that
+                    // stopped mid-push let go of whatever it was leaning on - contact was right
+                    // while walking and visibly short while standing. PlayerAnimations.
+                    // PUSH_REST_FRAME is a pose the cycle actually passes through, so the hands
+                    // are where the walking hands are. The transition clip was re-cut to end on
+                    // the frame that matches it (PUSH_TRANSITION_LAST), which is what makes the
+                    // swap below a clip change on one pose rather than a step.
+                    pushStriding = false
+                    pushCycleProgress = 0.0
+                    if (!pushLoopClipLoaded) {
+                        playerSprite.playAnimationLooped(playerAnimations.push, manualFrameTime)
+                        pushLoopClipLoaded = true
+                    }
+                    playerSprite.setFrame(PlayerAnimations.PUSH_REST_FRAME)
                 } else {
+                    // Still leaning in, or standing back up: scrub the transition by the blend,
+                    // in both directions, exactly as the crouch clip is used.
                     pushStriding = false
                     if (pushLoopClipLoaded) {
                         playerSprite.playAnimationLooped(playerAnimations.pushTransition, manualFrameTime)
                         pushLoopClipLoaded = false
                     }
-                    // Braced but not moving pins the transition's last frame - its settled brace -
-                    // rather than freezing the gait loop mid-step.
                     val t = world.pushStanceBlend.coerceIn(0.0, 1.0)
                     playerSprite.setFrame(
                         (t * pushTransitionLastFrame).roundToInt().coerceIn(0, pushTransitionLastFrame)
@@ -4652,6 +4828,44 @@ class GameplayScene(
     }
 
     companion object {
+        var debugHideAllUi: Boolean = false
+
+        /**
+         * bglvl7.png's scale, fixed at what the reference 480-unit canvas gives it. The painted
+         * duct - ceiling beam bottom at texture row 212, floor beam top at row 488 - then spans
+         * exactly the world's own 304..440 at every aspect, and the wall detail behind any world
+         * x is the same everywhere.
+         *
+         * It used to be `canvasH / 724`, which only equals this on the reference canvas: against
+         * a fixed worldZoom it painted the duct 166 units tall on a 16:9 phone and 194 on a
+         * foldable, so the ceiling nozzles (bolted on at world y 304) hung well below the black
+         * beam, and the fans slid across the wall art from one device to the next.
+         */
+        internal const val LEVEL_7_BG_SCALE: Double = ScreenLayout.DESIGN_HEIGHT / 724.0
+
+        /**
+         * Texture rows bracketing the duct: both inside a solid-black beam (ceiling rows 181..211,
+         * floor rows 488..529), so the seam against a stretched band is black on black. Rows
+         * between them are always drawn at [LEVEL_7_BG_SCALE]; the scenery outside them (distant
+         * plant, fog) is what stretches to fill a canvas taller than the reference.
+         */
+        internal const val LEVEL_7_BG_DUCT_TOP_ROW = 186
+        internal const val LEVEL_7_BG_DUCT_BOTTOM_ROW = 526
+
+        /**
+         * Vertical stretch of bglvl7.png's scenery bands on a canvas [canvasH] tall - shared
+         * between the two bands in proportion to their height, so both stretch by the same
+         * factor. 1.0 at the reference 480; ~1.41 on a 16:9 phone, ~1.47 at 4:3, ~1.81 on a 7:6 foldable.
+         */
+        internal fun level7SceneryStretch(canvasH: Double): Double {
+            val sceneryRows = LEVEL_7_BG_DUCT_TOP_ROW + (724 - LEVEL_7_BG_DUCT_BOTTOM_ROW)
+            return 1.0 + max(0.0, canvasH - ScreenLayout.DESIGN_HEIGHT) / (sceneryRows * LEVEL_7_BG_SCALE)
+        }
+
+        /** Screen y of bglvl7.png's floor line (texture row 488), where level 7's ground sits. */
+        internal fun level7FloorScreenY(canvasH: Double): Double =
+            LEVEL_7_BG_DUCT_TOP_ROW * LEVEL_7_BG_SCALE * level7SceneryStretch(canvasH) +
+                (488 - LEVEL_7_BG_DUCT_TOP_ROW) * LEVEL_7_BG_SCALE
         /**
          * Spans of bglvl7.png, in its own 2172-wide pixels, where the duct wall is bare metal -
          * no louvred vent, junction box, conduit or standpipe. Measured by
@@ -4692,11 +4906,10 @@ class GameplayScene(
          * if there is none within [LEVEL_7_MARKER_SEARCH_RADIUS].
          *
          * bglvl7.png tiles and scrolls 1:1 with the world, so the texture pixel under a world x is
-         * `(x * worldZoom / bgScale) mod textureWidth` - a fixed mapping once the canvas is known,
-         * but NOT a fixed one across canvases: bglvl7's background scale is `canvasH / 724`, so the
-         * same world x sits over different wall detail on a 16:9 phone and on a 4:3 tablet. That is
-         * why this runs at scene build time against the live `bgScale` instead of the positions
-         * being baked into the level. The owner's brief was "put the name only on places where
+         * `(x * worldZoom / bgScale) mod textureWidth`. That mapping used to differ per canvas
+         * (the scale was `canvasH / 724`), which is why this runs at scene build time against the
+         * live `bgScale` instead of the positions being baked into the level; since
+         * [LEVEL_7_BG_SCALE] it is the same on every device, so every device gets the same answer. The owner's brief was "put the name only on places where
          * background is empty ... it is okay for it to not be in the exact correct place", so the
          * search trades up to 240 units (4.8m) of position for a clean backdrop, and gives the
          * position back rather than draw nothing if the wall is busy everywhere nearby.
@@ -5590,6 +5803,9 @@ class GameplayScene(
         val fence2Bitmap = SceneAssets.bitmap("fence2.png")
         markLoadProgress()
         val barrelBitmap = SceneAssets.bitmap("barrel.png")
+        // 512x256, drawn at 92x48 - see LevelData.LEVEL_8_LAYOUT and ".junie/guidelines.md" ->
+        // "Adding new art". POT, so it gets mipmaps and costs no new warning line.
+        val cartBitmap = SceneAssets.bitmap("cart.png")
         markLoadProgress()
         val woodCrateBitmap = SceneAssets.bitmap("woodcrate2.png")
         markLoadProgress()
@@ -5687,6 +5903,7 @@ class GameplayScene(
             fenceBitmap = fenceBitmap,
             fence2Bitmap = fence2Bitmap,
             barrelBitmap = barrelBitmap,
+            cartBitmap = cartBitmap,
             woodCrateBitmap = woodCrateBitmap,
             poleBitmap = poleBitmap,
             craneBitmap = craneBitmap,
@@ -5739,6 +5956,7 @@ class GameplayScene(
         val fenceBitmap: Bitmap?,
         val fence2Bitmap: Bitmap?,
         val barrelBitmap: Bitmap?,
+        val cartBitmap: Bitmap?,
         val woodCrateBitmap: Bitmap?,
         val poleBitmap: Bitmap?,
         val craneBitmap: Bitmap?,

@@ -90,8 +90,28 @@ CROP_W = OUT_W / SCALE
 CROP_H = OUT_H / SCALE
 
 # (folder, first, last, step) in raw 1-based file numbering.
+#
+# WHY THE TRANSITION STOPS AT RAW 72 AND NOT AT 96 (changed 2026-09-26)
+#
+# The two clips are separate takes, not one continuous shot, so where the lean-in ENDS
+# and where the gait BEGINS are independent poses that have to be chosen to agree. They
+# did not. Carried to its own end (raw 96), the transition settles deeper than the gait
+# ever goes: the torso pitches further over and the leading fist drops and pulls back,
+# so a body braced-but-standing-still had its hand visibly short of the thing it was
+# supposed to be leaning on, while the same body walking made contact correctly.
+#
+# So the gait's own frame 0 is now the braced rest pose - it is a pose the push cycle
+# actually passes through, which is what makes contact consistent - and the transition
+# is cut to end on the frame that matches it. Silhouette IoU of every transition frame
+# against every push frame puts that at transition index 31 (raw 10 + 31*2 = 72), at
+# 0.803; the old last frame scored 0.723 against its best match, and the difference
+# between those two numbers is almost entirely the fist. The 12 frames past 72 are not
+# used by anything and are no longer cut.
+#
+# If this is ever re-cut: the handover frame is whatever maximises that IoU, and the
+# scene pins PlayerAnimations.PUSH_REST_FRAME (push frame 0) on the other side of it.
 CLIPS = [
-    ("pushtransition", 10, 96, 2),
+    ("pushtransition", 10, 72, 2),
     ("push", 94, 133, 1),
 ]
 

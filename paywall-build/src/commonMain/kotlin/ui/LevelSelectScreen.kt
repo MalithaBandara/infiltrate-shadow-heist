@@ -233,11 +233,7 @@ fun LevelSelectScreen(
                     ) {
                         for ((index, levelData) in rowLevels) {
                             val result = allResults[levelData.id]
-                            // TEMPORARY (for now): every mission card unlocked regardless of
-                            // progress, for easier testing. Restore the commented-out check below
-                            // to require completing the previous mission first.
-                            val isUnlocked = true
-                            // val isUnlocked = index == 0 || (allResults[levels[index - 1].id]?.completed == true)
+                            val isUnlocked = index == 0 || (allResults[levels[index - 1].id]?.completed == true)
                             val requiresPremium = levelData.id.contains("dlc")
                             val canPlay = isUnlocked && (!requiresPremium || profile.isPremium)
 
