@@ -16,6 +16,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import app.lexilabs.basic.ads.BasicAds
 import app.lexilabs.basic.ads.DependsOnGoogleMobileAds
+import app.lexilabs.basic.ads.RequestConfiguration
 import com.infiltrate.ads.ContinueAdContent
 import com.infiltrate.ads.ContinueAdTrigger
 import com.infiltrate.ads.InterstitialAdContent
@@ -137,6 +138,19 @@ class MainActivity : ComponentActivity() {
             // would compile and run fine but every real load would fail.
             @OptIn(DependsOnGoogleMobileAds::class)
             BasicAds.Initialize()
+            // Matches AdMobVerifyScreen.kt's iOS-side fix: this app has no App Tracking
+            // Transparency-equivalent consent prompt, so ads must stay non-personalized here too
+            // (Google's EU consent/UMP requirement for personalized ads only applies when ads
+            // are actually personalized - disabling it here removes that obligation on Android
+            // the same way disabling it removed the ATT requirement on iOS).
+            @OptIn(DependsOnGoogleMobileAds::class)
+            BasicAds.configuration = RequestConfiguration(
+                maxAdContentRating = null,
+                publisherPrivacyPersonalizationState = RequestConfiguration.PublisherPrivacyPersonalizationState.DISABLED,
+                tagForChildDirectedTreatment = RequestConfiguration.TAG_FOR_CHILD_DIRECTED_TREATMENT_UNSPECIFIED,
+                tagForUnderAgeOfConsent = RequestConfiguration.TAG_FOR_UNDER_AGE_OF_CONSENT_UNSPECIFIED,
+                testDeviceIds = null,
+            )
 
             val gameplayVisible by showingGameplay
             Box(Modifier.fillMaxSize()) {
