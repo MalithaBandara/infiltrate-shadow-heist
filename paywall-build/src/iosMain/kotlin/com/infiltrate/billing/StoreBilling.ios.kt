@@ -206,7 +206,19 @@ actual object StoreBilling {
                 onResult(false, formatError(error))
             },
             onSuccess = { customerInfo ->
-                val hasPurchases = customerInfo.entitlements.all.values.any { it.isActive }
+                // Same test as the Android side. Entitlements alone are not enough: a Remove Ads
+                // purchase with no RevenueCat entitlement attached to its product would restore as
+                // "nothing found" - exactly what App Review checks by buying, reinstalling and
+                // tapping RESTORE (Guideline 3.1.1).
+                val hasActiveEntitlements = customerInfo.entitlements.all.values.any { it.isActive }
+                val hasPurchasedProducts = customerInfo.allPurchasedProductIdentifiers.any {
+                    it.contains("remove_ads", ignoreCase = true) ||
+                    it.contains("no_ads", ignoreCase = true) ||
+                    it.contains("noads", ignoreCase = true) ||
+                    it.contains("premium", ignoreCase = true)
+                }
+                val hasActiveSubs = customerInfo.activeSubscriptions.isNotEmpty()
+                val hasPurchases = hasActiveEntitlements || hasPurchasedProducts || hasActiveSubs
                 if (hasPurchases) {
                     onResult(true, null)
                 } else {
