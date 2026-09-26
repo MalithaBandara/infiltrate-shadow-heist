@@ -148,6 +148,29 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             -derivedDataPath ios-shell/build build
 
+      - name: "Shell app: check for AdMob/RevenueCat privacy manifest and resource bundle"
+        continue-on-error: true
+        run: |
+          set -e
+          APP_PATH=$(find ios-shell/build -name "ShellApp.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ShellApp.app not found - the build step above likely failed. See its log."
+            exit 1
+          fi
+          echo "Checking $APP_PATH for PrivacyInfo.xcprivacy and GoogleMobileAdsResources.bundle"
+          echo "(paywall-build/build.gradle.kts uses noPodspec() - ios-shell has no Podfile of its"
+          echo "own, so nothing here guarantees Xcode's usual Copy Pods Resources phase ran for"
+          echo "these SDKs. App Store Connect rejects uploads missing a required SDK's privacy"
+          echo "manifest with ITMS-91061, before human review - this check exists to catch that"
+          echo "before an actual submission attempt does.)"
+          find "$APP_PATH" -iname "PrivacyInfo.xcprivacy" -o -iname "GoogleMobileAdsResources.bundle"
+          if ! find "$APP_PATH" -iname "PrivacyInfo.xcprivacy" | grep -q .; then
+            echo "MISSING: no PrivacyInfo.xcprivacy found anywhere in the app bundle."
+          fi
+          if ! find "$APP_PATH" -iname "GoogleMobileAdsResources.bundle" | grep -q .; then
+            echo "MISSING: no GoogleMobileAdsResources.bundle found anywhere in the app bundle."
+          fi
+
       - name: "Shell app: boot simulator, install, launch, verify on-device storage bridge"
         continue-on-error: true
         run: |
