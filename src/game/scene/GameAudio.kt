@@ -284,5 +284,10 @@ fun Sound?.playSfx(context: CoroutineContext, gain: Double, sfxVolume: Float, cl
     val volume = gain * sfxVolume.toDouble()
     if (volume <= 0.001) return
     if (clipFile != null && gameSfxOutput?.play(clipFile, volume.toFloat()) == true) return
-    sound.play(context, PlaybackParameters(volume = volume.coerceIn(0.0, 1.0)))
+    try {
+        sound.play(context, PlaybackParameters(volume = volume.coerceIn(0.0, 1.0)))
+    } catch (_: Throwable) {
+        // Defensive: headless test runners or environments lacking an audio backend (e.g. ALSA on Linux)
+        // must never crash the game or test suite when attempting to play a sound effect.
+    }
 }
