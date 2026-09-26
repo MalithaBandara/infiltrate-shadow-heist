@@ -171,29 +171,25 @@ jobs:
             echo "MISSING: no GoogleMobileAdsResources.bundle found anywhere in the app bundle."
           fi
 
-      - name: "One-off: check whether RevenueCat ships its own PrivacyInfo.xcprivacy"
+      - name: "One-off: print AdMob's actual PrivacyInfo.xcprivacy content"
         continue-on-error: true
         run: |
           set +e
-          # AdMob's privacy manifest was confirmed missing (and then fixed - see project.yml's
-          # postbuildScript) via this same kind of search, so the same question needs answering for
-          # RevenueCat: does it ship a PrivacyInfo.xcprivacy at all? Unlike AdMob/UMP, RevenueCat
-          # has no pod() entry in paywall-build/build.gradle.kts - it's a plain Gradle dependency
-          # (implementation("com.revenuecat.purchases:purchases-kmp-core:3.6.0")), so its real
-          # native binary is fetched via Gradle/Kotlin-Native's own dependency resolution, not
-          # CocoaPods - meaning it was never going to show up in the cocoapods/synthetic tree the
-          # earlier search covered. Searching Gradle's and Kotlin/Native's own caches instead, plus
-          # falling back to just locating the RevenueCat/Purchases binary itself if no manifest
-          # exists, so "it doesn't ship one" is a confirmed finding, not just an absence of hits.
-          echo "--- Searching $GITHUB_WORKSPACE for any PrivacyInfo.xcprivacy ---"
-          find "$GITHUB_WORKSPACE" -iname "PrivacyInfo.xcprivacy" 2>/dev/null
-          echo "--- Searching $HOME/.gradle/caches for RevenueCat/Purchases privacy manifests ---"
-          find "$HOME/.gradle/caches" -iname "PrivacyInfo.xcprivacy" 2>/dev/null
-          echo "--- Searching $HOME/.konan for RevenueCat/Purchases privacy manifests ---"
-          find "$HOME/.konan" -iname "PrivacyInfo.xcprivacy" 2>/dev/null
-          echo "--- Fallback: locating RevenueCat's/Purchases' own native binary or framework, wherever it landed ---"
-          find "$HOME/.gradle/caches" "$HOME/.konan" "$GITHUB_WORKSPACE" \( -iname "*revenuecat*" -o -iname "*purchases*.framework" -o -iname "*purchases*.xcframework" \) 2>/dev/null | grep -vi "\.klib\|sources\.jar\|metadata\.jar"
-          echo "--- done ---"
+          # RevenueCat confirmed to ship no PrivacyInfo.xcprivacy anywhere in this build (checked
+          # $GITHUB_WORKSPACE, ~/.gradle/caches, ~/.konan, and for its native binary/framework
+          # directly - nothing found; the KMP wrapper's cinterop step evidently drops it, since
+          # RevenueCat's own purchases-ios SDK is confirmed elsewhere to ship one). Since there's
+          # nothing to copy from for RevenueCat, the fix is a hand-authored, merged manifest
+          # checked into the repo instead of a postbuildScript copy - this step dumps AdMob's real
+          # content (the version actually used in this build, pod version 13.8.0) so that merge is
+          # built from the real declarations, not a guessed or possibly-stale copy from GitHub.
+          MANIFEST=$(find "$GITHUB_WORKSPACE/paywall-build/build/cocoapods/synthetic/ios/Pods/Google-Mobile-Ads-SDK" -path "*/GoogleMobileAds.framework/PrivacyInfo.xcprivacy" 2>/dev/null | head -n 1)
+          if [ -n "$MANIFEST" ]; then
+            echo "--- $MANIFEST ---"
+            cat "$MANIFEST"
+          else
+            echo "AdMob's PrivacyInfo.xcprivacy not found - see the build step above for errors."
+          fi
 
       - name: "Shell app: boot simulator, install, launch, verify on-device storage bridge"
         continue-on-error: true
