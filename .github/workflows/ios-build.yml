@@ -171,22 +171,28 @@ jobs:
             echo "MISSING: no GoogleMobileAdsResources.bundle found anywhere in the app bundle."
           fi
 
-      - name: "One-off: locate PrivacyInfo.xcprivacy / GoogleMobileAdsResources.bundle anywhere on the runner"
+      - name: "One-off: check whether RevenueCat ships its own PrivacyInfo.xcprivacy"
         continue-on-error: true
         run: |
           set +e
-          # Confirmed missing from ShellApp.app in the previous step. Kotlin's cocoapods plugin
-          # builds Google-Mobile-Ads-SDK in its own synthetic Xcode project under
-          # paywall-build/build/cocoapods/synthetic/IOS/ (see "podBuildGoogle-Mobile-Ads-SDK..."
-          # task in the build log above) rather than ios-shell/build/ - this searches the whole
-          # workspace plus the usual CocoaPods/DerivedData caches to find where it actually landed,
-          # so the eventual postbuildScript fix copies from a real path, not a guess.
-          echo "--- Searching $GITHUB_WORKSPACE ---"
-          find "$GITHUB_WORKSPACE" \( -iname "PrivacyInfo.xcprivacy" -o -iname "GoogleMobileAdsResources.bundle" \) 2>/dev/null
-          echo "--- Searching $HOME/Library/Developer/Xcode/DerivedData ---"
-          find "$HOME/Library/Developer/Xcode/DerivedData" \( -iname "PrivacyInfo.xcprivacy" -o -iname "GoogleMobileAdsResources.bundle" \) 2>/dev/null
-          echo "--- Searching $HOME/.cocoapods ---"
-          find "$HOME/.cocoapods" \( -iname "PrivacyInfo.xcprivacy" -o -iname "GoogleMobileAdsResources.bundle" \) 2>/dev/null
+          # AdMob's privacy manifest was confirmed missing (and then fixed - see project.yml's
+          # postbuildScript) via this same kind of search, so the same question needs answering for
+          # RevenueCat: does it ship a PrivacyInfo.xcprivacy at all? Unlike AdMob/UMP, RevenueCat
+          # has no pod() entry in paywall-build/build.gradle.kts - it's a plain Gradle dependency
+          # (implementation("com.revenuecat.purchases:purchases-kmp-core:3.6.0")), so its real
+          # native binary is fetched via Gradle/Kotlin-Native's own dependency resolution, not
+          # CocoaPods - meaning it was never going to show up in the cocoapods/synthetic tree the
+          # earlier search covered. Searching Gradle's and Kotlin/Native's own caches instead, plus
+          # falling back to just locating the RevenueCat/Purchases binary itself if no manifest
+          # exists, so "it doesn't ship one" is a confirmed finding, not just an absence of hits.
+          echo "--- Searching $GITHUB_WORKSPACE for any PrivacyInfo.xcprivacy ---"
+          find "$GITHUB_WORKSPACE" -iname "PrivacyInfo.xcprivacy" 2>/dev/null
+          echo "--- Searching $HOME/.gradle/caches for RevenueCat/Purchases privacy manifests ---"
+          find "$HOME/.gradle/caches" -iname "PrivacyInfo.xcprivacy" 2>/dev/null
+          echo "--- Searching $HOME/.konan for RevenueCat/Purchases privacy manifests ---"
+          find "$HOME/.konan" -iname "PrivacyInfo.xcprivacy" 2>/dev/null
+          echo "--- Fallback: locating RevenueCat's/Purchases' own native binary or framework, wherever it landed ---"
+          find "$HOME/.gradle/caches" "$HOME/.konan" "$GITHUB_WORKSPACE" \( -iname "*revenuecat*" -o -iname "*purchases*.framework" -o -iname "*purchases*.xcframework" \) 2>/dev/null | grep -vi "\.klib\|sources\.jar\|metadata\.jar"
           echo "--- done ---"
 
       - name: "Shell app: boot simulator, install, launch, verify on-device storage bridge"
