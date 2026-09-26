@@ -192,7 +192,7 @@ class RainEffectTest : ViewsForTesting() {
                 canvasH = 480.0,
                 worldViewX = 0.0,
                 sounds = sounds,
-                sfxVolume = 1.0f,
+                sfxVolume = 0.0f,
                 coroutineContext = coroutineContext
             )
 
