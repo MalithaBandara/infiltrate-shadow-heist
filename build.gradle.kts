@@ -67,6 +67,14 @@ tasks.withType<JavaExec>().configureEach {
         // main.kt's own `windowSize`. It lets a desktop run stand in for a device aspect ratio
         // that cannot be tested on this machine: -PwindowSize=1024x768 is an iPad, 932x400 a
         // 21:9 phone. See game.model.ScreenLayout.
+        environment("windowSize", project.property("windowSize") as String)
+    }
+    if (project.hasProperty("hideUi")) {
+        // main.kt reads this once at startup (Environment["hideUi"] == "true") and sets
+        // GameplayScene.debugHideAllUi before the scene is even created, so the UI starts hidden
+        // from the first frame - unlike a runtime F3 keypress, which can be missed if it arrives
+        // before the scene has finished loading.
+        environment("hideUi", project.property("hideUi") as String)
     }
 }
 

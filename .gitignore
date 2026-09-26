@@ -36,10 +36,13 @@ keystore_base64.txt
 scratch_*
 user_*.png
 
-# Screenshots
+# Screenshots & Media Capture Tool
 screenshots/
 screenshot_*.png
 level2_rain_preview.png
 old_fan.png
+tools/media_capture_tool.ps1
+.debug_level
 
 blogs/
+

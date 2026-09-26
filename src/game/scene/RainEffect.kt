@@ -26,10 +26,12 @@ import kotlin.random.Random
  *   particles are simulated or drawn off-screen regardless of level width.
  * - Surface splashes: a foreground drop that reaches a platform/crate top is consumed there and
  *   leaves a short-lived expanding crown, recycled from its own fixed pool.
- * - Realistic lightning: multi-pulse strobe profile (strike, dip, intense return stroke, flicker,
- *   smooth exponential fade) coupled with a sky-branching silhouette bolt.
+ * - Realistic sky lightning (no full-screen white flash): a 32-segment fractal midpoint-displaced
+ *   main channel + multi-tier forks with a hot white-cyan plasma core and soft electric-blue
+ *   corona, rendered in the distant sky BEHIND the world silhouettes with stepped-leader
+ *   propagation, main return stroke, and secondary dart-leader restrike along the main trunk.
  * - Physics-accurate thunder: acoustic propagation delay (speed of light vs sound) between the
- *   blinding flash and the heavy rolling thunderclap.
+ *   sky strike and the rolling thunderclap.
  */
 object RainAssets {
     const val DROP_TEX_W = 6
@@ -38,11 +40,28 @@ object RainAssets {
     const val SPLASH_TEX_W = 16
     const val SPLASH_TEX_H = 10
 
+    const val BOLT_TEX_W = 32
+    const val BOLT_TEX_H = 16
+    /** Rounded joint overhang (in texture px) at each end of [boltTexture]. */
+    const val BOLT_CAP_PX = 2.0
+    /** Effective distance between start vertex and end vertex inside [boltTexture]. */
+    const val BOLT_SPAN_PX = BOLT_TEX_W - 2.0 * BOLT_CAP_PX
+    const val BOLT_ANCHOR_X = BOLT_CAP_PX / BOLT_TEX_W
+
+    const val CLOUD_GLOW_W = 32
+    const val CLOUD_GLOW_H = 16
+
     val dropTexture: Bitmap32 by lazy { createDropTexture() }
     val dropSlice: BmpSlice by lazy { dropTexture.sliceWithSize(0, 0, DROP_TEX_W, DROP_TEX_H) }
 
     val splashTexture: Bitmap32 by lazy { createSplashTexture() }
     val splashSlice: BmpSlice by lazy { splashTexture.sliceWithSize(0, 0, SPLASH_TEX_W, SPLASH_TEX_H) }
+
+    val boltTexture: Bitmap32 by lazy { createBoltTexture() }
+    val boltSlice: BmpSlice by lazy { boltTexture.sliceWithSize(0, 0, BOLT_TEX_W, BOLT_TEX_H) }
+
+    val cloudGlowTexture: Bitmap32 by lazy { createCloudGlowTexture() }
+    val cloudGlowSlice: BmpSlice by lazy { cloudGlowTexture.sliceWithSize(0, 0, CLOUD_GLOW_W, CLOUD_GLOW_H) }
 
     /**
      * Premultiplied RGBA color builder for KorGE's Bitmap32 (see guidelines.md gotcha #13).
@@ -143,41 +162,116 @@ object RainAssets {
         }
         return bmp
     }
+
+    /**
+     * Single plasma segment slice with an incandescent white-cyan inner core, electric ice-blue
+     * intermediate sheath, and soft radial atmospheric corona. Caps at `x < BOLT_CAP_PX` and
+     * `x > BOLT_TEX_W - BOLT_CAP_PX` taper smoothly so consecutive segments anchored at their
+     * vertices blend continuously without notched gaps or bright joint blobs.
+     */
+    private fun createBoltTexture(): Bitmap32 {
+        val bmp = Bitmap32(BOLT_TEX_W, BOLT_TEX_H)
+        val cy = BOLT_TEX_H / 2.0
+        val maxR = cy - 0.5
+        val x0 = BOLT_CAP_PX
+        val x1 = BOLT_TEX_W - BOLT_CAP_PX
+
+        for (y in 0 until BOLT_TEX_H) {
+            val dy = (y + 0.5) - cy
+            for (x in 0 until BOLT_TEX_W) {
+                val px = x + 0.5
+                val clampedX = px.coerceIn(x0, x1)
+                val dx = px - clampedX
+                val dist = hypot(dx, dy)
+                val r = (dist / maxR).coerceIn(0.0, 1.0)
+                if (r >= 1.0) continue
+
+                // Longitudinal cap taper so two overlapping segment ends sum to ~1.0 without a dot
+                val capFactor = if (dx == 0.0) {
+                    1.0
+                } else {
+                    (1.0 - abs(dx) / (BOLT_CAP_PX + 0.5)).coerceIn(0.0, 1.0) * 0.72
+                }
+
+                // Cross-sectional plasma profile:
+                // r < 0.22: white-hot core
+                // 0.22..0.50: bright electric cyan-blue channel
+                // 0.50..1.00: soft outer corona glow
+                val radialAlpha: Double
+                val red: Int
+                val green: Int
+                val blue: Int
+                if (r < 0.22) {
+                    val t = r / 0.22
+                    radialAlpha = 1.0 - 0.12 * t * t
+                    red = (252 - 20 * t).toInt()
+                    green = (255 - 6 * t).toInt()
+                    blue = 255
+                } else if (r < 0.50) {
+                    val t = (r - 0.22) / 0.28
+                    radialAlpha = 0.88 * (1.0 - t).pow(1.6) + 0.26 * t
+                    red = (232 - 82 * t).toInt()
+                    green = (249 - 44 * t).toInt()
+                    blue = 255
+                } else {
+                    val t = (r - 0.50) / 0.50
+                    radialAlpha = 0.26 * (1.0 - t).pow(2.2)
+                    red = (150 - 35 * t).toInt()
+                    green = (205 - 30 * t).toInt()
+                    blue = 255
+                }
+
+                val a = (radialAlpha * capFactor * 255.0).toInt().coerceIn(0, 255)
+                if (a > 0) {
+                    bmp.setRgba(x, y, premul(red, green, blue, a))
+                }
+            }
+        }
+        return bmp
+    }
+
+    /**
+     * Soft localized cloud-entry glow where the main leader emerges from the upper storm deck.
+     */
+    private fun createCloudGlowTexture(): Bitmap32 {
+        val bmp = Bitmap32(CLOUD_GLOW_W, CLOUD_GLOW_H)
+        val cx = CLOUD_GLOW_W / 2.0
+        for (y in 0 until CLOUD_GLOW_H) {
+            val ny = (y + 0.5) / CLOUD_GLOW_H
+            for (x in 0 until CLOUD_GLOW_W) {
+                val nx = ((x + 0.5) - cx) / (CLOUD_GLOW_W / 2.0)
+                val d = hypot(nx, ny).coerceIn(0.0, 1.0)
+                val falloff = (1.0 - d).pow(2.4)
+                val a = (falloff * 255.0).toInt().coerceIn(0, 255)
+                if (a > 0) {
+                    bmp.setRgba(x, y, premul(175, 222, 255, a))
+                }
+            }
+        }
+        return bmp
+    }
 }
 
 /**
- * @param bgLayer  where the far, dim drop layer is parented.
+ * @param bgLayer  where the sky lightning bolt and the far, dim drop layer are parented.
  * @param fgLayer  where the near drop layer and the impact splashes are parented. **Both layers
  *   are handed the same background container by [GameplayScene] now** (owner request 2026-09-25:
- *   "put the rain effect behind the characters and all the elements"), so the whole curtain draws
- *   over the sky and behind every crate, guard and the player. "Foreground" still names the near
- *   half of the volumetric pair - bigger, faster, brighter, and the only half that splashes - not
- *   a position in front of the world.
- * @param flashLayer where the lightning wash and the sky bolt go. This one stays IN FRONT of the
- *   world (below the HUD): a flash behind the level would light the sky and leave the yard dark,
- *   which is the opposite of what a strike looks like. Defaults to [fgLayer] for callers that
- *   do not separate them (the tests do not).
+ *   "put the rain effect behind the characters and all the elements"), so the whole curtain and
+ *   sky lightning draw over the sky and behind every crate, guard and the player.
+ * @param flashLayer retained for call-site compatibility; no full-screen white flash is ever drawn
+ *   (owner request 2026-09-26: "dont flash the screen with white when lightning").
  * @param splashSurfaces world-space rects whose TOP edge a drop can land on - platforms and boxes.
  *   Walls are filtered out by height (see [MAX_SURFACE_HEIGHT]). Empty disables splashes entirely.
- *   This is read ONCE, into a static height map, so moving platforms are deliberately not in it:
- *   rain lands on the floor under a level 2 container rather than on the container. That is the
- *   whole reason the lookup is O(1) per drop instead of a scan, and a missing crown on a crate
- *   that is itself sliding sideways is not something the eye picks out of a downpour.
  */
 class RainEffect(
     bgLayer: Container,
     fgLayer: Container,
     initialCanvasW: Double,
     initialCanvasH: Double,
-    flashLayer: Container = fgLayer,
+    @Suppress("UNUSED_PARAMETER") flashLayer: Container = fgLayer,
     splashSurfaces: List<Rect> = emptyList()
 ) {
     companion object {
-        // Drop counts and alphas were both roughly halved on 2026-09-25 ("it is too opaque and
-        // too much rain. make it less rain and more transparent"). The curtain also moved behind
-        // the world in the same pass, so what is left reads against the sky rather than over the
-        // player - which is why the near layer keeps its size and speed and only gives up count
-        // and opacity. Both are pure look knobs; nothing in the level depends on them.
         const val BACK_DROP_COUNT = 40
         const val FRONT_DROP_COUNT = 55
         const val TOTAL_DROPS = BACK_DROP_COUNT + FRONT_DROP_COUNT
@@ -195,30 +289,21 @@ class RainEffect(
         /** Seconds an impact crown lives: expand, fade, recycle. */
         const val SPLASH_LIFE = 0.24
 
-        /**
-         * Fraction of surface hits that actually spawn a crown. The near layer lands on the order
-         * of a hundred drops a second on a level as flat as the Cargo Yard; splashing every one of
-         * them is both a wall of white and more live views than the pool holds. A third of them
-         * keeps ~8 alive at a time against a pool of [SPLASH_COUNT], with headroom for a burst.
-         */
         const val SPLASH_CHANCE = 0.34
-
-        /** Peak alpha of a crown - deliberately under the near layer's own, so it reads as spray. */
         const val SPLASH_ALPHA = 0.34
 
         /** Screen-space width/height a crown is drawn at before its own expansion curve. */
         const val SPLASH_DRAW_W = 15.0
         const val SPLASH_DRAW_H = 9.4
 
-        /**
-         * Anything taller than this in [splashSurfaces] is a wall, not a floor. GameWorld's left
-         * and right walls are 1200 tall with their tops at y = -400, so without this the height
-         * map would report a landing surface far above the sky at both ends of every level.
-         */
         const val MAX_SURFACE_HEIGHT = 400.0
-
-        /** World units per height-map bucket - see [surfaceTops]. */
         const val SURFACE_BUCKET = 16.0
+
+        /** 16 fractal midpoint-displaced main channel segments + 16 secondary/tertiary fork segments. */
+        const val MAIN_BOLT_SEGMENTS = 16
+        const val BRANCH_BOLT_SEGMENTS = 16
+        const val TOTAL_BOLT_SEGMENTS = MAIN_BOLT_SEGMENTS + BRANCH_BOLT_SEGMENTS
+        const val BOLT_DURATION = 0.28
     }
 
     private class DropState(
@@ -229,9 +314,7 @@ class RainEffect(
         val parallax: Double,
         val baseAlpha: Double,
         val img: Image,
-        /** Drawn length of the streak in screen px - where its head is, relative to [y]. */
         val length: Double,
-        /** Only the near layer is world-locked enough for its landings to mean anything. */
         val isForeground: Boolean
     )
 
@@ -242,31 +325,41 @@ class RainEffect(
         var alive: Boolean = false
     }
 
+    private class BoltSegmentState(val img: Image) {
+        var isMainTrunk: Boolean = true
+        var progressAlongBolt: Double = 0.0
+        var baseThickness: Double = 1.0
+        var baseAlpha: Double = 1.0
+    }
+
+    // Sky lightning bolt sits in bgLayer BEFORE the rain containers so it illuminates the distant
+    // sky behind the rain curtain and behind all foreground world silhouettes (crates, guards, player).
+    // No full-screen white flash rect is created or rendered.
+    private val boltContainer: Container = bgLayer.container().also { it.visible = false }
+    private val cloudGlowImg: Image = boltContainer.image(RainAssets.cloudGlowSlice).apply {
+        anchor(0.5, 0.0)
+        visible = false
+    }
+    private val boltSegments: Array<BoltSegmentState> = Array(TOTAL_BOLT_SEGMENTS) {
+        BoltSegmentState(
+            boltContainer.image(RainAssets.boltSlice).apply {
+                anchor(RainAssets.BOLT_ANCHOR_X, 0.5)
+                visible = false
+            }
+        )
+    }
+
+    // Pre-allocated scratch buffers for zero-allocation fractal midpoint displacement
+    private val trunkX = DoubleArray(MAIN_BOLT_SEGMENTS + 1)
+    private val trunkY = DoubleArray(MAIN_BOLT_SEGMENTS + 1)
+
     private val backContainer = bgLayer.container()
     private val fgContainer = fgLayer.container()
     private val splashContainer = fgLayer.container()
 
-    // Full-screen lightning flash overlay (layered on top of world/effects, beneath HUD)
-    private val flashRect: SolidRect = flashLayer.solidRect(initialCanvasW, initialCanvasH, Colors["#e0f2fe"]).also {
-        it.alpha = 0.0
-        it.visible = false
-    }
-
-    // Sky lightning bolt segments
-    private val boltContainer: Container = flashLayer.container().also { it.visible = false }
-    private val boltSegments: List<SolidRect> = (0 until 8).map {
-        boltContainer.solidRect(3.5, 3.5, Colors["#f0f9ff"])
-    }
-
     private val drops: Array<DropState>
     private val splashes: Array<SplashState>
 
-    /**
-     * Highest landable surface top per [SURFACE_BUCKET]-wide column of the level, or NaN where
-     * there is none. Built once: a per-drop O(1) lookup, against an O(surfaces) scan per drop per
-     * frame, which at ~55 near drops and a few dozen crates is the difference between free and
-     * not. Highest rather than nearest because a drop over a crate lands on the crate.
-     */
     private val surfaceTops: DoubleArray
     private val surfaceOriginX: Double
 
@@ -333,9 +426,7 @@ class RainEffect(
 
         drops = dropList.toTypedArray()
 
-        // 3. The impact-crown pool. Never call View.size() on these again - it is MULTIPLICATIVE
-        // (guidelines.md gotcha #12), and the expansion curve below writes scaleX/scaleY every
-        // frame. The base scale that maps the texture to SPLASH_DRAW_W/H is folded into it.
+        // 3. The impact-crown pool.
         val splashSlice = RainAssets.splashSlice
         splashes = Array(SPLASH_COUNT) {
             SplashState(
@@ -373,7 +464,6 @@ class RainEffect(
         }
     }
 
-    /** Highest landable surface at [worldX], or NaN where the level has no floor under it. */
     private fun surfaceTopAt(worldX: Double): Double {
         if (surfaceTops.isEmpty()) return Double.NaN
         val idx = ((worldX - surfaceOriginX) / SURFACE_BUCKET).toInt()
@@ -393,55 +483,188 @@ class RainEffect(
                 return
             }
         }
-        // Pool exhausted - drop the splash rather than allocating. At SPLASH_CHANCE this is rare
-        // and a missing crown in a downpour is invisible; a per-frame allocation would not be.
     }
 
-    private fun triggerLightning(canvasW: Double) {
+    private fun placeBoltSegment(
+        idx: Int,
+        x0: Double,
+        y0: Double,
+        x1: Double,
+        y1: Double,
+        isMainTrunk: Boolean,
+        progress: Double,
+        thickness: Double,
+        alpha: Double
+    ) {
+        val seg = boltSegments[idx]
+        val dx = x1 - x0
+        val dy = y1 - y0
+        val len = hypot(dx, dy).coerceAtLeast(1.0)
+        seg.isMainTrunk = isMainTrunk
+        seg.progressAlongBolt = progress.coerceIn(0.0, 1.0)
+        seg.baseThickness = thickness
+        seg.baseAlpha = alpha
+        // Write scaleX/scaleY directly rather than View.size() (guidelines.md gotcha #12)
+        seg.img.xy(x0, y0)
+        seg.img.rotation = atan2(dy, dx).radians
+        seg.img.scaleX = len / RainAssets.BOLT_SPAN_PX
+        seg.img.scaleY = thickness
+        seg.img.alpha = 0.0
+        seg.img.visible = true
+    }
+
+    private fun buildBranch(
+        startSegIdx: Int,
+        segCount: Int,
+        rootX: Double,
+        rootY: Double,
+        rootProgress: Double,
+        lateralDir: Double,
+        startThickness: Double,
+        startAlpha: Double
+    ): Pair<Double, Double> {
+        var cx = rootX
+        var cy = rootY
+        var subForkX = rootX
+        var subForkY = rootY
+        for (i in 0 until segCount) {
+            val frac = i.toDouble() / segCount.toDouble()
+            val stepY = Random.nextDouble(14.0, 25.0) * (1.0 - 0.15 * frac)
+            val stepX = lateralDir * Random.nextDouble(9.0, 22.0) + Random.nextDouble(-6.0, 6.0)
+            val nx = cx + stepX
+            val ny = cy + stepY
+            val t = startThickness * (1.0 - 0.58 * ((i + 1).toDouble() / segCount.toDouble()))
+            val a = startAlpha * (1.0 - 0.55 * frac)
+            placeBoltSegment(
+                idx = startSegIdx + i,
+                x0 = cx,
+                y0 = cy,
+                x1 = nx,
+                y1 = ny,
+                isMainTrunk = false,
+                progress = rootProgress + 0.08 * (i + 1),
+                thickness = t,
+                alpha = a
+            )
+            if (i == 1) {
+                subForkX = nx
+                subForkY = ny
+            }
+            cx = nx
+            cy = ny
+        }
+        return Pair(subForkX, subForkY)
+    }
+
+    private fun triggerLightning(canvasW: Double, canvasH: Double) {
         isFlashing = true
         flashElapsed = 0.0
         thunderDelay = Random.nextDouble(0.4, 0.9)
         hasThunderPlayed = false
 
-        // Generate jagged sky bolt
-        val startX = Random.nextDouble(canvasW * 0.25, canvasW * 0.75)
-        var curX = startX
-        var curY = 0.0
-        val mainSteps = 5
+        boltContainer.xy(0.0, 0.0)
+        val startX = Random.nextDouble(canvasW * 0.20, canvasW * 0.80)
+        val endX = (startX + Random.nextDouble(-canvasW * 0.14, canvasW * 0.14))
+            .coerceIn(canvasW * 0.10, canvasW * 0.90)
+        val endY = canvasH * Random.nextDouble(0.62, 0.78)
 
-        for (s in 0 until mainSteps) {
-            val stepLen = Random.nextDouble(35.0, 52.0)
-            val nextX = curX + Random.nextDouble(-28.0, 32.0)
-            val nextY = curY + stepLen
-            val dx = nextX - curX
-            val dy = nextY - curY
-            val len = hypot(dx, dy)
-            val angle = atan2(dy, dx)
-            boltSegments[s].xy(curX, curY).size(len, 3.5).rotation = angle.radians
-            boltSegments[s].visible = true
-            curX = nextX
-            curY = nextY
+        // Cloud origin glow localized strictly to the upper sky where the leader exits the clouds
+        cloudGlowImg.xy(startX, -6.0)
+        cloudGlowImg.scaleX = 180.0 / RainAssets.CLOUD_GLOW_W
+        cloudGlowImg.scaleY = 60.0 / RainAssets.CLOUD_GLOW_H
+        cloudGlowImg.alpha = 0.0
+        cloudGlowImg.visible = true
+
+        // 1. Iterative 4-pass midpoint displacement for the 16-segment main lightning channel
+        trunkX[0] = startX
+        trunkY[0] = -6.0
+        trunkX[MAIN_BOLT_SEGMENTS] = endX
+        trunkY[MAIN_BOLT_SEGMENTS] = endY
+
+        var step = MAIN_BOLT_SEGMENTS
+        while (step >= 2) {
+            val half = step / 2
+            var i = 0
+            while (i < MAIN_BOLT_SEGMENTS) {
+                val mid = i + half
+                val spanY = trunkY[i + step] - trunkY[i]
+                val jitterScale = if (step == MAIN_BOLT_SEGMENTS) 0.36 else 0.44
+                trunkX[mid] = 0.5 * (trunkX[i] + trunkX[i + step]) +
+                    Random.nextDouble(-1.0, 1.0) * spanY * jitterScale
+                trunkY[mid] = 0.5 * (trunkY[i] + trunkY[i + step]) +
+                    Random.nextDouble(-0.10, 0.10) * spanY
+                i += step
+            }
+            step = half
         }
 
-        // 2-segment branch forked from step 2
-        val forkStartX = boltSegments[2].x
-        val forkStartY = boltSegments[2].y
-        var fx = forkStartX
-        var fy = forkStartY
-        for (b in 0 until 2) {
-            val nextX = fx + Random.nextDouble(20.0, 40.0)
-            val nextY = fy + Random.nextDouble(22.0, 38.0)
-            val dx = nextX - fx
-            val dy = nextY - fy
-            val len = hypot(dx, dy)
-            val angle = atan2(dy, dx)
-            val segIdx = mainSteps + b
-            boltSegments[segIdx].xy(fx, fy).size(len, 2.2).rotation = angle.radians
-            boltSegments[segIdx].visible = true
-            fx = nextX
-            fy = nextY
+        for (s in 0 until MAIN_BOLT_SEGMENTS) {
+            val p = s.toDouble() / MAIN_BOLT_SEGMENTS.toDouble()
+            // Main plasma channel tapers gently from cloud base toward the horizon
+            val thickness = 0.92 - 0.34 * p
+            placeBoltSegment(
+                idx = s,
+                x0 = trunkX[s],
+                y0 = trunkY[s],
+                x1 = trunkX[s + 1],
+                y1 = trunkY[s + 1],
+                isMainTrunk = true,
+                progress = p,
+                thickness = thickness,
+                alpha = 0.96 - 0.12 * p
+            )
         }
-        boltSegments[7].visible = false
+
+        // 2. Secondary and tertiary branches forking off natural bends in the main channel
+        val n1 = Random.nextInt(2, 5)
+        val dir1 = if (trunkX[n1] >= trunkX[n1 - 1]) 1.0 else -1.0
+        val (subX, subY) = buildBranch(
+            startSegIdx = 16,
+            segCount = 5,
+            rootX = trunkX[n1],
+            rootY = trunkY[n1],
+            rootProgress = n1.toDouble() / MAIN_BOLT_SEGMENTS,
+            lateralDir = dir1,
+            startThickness = 0.48,
+            startAlpha = 0.78
+        )
+
+        val n2 = Random.nextInt(6, 9)
+        buildBranch(
+            startSegIdx = 21,
+            segCount = 5,
+            rootX = trunkX[n2],
+            rootY = trunkY[n2],
+            rootProgress = n2.toDouble() / MAIN_BOLT_SEGMENTS,
+            lateralDir = -dir1,
+            startThickness = 0.44,
+            startAlpha = 0.72
+        )
+
+        val n3 = Random.nextInt(10, 13)
+        val dir3 = if (Random.nextBoolean()) 1.0 else -1.0
+        buildBranch(
+            startSegIdx = 26,
+            segCount = 4,
+            rootX = trunkX[n3],
+            rootY = trunkY[n3],
+            rootProgress = n3.toDouble() / MAIN_BOLT_SEGMENTS,
+            lateralDir = dir3,
+            startThickness = 0.36,
+            startAlpha = 0.62
+        )
+
+        // Tertiary twig off the first branch
+        buildBranch(
+            startSegIdx = 30,
+            segCount = 2,
+            rootX = subX,
+            rootY = subY,
+            rootProgress = (n1 + 2).toDouble() / MAIN_BOLT_SEGMENTS,
+            lateralDir = -dir1 * 0.7,
+            startThickness = 0.24,
+            startAlpha = 0.48
+        )
 
         boltContainer.visible = true
     }
@@ -477,9 +700,6 @@ class RainEffect(
             d.x += d.speedX * dtSec + camDeltaX * d.parallax
             d.y += d.speedY * dtSec
 
-            // A near drop that reaches a floor or a crate top is consumed there and leaves a
-            // crown, instead of sailing on down behind the level geometry. The head of the streak
-            // is what lands, not its anchor, which is a whole drop-length higher up.
             var landed = false
             if (splashesEnabled && d.isForeground) {
                 val headY = d.y + d.length
@@ -498,9 +718,6 @@ class RainEffect(
             }
 
             if (landed) {
-                // Re-seed just above the top edge rather than subtracting a wrap height: a drop
-                // that lands high up (a crate top) is most of a screen short of the bottom, so
-                // wrapping it would park it far off-screen and thin the curtain out for a moment.
                 d.y = -MARGIN_Y - Random.nextDouble(0.0, 30.0)
                 d.x = Random.nextDouble(-MARGIN_X, canvasW + MARGIN_X)
             } else if (d.y > canvasH + MARGIN_Y) {
@@ -519,8 +736,7 @@ class RainEffect(
             d.img.xy(d.x, d.y)
         }
 
-        // 2. Impact crowns: expand outward, pop up and settle, fade out. Positioned from the world
-        // transform every frame so they stay stuck to the surface while the camera pans.
+        // 2. Impact crowns: expand outward, pop up and settle, fade out.
         if (splashesEnabled) {
             val baseScaleX = SPLASH_DRAW_W / RainAssets.SPLASH_TEX_W
             val baseScaleY = SPLASH_DRAW_H / RainAssets.SPLASH_TEX_H
@@ -541,44 +757,76 @@ class RainEffect(
             }
         }
 
-        // 3. Lightning & Thunder progression
+        // 3. Sky Lightning & Thunder progression (no full-screen white flash)
         lightningTimer -= dtSec
         if (lightningTimer <= 0.0 && !isFlashing) {
-            triggerLightning(canvasW)
+            triggerLightning(canvasW, canvasH)
         }
 
         if (isFlashing) {
             flashElapsed += dtSec
+            // Keep the active bolt anchored to the distant sky clouds (0.20 parallax)
+            boltContainer.x += camDeltaX * 0.20
 
-            // Lightning flash multi-pulse profile:
-            // 0.00-0.05: initial strike (0.70)
-            // 0.05-0.08: dip (0.25)
-            // 0.08-0.14: main bright return stroke (0.92)
-            // 0.14-0.19: secondary flicker (0.40)
-            // 0.19-0.45: exponential fade to 0.0
-            val flashAlpha = when {
-                flashElapsed < 0.05 -> 0.70
-                flashElapsed < 0.08 -> 0.25
-                flashElapsed < 0.14 -> 0.92
-                flashElapsed < 0.19 -> 0.40
-                flashElapsed < 0.45 -> {
-                    val p = (flashElapsed - 0.19) / 0.26
-                    (0.40 * (1.0 - p) * (1.0 - p)).coerceAtLeast(0.0)
+            if (flashElapsed < BOLT_DURATION) {
+                // Realistic multi-stage discharge profile:
+                // 0.00..0.04s: Stepped leader shoots downward from cloud to ground
+                // 0.04..0.10s: Main return stroke blazes at peak intensity (trunk + forks)
+                // 0.10..0.13s: Inter-stroke cooling dip (side branches extinguish rapidly)
+                // 0.13..0.18s: Secondary dart-leader restrike surges through the main trunk
+                // 0.18..0.28s: Ionization channel decay
+                val leaderFront = (flashElapsed / 0.038).coerceIn(0.0, 1.2)
+                val trunkIntensity: Double
+                val branchIntensity: Double
+                val thicknessPulse: Double
+
+                when {
+                    flashElapsed < 0.04 -> {
+                        trunkIntensity = 0.72
+                        branchIntensity = 0.55
+                        thicknessPulse = 0.85
+                    }
+                    flashElapsed < 0.10 -> {
+                        trunkIntensity = 1.0
+                        branchIntensity = 0.95
+                        thicknessPulse = 1.15
+                    }
+                    flashElapsed < 0.13 -> {
+                        trunkIntensity = 0.28
+                        branchIntensity = 0.10
+                        thicknessPulse = 0.75
+                    }
+                    flashElapsed < 0.18 -> {
+                        trunkIntensity = 0.88
+                        branchIntensity = 0.22
+                        thicknessPulse = 1.02
+                    }
+                    else -> {
+                        val fade = ((BOLT_DURATION - flashElapsed) / (BOLT_DURATION - 0.18)).coerceIn(0.0, 1.0)
+                        trunkIntensity = 0.88 * fade * fade
+                        branchIntensity = 0.18 * fade * fade * fade
+                        thicknessPulse = 0.70 + 0.30 * fade
+                    }
                 }
-                else -> 0.0
-            }
 
-            flashRect.size(canvasW, canvasH)
-            if (flashAlpha > 0.001) {
-                flashRect.visible = true
-                flashRect.alpha = flashAlpha
+                cloudGlowImg.alpha = (trunkIntensity * 0.16).coerceIn(0.0, 0.16)
+
+                for (i in boltSegments.indices) {
+                    val seg = boltSegments[i]
+                    val reachFactor = if (flashElapsed < 0.04) {
+                        ((leaderFront - seg.progressAlongBolt) * 4.5).coerceIn(0.0, 1.0)
+                    } else {
+                        1.0
+                    }
+                    val stageAlpha = if (seg.isMainTrunk) trunkIntensity else branchIntensity
+                    val finalAlpha = (seg.baseAlpha * stageAlpha * reachFactor).coerceIn(0.0, 1.0)
+                    seg.img.alpha = finalAlpha
+                    seg.img.scaleY = seg.baseThickness * thicknessPulse
+                    seg.img.visible = finalAlpha > 0.005
+                }
             } else {
-                flashRect.visible = false
-            }
-
-            // Hide bolt after return stroke ends
-            if (flashElapsed >= 0.14) {
                 boltContainer.visible = false
+                cloudGlowImg.visible = false
             }
 
             // Fire thunder after speed-of-sound delay
@@ -592,15 +840,14 @@ class RainEffect(
                 )
             }
 
-            if (flashElapsed >= 0.45 && hasThunderPlayed) {
+            if (flashElapsed >= BOLT_DURATION && hasThunderPlayed) {
                 isFlashing = false
-                flashRect.alpha = 0.0
-                flashRect.visible = false
+                boltContainer.visible = false
+                cloudGlowImg.visible = false
                 lightningTimer = Random.nextDouble(8.0, 16.0)
             }
         } else {
-            flashRect.alpha = 0.0
-            flashRect.visible = false
+            boltContainer.visible = false
         }
     }
 }

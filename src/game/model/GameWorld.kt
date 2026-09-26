@@ -44,6 +44,8 @@ data class GameWorld(
     val staticHangingCrateVariant1: List<Rect> = emptyList(),
     val staticHangingCrateVariant2: List<Rect> = emptyList(),
     val movingPlatforms: List<MovingPlatform> = emptyList(),
+    /** Flatbed carts the player can brace against and walk along - see LevelLayout.pushCarts. */
+    val pushCarts: List<PushCart> = emptyList(),
     /** Overhead hooks the player can swing from - see LevelLayout.swingHooks and Player's swing. */
     val swingHooks: List<Rect> = emptyList(),
     val levers: List<Lever> = emptyList(),
@@ -90,7 +92,11 @@ data class GameWorld(
                 // Nothing to be in range of in the push-stance level, so the button is simply
                 // always live there; without this the scene's own `interactPressed` is gated
                 // off by canInteract before the toggle below ever sees it.
-                (pushStanceDemo && !isGameOver && !isLevelComplete)
+                (pushStanceDemo && !isGameOver && !isLevelComplete) ||
+                // A cart within arm's reach, or one already in hand - letting go has to stay
+                // possible even after the grab has carried the body out of its own grab range.
+                grippedCart != null ||
+                pushCarts.any { it.canGrip(player) }
     val hangingCrateVariant1: List<Rect>
         get() = staticHangingCrateVariant1 + conveyorCrates.filter { it.isHanging && it.isVariant1 }.map { it.bounds }
     val hangingCrateVariant2: List<Rect>
@@ -125,6 +131,7 @@ data class GameWorld(
         hangingCrateVariant1: List<Rect> = emptyList(),
         hangingCrateVariant2: List<Rect> = emptyList(),
         movingPlatforms: List<MovingPlatform> = emptyList(),
+        pushCarts: List<PushCart> = emptyList(),
         swingHooks: List<Rect> = emptyList(),
         levers: List<Lever> = emptyList(),
         hookCrates: List<HookCrate> = emptyList(),
@@ -172,6 +179,7 @@ data class GameWorld(
         staticHangingCrateVariant1 = hangingCrateVariant1,
         staticHangingCrateVariant2 = hangingCrateVariant2,
         movingPlatforms = movingPlatforms,
+        pushCarts = pushCarts,
         swingHooks = swingHooks,
         levers = levers,
         hookCrates = hookCrates,
@@ -288,10 +296,124 @@ data class GameWorld(
 
     private var pushInteractWasDown: Boolean = false
 
+    // ---- what is being pushed (LevelLayout.pushCarts) --------------------------------------
+    //
+    // The demo stage braces against thin air. A shipped level braces against one of these, and
+    // the difference is entirely in how the stance starts and ends: range instead of a bare
+    // button press, exactly as the lever and camera-bot interactions gate themselves.
+    //
+    // While a cart is held the player is PINNED to it at the offset he grabbed it at. That one
+    // decision settles everything else: the cart cannot shove him, he cannot walk into it, the
+    // cart's own travel limits become limits on him, and push and pull are the same code with
+    // the sign of his movement flipped.
+
+    /** The cart currently in hand, or null. */
+    var grippedCart: PushCart? = null
+        private set
+
+    /** +1 when the held cart is to the player's right, -1 when it is to his left. */
+    var pushCartSide: Double = 0.0
+        private set
+
+    /**
+     * +1 while the load is being shoved away from the body, -1 while it is being dragged back.
+     *
+     * The scene plays the one push clip at this sign, so a pull is that gait run backwards - the
+     * footage is a body leaning into a load, and a body leaning into a load that is retreating
+     * looks the same played in reverse. Holds its last value while standing still, so stopping
+     * mid-pull does not snap the pose.
+     */
+    var pushGaitDirection: Double = 1.0
+        private set
+
+    /**
+     * Player x + this = cart x. Eased from wherever the grab happened to the offset that puts
+     * the hands ON the cart - see [pushCartContactOffsetX] and [settleIntoCart].
+     */
+    private var pushCartGripOffsetX: Double = 0.0
+
+    /** The offset at the instant of the grab, i.e. how far short of contact he reached from. */
+    private var pushCartGripStartOffsetX: Double = 0.0
+
+    /** Where the cart stood when it was taken hold of - it does not move during the settle. */
+    private var pushCartAnchorX: Double = 0.0
+
+    /**
+     * Where the braced fist is, in world x. Only meaningful while a cart is held.
+     *
+     * The push pose reaches [PushCart.BRACED_FIST_REACH_PER_HEIGHT] of the body's height forward
+     * of its own centre, and "forward" is whichever side the cart is on - the sprite is mirrored
+     * for a left-hand grab, so [pushCartSide] is the sign.
+     */
+    val bracedFistX: Double
+        get() = player.x + player.width / 2.0 +
+            pushCartSide * player.visualHeight * PushCart.BRACED_FIST_REACH_PER_HEIGHT
+
+    /**
+     * The offset that lands the braced fist on the cart's near handle.
+     *
+     * It used to put his leading EDGE on the cart's face, which is a different thing: the hand
+     * reaches well past the body's box, so flush-to-the-face left the fist about three units
+     * inside the cart, over the load rather than on the handle. Solving for the hand instead of
+     * the box leaves a small gap between the two collision boxes, which is correct - a man
+     * pushing a trolley stands off it by the length of his arms.
+     */
+    private fun pushCartContactOffsetX(cart: PushCart): Double {
+        val fromLeft = pushCartSide > 0.0
+        val gripFromCartX = cart.handleGripX(fromLeft) - cart.x
+        val reach = player.visualHeight * PushCart.BRACED_FIST_REACH_PER_HEIGHT
+        return player.width / 2.0 + pushCartSide * reach - gripFromCartX
+    }
+
+    private fun gripCart(cart: PushCart) {
+        grippedCart = cart
+        pushCartSide = if (cart.bounds.left >= player.bounds.right - 2.0) 1.0 else -1.0
+        pushCartGripStartOffsetX = cart.x - player.x
+        pushCartGripOffsetX = pushCartGripStartOffsetX
+        pushCartAnchorX = cart.x
+        pushGaitDirection = 1.0
+        isPushStanceHeld = true
+    }
+
+    /**
+     * Walks the body the last few units into contact while it bends, over the same clock as the
+     * lean-in.
+     *
+     * PushCart.GRIP_REACH lets the grab happen up to 22 units short of the cart, and pinning the
+     * offset AS GRABBED froze that gap in for the whole push - press from a step back and the
+     * hands stayed a step back, visibly not touching what he was pushing. The gap is closed here
+     * instead of by narrowing the reach, because a reach tight enough to guarantee contact is a
+     * reach the player has to line up by hand.
+     *
+     * Driven by [pushStanceBlend] rather than by a speed, so the arrival and the settled pose
+     * land on the same frame by construction, however far he reached from. The cart is held at
+     * [pushCartAnchorX] throughout: he is stepping up to it, not shoving it while still bending.
+     */
+    private fun settleIntoCart(cart: PushCart) {
+        // [pushCartGripOffsetX] is re-derived from the blend by the caller.
+        player.x = pushCartAnchorX - pushCartGripOffsetX
+        cart.x = pushCartAnchorX
+    }
+
+    private fun releaseCart() {
+        grippedCart = null
+        pushCartSide = 0.0
+        isPushStanceHeld = false
+    }
+
+    /** True while the body is still bending into a cart it has hold of - see [settleIntoCart]. */
+    val isSettlingIntoCart: Boolean get() = grippedCart != null && pushStanceBlend < 1.0
+
     private fun resetPushStance() {
         isPushStanceHeld = false
         pushStanceBlend = 0.0
         pushInteractWasDown = false
+        grippedCart = null
+        pushCartSide = 0.0
+        pushGaitDirection = 1.0
+        pushCartGripOffsetX = 0.0
+        pushCartGripStartOffsetX = 0.0
+        pushCartAnchorX = 0.0
     }
 
     // ---- wind stance (level 7's exhaust fans) ----------------------------------------------
@@ -389,6 +511,7 @@ data class GameWorld(
         for (g in allGuards) g.returnToPatrol()
         for (c in cameras) c.reset()
         for (mp in movingPlatforms) mp.reset()
+        for (cart in pushCarts) cart.reset()
         for (crate in conveyorCrates) crate.reset()
         for (laser in lasers) laser.reset()
         for (lever in levers) lever.reset()
@@ -440,6 +563,7 @@ data class GameWorld(
         for (g in allGuards) g.returnToPatrol()
         for (c in cameras) c.reset()
         for (mp in movingPlatforms) mp.reset()
+        for (cart in pushCarts) cart.reset()
         for (crate in conveyorCrates) crate.reset()
         for (laser in lasers) laser.reset()
         for (lever in levers) lever.reset()
@@ -556,14 +680,75 @@ data class GameWorld(
     }
 
     private fun updatePushStance(dt: Double, interactInput: Boolean) {
-        if (!pushStanceDemo) return
-        if (interactInput && !pushInteractWasDown) {
-            isPushStanceHeld = !isPushStanceHeld
-        }
+        if (!pushStanceDemo && pushCarts.isEmpty()) return
+        val pressed = interactInput && !pushInteractWasDown
         pushInteractWasDown = interactInput
+
+        if (pushStanceDemo) {
+            // The bare stage: no object, so the button alone is the whole gate.
+            if (pressed) isPushStanceHeld = !isPushStanceHeld
+        } else if (pressed) {
+            val held = grippedCart
+            if (held != null) {
+                releaseCart()
+            } else {
+                // Nearest face wins when two carts somehow overlap one reach; in practice there
+                // is one, and firstOrNull is what every other in-range interaction here uses.
+                pushCarts.firstOrNull { it.canGrip(player) }?.let { gripCart(it) }
+            }
+        }
 
         val rate = if (isPushStanceHeld) dt / PUSH_STANCE_ENTER_SECONDS else -dt / PUSH_STANCE_EXIT_SECONDS
         pushStanceBlend = (pushStanceBlend + rate).coerceIn(0.0, 1.0)
+    }
+
+    /**
+     * Carries the held cart along with the body, and clamps the body to the cart's own travel.
+     *
+     * Called straight after [Player.update], because the cart follows what the player ACTUALLY
+     * did rather than what he asked for - he may have been stopped by a wall, or by the platform
+     * the cart is being walked towards. Clamping him (rather than the cart) is what makes the
+     * limits read as the cart running out of room: he is pinned to it, so the two are the same
+     * constraint, and doing it this way leaves the stop with the player's own collision feel
+     * instead of the cart sliding out of his hands at the end of its rail.
+     */
+    private fun followGrippedCart(cart: PushCart, playerXBefore: Double) {
+        // Re-derive the offset from the blend EVERY tick, including at a full 1.0 - not only
+        // while the settle is running. The blend is advanced earlier in the same update than
+        // this runs, so on the frame it crosses into 1.0 the branch below is already the pinned
+        // one; without recomputing here that frame would pin whatever partial offset the last
+        // settle tick happened to leave behind, and the hands would stop a fraction of a unit
+        // short for the rest of the push. That fraction is the whole bug this was fixing.
+        val t = pushStanceBlend.coerceIn(0.0, 1.0)
+        val target = pushCartContactOffsetX(cart)
+        pushCartGripOffsetX = pushCartGripStartOffsetX + (target - pushCartGripStartOffsetX) * t
+
+        // Still bending: the settle owns both positions, and nothing is being pushed yet.
+        if (t < 1.0) {
+            settleIntoCart(cart)
+            return
+        }
+        // The first fully-braced frame. Land exactly on contact before the pin below takes over:
+        // the pin derives the CART's position from the body's, so arriving a fraction short here
+        // would shove the cart by that fraction instead of closing the gap. Collapsing the start
+        // offset onto the target both does that and retires the lerp - from here the offset is
+        // simply the contact offset, and this branch is a no-op.
+        if (pushCartGripStartOffsetX != target) {
+            pushCartGripStartOffsetX = target
+            player.x = cart.x - target
+        }
+        val minPlayerX = cart.minX - pushCartGripOffsetX
+        val maxPlayerX = cart.maxX - pushCartGripOffsetX
+        if (minPlayerX <= maxPlayerX) {
+            player.x = player.x.coerceIn(minPlayerX, maxPlayerX)
+        }
+        cart.x = (player.x + pushCartGripOffsetX).coerceIn(cart.minX, cart.maxX)
+
+        val dx = player.x - playerXBefore
+        if (dx != 0.0) {
+            // Moving towards the cart is a push, away from it is a pull - see [pushGaitDirection].
+            pushGaitDirection = if (dx * pushCartSide > 0.0) 1.0 else -1.0
+        }
     }
 
     private val recentlySeeingGuards = LinkedHashSet<Guard>()
@@ -968,15 +1153,28 @@ data class GameWorld(
         val floorCrateBounds = if (hasConveyorCrates) conveyorCrates.filter { !it.isHanging }.map { it.bounds } else emptyList()
         val hasHookCrates = hookCrates.isNotEmpty()
         val hookCrateBounds = if (hasHookCrates) hookCrates.map { it.bounds } else emptyList()
-        val dynamicBounds = if (hasMovingPlatforms || hasConveyorCrates || hasHookCrates) {
-            movingBounds + crateBounds + hookCrateBounds
+        // A cart is solid wherever it stands - EXCEPT the one in the player's hands, which is
+        // left out of his own platform/climb lists (see followGrippedCart: he is pinned to it, so
+        // it would be a wall travelling with him). It still blocks sight and still blocks guards.
+        val hasPushCarts = pushCarts.isNotEmpty()
+        val pushCartBounds = if (hasPushCarts) pushCarts.map { it.bounds } else emptyList()
+        val freePushCartBounds = when {
+            !hasPushCarts -> emptyList()
+            grippedCart == null -> pushCartBounds
+            else -> pushCarts.filter { it !== grippedCart }.map { it.bounds }
+        }
+        val dynamicBounds = if (hasMovingPlatforms || hasConveyorCrates || hasHookCrates || hasPushCarts) {
+            movingBounds + crateBounds + hookCrateBounds + freePushCartBounds
         } else emptyList()
         val currentPlatforms = if (dynamicBounds.isNotEmpty()) platforms + dynamicBounds else platforms
         val currentBoxes = if (dynamicBounds.isNotEmpty()) {
-            val dynamicBoxes = movingBounds + floorCrateBounds + hookCrateBounds
+            val dynamicBoxes = movingBounds + floorCrateBounds + hookCrateBounds + freePushCartBounds
             if (dynamicBoxes.isNotEmpty()) boxes + dynamicBoxes else boxes
         } else boxes
-        val currentOccluders = if (dynamicBounds.isNotEmpty()) occluders + dynamicBounds else occluders
+        // Sight is blocked by every cart, held or not - the body behind one is behind it either way.
+        val currentOccluders = if (dynamicBounds.isNotEmpty() || hasPushCarts) {
+            occluders + dynamicBounds + (if (grippedCart != null) listOf(grippedCart!!.bounds) else emptyList())
+        } else occluders
 
         // Guards without eyes on the player keep walking their route (unless asleep from Phantom Cloak)
         if (!isGameOver && !activePowerups.isPhantomCloakActive) {
@@ -1005,8 +1203,14 @@ data class GameWorld(
         // (rather than letting them cancel the stance) is what keeps the scene's animation
         // machine honest: every other stance change would otherwise be able to start on a frame
         // where the push clip is still on screen. INTERACT is the only way out.
-        val pushActive = pushStanceDemo && !isPushStanceIdle
+        // Not gated on pushStanceDemo any more: the blend is only ever non-zero on a level that
+        // has a stance to be in at all, so the flag would be saying the same thing twice - and
+        // since a cart level reaches here too, it would be saying it wrongly.
+        val pushActive = !isPushStanceIdle
         val effectiveMoveInput = when {
+            // Bending into a cart: the settle is walking him into contact (see settleIntoCart),
+            // and letting him steer at the same time would fight it for the same 0.85s.
+            isSettlingIntoCart -> 0.0
             pushActive -> moveInput * PUSH_MOVE_FACTOR
             // In air flow parts normal mechanics should not work.
             // When he presses forward once or long presses it, nothing happens.
@@ -1016,10 +1220,12 @@ data class GameWorld(
         }
         val effectiveJumpInput = jumpInput && !pushActive
         val effectiveCrouchInput = crouchInput && !pushActive
+        val playerXBeforeMove = player.x
         player.update(
             dt, effectiveMoveInput, effectiveJumpInput, effectiveCrouchInput, playerPlatformsScratch,
             climbTargets, activeSwingHooks, climbFloatingTargets, unclimbableBoxes
         )
+        grippedCart?.let { followGrippedCart(it, playerXBeforeMove) }
 
         // Check Exit / Win condition
         if (player.bounds.intersects(exitZone)) {
@@ -1654,6 +1860,11 @@ data class GameWorld(
                 floatingClimbTargets = layout.floatingClimbTargets,
                 unclimbableBoxes = layout.unclimbableBoxes,
                 movingPlatforms = movingPlatforms,
+                // Fresh instances per world, for the same reason levers/hook crates are copied
+                // below: a PushCart holds a mutable x, and layout.pushCarts is a process-wide
+                // singleton, so a cart shoved to the platform in one playthrough would already be
+                // sitting there in the next.
+                pushCarts = layout.pushCarts.map { PushCart(it) },
                 swingHooks = layout.swingHooks,
                 // Fresh copies, not the LevelLayout singleton's own shared instances: layout.levers/
                 // hookCrates are computed once per process (LEVEL_6_LAYOUT etc. are top-level `val`s)

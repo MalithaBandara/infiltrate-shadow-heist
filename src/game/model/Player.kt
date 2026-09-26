@@ -245,6 +245,21 @@ data class Player(
     val footWidth: Double get() = width * 0.6
 
     val currentHeight: Double get() = if (isCrouching) crouchHeight else height
+
+    /**
+     * How tall the character is DRAWN, as opposed to how tall he collides.
+     *
+     * [height] is the collision box and is load-bearing everywhere - jump arcs, climb windows,
+     * every crouch gap in every level are tuned against 96 and none of them move. This is the
+     * sprite on top of it, and the two are allowed to differ: the art is anchored at the feet, so
+     * scaling it changes where the head and the hands are without changing what the body hits.
+     *
+     * Used by GameplayScene for the sprite scale and by every distance-driven gait (the stride
+     * constants are all "per height", so they scale with the drawn body and the planted foot
+     * still does not slide), and by GameWorld for where the braced fist reaches - see
+     * [PushCart.BRACED_FIST_REACH_PER_HEIGHT].
+     */
+    val visualHeight: Double get() = height * VISUAL_HEIGHT_SCALE
     val currentTopY: Double get() = (y + height) - currentHeight
 
     val bounds: Rect get() = Rect(x, currentTopY, width, currentHeight)
@@ -966,6 +981,22 @@ data class Player(
     }
 
     companion object {
+        /**
+         * The character is drawn 5% larger than his collision box - see [visualHeight].
+         *
+         * Set to put the braced fist on the corner of a push cart's handle. At 1.0 the fist sits
+         * 42.5 units off the ground against the cart's 48-unit handle, which is the upright well
+         * below the curved top; at 1.05 it reaches 44.7, which is the corner itself (the row
+         * where the post starts turning into the grip). Asked for directly - "make him little bit
+         * larger to make his hand touch the corner of the handle".
+         *
+         * **Nothing about gameplay moves with this.** The tightest drawn clearance in the game is
+         * level 8's 62-unit hang line, which a crouched body has to fit under: 56 * 1.05 = 58.8,
+         * so 3.2 units of headroom where there were 6. That is the number to check before raising
+         * this further, and `testTheDrawnBodyStillFitsTheTightestCrouchGap` pins it.
+         */
+        const val VISUAL_HEIGHT_SCALE = 1.05
+
         /**
          * Closes the last couple of units once the hand comes off the lip, raw frames ~156-163.
          * The grip alone gets the feet to within 2.4 units of the top, so this has very little

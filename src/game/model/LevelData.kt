@@ -272,6 +272,17 @@ data class LevelLayout(
     // [boxes]. See Player.findClimbTarget and LEVEL_3_LAYOUT.
     val floatingClimbTargets: List<Rect> = emptyList(),
     val movingPlatforms: List<MovingPlatformDef> = emptyList(),
+    /**
+     * Flatbed carts the player can take hold of and walk along - see [PushCartDef] and
+     * GameWorld's push stance. A cart is solid and climbable wherever it happens to be standing,
+     * so it is a step the player positions for himself; it is NOT listed in [boxes], because its
+     * footprint moves and GameWorld feeds it in as a dynamic body each tick instead.
+     *
+     * This is the "real pushable prop" [pushStanceDemo]'s comment anticipates: the stance is
+     * gated on being in range of one of these, the way levers and camera bots gate INTERACT,
+     * rather than on the button alone.
+     */
+    val pushCarts: List<PushCartDef> = emptyList(),
     // Purely decorative chain-and-hook dangling from off-screen above (hook.png, a single tall
     // image, not tiled - unlike the hanging crates' chain there's no crate at the bottom needing
     // an exact height, so one asset scaled to each Rect's bounds is enough). No collision box and
@@ -304,8 +315,8 @@ data class LevelLayout(
     // level), so the trigger is deliberately the plain button rather than proximity to anything.
     // NOTHING SHIPPED may set it, and a test pins that: in a level with real geometry, INTERACT
     // would brace the player where there is nothing to push, and a braced body cannot jump or
-    // crouch. A real pushable prop would gate this on range the way levers and camera bots do,
-    // and would leave this flag alone.
+    // crouch. The real pushable prop this anticipated is [pushCarts], which does gate on range
+    // and leaves this flag alone.
     val pushStanceDemo: Boolean = false
 )
 
@@ -338,6 +349,17 @@ data class TutorialStep(
      * still dismisses it earlier; this is only a ceiling.
      */
     val autoDismissSeconds: Double = 0.0,
+    /**
+     * Extra gate on top of [triggerMinX]..[triggerMaxX]: the step only opens once the player
+     * actually has hold of a [PushCartDef].
+     *
+     * An X window cannot express "now that you are braced against it" - the player is standing in
+     * the same place before and after the grab, and the whole point of this prompt is to name the
+     * controls that only mean something once he is holding on. Level 8's push/pull pair is the
+     * case it exists for: the INTERACT step teaches the grab, and this one waits for it to have
+     * happened before pointing at the arrows.
+     */
+    val requiresPushCartGrip: Boolean = false,
     val highlight: TutorialControlHighlight = TutorialControlHighlight.NONE,
     val handwrittenCallout: String? = null,
     // Only read when highlight == NONE: a world-anchored callout (text position and arrow tip,
@@ -3362,7 +3384,6 @@ data class LevelData(
             val platformTop = 296.0
             val hangClearance = 62.0
             val hangY = platformTop - hangClearance - hangingCrateHeight
-
             val longCrateWidth = 174.0
             val shortCrateWidth = 76.0
 
@@ -3382,16 +3403,33 @@ data class LevelData(
             // far right that body then reaches. platformCrate's sweep has to start past this.
             val landingRight = platformLeft + 6.0 + 36.0
 
-            // The only way up. 48 tall so the hop onto it is a jump (maxJumpHeight 51.2) and 96
-            // below the platform top so the next move is the mantle.
-            val stepCrateWidth = 68.0
-            val stepCrateHeight = 48.0
-            val stepCrate = Rect(
-                x = platformLeft - stepCrateWidth,
-                y = groundY - stepCrateHeight,
-                width = stepCrateWidth,
-                height = stepCrateHeight
-            )
+            // The only way up - and, since 2026-09-26, not standing where it is needed.
+            //
+            // This was a fixed 68x48 crate butted against the platform's left face. It is now a
+            // loaded flatbed cart (cart.png, a crate riding between its handle posts) parked well
+            // short of that face, and the way up is to brace against it and walk it the rest of
+            // the way - the first shipped use of the push stance. Two numbers are inherited from
+            // the crate it replaced and must not drift: the cart is 48 TALL, so the hop onto it is
+            // still a jump (Player.maxJumpHeight 51.2) rather than a mantle, and [cartMaxX] puts
+            // its right edge exactly on platformLeft, so the climb off the top is the same 96 that
+            // was already tuned against the sweep crate's window.
+            //
+            // 92 wide is cart.png's own aspect at that height (1.918:1 - the art is stretched to
+            // the box, so a different ratio would visibly squash the wheels). It is also wide
+            // enough that the body is never standing over the gap it is trying to close.
+            val cartHeight = 48.0
+            val cartWidth = 92.0
+            // Flush against the platform. Reached from cartRestX, this is ~248 units of pushing -
+            // about four and a half strides of the braced gait at GameWorld.PUSH_MOVE_FACTOR's
+            // ~53 u/s, which is the length the animation was cut to be read at.
+            val cartMaxX = platformLeft - cartWidth
+            // Parked in clear ground: past the plane's hanging load (430..604 - well overhead, but
+            // this is where the player is looking) and short of the sweep crate's own span, so the
+            // cart is read as an object in the way of nothing until the platform explains it.
+            val cartRestX = 560.0
+            // Draggable back past its own rest position, so a pull is a real move and not just an
+            // undo - see the tutorial's second step. 430 keeps it inside the plane it started on.
+            val cartMinX = 430.0
 
             // --- SECTION 1: the plane, and the two loads hanging over it ---
             // Pulled in from 760 to 430 on request ("much more closer to the start") - the player
@@ -3617,7 +3655,9 @@ data class LevelData(
             val worldWidth = 3140.0
             val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
 
-            val boxes = listOf(overheadCrate, stepCrate, platform) +
+            // The cart is deliberately absent: its footprint moves, so GameWorld adds it to the
+            // solid/climbable/sight-blocking sets per tick from wherever it currently stands.
+            val boxes = listOf(overheadCrate, platform) +
                 barrels +
                 listOf(highCrate, groundWoodCrate, highPlatform)
 
@@ -3637,6 +3677,17 @@ data class LevelData(
                 woodCrates = listOf(groundWoodCrate),
                 poles = listOf(pole),
                 movingPlatforms = listOf(sweepCrate, platformCrate, bobCrate1, bobCrate2),
+                pushCarts = listOf(
+                    PushCartDef(
+                        id = "lvl8_step_cart",
+                        initialX = cartRestX,
+                        surfaceY = groundY,
+                        width = cartWidth,
+                        height = cartHeight,
+                        minX = cartMinX,
+                        maxX = cartMaxX
+                    )
+                ),
                 hangingHooks = listOf(dropHook),
                 levers = listOf(dropLever),
                 hookCrates = listOf(dropCrate)
@@ -3654,9 +3705,48 @@ data class LevelData(
             description = "The guards moved Container 17. Follow the trail to its new location.",
             objectiveHint = "Slip Under the Suspended Load",
             layout = LEVEL_8_LAYOUT,
-            // No tutorial on this level, on request - the crouch is taught long before here and
-            // the level's own geometry says the rest.
-            tutorialSteps = emptyList()
+            // Two steps, and only two: the cart is the one move in the game that no earlier level
+            // has taught, and nothing about a parked trolley says "this one comes with you". The
+            // crouch, the climb and the timing beats are all taught long before here and the
+            // level's own geometry still says the rest.
+            tutorialSteps = listOf(
+                // Opens on the walk up to the cart, before the player is close enough to grab it,
+                // so the button is named while the thing it acts on is in frame. The window ends
+                // past the cart's own left face because he cannot walk further than that anyway -
+                // the cart is solid - so in practice this dismisses on the grab, not on passing.
+                TutorialStep(
+                    id = "step_push_cart_grab",
+                    triggerMinX = 430.0,
+                    triggerMaxX = 600.0,
+                    title = "TAKE THE CART",
+                    instructionTouch = "Tap INTERACT to brace against the cart. Tap it again to let go.",
+                    instructionDesktop = "Press [E] or [F] to brace against the cart. Press it again to let go.",
+                    targetAction = TutorialAction.INTERACT,
+                    highlight = TutorialControlHighlight.INTERACT,
+                    handwrittenCallout = "Tap to interact with the cart"
+                ),
+                // Gated on the grab rather than on position - see TutorialStep.requiresPushCartGrip.
+                // The X window is only a safety net around the cart's whole travel (minX 430 to a
+                // body standing at the far end of maxX), never the thing that opens it.
+                TutorialStep(
+                    id = "step_push_cart_move",
+                    triggerMinX = 380.0,
+                    triggerMaxX = 900.0,
+                    requiresPushCartGrip = true,
+                    title = "PUSH OR PULL",
+                    instructionTouch = "Hold LEFT or RIGHT to walk the cart along.",
+                    instructionDesktop = "Hold [A]/[D] or the arrow keys to walk the cart along.",
+                    targetAction = TutorialAction.MOVE,
+                    // Both arrows, not just forward: a pull is as real a move as a push here and
+                    // the prompt should not imply the cart only goes one way.
+                    highlight = TutorialControlHighlight.MOVE,
+                    // The screen dims behind a highlighted control, so this cannot be allowed to
+                    // camp the way level 7's drone prompt did. Long enough to read, short enough
+                    // that a player who lets go and walks off is not left staring through a scrim.
+                    autoDismissSeconds = 6.0,
+                    handwrittenCallout = "Use navigation buttons to push / pull"
+                )
+            )
         )
 
         val DEFAULT_LEVEL_9 = LevelData(

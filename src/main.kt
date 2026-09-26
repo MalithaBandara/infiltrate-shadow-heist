@@ -32,7 +32,10 @@ suspend fun main(args: Array<String>) {
     // Desktop owns its own window, so it knows the screen it is drawing into before KorGE starts.
     // No safe area: a desktop window has no notch or home indicator.
     DeviceScreen.publish(windowSize.width.toDouble(), windowSize.height.toDouble())
-    val viewport = DeviceScreen.viewport
+    val viewport = DeviceViewport.currentViewport()
+    if (Environment["hideUi"] == "true") {
+        GameplayScene.debugHideAllUi = true
+    }
 
     Korge(
         windowSize = windowSize,

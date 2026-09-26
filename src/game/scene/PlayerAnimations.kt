@@ -296,7 +296,7 @@ object PlayerAnimations {
     // shift the character sideways. The pixel scale is the same as every other clip.
 
     /**
-     * Raw 10..96 every 2nd: upright, leaning in, stepping the trailing leg back, settling
+     * Raw 10..72 every 2nd: upright, leaning in, stepping the trailing leg back, settling
      * into a braced stance. Played once forward on entering the stance and once in reverse
      * on leaving it, the same way the crouch clip is used.
      *
@@ -304,10 +304,20 @@ object PlayerAnimations {
      * 0.13 of one sampled step), so they are not loaded. That means frame 0 here IS the
      * standing pose and meets idle's own first frame - measured at 211px of silhouette
      * disagreement against 7954px of silhouette, i.e. 2.7%.
+     *
+     * It stops at raw 72 rather than at the take's own end - see prep_push.py's CLIPS
+     * comment. The last 12 frames settle into a deeper brace than the gait ever reaches,
+     * with the leading fist dropped and pulled back, so a braced body standing still had
+     * its hand short of whatever it was leaning on while the same body walking made
+     * contact correctly. The clip now ends on the frame that matches [PUSH_REST_FRAME].
      */
-    private const val PUSH_TRANSITION_FRAMES = 44
+    private const val PUSH_TRANSITION_FRAMES = 32
 
-    /** Fully braced, both hands planted. The pose the push loop starts from. */
+    /**
+     * Fully braced, both hands planted - and deliberately the same pose as
+     * [PUSH_REST_FRAME] (silhouette IoU 0.803 against it, the best of all 44x40 pairs),
+     * so the handover into and out of the gait is a clip swap on one pose, not a step.
+     */
     const val PUSH_TRANSITION_LAST = PUSH_TRANSITION_FRAMES - 1
 
     /**
@@ -320,6 +330,10 @@ object PlayerAnimations {
      * 1.09 seam and a 2.82 entry, and the entry is paid once when the player starts moving
      * while the seam is crossed on every cycle.
      *
+     * That entry cost is now zero: since 2026-09-26 frame 0 IS the braced rest pose (see
+     * [PUSH_REST_FRAME]), so the transition hands over to it and the gait starts from it.
+     * The seam is still crossed every cycle, so 94 remains the right start either way.
+     *
      * EVERY frame is kept while the transition next door is halved, and that is about the
      * push's slowness, not the footage. This loop is distance-driven, so the braced move speed
      * sets its display rate: 56.6 world units of cycle at ~53 u/s is 1.07 SECONDS, which at 20
@@ -330,6 +344,18 @@ object PlayerAnimations {
      */
     private const val PUSH_FRAMES = 40
     const val PUSH_LOOP_LENGTH = PUSH_FRAMES
+
+    /**
+     * The pose a braced body holds while standing still - frame 0 of the GAIT, not the end
+     * of the transition clip.
+     *
+     * The rest pose has to be one the push cycle actually passes through, or the hands sit
+     * somewhere the walking hands never do and contact with the pushed object breaks the
+     * moment the player stops moving. Frame 0 is already the loop's entry point (see the
+     * seam arithmetic above), so starting, stopping and restarting a push are all the same
+     * pose and none of them costs a step.
+     */
+    const val PUSH_REST_FRAME = 0
 
     /**
      * Ground covered by one push cycle, as a multiple of the character's on-screen height -

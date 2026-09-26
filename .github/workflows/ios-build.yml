@@ -232,7 +232,7 @@ jobs:
 
           # Deliberately targeted at the KorGE gameplay window, not left to chance like the
           # main-menu loop below. TRANSITION_OK alone doesn't prove gameplay rendered - that check
-          # calls SpikeBridge directly, bypassing whatever scene is actually loaded.
+          # only confirms the shell swapped views, not what the KorGE side actually rendered.
           #
           # Two blind sleep-based attempts (fixed 2.5s, then six tries spread across ~2-6s) both
           # missed the ~1.5s KorGE-visible window across full runs (2026-09-12) - wall-clock timing

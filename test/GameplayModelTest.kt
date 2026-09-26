@@ -6273,9 +6273,15 @@ class GameplayModelTest {
         val bot = LevelData.DEFAULT_LEVEL_7.tutorialSteps.first { it.id == "step_deactivate_bot" }
         assertEquals(5.0, bot.autoDismissSeconds)
 
+        // Level 8's push/pull prompt is the second exception, and for the same reason: it dims
+        // the screen behind the arrows, and a player who lets go of the cart and walks off would
+        // otherwise be left looking through that scrim. See its own step for the timing.
+        val cartMove = LevelData.DEFAULT_LEVEL_8.tutorialSteps.first { it.id == "step_push_cart_move" }
+        assertEquals(6.0, cartMove.autoDismissSeconds)
+
         val everywhereElse = LevelData.DEFAULT_LEVELS
             .flatMap { it.tutorialSteps }
-            .filter { it.id != "step_deactivate_bot" }
+            .filter { it.id != "step_deactivate_bot" && it.id != "step_push_cart_move" }
         assertTrue(
             everywhereElse.all { it.autoDismissSeconds == 0.0 },
             "no other tutorial step was given a timeout: " +
@@ -6716,7 +6722,20 @@ class GameplayModelTest {
         /** The mid platform - the one reached by the step crate. The high platform is further right. */
         val platform = layout.boxes.first { it.height == 144.0 && it.width == 240.0 }
         val highPlatform = layout.boxes.first { it.height == 144.0 && it.width == 300.0 }
-        val stepCrate = layout.boxes.first { it.height == 48.0 && it.right == platform.left }
+        /** The loaded flatbed that replaced the fixed step crate - see LevelLayout.pushCarts. */
+        val cartDef = layout.pushCarts.single()
+        /** Where it starts: parked well short of the platform, useless until it is walked over. */
+        val cartAtRest = Rect(cartDef.initialX, groundY - cartDef.height, cartDef.width, cartDef.height)
+        /** Where the level wants it: shoved flush against the platform's face. */
+        val cartAtPlatform = Rect(cartDef.maxX, groundY - cartDef.height, cartDef.width, cartDef.height)
+
+        /**
+         * Puts the level's own cart where a player who had already walked it there would leave
+         * it. Tests about the CLIMB start from that state; the walkthrough earns it instead.
+         */
+        fun parkCartAtPlatform(world: GameWorld) {
+            world.pushCarts.single().x = cartDef.maxX
+        }
         /** The long stationary load hanging over the plane, back where the level starts. */
         val overheadCrate = layout.hangingCrateVariant1.first { it.x < platform.left }
         /** The long load past the bobbing pair - the one you do NOT have to crouch for. */
@@ -6732,12 +6751,42 @@ class GameplayModelTest {
     }
 
     @Test
-    fun testLevel8HasNoTutorialAtAll() {
-        // "there should not be any tutorial in level 8". The step that used to live here taught
-        // the crouch under a load that no longer exists, so this is the whole assertion.
+    fun testLevel8TeachesTheCartAndNothingElse() {
+        // Level 8 shipped with no tutorial at all ("there should not be any tutorial in level
+        // 8") until the cart arrived. The cart is the one move no earlier level teaches and
+        // nothing about a parked trolley says it comes with you, so it gets two steps - and
+        // still nothing else, because everything else here was taught long before.
+        val steps = LevelData.DEFAULT_LEVEL_8.tutorialSteps
+        assertEquals(
+            listOf("step_push_cart_grab", "step_push_cart_move"), steps.map { it.id },
+            "level 8 teaches the cart and only the cart"
+        )
+
+        val grab = steps.first()
+        assertEquals(TutorialAction.INTERACT, grab.targetAction)
+        assertEquals(TutorialControlHighlight.INTERACT, grab.highlight)
+        assertFalse(grab.requiresPushCartGrip, "the grab prompt has to open BEFORE anything is held")
+
+        val move = steps.last()
+        assertEquals(TutorialAction.MOVE, move.targetAction)
+        assertTrue(move.requiresPushCartGrip, "the arrows prompt only means anything once the cart is in hand")
+        assertEquals(
+            TutorialControlHighlight.MOVE, move.highlight,
+            "both arrows - a pull is as real a move here as a push"
+        )
+
+        // The grab prompt has to be reachable on foot before the cart stops the walk: the body
+        // is 36 wide and GameWorld grabs from PushCart.GRIP_REACH short of the face.
+        val cart = LevelData.LEVEL_8_LAYOUT.pushCarts.single()
         assertTrue(
-            LevelData.DEFAULT_LEVEL_8.tutorialSteps.isEmpty(),
-            "level 8 must ship with no tutorial steps (found ${LevelData.DEFAULT_LEVEL_8.tutorialSteps.map { it.id }})"
+            grab.triggerMinX < cart.initialX - 36.0 - PushCart.GRIP_REACH,
+            "the grab prompt must open while walking up to the cart, not once already against it"
+        )
+        // ...and the arrows prompt's own window has to cover the cart's whole travel, since it
+        // is the grab that opens it and the player may have carried it anywhere by then.
+        assertTrue(
+            move.triggerMinX <= cart.minX && move.triggerMaxX >= cart.maxX,
+            "the push/pull prompt's window must span the cart's whole travel"
         )
     }
 
@@ -6761,7 +6810,14 @@ class GameplayModelTest {
         // the platform the step crate serves.
         assertTrue(g.overheadCrate.right < g.sweepDef.minX, "the long load comes before the moving one")
         assertTrue(g.sweepDef.maxX < g.platform.left, "the moving load sits off the platform's own lip")
-        assertTrue(g.stepCrate.right == g.platform.left, "the step crate is flush against the platform face")
+        assertTrue(
+            g.cartAtPlatform.right == g.platform.left,
+            "the cart's forward limit is flush against the platform face"
+        )
+        assertTrue(
+            g.cartAtRest.right < g.platform.left - 100.0,
+            "...and it starts well short of it, or there is nothing to push (${g.platform.left - g.cartAtRest.right} units out)"
+        )
     }
 
     @Test
@@ -6822,33 +6878,44 @@ class GameplayModelTest {
             val feet = p.y + p.height
             if (p.isGrounded) {
                 val onFloor = kotlin.math.abs(feet - g.groundY) < 1.0
-                val onStep = kotlin.math.abs(feet - g.stepCrate.top) < 1.0
-                assertTrue(onFloor || onStep, "the plane's loads must not be standable (feet at $feet, x=${p.x})")
+                // The cart is standable wherever it happens to be - it is a step, that is its
+                // whole job - so the test is about height, not position: feet on the floor or
+                // feet on a cart deck, nothing in between and nothing overhead.
+                val onCart = kotlin.math.abs(feet - g.cartAtRest.top) < 1.0
+                assertTrue(onFloor || onCart, "the plane's loads must not be standable (feet at $feet, x=${p.x})")
             }
             frame++
         }
     }
 
     @Test
-    fun testLevel8StepCrateIsTheOnlyWayOntoThePlatform() {
-        // Ground -> crate is a jump (inside maxJumpHeight), crate -> platform is the canonical
-        // 96 climb, and the floor -> platform rise on its own is past climbMaxHeight, so the
-        // crate cannot be skipped.
+    fun testLevel8CartIsTheOnlyWayOntoThePlatformAndOnlyOnceItIsWalkedThere() {
+        // The two inherited numbers, pinned: ground -> cart deck is a jump (inside
+        // maxJumpHeight), deck -> platform is the canonical 96 climb, and the floor -> platform
+        // rise on its own is past climbMaxHeight, so the cart cannot be skipped.
         val g = Level8Geometry()
         val p = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8).player
 
-        val hop = g.groundY - g.stepCrate.top
-        assertTrue(hop <= p.maxJumpHeight, "the step crate must be jumpable from the floor ($hop vs ${p.maxJumpHeight})")
+        val hop = g.groundY - g.cartAtPlatform.top
+        assertTrue(hop <= p.maxJumpHeight, "the cart deck must be jumpable from the floor ($hop vs ${p.maxJumpHeight})")
 
-        val mantle = g.stepCrate.top - g.platform.top
+        val mantle = g.cartAtPlatform.top - g.platform.top
         assertTrue(
             mantle > p.climbMinHeight && mantle <= p.climbMaxHeight,
-            "crate -> platform must be a climb ($mantle, window ${p.climbMinHeight}..${p.climbMaxHeight})"
+            "cart -> platform must be a climb ($mantle, window ${p.climbMinHeight}..${p.climbMaxHeight})"
         )
 
         val direct = g.groundY - g.platform.top
         assertTrue(direct > p.climbMaxHeight, "the floor -> platform rise must be out of climb reach ($direct)")
         assertTrue(direct > p.maxJumpHeight, "...and out of jump reach too ($direct)")
+
+        // And the half that is new: standing on the cart where it STARTS reaches nothing. If the
+        // rest position were inside climb reach of the platform the push would be decorative.
+        val gapFromRest = g.platform.left - g.cartAtRest.right
+        assertTrue(
+            gapFromRest > p.width + 6.0,
+            "from its rest position the cart must not already be adjacent to the platform ($gapFromRest)"
+        )
     }
 
     @Test
@@ -7127,9 +7194,12 @@ class GameplayModelTest {
             "the load has to reach the landing at some point in its cycle, or it gates nothing"
         )
 
-        // Now park the body on the step crate, pressed into the platform face, and try to go up.
-        p.x = g.stepCrate.right - p.width
-        p.y = g.stepCrate.top - p.height
+        // Now park the body on the cart, already walked flush into the platform face, and try
+        // to go up. This test is about the load over the landing, not about the push, so the
+        // cart starts where a player who had done the pushing would have left it.
+        g.parkCartAtPlatform(world)
+        p.x = g.cartAtPlatform.right - p.width
+        p.y = g.cartAtPlatform.top - p.height
         var blockedFrames = 0
         var toppedOutClean = false
         var frame = 0
@@ -7166,16 +7236,17 @@ class GameplayModelTest {
         val dt = 1.0 / 60.0
         val landingRight = g.landingLeft + p.width
 
-        // Wait on the step crate until the load is clear but swinging BACK toward the landing -
-        // the trap the level is built around.
+        // Wait on the cart until the load is clear but swinging BACK toward the landing - the
+        // trap the level is built around. As above, the cart starts already walked into place.
+        g.parkCartAtPlatform(world)
         var frame = 0
         var started = false
         while (frame < 4000 && !world.isGameOver) {
             val covers = crate.right > g.landingLeft && crate.left < landingRight
             val closingIn = !covers && crate.vx > 0.0 && (g.landingLeft - crate.right) < 40.0
             if (!started) {
-                p.x = g.stepCrate.right - p.width
-                p.y = g.stepCrate.top - p.height
+                p.x = g.cartAtPlatform.right - p.width
+                p.y = g.cartAtPlatform.top - p.height
                 if (closingIn) started = true
             }
             world.update(
@@ -7204,13 +7275,18 @@ class GameplayModelTest {
         // the full sweepPauseDuration. Committing any later in that pause, or from further back,
         // runs out of window - which is the point of the mechanism.
         //
-        // A run that reads both must never die.
+        // And before either of those, the cart: walk into it, take hold, walk it the rest of the
+        // way to the platform, let go. That is the whole first section now, and this test is the
+        // proof it can actually be done rather than just that the numbers line up.
+        //
+        // A run that reads all three must never die.
         val g = Level8Geometry()
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
         val crate = world.movingPlatforms.first { it.id == "lvl8_sweep_crate" }
         val platformCrate = world.movingPlatforms.first { it.id == "lvl8_platform_crate" }
         val hookCrate = world.hookCrates.single()
         val cam = world.cameras.single()
+        val cart = world.pushCarts.single()
         val p = world.player
         val dt = 1.0 / 60.0
         val landingRight = g.landingLeft + p.width
@@ -7230,7 +7306,7 @@ class GameplayModelTest {
             val beforeX = p.x
             val feet = p.y + p.height
             val onFloor = p.isGrounded && feet >= g.groundY - 0.5
-            val onStep = p.isGrounded && kotlin.math.abs(feet - g.stepCrate.top) < 1.0
+            val onStep = p.isGrounded && kotlin.math.abs(feet - g.cartAtPlatform.top) < 1.0
             val onMidPlatform = p.isGrounded && kotlin.math.abs(feet - g.platform.top) < 1.0
             val landingClear = crate.right < g.landingLeft || crate.left > landingRight
 
@@ -7244,12 +7320,25 @@ class GameplayModelTest {
             val atLever = onFloor && kotlin.math.abs(p.centerX - g.lever.centerX) < 24.0
             val waiting = holdForCamera || (atLever && !hookCrate.isDetached)
 
+            val stalled = stalledFor > 0.05
+
+            // ---- the cart ----------------------------------------------------------------
+            // Take hold on the frame the walk stalls against its face, and let go the moment it
+            // is flush against the platform. Both are level-triggered: GameWorld edge-detects
+            // INTERACT, so holding the flag down across frames still toggles exactly once.
+            val cartParked = cart.x >= cart.maxX - 0.5
+            val holdingCart = world.grippedCart != null
+            val takeCart = !holdingCart && !cartParked && onFloor && stalled &&
+                p.x + p.width >= cart.bounds.left - 6.0
+            val dropCart = holdingCart && cartParked
+
             // Walk into the face and press up off the stall, the same way the level 2 walkthrough
             // drives its crate hops - the face itself does the positioning, so nothing here
             // depends on hitting a jump at one particular x.
-            val stalled = stalledFor > 0.05
             val jump = when {
                 waiting -> false
+                // A braced body cannot jump anyway; asking it to would only be noise.
+                world.grippedCart != null -> false
                 // Clear AND swinging away: the cue with the guaranteed margin behind it.
                 onStep -> stalled && landingClear && crate.vx < 0.0
                 onFloor -> stalled
@@ -7263,7 +7352,7 @@ class GameplayModelTest {
                 moveInput = if (waiting) 0.0 else 1.0,
                 jumpInput = jump,
                 crouchInput = crouch,
-                interactInput = atLever
+                interactInput = atLever || takeCart || dropCart
             )
             if (hookCrate.isDetached) pulledLever = true
             stalledFor = if (kotlin.math.abs(p.x - beforeX) < 0.5) stalledFor + dt else 0.0
@@ -7274,6 +7363,11 @@ class GameplayModelTest {
         }
         assertTrue(world.isLevelComplete, "level 8 must be beatable (stopped at x=${p.x} after ${elapsed}s)")
         assertTrue(pulledLever, "the route has to go through the lever - nothing else reaches the high platform")
+        assertEquals(
+            cart.maxX, cart.x, 0.5,
+            "the route has to walk the cart to the platform - nothing else reaches the mid one"
+        )
+        assertNull(world.grippedCart, "and let go of it again")
         // The step crate onto the mid platform, and the dropped box onto the high one. Getting
         // onto the dropped box itself is a jump once it has settled and a climb if the player
         // catches it still falling, so it is not counted here.
@@ -7282,6 +7376,378 @@ class GameplayModelTest {
             elapsed <= LevelData.DEFAULT_LEVEL_8.timeTargetSeconds,
             "...and inside its own 3-star target (${elapsed}s vs ${LevelData.DEFAULT_LEVEL_8.timeTargetSeconds}s)"
         )
+    }
+
+    // ---- The push cart (level 8's step onto the mid platform) -------------------------------
+
+    /**
+     * Level 8's world with the body already standing against one face of the cart, grounded.
+     *
+     * [fromLeft] false puts him on the far side, which is the side a pull is done from - the
+     * grab is symmetric and only the sign of everything afterwards changes.
+     */
+    private fun level8WithPlayerAtCart(fromLeft: Boolean = true): Pair<GameWorld, PushCart> {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        val cart = world.pushCarts.single()
+        val p = world.player
+        p.x = if (fromLeft) cart.bounds.left - p.width else cart.bounds.right
+        p.y = 440.0 - p.height
+        // Settle onto the floor: canGrip refuses a body that is not standing on something.
+        repeat(10) {
+            world.update(1.0 / 60.0, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+        }
+        return world to cart
+    }
+
+    private fun GameWorld.stepCart(
+        frames: Int,
+        moveInput: Double = 0.0,
+        interactInput: Boolean = false
+    ) {
+        repeat(frames) {
+            update(1.0 / 60.0, moveInput, jumpInput = false, crouchInput = false, interactInput = interactInput)
+        }
+    }
+
+    @Test
+    fun testCartIsTakenHoldOfFromEitherSideAndBracesTheBodyAsItGoes() {
+        for (fromLeft in listOf(true, false)) {
+            val (world, cart) = level8WithPlayerAtCart(fromLeft)
+            assertNull(world.grippedCart, "nothing is held until INTERACT")
+            assertTrue(world.canInteract, "standing against the cart has to light the button up")
+
+            world.stepCart(1, interactInput = true)
+            assertSame(cart, world.grippedCart, "one press takes hold of it")
+            assertTrue(world.isPushStanceHeld, "and that IS the braced stance - there is no second toggle")
+            assertEquals(
+                if (fromLeft) 1.0 else -1.0, world.pushCartSide,
+                "the cart is on the side the body walked up from"
+            )
+
+            // Held down across frames is still one press, the same edge-detection the dev stage
+            // relies on - otherwise the grab would flicker on and off every tick.
+            world.stepCart(30, interactInput = true)
+            assertSame(cart, world.grippedCart, "a held button is one press, not thirty")
+            assertTrue(world.pushStanceBlend > 0.0)
+        }
+    }
+
+    @Test
+    fun testGrabbingFromArmsLengthWalksTheBodyIntoContactWhileItBends() {
+        // "depending on the position he presses it he could be not touching it" - the grab is
+        // allowed from up to PushCart.GRIP_REACH short of the face, and freezing THAT offset in
+        // left the hands visibly off the cart for the whole push. The gap is closed over the
+        // lean-in instead of by narrowing the reach, which would make the player line the grab
+        // up by hand.
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        val cart = world.pushCarts.single()
+        val p = world.player
+        // As far back as the grab reaches, minus a hair so it still registers.
+        val gap = PushCart.GRIP_REACH - 2.0
+        p.x = cart.bounds.left - p.width - gap
+        p.y = 440.0 - p.height
+        world.stepCart(6)
+        assertTrue(cart.canGrip(p), "the grab has to be legal from arm's length, or there is no bug to fix")
+
+        val cartX = cart.x
+        world.stepCart(1, interactInput = true)
+        assertSame(cart, world.grippedCart)
+        // Still short, and the cart has not been touched yet.
+        assertTrue(cart.bounds.left - p.bounds.right > 1.0, "he does not teleport onto it")
+
+        // Mid-bend: part of the way in, monotonically, and the cart still parked.
+        world.stepCart(24)
+        val grip = cart.handleGripX(fromLeft = true)
+        val midShort = grip - world.bracedFistX
+        assertTrue(midShort < gap - 1.0, "the settle has to have started (short by " + midShort + ")")
+        assertTrue(midShort > 0.5, "...and not be finished at a quarter of the bend (short by " + midShort + ")")
+        assertEquals(cartX, cart.x, 1e-9, "the cart does not move while he is still bending into it")
+
+        // Braced: hand on the handle, landing with the pose rather than before or after it.
+        world.stepCart(60)
+        assertTrue(world.isPushing, "the lean-in should be done by now")
+        assertEquals(
+            grip, world.bracedFistX, 0.001,
+            "fully braced means the fist on the handle, whatever distance the grab was made from"
+        )
+        assertFalse(world.isSettlingIntoCart)
+    }
+
+    @Test
+    fun testTheSettleArrivesFromEitherSideAndFromAnyDistance() {
+        for (fromLeft in listOf(true, false)) {
+            for (gap in listOf(0.0, 8.0, PushCart.GRIP_REACH - 2.0)) {
+                val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+                val cart = world.pushCarts.single()
+                val p = world.player
+                p.x = if (fromLeft) cart.bounds.left - p.width - gap else cart.bounds.right + gap
+                p.y = 440.0 - p.height
+                world.stepCart(6)
+                world.stepCart(1, interactInput = true)
+                assertSame(cart, world.grippedCart, "grab from " + gap + " away, fromLeft=" + fromLeft)
+                world.stepCart(90)
+
+                assertEquals(
+                    cart.handleGripX(fromLeft), world.bracedFistX, 0.001,
+                    "braced from " + gap + " away (fromLeft=" + fromLeft + ") must still end on the handle"
+                )
+            }
+        }
+    }
+
+    @Test
+    fun testTheSettleDoesNotDragTheCartOrCountAsPushing() {
+        // The body moves during the bend, so anything that reads movement has to be reading the
+        // CART - the tutorial's push/pull prompt does exactly that, for this reason.
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        val cart = world.pushCarts.single()
+        val p = world.player
+        p.x = cart.bounds.left - p.width - (PushCart.GRIP_REACH - 2.0)
+        p.y = 440.0 - p.height
+        world.stepCart(6)
+        val cartX = cart.x
+        val playerX = p.x
+
+        // Hold a direction through the whole bend: the settle owns the body until it is braced.
+        world.stepCart(1, interactInput = true)
+        world.stepCart(45, moveInput = -1.0)
+        assertEquals(cartX, cart.x, 1e-9, "steering during the bend must not drag the cart")
+        assertTrue(p.x > playerX, "and must not walk him back out of the settle")
+    }
+
+    @Test
+    fun testTheBracedFistLandsOnTheHandleAndNotOverTheLoad() {
+        // "he should grab the corner of the handle". Solving the stance for the BODY's leading
+        // edge put the fist about three units inside the cart, over the crate on the deck - the
+        // hand reaches well past the collision box, so flush-to-the-face is not hands-on. The
+        // stance is solved for the hand instead; this pins where that hand ends up.
+        for (fromLeft in listOf(true, false)) {
+            val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+            val cart = world.pushCarts.single()
+            val p = world.player
+            p.x = if (fromLeft) cart.bounds.left - p.width - 6.0 else cart.bounds.right + 6.0
+            p.y = 440.0 - p.height
+            world.stepCart(6)
+            world.stepCart(1, interactInput = true)
+            world.stepCart(90)
+            assertTrue(world.isPushing, "fromLeft=" + fromLeft + " should be braced by now")
+
+            val fist = world.bracedFistX
+            assertEquals(cart.handleGripX(fromLeft), fist, 0.001, "fromLeft=" + fromLeft)
+
+            // On the cart, and on the HANDLE end of it: inside the near edge, and short of the
+            // load's own near face (PushCart.LOAD_LEFT/RIGHT_FRACTION is where the crate starts).
+            val loadNear = if (fromLeft) {
+                cart.x + cart.width * PushCart.LOAD_LEFT_FRACTION
+            } else {
+                cart.x + cart.width * PushCart.LOAD_RIGHT_FRACTION
+            }
+            if (fromLeft) {
+                assertTrue(fist > cart.bounds.left, "the fist must reach the cart (" + fist + ")")
+                assertTrue(fist < loadNear, "...and stop at the handle, not over the load (" + fist + " vs " + loadNear + ")")
+            } else {
+                assertTrue(fist < cart.bounds.right, "the fist must reach the cart (" + fist + ")")
+                assertTrue(fist > loadNear, "...and stop at the handle, not over the load (" + fist + " vs " + loadNear + ")")
+            }
+
+            // The two collision boxes are deliberately NOT flush any more - that gap is the
+            // length of his arms, and it is what moved the hand onto the handle.
+            val boxGap = if (fromLeft) cart.bounds.left - p.bounds.right else p.bounds.left - cart.bounds.right
+            assertTrue(boxGap > 1.0, "a man pushing a trolley stands off it (gap " + boxGap + ")")
+        }
+    }
+
+    @Test
+    fun testTheBracedFistReachesTheCornerOfTheHandle() {
+        // "make him little bit larger to make his hand touch the corner of the handle" - the
+        // pose is a fixed plate, so hand height is only adjustable through the drawn body, and
+        // Player.VISUAL_HEIGHT_SCALE was set to land it here. The corner - where the upright
+        // turns into the curved grip - is rows 14..22 of cart.png's 256, i.e. 2.6..4.1 units
+        // below the handle's top on a 48-tall cart.
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        val cart = world.pushCarts.single()
+        val fistHeight = world.player.visualHeight * PushCart.BRACED_FIST_HEIGHT_PER_HEIGHT
+        val belowTop = cart.height - fistHeight
+        assertTrue(
+            belowTop in 2.0..4.5,
+            "the fist should be at the handle's corner, $belowTop below its top (want 2.0..4.5)"
+        )
+        assertTrue(fistHeight > cart.height * PushCart.DECK_TOP_FRACTION, "...and above the deck, not under it")
+    }
+
+    @Test
+    fun testTheDrawnBodyStillFitsTheTightestCrouchGap() {
+        // Player.VISUAL_HEIGHT_SCALE draws the body bigger than it collides, which is free for
+        // gameplay but NOT free for how the game reads: a crouched body drawn taller than the
+        // gap it is crouching under looks like a clipping bug. Level 8's hang line is the
+        // tightest gap in the game (62 - see its own guidelines section, "the lowest the geometry
+        // allows"), so it is the one that decides how far this can go.
+        val p = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8).player
+        val hangClearance = 62.0
+        val drawnCrouch = p.crouchHeight * Player.VISUAL_HEIGHT_SCALE
+        assertTrue(
+            drawnCrouch < hangClearance,
+            "a crouched body is drawn $drawnCrouch tall and has to fit under $hangClearance"
+        )
+        // And the other end of that window still holds: standing must NOT fit under the bobbing
+        // pair's high point, or the crouch stops being the answer there.
+        assertTrue(
+            p.visualHeight > 90.0,
+            "a standing body (drawn ${p.visualHeight}) must still not fit under the 90 bob gap"
+        )
+    }
+
+    @Test
+    fun testCartCannotBeTakenHoldOfFromOnTopOfIt() {
+        // A braced body can neither jump nor crouch, so someone who grabbed the cart he was
+        // standing on would have no way back off it - and would be dragging his own floor.
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        val cart = world.pushCarts.single()
+        val p = world.player
+        p.x = cart.bounds.left + 20.0
+        p.y = cart.bounds.top - p.height
+        world.stepCart(5)
+        assertTrue(p.isGrounded, "the body should have settled on the deck")
+        assertFalse(cart.canGrip(p), "the cart underfoot is not grabbable")
+
+        world.stepCart(10, interactInput = true)
+        assertNull(world.grippedCart, "...and INTERACT up there does nothing")
+        assertTrue(world.isPushStanceIdle)
+    }
+
+    @Test
+    fun testCartIsOutOfReachFromAcrossTheYard() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        val cart = world.pushCarts.single()
+        val p = world.player
+        // The spawn - a long walk short of it. Range is the whole gate here, exactly as it is
+        // for a lever or a camera bot.
+        assertFalse(cart.canGrip(p), "the cart is not grabbable from the spawn")
+        world.stepCart(30, interactInput = true)
+        assertNull(world.grippedCart)
+        assertTrue(world.isPushStanceIdle, "and INTERACT in open ground never braces anyone")
+    }
+
+    @Test
+    fun testPushingWalksTheCartForwardAndStopsItFlushAgainstThePlatform() {
+        val (world, cart) = level8WithPlayerAtCart(fromLeft = true)
+        val startX = cart.x
+        world.stepCart(1, interactInput = true)
+
+        world.stepCart(600, moveInput = 1.0)
+        assertTrue(cart.x > startX + 100.0, "the cart has to actually travel (moved " + (cart.x - startX) + ")")
+        assertEquals(cart.maxX, cart.x, 0.5, "and stop exactly where its travel ends")
+        assertEquals(
+            LevelData.LEVEL_8_LAYOUT.boxes.first { it.width == 240.0 }.left, cart.bounds.right, 0.5,
+            "which is flush against the platform's face"
+        )
+        // The body came with it, and is still holding on at the offset it grabbed at.
+        assertSame(cart, world.grippedCart)
+        assertEquals(
+            cart.handleGripX(fromLeft = true), world.bracedFistX, 0.001,
+            "still holding the same handle"
+        )
+        assertEquals(1.0, world.pushGaitDirection, "walking into the load is a push")
+    }
+
+    @Test
+    fun testPullingDragsTheCartBackAndRunsTheSameGaitInReverse() {
+        // "he can also pull it and do it by just reversing the push animation" - the model's
+        // half of that is the sign; GameplayScene steps the clip by it.
+        val (world, cart) = level8WithPlayerAtCart(fromLeft = true)
+        world.stepCart(1, interactInput = true)
+        val startX = cart.x
+
+        world.stepCart(240, moveInput = -1.0)
+        assertTrue(cart.x < startX - 20.0, "the cart has to follow the body backwards (moved " + (cart.x - startX) + ")")
+        assertEquals(-1.0, world.pushGaitDirection, "walking away from the load is a pull")
+        assertEquals(1.0, world.pushCartSide, "...and he is still braced against the same side of it")
+
+        // All the way back to its own limit, and no further.
+        world.stepCart(600, moveInput = -1.0)
+        assertEquals(cart.minX, cart.x, 0.5, "the cart stops at the back of its travel")
+
+        // Pushing again flips the gait back without letting go.
+        world.stepCart(60, moveInput = 1.0)
+        assertEquals(1.0, world.pushGaitDirection)
+    }
+
+    @Test
+    fun testTheHeldCartIsNotAWallAndBecomesOneAgainWhenLetGo() {
+        val (world, cart) = level8WithPlayerAtCart(fromLeft = true)
+        world.stepCart(1, interactInput = true)
+        world.stepCart(180, moveInput = 1.0)
+        val carriedTo = cart.x
+        assertTrue(carriedTo > cart.minX + 1.0)
+
+        // Let go: one press, and the cart stays exactly where it was set down.
+        world.stepCart(1, interactInput = true)
+        assertNull(world.grippedCart)
+        world.stepCart(120, moveInput = 1.0)
+        assertEquals(carriedTo, cart.x, 0.5, "a cart nobody is holding does not move")
+        assertTrue(
+            world.player.bounds.right <= cart.bounds.left + 0.5,
+            "and it is a wall again - walking into it goes nowhere"
+        )
+    }
+
+    @Test
+    fun testCheckpointRespawnPutsTheCartBackWhereItStarted() {
+        // Everything else in the level rewinds on a respawn; a cart left halfway would leave the
+        // route in a state the rest of the world no longer matches.
+        val (world, cart) = level8WithPlayerAtCart(fromLeft = true)
+        val restX = cart.x
+        world.stepCart(1, interactInput = true)
+        world.stepCart(240, moveInput = 1.0)
+        assertTrue(cart.x > restX + 20.0)
+
+        assertTrue(world.respawnAtCheckpoint(), "level 8 allows a continue")
+        assertEquals(restX, cart.x, 1e-9, "the cart goes back to its rest position")
+        assertNull(world.grippedCart, "and nobody is holding it any more")
+        assertTrue(world.isPushStanceIdle)
+    }
+
+    @Test
+    fun testEachWorldGetsItsOwnCart() {
+        // LevelLayout is a process-wide singleton and PushCart holds a mutable x - the same trap
+        // levers and hook crates are copied for. A cart shoved to the platform in one playthrough
+        // must not already be sitting there in the next.
+        val (first, cartA) = level8WithPlayerAtCart(fromLeft = true)
+        first.stepCart(1, interactInput = true)
+        first.stepCart(600, moveInput = 1.0)
+        assertEquals(cartA.maxX, cartA.x, 0.5)
+
+        val second = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        val cartB = second.pushCarts.single()
+        assertNotSame(cartA, cartB, "each world builds its own cart")
+        assertEquals(
+            LevelData.LEVEL_8_LAYOUT.pushCarts.single().initialX, cartB.x, 1e-9,
+            "a fresh run starts with the cart parked again"
+        )
+    }
+
+    @Test
+    fun testTheCartBlocksSightWhereverItStands() {
+        // It is a solid body, not a prop: a sightline stops at it in both positions. Checked
+        // through VisionSystem directly, since level 8 has no guard to aim.
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        val cart = world.pushCarts.single()
+        val p = world.player
+        p.y = 440.0 - p.height
+        for (cartX in listOf(cart.minX, cart.maxX)) {
+            cart.x = cartX
+            p.x = cart.bounds.right + 30.0
+            val eye = Vec2d(cart.bounds.left - 60.0, 440.0 - 24.0)
+            val seen = VisionSystem.getPlayerSpottedDistance(
+                eye = eye,
+                facingAngle = 0.0,
+                visionRange = 400.0,
+                visionFov = PI / 2.0,
+                player = p,
+                occluders = listOf(cart.bounds)
+            )
+            assertNull(seen, "the cart at " + cartX + " must block the line through it")
+        }
     }
 
     // ---- The push-stance stage (was level 8 until 2026-09-25) ------------------------------

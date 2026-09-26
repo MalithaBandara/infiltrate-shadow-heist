@@ -192,10 +192,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     private func startObservingLevelEnd() {
         levelObserverTimer?.invalidate()
         levelObserverTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] t in
-            if SpikeBridge.shared.consumeLevelEndRequest() {
-                print("SHELL: Level end consumed -> returning to Compose")
-                self?.switchToCompose()
-            }
             if GameContinueAdBridge.shared.consumeContinueAdRequest() {
                 print("SHELL: Continue-with-ad requested -> showing rewarded ad")
                 self?.showContinueAd()
@@ -348,7 +344,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             guard acked || timedOut else { return }
             t.invalidate()
             print("CI_TEST: Gameplay dwell ended (screenshotAcked=\(acked), timedOut=\(timedOut)) - triggering level completion")
-            SpikeBridge.shared.requestLevelEnd()
 
             // 3. Return to Compose MainMenu
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
