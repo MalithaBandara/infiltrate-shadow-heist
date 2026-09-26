@@ -167,6 +167,31 @@ actual object StoreBilling {
         )
     }
 
+    actual fun fetchLocalizedPrices(packageIds: List<String>, onResult: (Map<String, String>) -> Unit) {
+        if (!Purchases.isConfigured) {
+            initialize(DEFAULT_APPLE_API_KEY)
+        }
+        if (!Purchases.isConfigured) {
+            onResult(emptyMap())
+            return
+        }
+
+        Purchases.sharedInstance.getOfferings(
+            onError = { onResult(emptyMap()) },
+            onSuccess = { offerings ->
+                val allPackages = offerings.all.values.flatMap { it.availablePackages }
+                val currentOffering = offerings.current ?: offerings.all.values.firstOrNull()
+                val result = packageIds.mapNotNull { id ->
+                    val pkg = currentOffering?.getPackage(id)
+                        ?: currentOffering?.availablePackages?.find { packageMatches(it, id) }
+                        ?: allPackages.find { packageMatches(it, id) }
+                    pkg?.let { id to it.storeProduct.price.formatted }
+                }.toMap()
+                onResult(result)
+            }
+        )
+    }
+
     actual fun restorePurchases(onResult: (success: Boolean, error: String?) -> Unit) {
         if (!Purchases.isConfigured) {
             initialize(DEFAULT_APPLE_API_KEY)

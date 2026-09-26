@@ -23,6 +23,11 @@ actual object StoreBilling {
         onResult(true, null)
     }
 
+    actual fun fetchLocalizedPrices(packageIds: List<String>, onResult: (Map<String, String>) -> Unit) {
+        // No real store on desktop preview - callers fall back to their own placeholder display.
+        onResult(emptyMap())
+    }
+
     actual fun restorePurchases(onResult: (success: Boolean, error: String?) -> Unit) {
         if (mockPurchasedRemoveAds) {
             onResult(true, null)
