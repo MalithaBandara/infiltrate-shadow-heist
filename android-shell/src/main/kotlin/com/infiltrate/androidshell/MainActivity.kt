@@ -17,6 +17,8 @@ import androidx.lifecycle.lifecycleScope
 import app.lexilabs.basic.ads.BasicAds
 import app.lexilabs.basic.ads.DependsOnGoogleMobileAds
 import app.lexilabs.basic.ads.RequestConfiguration
+import com.infiltrate.ads.AdConsent
+import com.infiltrate.ads.AdPrivacy
 import com.infiltrate.ads.ContinueAdContent
 import com.infiltrate.ads.ContinueAdTrigger
 import com.infiltrate.ads.InterstitialAdContent
@@ -132,25 +134,29 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Google's consent message (GDPR) before the first ad request - see AdPrivacy. Nothing below
+        // starts the ads SDK until this reports.
+        AdConsent.gather(this)
+
         setContent {
             // Google Mobile Ads SDK requires this before any ad request will succeed - matches
-            // where AdMobVerifyContent() calls it once on iOS. Without it, RewardedAd(...) below
-            // would compile and run fine but every real load would fail.
-            @OptIn(DependsOnGoogleMobileAds::class)
-            BasicAds.Initialize()
-            // Matches AdMobVerifyScreen.kt's iOS-side fix: this app has no App Tracking
-            // Transparency-equivalent consent prompt, so ads must stay non-personalized here too
-            // (Google's EU consent/UMP requirement for personalized ads only applies when ads
-            // are actually personalized - disabling it here removes that obligation on Android
-            // the same way disabling it removed the ATT requirement on iOS).
-            @OptIn(DependsOnGoogleMobileAds::class)
-            BasicAds.configuration = RequestConfiguration(
-                maxAdContentRating = null,
-                publisherPrivacyPersonalizationState = RequestConfiguration.PublisherPrivacyPersonalizationState.DISABLED,
-                tagForChildDirectedTreatment = RequestConfiguration.TAG_FOR_CHILD_DIRECTED_TREATMENT_UNSPECIFIED,
-                tagForUnderAgeOfConsent = RequestConfiguration.TAG_FOR_UNDER_AGE_OF_CONSENT_UNSPECIFIED,
-                testDeviceIds = null,
-            )
+            // where AdMobVerifyContent() calls it once on iOS. Held back until the consent flow
+            // settles (the ad hosts below hold back their own loads the same way).
+            if (AdPrivacy.canRequestAds) {
+                @OptIn(DependsOnGoogleMobileAds::class)
+                BasicAds.Initialize()
+                // Personalized ads - see AdMobVerifyScreen.kt for why DEFAULT rather than ENABLED.
+                // A user who declined in Google's consent message, or opted out of ad
+                // personalization in Android's own settings, is honoured by the SDK itself.
+                @OptIn(DependsOnGoogleMobileAds::class)
+                BasicAds.configuration = RequestConfiguration(
+                    maxAdContentRating = null,
+                    publisherPrivacyPersonalizationState = RequestConfiguration.PublisherPrivacyPersonalizationState.DEFAULT,
+                    tagForChildDirectedTreatment = RequestConfiguration.TAG_FOR_CHILD_DIRECTED_TREATMENT_UNSPECIFIED,
+                    tagForUnderAgeOfConsent = RequestConfiguration.TAG_FOR_UNDER_AGE_OF_CONSENT_UNSPECIFIED,
+                    testDeviceIds = null,
+                )
+            }
 
             val gameplayVisible by showingGameplay
             Box(Modifier.fillMaxSize()) {
@@ -335,6 +341,9 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         AndroidGameSfxOutputState.resumeEngine()
         GameAppLifecycle.markForeground()
+        // A no-op once consent has settled; otherwise a retry for a launch that was offline, which
+        // would leave ads off for the rest of the process.
+        AdConsent.gather(this)
     }
 
     override fun onDestroy() {

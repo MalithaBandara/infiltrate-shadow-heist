@@ -90,6 +90,10 @@ targets:
         # (unlike a real *ad unit* ID, the App ID alone doesn't cause invalid-traffic risk; the
         # CI spike still only ever requests basic-ads' test ad unit constants, never a real one).
         GADApplicationIdentifier: "ca-app-pub-7912148730700666~1768074863"
+        # The App Tracking Transparency prompt's body text (AppDelegate.swift's
+        # requestTrackingAuthorization) - iOS crashes the app on the request if this is missing.
+        # Ads are personalized, which on iOS means reading the IDFA once the player allows it.
+        NSUserTrackingUsageDescription: "Allowing tracking lets us show you ads that are more relevant to you. The game stays free either way."
         SKAdNetworkItems:
           - SKAdNetworkIdentifier: "cstr6suwn9.skadnetwork"
     dependencies:

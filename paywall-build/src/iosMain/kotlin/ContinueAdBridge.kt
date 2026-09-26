@@ -110,6 +110,15 @@ object ContinueAdTrigger {
 @OptIn(DependsOnGoogleMobileAds::class)
 @Composable
 fun ContinueAdContent() {
+    // Nothing may be requested until the consent flow settles (see AdPrivacy) - no preload, and an
+    // offer made in the meantime is refused at once rather than left for Swift's 30s poll.
+    if (!AdPrivacy.canRequestAds) {
+        if (ContinueAdTrigger.showRequested.value) {
+            LaunchedEffect(Unit) { ContinueAdTrigger.cancelShow() }
+        }
+        return
+    }
+
     // The attempt composing now, and the one a failure has queued. Separate so the backoff owns
     // when the replacement handler is built: `pendingAttempt` is written from the load callback,
     // off the composition, and `attempt` only moves once the delay is up.

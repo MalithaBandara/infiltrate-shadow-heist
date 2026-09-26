@@ -1,6 +1,7 @@
 package com.infiltrate.ads
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -92,6 +93,14 @@ object ContinueAdTrigger {
 @OptIn(DependsOnGoogleMobileAds::class)
 @Composable
 fun ContinueAdContent() {
+    // Nothing may be requested until the consent flow settles (see AdPrivacy) - no preload, and an
+    // offer made in the meantime is refused at once rather than left waiting on MainActivity's poll.
+    if (!AdPrivacy.canRequestAds) {
+        if (ContinueAdTrigger.showRequested.value) {
+            LaunchedEffect(Unit) { ContinueAdTrigger.onAdClosed() }
+        }
+        return
+    }
     val ad by rememberRewardedAd(
         adUnitId = AdUnitIds.REWARDED_CONTINUE,
         onFailure = {

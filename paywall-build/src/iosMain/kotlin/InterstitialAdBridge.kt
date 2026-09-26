@@ -2,6 +2,7 @@ package com.infiltrate.ads
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import app.lexilabs.basic.ads.DependsOnGoogleMobileAds
@@ -62,6 +63,14 @@ object InterstitialAdTrigger {
 @OptIn(DependsOnGoogleMobileAds::class)
 @Composable
 fun InterstitialAdContent() {
+    // Nothing may be requested until the consent flow settles (see AdPrivacy) - a request made in
+    // the meantime is simply dropped, as an unfilled interstitial already is.
+    if (!AdPrivacy.canRequestAds) {
+        if (InterstitialAdTrigger.showRequested.value) {
+            LaunchedEffect(Unit) { InterstitialAdTrigger.onAdClosed() }
+        }
+        return
+    }
     if (InterstitialAdTrigger.showRequested.value) {
         DisposableEffect(Unit) {
             AdAudioCoordinator.onAdStarted()
