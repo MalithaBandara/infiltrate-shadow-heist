@@ -354,9 +354,10 @@ jobs:
       # AdMob (basic-ads) on-device verification (see .junie/guidelines.md "AdMob (basic-ads)
       # feasibility spike"). Runs chained after the level-transition test in the app itself, so
       # this step starts polling only after that one already found (or gave up on) its own
-      # result file. Real ad network round-trip needs real time, not a fixed sleep - the app's
-      # own poll loop already budgets up to 15s from when the AdMob screen is shown; this step's
-      # 40s budget covers that plus the ~3.5s the transition test needed first, with margin.
+      # result file. No real ad network round-trip anymore (the spike's invisible banner load was
+      # removed - see AdMobVerifyScreen.kt), just SDK init + personalization state, but the app's
+      # own poll loop still budgets up to 15s in case that first composition is delayed; this
+      # step's 40s budget covers that plus the ~3.5s the transition test needed first, with margin.
       - name: "Shell app: wait for AdMob verification, read result"
         continue-on-error: true
         run: |

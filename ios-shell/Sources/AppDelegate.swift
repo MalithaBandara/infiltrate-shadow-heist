@@ -366,8 +366,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     // MARK: - AdMob On-Device Verification (see .junie/guidelines.md "AdMob (basic-ads)
     // feasibility spike" - the link-only spike proved basic-ads compiles+links; this proves
-    // BasicAds.Initialize() and a real BannerAd load actually run on a real iOS Simulator, not
-    // just that the code compiles).
+    // BasicAds.Initialize() and the non-personalized RequestConfiguration actually run on a real
+    // iOS Simulator, not just that the code compiles). No longer verifies a real banner load: the
+    // spike's invisible 1dp BannerAd() was a real ad impression firing on every production launch,
+    // which violates AdMob's policy against ads not visible to users, so it was removed from
+    // AdMobVerifyScreen.kt - only SDK init and the personalization setting are checked here now.
 
     private func runAdMobVerification() {
         print("ADMOB_TEST: ==== AdMob Verification START ====")
@@ -378,22 +381,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // ComposeUIViewController here and crashed inside Compose's own setContent machinery
         // with two scenes alive at once - see guidelines.md for the full story.
 
-        // Real ad network round-trip - poll with a genuine time budget rather than a single
-        // fixed wait, same discipline as the switch-spike poll loop.
+        // initializeCalled/personalizationDisabled are set synchronously during Compose's first
+        // composition (no ad network round-trip involved anymore), but still polled rather than
+        // read once immediately, in case that first composition is delayed behind other launch
+        // work.
         let deadline = Date().addingTimeInterval(15.0)
         var pollTimer: Timer?
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { t in
-            let loaded = AdMobVerifyBridge.shared.bannerLoaded
+            let initCalled = AdMobVerifyBridge.shared.initializeCalled
+            let personalizationDisabled = AdMobVerifyBridge.shared.personalizationDisabled
             let timedOut = Date() >= deadline
-            if loaded || timedOut {
+            if initCalled || timedOut {
                 t.invalidate()
-                let initCalled = AdMobVerifyBridge.shared.initializeCalled
-                let personalizationDisabled = AdMobVerifyBridge.shared.personalizationDisabled
                 let resultText: String
-                if loaded {
-                    resultText = "OK:initializeCalled=\(initCalled):bannerLoaded=true:personalizationDisabled=\(personalizationDisabled)"
+                if initCalled {
+                    resultText = "OK:initializeCalled=true:personalizationDisabled=\(personalizationDisabled)"
                 } else {
-                    resultText = "FAIL:initializeCalled=\(initCalled):bannerLoaded=false:personalizationDisabled=\(personalizationDisabled):timedOut=\(timedOut)"
+                    resultText = "FAIL:initializeCalled=false:personalizationDisabled=\(personalizationDisabled):timedOut=\(timedOut)"
                 }
                 print("ADMOB_TEST: ==== AdMob Verification COMPLETE: \(resultText) ====")
                 self.writeTextFile("admob_verify_result.txt", resultText)
