@@ -144,9 +144,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             done()
             return
         }
-        ATTrackingManager.requestTrackingAuthorization { _ in
-            // Called on a background queue; AdConsentBridge.finish() writes Compose state.
-            DispatchQueue.main.async { done() }
+        // A beat after becoming active (or after Google's consent message closes): iOS drops an ATT
+        // request made while the app is still transitioning without showing anything, and "the
+        // tracking prompt never appeared" is a routine App Review rejection (Guideline 5.1.2).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            ATTrackingManager.requestTrackingAuthorization { _ in
+                // Called on a background queue; AdConsentBridge.finish() writes Compose state.
+                DispatchQueue.main.async { done() }
+            }
         }
     }
 
@@ -161,8 +166,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
               ATTrackingManager.trackingAuthorizationStatus == .notDetermined,
               !trackingPromptInFlight else { return }
         trackingPromptInFlight = true
-        ATTrackingManager.requestTrackingAuthorization { [weak self] _ in
-            DispatchQueue.main.async { self?.trackingPromptInFlight = false }
+        // Same beat as requestTrackingAuthorization above, for the same reason.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            ATTrackingManager.requestTrackingAuthorization { [weak self] _ in
+                DispatchQueue.main.async { self?.trackingPromptInFlight = false }
+            }
         }
     }
 

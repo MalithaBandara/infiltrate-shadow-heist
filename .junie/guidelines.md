@@ -1449,6 +1449,30 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
   **If a Play review ever needs the rain gone again, `LevelData.DEFAULT_LEVEL_2.hasRain` is the whole
   switch.**
 
+## Release 1.0 (build 19) - App Store review readiness (2026-09-26)
+
+Build number lives in THREE places - bump all together: `ios-shell/project.yml` `CFBundleVersion`,
+`ios-testflight.yml`'s `build_number` default, `android-shell` `versionCode`. TestFlight uploads
+run only on a `v*` tag push or a manual dispatch, never on a plain push to `main`. Build 19 ships
+REAL ad units (`USE_TEST_ADS = false`) because the TestFlight binary is the one submitted.
+
+Review-risk audit done before 19, and what it changed:
+- **The public privacy policy (`site/privacy/index.html`, Netlify, gitignored - deployed separately
+  from git) contradicted the app** once ads went personalized (said: no IDFA, no ATT prompt, no
+  consent dialog). Rewritten; **it must be live before submitting** (Guidelines 5.1.1/5.1.2). Any
+  future ads/data change needs the same pass over that page.
+- **iOS Restore only checked RevenueCat entitlements**; Android also accepts a purchased
+  `remove_ads`-like product id. iOS now matches - a Remove Ads product with no entitlement attached
+  would otherwise restore as "nothing found", which reviewers test for (3.1.1).
+- **ATT request is delayed 1s** after activation/consent-form close - iOS silently drops a request
+  made mid-transition, and "prompt not found" is a routine 5.1.2 rejection.
+- Checked clean: Restore on the Remove Ads screen, no other-platform names in UI text, no
+  "Coming Soon" shown, no permission-gated APIs (so no other usage strings needed), 1024 icon
+  has no alpha, privacy/support URLs return 200, ExportOptions `app-store`, debug keys JVM-only.
+- **Outside the repo, owner's job**: App Store Connect privacy answers must declare tracking
+  (Device ID) or an ATT-prompting app is rejected; age rating should allow for ad content
+  (AdMob max ad content rating can cap it).
+
 ## Keep this file up to date
 
 This file is the first thing a new chat/agent should read. Whenever you make a decision, discover a
