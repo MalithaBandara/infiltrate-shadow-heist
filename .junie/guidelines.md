@@ -2007,8 +2007,12 @@ will move forward whenever possible. he cant climb or parkour. you can use doors
   doors). **`LiftDef`**: two stops (room floor 281 / duct floor 440, sunk flush), carries riders,
   never descends onto a body, freezes while a guard is in its shaft.
 - **Shafts have catwalks, not crates**: a crate on the duct floor would stop him dead. A 6-thick
-  catwalk at 334 (climb 106 from the floor, underside 340 clears his head at 344), then a 53 mantle
-  onto the slab. Drawn as a plain platform with a gusset (the bglvl10 short-box skip now exempts
+  catwalk at 326 (climb 114 from the floor, underside 332 clears his head at 344), then a 45 **hop**
+  onto the slab (2026-09-30: "that next part should be jumpable" - it was a 53 mantle). Being
+  walked under, nothing stopped the player at the grab spot ("you have to find the exact spot"), so
+  catwalks are `LevelLayout.hangingClimbTargets` -> `Player.hangingClimbTargets`: grabbed from
+  `HANGING_GRAB_BEFORE` (12) short of the near edge to `HANGING_GRAB_UNDER` (30) under it, not the
+  usual 6-unit reach. Drawn as a plain platform with a gusset (the bglvl10 short-box skip now exempts
   `plainPlatforms`). Drawn as a black pallet hung on two cables from the room ceiling (a bracket
   off the slab's edge was tried twice and rejected as weird), not the rough block (skipped in the box
   loop). **Lifts are `resources/elevator.png`** (a black cage: railing + mesh on a deck slab, cut by
@@ -2093,6 +2097,46 @@ before it is completed (or with premium, as before). A fresh profile now unlocks
 `level_5` used to be open from the start as a leftover "side-scrolling sample level" default, which
 broke the chain. `testGameProfileStorageLevelUnlockingProgression` is re-enabled. iOS still not
 bumped (19); no TestFlight. Ads REAL.
+
+## Android 1.0.0 (versionCode 22) - production, Android only (2026-09-30)
+
+Build 22 = build 21 plus the device polish pass below and level 11's catwalk fix. Progression
+unchanged from 21 (finish a level to unlock the next). iOS still 19; no TestFlight. Ads REAL.
+
+## Device polish pass (2026-09-30)
+
+- **Laser hum was static on phones**: `loop_laser.wav` put 99% of its energy at 20-100 Hz (a 31 Hz
+  fundamental) - a phone speaker only plays the distortion. Re-voiced two octaves up, saturated and
+  band-passed (circularly, so it still loops) by `tools/sfx/scripts/revoice_laser.py`; same RMS, so
+  `LASER_LOOP_*` gains are unchanged. **Any new ambience bed: check it has energy above ~300 Hz.**
+- **Camera "jumps" while pushing the cart (and on other clips)**: not the camera (the spring and the
+  push are both smooth at a steady frame rate - measured). KorGE's `AgBitmapTextureManager` deletes a
+  texture after 60 frames undrawn (`maxCachedMemory` defaults to 0), so a player clip on its own
+  2048x2048 atlas page (push, climb, swing, wind, jump) was re-uploaded inside the frame it restarted -
+  a hitch. `TextureResidency` (added once per `GameplayScene`) uploads every player/guard atlas page at
+  level start and references them each frame; `maxCachedMemory` is 384MB so props scrolled off screen
+  aren't re-sent either. Not measured on a device.
+- **Level 6's plank guard "floating"**: `GuardAnimations.WALK_STRIDE_PER_HEIGHT` 0.46 -> 0.53 (the
+  plate's measured planted-foot stride). 0.46 was a deliberate "snappier" gait at the cost of ~15%
+  backward foot-slide, which read as gliding. Applies to every guard.
+- **Continue-after-ad respawned in the wrong place**: `GameWorld.isOnFixedFooting` tested only the
+  body's centre, so level 2 took automatic checkpoints half on a lift and on a hanging crate's corner;
+  a respawn there dropped the body to the floor. Now anything moving under any part of the feet rules
+  a spot out, and the centre must be over a fixed platform.
+  `testEveryAutomaticCheckpointHoldsTheBodyAfterAContinue` continues from every checkpoint of levels
+  1, 2 and 5 (3/4/8/9's autopilots live elsewhere and are not covered by it).
+- **Objectives block tucked into the corner**: `objPanel` at `OBJECTIVES_CORNER_X/Y` (8, 6), with no
+  left safe-area inset ("move it very close to corner") - it may sit over a camera cutout.
+- **Level 8's hanging loads are off limits** (`LevelData.hangingLoadsOffLimits`, level 8 only): every
+  hanging load (static, moving, hook crate still hanging) gets a 400-tall invisible lid
+  (`OFF_LIMITS_LID_HEIGHT`) and is never a climb target, from anywhere. Level 9 (same yard) is
+  unaffected. The high-road hop/swing tests build the yard with loads boardable (`level8Unwatched`);
+  `testLevel8TheHangingLoadsCannotBeGotOnto` proves level 8 refuses them.
+- **Level 9 "character replaced by a black rectangle" - NOT reproduced or confirmed.** Best
+  hypothesis: an atlas page sampled while deleted/half-uploaded (GLES returns opaque black, and the
+  silhouette frames are black-with-alpha, so the whole frame box goes black) - the texture churn
+  `TextureResidency` removes. If it recurs on a build with TextureResidency, get a screenshot and
+  what was happening (swing? after a continue ad? the figure or the player?).
 
 ## Extracted library: `kmp-stealth-game-toolkit` (2026-09-29)
 

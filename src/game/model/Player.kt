@@ -38,6 +38,14 @@ data class Player(
     var gravity: Double = 1000.0
     var maxFallSpeed: Double = 600.0
 
+    /**
+     * Floating climb targets the player can walk under (LevelLayout.hangingClimbTargets - level
+     * 11's shaft catwalks). Nothing stops the player at such a ledge's edge, so the usual few
+     * units of reach would mean hunting for the one spot where the grab works; these are grabbed
+     * anywhere from [HANGING_GRAB_BEFORE] short of the near edge to [HANGING_GRAB_UNDER] under it.
+     */
+    var hangingClimbTargets: List<Rect> = emptyList()
+
     var isJumping: Boolean = false
     var isDropping: Boolean = false
     var dropLandingTimer: Double = 0.0
@@ -431,10 +439,13 @@ data class Player(
             // is all that is denied - the box still collides, is still landed on, and is still
             // jumped onto if the rise is inside jump height.
             if (box in unclimbableBoxes) continue
+            val hanging = box in hangingClimbTargets
+            val before = if (hanging) HANGING_GRAB_BEFORE else reach
+            val under = if (hanging) HANGING_GRAB_UNDER else 1.0
             val adjacent = if (direction > 0.0) {
-                box.left >= x + width - 1.0 && box.left <= x + width + reach
+                box.left >= x + width - under && box.left <= x + width + before
             } else {
-                box.right <= x + 1.0 && box.right >= x - reach
+                box.right <= x + under && box.right >= x - before
             }
             if (!adjacent) continue
 
@@ -1047,6 +1058,12 @@ data class Player(
     }
 
     companion object {
+        /** See [hangingClimbTargets]: how far short of a walk-under ledge's near edge it can be grabbed. */
+        const val HANGING_GRAB_BEFORE = 12.0
+
+        /** See [hangingClimbTargets]: how far under a walk-under ledge its near edge can be grabbed from. */
+        const val HANGING_GRAB_UNDER = 30.0
+
         /**
          * The character is drawn 5% larger than his collision box - see [visualHeight].
          *

@@ -81,17 +81,24 @@ class Level11EscortTest {
             step()
         }
 
-        /** Climbs a shaft: onto its catwalk from the duct floor, then onto the slab past it. */
-        fun climbShaft(catwalk: Rect) {
-            walkTo(catwalk.left - p.width - 1.0)
+        /** Climbs a shaft: onto its catwalk from the duct floor, then hops onto the slab past it. */
+        fun climbShaft(catwalk: Rect, grabFrom: Double = catwalk.left - p.width - 1.0) {
+            walkTo(grabFrom)
             climbRight()
             assertEquals(catwalk.top, p.y + p.height, 0.5, "on the catwalk")
             walkTo(catwalk.right - p.width)
-            climbRight()
+            // A plain jump, not a mantle.
+            step(1.0, jump = true)
+            val until = t + 3.0
+            while (!p.isGrounded || p.y + p.height > LevelData.LEVEL_10_ROOM_FLOOR_Y + 0.5) {
+                assertTrue(t < until, "the hop onto the slab did not land (at ${p.x.toInt()},${(p.y + p.height).toInt()})")
+                assertFalse(p.isClimbing, "the slab is jumped onto, not climbed")
+                step(1.0)
+            }
             assertEquals(LevelData.LEVEL_10_ROOM_FLOOR_Y, p.y + p.height, 0.5, "up in the room")
         }
 
-        private fun climbRight() {
+        fun climbRight() {
             step(1.0, jump = true)
             val until = t + 4.0
             while (p.isClimbing || !p.isGrounded) {
@@ -111,6 +118,31 @@ class Level11EscortTest {
     }
 
     // ---- the mechanisms ------------------------------------------------------------------
+
+    @Test
+    fun testACatwalkIsGrabbedFromAWideWindowAndTheSlabPastItIsAHop() {
+        // "it is hard to climb onto this thing you have to find the exact spot" - he walks under
+        // it, so nothing stops him at its edge; any spot from a little short of it to well under
+        // it has to work. "that next part should be jumpable".
+        val layout = LevelData.LEVEL_11_LAYOUT
+        val catwalks = layout.plainPlatforms.filter { it.height < 10.0 }.sortedBy { it.x }
+        assertEquals(catwalks, layout.hangingClimbTargets.sortedBy { it.x })
+        val probe = Player(0.0, 0.0)
+        for (c in catwalks) {
+            val climb = 440.0 - c.top
+            assertTrue(climb > probe.climbMinHeight && climb <= probe.climbMaxHeight, "a climb from the duct floor: $climb")
+            val hop = c.top - LevelData.LEVEL_10_ROOM_FLOOR_Y
+            assertTrue(hop < probe.maxJumpHeight - 4.0, "the slab past it is a jump, with room to spare: $hop")
+            assertTrue(c.bottom < 440.0 - probe.height, "he still walks under it")
+        }
+        val c = catwalks[0]
+        for (lead in listOf(-Player.HANGING_GRAB_BEFORE + 1.0, -5.0, 0.0, 10.0, 20.0, Player.HANGING_GRAB_UNDER - 1.0)) {
+            val e = Escort()
+            val x = c.left + lead - e.p.width
+            e.p.resetTo(x, 440.0 - 96.0)
+            e.climbShaft(c, grabFrom = x)
+        }
+    }
 
     @Test
     fun testTheCellDoorFreesHimAndHeWalksOnHisOwnUntilSomethingStopsHim() {

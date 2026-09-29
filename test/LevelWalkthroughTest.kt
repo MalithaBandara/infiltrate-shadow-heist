@@ -208,6 +208,44 @@ class LevelWalkthroughTest {
         }
     }
 
+    /**
+     * "after i press continue and the ad plays, i do not get respawned in the correct place"
+     * (2026-09-30): level 2 took two automatic checkpoints the body could not stand on after a
+     * respawn - half on a lift, and on a hanging crate's corner - so a continue dropped it to the
+     * floor below. Every checkpoint a clean run takes on the automatic-checkpoint levels here is
+     * died past and continued from, and the body has to stay exactly where it was put.
+     */
+    @Test
+    fun testEveryAutomaticCheckpointHoldsTheBodyAfterAContinue() {
+        for (level in listOf(LevelData.DEFAULT_LEVEL_1, LevelData.DEFAULT_LEVEL_2, LevelData.SIDE_SCROLL_LEVEL)) {
+            var taken = 0
+            Runner(level).also { r ->
+                r.world.onCheckpointSecured = { _, _ -> taken++ }
+                r.runToTheExit()
+            }
+            assertTrue(taken > 0, "${level.name}: a clean run takes checkpoints")
+            for (k in 1..taken) {
+                val r = Runner(level)
+                var n = 0
+                r.world.onCheckpointSecured = { _, _ -> n++ }
+                while (n < k && !r.world.isLevelComplete) r.runRight()
+                val t0 = r.t
+                while (r.t < t0 + 1.0 && !r.world.isLevelComplete && r.deaths == 0) r.runRight()
+                if (r.world.isLevelComplete) continue
+                r.world.isGameOver = true
+                assertTrue(r.world.respawnAtCheckpoint(), "${level.name}: the continue is granted")
+                val x = r.p.x
+                val y = r.p.y
+                val t1 = r.t
+                val d0 = r.deaths
+                while (r.t < t1 + 4.0) r.step(0.0)
+                assertEquals(x, r.p.x, 3.0, "${level.name} checkpoint $k: the body stays where it was respawned (x)")
+                assertEquals(y, r.p.y, 3.0, "${level.name} checkpoint $k: the body stays where it was respawned (y)")
+                assertEquals(d0, r.deaths, "${level.name} checkpoint $k: and survives standing there")
+            }
+        }
+    }
+
     /** Re-derive [LEVEL_3_HOLDS] after a level 3 change: `REPLAN_LEVEL3=1 ./gradlew jvmTest --tests '*testReplanLevel3'`. */
     @Test
     fun testReplanLevel3() {
