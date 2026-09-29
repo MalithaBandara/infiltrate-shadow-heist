@@ -234,11 +234,9 @@ fun LevelSelectScreen(
                     ) {
                         for ((index, levelData) in rowLevels) {
                             val result = allResults[levelData.id]
-                            // Routed through the profile rather than re-deriving the rule
-                            // here, so GameProfile.isLevelUnlocked's "unlock all for testing"
-                            // switch actually reaches the mission grid. This grid used to carry
-                            // its own copy of the star gate and stayed locked while that flag was
-                            // on, which is the whole reason the flag looked like it did nothing.
+                            // Routed through the profile rather than re-deriving the rule here:
+                            // GameProfile.isLevelUnlocked is the one place the progression gate
+                            // (previous level completed) lives.
                             val isUnlocked = profileStorage.isLevelUnlocked(levelData.id, levels, levelStorage)
                             val requiresPremium = levelData.id.contains("dlc")
                             val canPlay = isUnlocked && (!requiresPremium || profile.isPremium)

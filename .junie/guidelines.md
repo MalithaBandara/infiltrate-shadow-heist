@@ -2084,6 +2084,16 @@ release. Levels 1-11 listed and unlocked (`unlockAllForTesting = true`). Ads sti
 local `local.properties` has no keystore passwords, so a local `bundleRelease` fails at
 `signReleaseBundle` with a bare NullPointerException.
 
+## Android 1.0.0 (versionCode 21) - production, Android only (2026-09-30)
+
+Production build: `versionCode` 20 -> 21, `versionName` "0.2.0" -> "1.0.0". **Normal progression is
+back**: the `unlockAllForTesting` short-circuit is deleted from `GameProfile.isLevelUnlocked` (the
+"Unlocking every level for testing" section above is history), so a level opens only when the one
+before it is completed (or with premium, as before). A fresh profile now unlocks only `level_1` -
+`level_5` used to be open from the start as a leftover "side-scrolling sample level" default, which
+broke the chain. `testGameProfileStorageLevelUnlockingProgression` is re-enabled. iOS still not
+bumped (19); no TestFlight. Ads REAL.
+
 ## Extracted library: `kmp-stealth-game-toolkit` (2026-09-29)
 
 The engine-agnostic pieces of `src/game/model/` - `Geometry.kt`, `Vision.kt`, `Guard.kt`,
