@@ -104,7 +104,7 @@ class VentVisualsTest {
             worldToTexel = worldZoom / bgScale,
             textureWidth = textureWidth,
             minX = LevelData.LEVEL_7_MARKER_FIRST_X - 60.0 + markerWidth / 2.0,
-            maxX = layout.exitZone.x - markerWidth / 2.0 - 10.0,
+            maxX = minOf(layout.exitZone.x, layout.exitStructure?.x ?: layout.exitZone.x) - markerWidth / 2.0 - 10.0,
             propSpans = propSpans,
             halfWidthWorld = markerWidth / 2.0 + 12.0
         ).also { assertTrue(label.isNotEmpty()) }
@@ -171,6 +171,39 @@ class VentVisualsTest {
             assertEquals(canvasHeight, drawn, 1e-6, "background height at canvas $canvasHeight")
         }
         assertEquals(1.0, GameplayScene.level7SceneryStretch(480.0), 1e-12)
+    }
+
+    @Test
+    fun testLevel10PaintedCorridorIsTheWorldDuctAtTheBottomOfTheArt() {
+        // "use this as the background for level 10 and move the walking part to the bottom"
+        // (2026-09-29): bglvl10.png's corridor under the beam is the duct and the texture's
+        // bottom edge is the floor. Mirrors the scene's own arithmetic in sceneMain.
+        assertEquals("bglvl10.png", LevelData.DEFAULT_LEVEL_10.resolvedBackgroundImage)
+        val layout = LevelData.LEVEL_10_LAYOUT
+        val ground = layout.platforms.first { it.y >= 400.0 && it.width >= 1000.0 }.y
+        val ceiling = layout.boxes.first { it.height <= 30.0 }.bottom
+        assertEquals(GameplayScene.LEVEL_10_DUCT_HEIGHT, ground - ceiling, "the constant is the layout's duct")
+
+        val worldZoom = 1.35
+        val baseGroundY = 410.0
+        val s = GameplayScene.level10BgScale(worldZoom)
+        val beamTop = GameplayScene.LEVEL_10_BG_BEAM_TOP_ROW
+        val floorRow = GameplayScene.LEVEL_10_BG_FLOOR_ROW
+        for (canvasHeight in listOf(480.0, 585.0, 600.0, 687.0, 800.0, 1066.0)) {
+            val worldViewY = canvasHeight - (baseGroundY + 70.0) * worldZoom
+            val floorScreenY = worldViewY + ground * worldZoom
+            fun worldYOfRow(row: Int) = (floorScreenY - (floorRow - row) * s - worldViewY) / worldZoom
+            assertEquals(ground, worldYOfRow(floorRow), 1e-9, "floor at canvas $canvasHeight")
+            assertEquals(ceiling, worldYOfRow(GameplayScene.LEVEL_10_BG_CEILING_ROW), 1e-9, "beam underside at canvas $canvasHeight")
+            assertTrue(floorScreenY < canvasHeight, "the floor is on screen at canvas $canvasHeight")
+
+            // Nothing bare above: the texture overhangs the top, or its upper wall stretches to it.
+            val top = floorScreenY - floorRow * s
+            val drawn = beamTop * s + maxOf(0.0, top) + (floorRow - beamTop) * s
+            assertTrue(floorScreenY - drawn <= 1e-6, "background reaches the top at canvas $canvasHeight")
+            // Below the floor is the ground block (100 units deep), which reaches the bottom.
+            assertTrue(floorScreenY + 100.0 * worldZoom >= canvasHeight, "ground covers the bottom at canvas $canvasHeight")
+        }
     }
 
     @Test

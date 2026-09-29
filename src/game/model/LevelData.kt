@@ -1,6 +1,7 @@
 package game.model
 
 import kotlin.math.PI
+import kotlin.math.atan2
 
 /** A guard placed on a specific surface of a [LevelLayout]. */
 data class GuardSpawn(
@@ -92,6 +93,31 @@ data class Checkpoint(
  * request ("make sure all parts of the crane is interactable"). See LEVEL_6_LAYOUT for the level
  * geometry built around this shape.
  */
+/**
+ * A prison cell seen from the front, at the end of a level (LEVEL_10_LAYOUT's last room): a
+ * barred front over [bars] (floor to ceiling, drawn over the cell and behind the player) and a
+ * figure sitting on the cell floor at [prisonerX], facing [prisonerFacing]. Purely decorative -
+ * the level's exitZone is what ends it, and a level with a cell draws no extraction booth.
+ */
+data class PrisonCellDef(
+    val bars: Rect,
+    val prisonerX: Double,
+    val prisonerFacing: Double = -1.0,
+    /**
+     * False where the cell's occupant is a live [Prisoner] drawn on his own (level 11): the cell
+     * then draws only its gloom and bars.
+     */
+    val drawsFigure: Boolean = true
+)
+
+/**
+ * A picture hung on the back wall (drawn behind everything that moves, never collides) - a sign
+ * or poster, [image] a file in resources/ stretched to [bounds]. Level 11's exit sign.
+ * [brightness] multiplies its colour (1 = as painted): art lit for daylight is too bright on a
+ * dim wall.
+ */
+data class WallDecal(val bounds: Rect, val image: String, val brightness: Double = 1.0)
+
 data class CraneDef(
     val x: Double,
     val y: Double,
@@ -246,6 +272,19 @@ data class LevelLayout(
     // through, and either way the generic per-box render cascade skips it to avoid double-drawing.
     val tableDecorations: List<Rect> = emptyList(),
     /**
+     * Table legs a body passes straight through: drawn with the leg's art crop, washed out the way
+     * a camera pole is (GameplayScene's translucentEffectAlpha) so they read as not-solid, and in
+     * nothing else - not [boxes], not a sight blocker. LEVEL_8_LAYOUT's stacked tables: the upper
+     * table's legs stand right in the lower table's laser course.
+     */
+    val passThroughLegs: List<Rect> = emptyList(),
+    /**
+     * Tables (also in [tables] and [boxes]) drawn as ONE continuous slab of any length: table.png's
+     * repeating slab unit tiled end to end between its two end caps, instead of [tableParts]'
+     * stretched pieces with a seam at every join. LEVEL_8_LAYOUT's long table.
+     */
+    val seamlessTables: List<Rect> = emptyList(),
+    /**
      * Boxes the player may not mantle onto, however climbable the rise would otherwise be. The box
      * still collides, is still landed on and is still jumped onto if it is inside jump height -
      * this denies the climb move only.
@@ -266,6 +305,11 @@ data class LevelLayout(
      * dressing, because it is placed against the rest of the level (see section 5's plank).
      */
     val exitStructure: Rect? = null,
+    /**
+     * The art [exitStructure] is drawn with (a file in resources/). LEVEL_8_LAYOUT ends at
+     * container17.png - "Container 17", the thing levels 5-8 have been chasing.
+     */
+    val exitStructureImage: String = "exitlvl7.png",
     // A box the player can mantle onto directly despite Player.findClimbTarget's usual rule
     // against floating ledges (a box whose underside sits well above the climber's feet) - for a
     // ledge that's meant to be mounted with nothing bracing it underneath. Must also be in
@@ -317,7 +361,32 @@ data class LevelLayout(
     // would brace the player where there is nothing to push, and a braced body cannot jump or
     // crouch. The real pushable prop this anticipated is [pushCarts], which does gate on range
     // and leaves this flag alone.
-    val pushStanceDemo: Boolean = false
+    val pushStanceDemo: Boolean = false,
+    /**
+     * Raised platforms that count as "the ground" for [LevelData.stayOffTheGround] - standing on
+     * one fails the mission exactly as standing on the floor does. Crates, barrels, carts and
+     * hanging loads are never on this list: those are what a stay-off-the-ground run is made of.
+     */
+    val offLimitFootholds: List<Rect> = emptyList(),
+    // Interior back walls drawn with room.png (tiled at the rect's height) behind everything in
+    // it - LEVEL_10_LAYOUT's upper room. Purely decorative; the room's floor, walls and ceiling
+    // are ordinary [boxes].
+    val roomBackdrops: List<Rect> = emptyList(),
+    val prisonCell: PrisonCellDef? = null,
+    /** Doors across corridors, thrown by [doorSwitches] - see [DoorDef]. Level 11. */
+    val doors: List<DoorDef> = emptyList(),
+    /** Wall switches working [doors] and [lifts] by id - see [DoorSwitchDef]. */
+    val doorSwitches: List<DoorSwitchDef> = emptyList(),
+    /** Freight lifts between the duct and the rooms over it - see [LiftDef]. */
+    val lifts: List<LiftDef> = emptyList(),
+    /**
+     * Someone who has to be got out alive (level 11): he walks on his own, and the level is only
+     * complete once he and the player are both in [exitZone]. Guards, cameras and bots that see
+     * him fill the same alert meter as seeing the player; steam kills him. See [PrisonerDef].
+     */
+    val prisoner: PrisonerDef? = null,
+    /** Signs on the back wall - see [WallDecal]. */
+    val wallDecals: List<WallDecal> = emptyList()
 )
 
 enum class TutorialAction {
@@ -403,7 +472,30 @@ data class LevelData(
     val tutorialSteps: List<TutorialStep> = emptyList(),
     val hasDarknessVignette: Boolean = false,
     val playerCrouchForwardSpeedMultiplier: Double = 1.0,
-    val hasRain: Boolean = false
+    val hasRain: Boolean = false,
+    /**
+     * "Don't touch the ground" is the MAIN objective: standing on the floor, or on any of the
+     * layout's [LevelLayout.offLimitFootholds], is Mission Failed. Level 9's rule - "make the main
+     * objective of level 9 to not touch the ground and mission will fail if he touches ground /
+     * platforms". Star 3 stays the clock.
+     */
+    val stayOffTheGround: Boolean = false,
+    /**
+     * The run is recorded ([RunRecorder]) and, when the level is completed without a continue,
+     * saved for a later level to replay - level 8's, which level 9 follows ([replaysRunOf]).
+     */
+    val recordsRun: Boolean = false,
+    /**
+     * The id of the level whose recorded run is played back here as an [EchoRunner] that sees and
+     * hears like a guard - level 9 replays level 8's ("he is following behind his previous run").
+     */
+    val replaysRunOf: String? = null,
+    /**
+     * The level's own optional objective - star 2 and the HUD's middle objective row. Every
+     * shipped level 1-9 has one; null (levels 10-12) keeps the old star 2, "no alerts raised"
+     * ([LevelResult.wasDetected]).
+     */
+    val bonusObjective: BonusObjective? = null
 ) {
     val resolvedBackgroundImage: String
         get() {
@@ -447,9 +539,12 @@ data class LevelData(
         val DEFAULT_LEVEL_1 = LevelData(
             id = "level_1",
             name = "01: Night Arrival",
-            timeTargetSeconds = 30.0f,
+            // Autopilot clean run 28.8s (3900 units is 28s of pure walking); star 3 is that x1.5 -
+            // a person needs the extra to read the crouch-under and the climbs. LevelWalkthroughTest.
+            timeTargetSeconds = 45.0f,
             description = "Reach the shipyard under cover of darkness and find a way inside.",
             objectiveHint = "Find the Shipyard Entrance",
+            bonusObjective = BonusObjective.BASIC_MOVES,
             guardSpeed = 60.0,
             guardPatrolMinX = 2955.0,
             guardPatrolMaxX = 3305.0,
@@ -760,9 +855,12 @@ data class LevelData(
         val DEFAULT_LEVEL_2 = LevelData(
             id = "level_2",
             name = "02: Cargo Yard",
-            timeTargetSeconds = 70.0f,
+            // Autopilot clean run 42.2s, including the wait for each moving container to come within
+            // reach; x1.4. LevelWalkthroughTest.
+            timeTargetSeconds = 60.0f,
             description = "Cross the empty container yard and reach the restricted section.",
             objectiveHint = "Find a Way Through the Yard",
+            bonusObjective = BonusObjective.NO_DROP_FROM_HANGING_CRATES,
             layout = LEVEL_2_LAYOUT,
             backgroundImage = "bgmg5.png",
             // Re-enabled 2026-09-25 after the rain rework (behind the world, thinner, more
@@ -1678,20 +1776,33 @@ data class LevelData(
             )
 
             val finalExitX = finalPlatform.right + 300.0
-            // Extended past the finish structure (entrance booth ~117 + exit fence ~312 = ~430 units)
-            // on request ("increase the length of the ground a little at the very end to reach the finish").
             val finalWorldWidth = finalExitX + 460.0
             val ground = Rect(x = 0.0, y = groundY, width = finalWorldWidth, height = 100.0)
+
+            // The level ends at level 4's conveyor belt ("Reach the Conveyor Belt") instead of the
+            // shared booth + fence: the same 26-tall belt on the ground at level 4's -45, running from
+            // here off the right edge of the world. A conveyor level draws no booth (GameplayScene).
+            // The trigger starts [exitApproach] short of the belt - the level ends as the body nears
+            // it, the same way level 8 ends at Container 17 - at the old trigger's x, so the route
+            // and its clean-run time are unchanged. 120 tall so no jump passes over it.
+            val exitApproach = 70.0
+            val endConveyorHeight = 26.0
+            val endConveyorRect = Rect(
+                x = finalExitX + exitApproach, y = groundY - endConveyorHeight,
+                width = finalWorldWidth - (finalExitX + exitApproach) + 200.0, height = endConveyorHeight
+            )
+            val endConveyor = ConveyorDef(bounds = endConveyorRect, speed = -45.0)
 
             LevelLayout(
                 worldWidth = finalWorldWidth,
                 playerStartX = 236.0,
                 playerStartY = groundY - 96.0,
-                exitZone = Rect(x = finalExitX, y = groundY - 100.0, width = 44.0, height = 100.0),
-                platforms = listOf(ground),
+                exitZone = Rect(x = finalExitX, y = groundY - 120.0, width = exitApproach + 44.0, height = 120.0),
+                platforms = listOf(ground, endConveyorRect),
+                conveyors = listOf(endConveyor),
                 boxes = listOf(
                     crate, tablePlank, hideCrate, rightLeg, longCrate1, longCrate2,
-                    stepCrate2, cameraBeam, cameraLeg, finalHangingCrate, hangingEndCrate, finalPlatform
+                    stepCrate2, cameraBeam, cameraLeg, finalHangingCrate, hangingEndCrate, finalPlatform, endConveyorRect
                 ) + fillerBarrels + listOf(woodCrateBaseLeft, woodCrateBaseRight, woodCrateTop, platformCrate, platformStackedCrates),
                 guards = listOf(roofGuard, overwatchGuard1, overwatchGuard2),
                 cameras = listOf(beamCamera, poleCamera),
@@ -1710,8 +1821,12 @@ data class LevelData(
         val DEFAULT_LEVEL_3 = LevelData(
             id = "level_3",
             name = "03: First Contact",
-            timeTargetSeconds = 25.0f,
+            // Autopilot clean run 46.1s, 17s of which is standing crouched waiting for the roof guard,
+            // the overwatch pair and the cameras to look away; x1.4. LevelWalkthroughTest.
+            timeTargetSeconds = 65.0f,
             description = "Security is active. Avoid guards and cameras to reach the conveyor belt.",
+            objectiveHint = "Reach the Conveyor Belt",
+            bonusObjective = BonusObjective.STAY_UNSEEN,
             layout = LEVEL_3_LAYOUT,
             tutorialSteps = listOf(
                 TutorialStep(
@@ -1744,9 +1859,12 @@ data class LevelData(
         val DEFAULT_LEVEL_4 = LevelData(
             id = "level_4",
             name = "04: Moving Target",
-            timeTargetSeconds = 115.0f,
+            // Autopilot clean run 116.9s (7680 units against a belt that nets 87 u/s is 88s before a
+            // single laser is waited on); x1.4. Was 115, which no clean run could meet.
+            timeTargetSeconds = 165.0f,
             description = "Search the moving conveyor belt for Container 17 while avoiding lasers.",
-            objectiveHint = "Traverse the Conveyor Line",
+            objectiveHint = "Cross the Conveyor Line",
+            bonusObjective = BonusObjective.USE_A_GADGET,
             layout = LEVEL_4_LAYOUT,
             backgroundImage = "metalbg.png",
             hasDarknessVignette = true,
@@ -1879,6 +1997,8 @@ data class LevelData(
             val hookCrateHeight = 48.0
             val hookRopeLength = 36.0
             val hookEdgeX = hook3GripX - 4.5
+            // A physical body, like level 8's load (HookCrate.physical): cut loose it falls into
+            // the gap, bounces off the terrain faces and the floor, and stays where it lands.
             val hookCrate = HookCrate(
                 id = "hook_crate_1",
                 hook = swingHook3,
@@ -1888,7 +2008,8 @@ data class LevelData(
                     width = hookCrateWidth,
                     height = hookCrateHeight
                 ),
-                ropeLength = hookRopeLength
+                ropeLength = hookRopeLength,
+                physical = true
             )
 
             // Landing platform past the third hook (receiving swing landing at x = 2344.0)
@@ -1945,9 +2066,12 @@ data class LevelData(
         val SIDE_SCROLL_LEVEL = LevelData(
             id = "level_5",
             name = "05: The Crane Yard",
-            timeTargetSeconds = 60.0f,
+            // Autopilot clean run 19.2s (two swings, one lever); short enough that a person needs a
+            // flat 15s more, not x1.4, to line up the swing run-ups. LevelWalkthroughTest.
+            timeTargetSeconds = 35.0f,
             description = "Container 17 is gone. Search the crane yard for signs of where it went.",
-            objectiveHint = "Get Into the Restricted Area",
+            objectiveHint = "Cross the Crane Yard",
+            bonusObjective = BonusObjective.SWING_FROM_A_HOOK,
             coinRewardBase = 90,
             coinRewardPerStar = 40,
             layout = SIDE_SCROLL_LEVEL_LAYOUT,
@@ -2711,9 +2835,13 @@ data class LevelData(
         val DEFAULT_LEVEL_6 = LevelData(
             id = "level_6",
             name = "06: Stolen Manifest",
-            timeTargetSeconds = 45.0f,
-            description = "Break into the office and recover records revealing Container 17’s location.",
-            objectiveHint = "Find Container 17",
+            // Autopilot clean run 64.5s: swing, pit under the overwatch crate, the boom, the gantry
+            // climb timed to the swinging crate and the plank guard, the plank lever; x1.45.
+            // LevelWalkthroughTest.
+            timeTargetSeconds = 95.0f,
+            description = "The records revealing Container 17’s location are kept in the security building. Find a way in.",
+            objectiveHint = "Reach the Security Building",
+            bonusObjective = BonusObjective.STAY_UNSEEN,
             layout = LEVEL_6_LAYOUT
         )
 
@@ -2788,14 +2916,15 @@ data class LevelData(
          */
         val LEVEL_7_LAYOUT = run {
             val groundY = 440.0
-            val worldWidth = 6410.0
+            val worldWidth = 6490.0
             val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
 
             // Whole middle section corridor: top black beam in bglvl7.png is at Y=212.0
             // Height = (488.0 - 212.0) * (480.0 / 724.0) / 1.35 ≈ 136.0 world units
             val ceilingBottomY = 304.0
             val ventCeiling = Rect(x = 0.0, y = ceilingBottomY - 28.0, width = 6160.0, height = 28.0)
-            val chamberBackWall = Rect(x = 6370.0, y = 200.0, width = 40.0, height = groundY - 200.0)
+            // 80 further on than it was, to hold the security desk (see securityDesk below).
+            val chamberBackWall = Rect(x = 6450.0, y = 200.0, width = 40.0, height = groundY - 200.0)
 
             val fans = listOf(
                 // Beat 1 - the tutorial gale: widest zone (393..753), gentlest push. Left exactly
@@ -3063,9 +3192,14 @@ data class LevelData(
                 )
             )
 
-            // Far enough past the last stencil (6190) that the booth drawn from here does not
-            // cover it - see the class doc.
-            val exitX = 6260.0
+            // The level ends at the security desk ("Reach the Security Desk", 2026-09-30): desk.png,
+            // the asset drop's silhouette of a desk under a 2x2 bank of monitors, cropped to its
+            // alpha (2.075:1). 95 tall puts the desk top (47% down the art) at 45 - a desk beside
+            // a 96-tall man - and it stands on the chamber floor past the duct's ceiling (6160),
+            // clear of the "0m" stencil (6190, 43 wide) on its left. The trigger is in front of
+            // the monitors' left half: walking up to the screens is what ends the level.
+            val securityDesk = Rect(x = 6240.0, y = groundY - 95.0, width = 95.0 * 2.075, height = 95.0)
+            val exitX = 6300.0
 
             LevelLayout(
                 worldWidth = worldWidth,
@@ -3081,21 +3215,23 @@ data class LevelData(
                 hasStartFences = false,
                 canClimb = false,
                 playerStartCrouched = false,
-                manualCheckpoints = checkpoints
+                manualCheckpoints = checkpoints,
+                exitStructure = securityDesk,
+                exitStructureImage = "desk.png"
             )
         }
 
         val DEFAULT_LEVEL_7 = LevelData(
             id = "level_7",
             name = "07: Service Tunnel",
-            // Calibrated the way level 4's 115s is: just under what its own walkthrough sim takes
-            // (85.3s here, 116.9s there), so the "finish under" objective is beaten by reading the
-            // hazards rather than by waiting out every single window. 6160 units is 46.7s of pure
-            // walking, so this is roughly twice the theoretical floor. It was briefly 95 while the
-            // level had crouch ducts in it.
-            timeTargetSeconds = 85.0f,
+            // Pace for a person, not the autopilot: its cautious walkthrough clears this in 107.7s
+            // (testLevel7SimulationPlayableWalkthrough - waiting out every doubtful window and
+            // holding for any drone that has spotted it), and star 3 is that x1.4. 6160 units is
+            // 46.7s of pure walking. LevelWalkthroughTest pins the ratio for every shipped level.
+            timeTargetSeconds = 155.0f,
             description = "Avoid the heavily guarded security room through the underground service tunnel.",
-            objectiveHint = "Infiltrate Facility",
+            objectiveHint = "Reach the Security Desk",
+            bonusObjective = BonusObjective.DISABLE_ALL_SECURITY_BOTS,
             layout = LEVEL_7_LAYOUT,
             backgroundImage = "bglvl7.png",
             hasDarknessVignette = false,
@@ -3226,22 +3362,20 @@ data class LevelData(
          * a high platform with a camera pole connected to it that switches from looking at hanging
          * crates and the lever."
          *
-         * **The hang line ([hangClearance]).** Three crates share one height: [overheadCrate],
-         * [sweepCrate] and [platformCrate] all hang with their undersides 62 above [platform]'s
-         * own surface, which is the "just above the top of the platform" the rework asked for.
-         * 62 is not free choice - it is the FLOOR of a 40-unit window and the level would break
-         * outside it:
-         *   - under 56 ([Player.crouchHeight]) nothing gets past [platformCrate] at all. It
-         *     sweeps left and right over a 240-wide platform the player has to cross; with no
-         *     duck-under there is no safe pocket to wait in, only a corridor that closes from
-         *     whichever side the load happens to be returning from. Worked through on paper and
-         *     it dead-ends every time - the crate always catches whoever is waiting it out.
-         *   - at 96 ([Player.height]) or more a standing body walks straight under, and the
-         *     crossing stops being an obstacle.
-         * 62 leaves a crouched body 6 units of headroom - the tightest the geometry allows while
-         * still clearing [Player.crouchHeight] - so it reads as low as the request wanted without
-         * sealing the platform shut. Anything that lowers it further has to move
-         * [Player.crouchHeight] first.
+         * **The hang line ([hangY]).** Three crates share one height: [overheadCrate],
+         * [sweepCrate] and [platformCrate] all hang with their undersides exactly level with
+         * [platform]'s own surface - "take these crates down to a level where their bottom is at
+         * the level of the top of the platform" (2026-09-28). It used to be 62 above it, a
+         * crouch-under gap; at 0 nothing ducks under any of the three any more, and what that
+         * changes, load by load:
+         *   - [platformCrate] was then lifted 24 back off that line (same day) so it cannot be
+         *     jumped onto from the platform, only from the top of [sweepCrate] - see Section 3.
+         *     It is still a solid block to anyone walking the platform, never a crouch gap.
+         *   - [sweepCrate] still crushes a climb that it catches, and now also any JUMP taken
+         *     under it: from the floor or from the cart deck a jumping head reaches the underside.
+         *     Standing still under it is safe - a body on the cart deck is exactly 96 below it, so
+         *     it passes flush over the head without touching.
+         *   - [overheadCrate] is still 144 above the floor, far out of reach.
          *
          * **Section 1 - the plane.** Default start fences (`hasStartFences`, no explicit rects -
          * the same pair every other level gets), then the two loads from the original build,
@@ -3249,9 +3383,9 @@ data class LevelData(
          * starts at 430 instead of 760, and [platform] at 900 instead of 1560. Both loads hang on
          * level 2's own `chainedcrate.png` rigging. Neither can be stood on: `findClimbTarget`
          * refuses any box whose underside sits more than 4 above the climber's feet (a "floating
-         * ledge" with no face to brace against), and at 206 above the floor they are four times
-         * [Player.maxJumpHeight] (51.2) out of jump reach as well - so "player cant get on top of
-         * these two" still needs no `unclimbableBoxes` entry.
+         * ledge" with no face to brace against), and with their undersides 144 above the floor
+         * their tops are far past [Player.maxJumpHeight] (51.2) as well - so "player cant get on
+         * top of these two" still needs no `unclimbableBoxes` entry.
          *
          * **Section 2 - the climb, and the crush.** [stepCrate] (68x48) stands flush against
          * [platform]'s left face: ground -> crate is a 48 jump (inside the 51.2 arc, so it is
@@ -3259,131 +3393,100 @@ data class LevelData(
          * 144 from the floor to the platform top is past [Player.climbMaxHeight] (115), so there
          * is no way up that skips the crate.
          *
-         * [sweepCrate] is the hazard, carried over from the first build with its timing intact: a
-         * [MovingPlatformDef] with `crushesOnContact`, the flag LEVEL_6_LAYOUT's gantry crate
-         * introduced, which only bites from below (feet under the crate's own underside) so it is
-         * never a platform that kills whoever stands on it. At the new 62 hang line it works by a
-         * different route than it did at 44, and a more literal one:
-         *   - `Player.bounds` uses `currentHeight`, and `isCrouching` is only set at the END of a
-         *     climb ([Player.advanceClimb]), so a climbing body is 96 tall for the whole 1.95s of
-         *     [Player.climbDuration]. A load over the landing therefore catches it - MISSION
-         *     FAILED - which is exactly "when it is at right it can crush the person if he tries
-         *     to climb".
-         *   - at 44 the climb was instead REFUSED outright (neither height fit, so
-         *     `findClimbTarget` returned nothing and the player was held at the bottom). 62 fits a
-         *     crouched body, so the climb is allowed and the crate kills it mid-ascent. Strictly
-         *     the better read of the original request.
-         * The sweep is 200 long over an 8s period, covering the landing only over the last 170 of
-         * that travel. The number that had to be tuned is not that window but the WORST one: a
-         * player who starts climbing the instant the load swings clear still has it coming back.
-         * Read off `MovingPlatform`'s cosine easing, a crate that is clear AND travelling left has
-         * at least 0.3734 of a period left before it covers the landing again - 2.99s here,
-         * against 1.95s of climb plus the ~0.25s walk out from under it. So "clear and swinging
-         * away" is a cue that always pays off and "clear and swinging back" is the trap. A shorter
-         * period, a wider crate or a rest position closer to the lip all eat that same margin.
-         * It sweeps LEFT off the landing (out over the plane) rather than right, for the same
-         * reason level 6's does: everything right of the landing stays permanently clear.
+         * **The squeeze (2026-09-28).** "he has to climb onto that and crouch and just as the
+         * crate moves left from his position he has to climb up and quickly drop down from other
+         * side. he should have just enough time to do that. the two crates should come very close
+         * to each other and if he is in between them at that point mission should fail."
+         * Then (same day): "raise this moving crate to the same level as the stationary one. make
+         * that moving one and the next moving one meet at somewhat more to the right above the
+         * platform" and "make level fail only if the cart or person touch the bottom side of the
+         * crate".
+         *   - [sweepCrate] hangs on the hang line with [overheadCrate]: flush over a standing head
+         *     on the cart, flush on the platform's surface, and out 60 over the platform at its
+         *     right end. It kills only through its underside (`crushesOnlyFromBelow`) - a jump or
+         *     climb into it; a body standing flush under it, or walked into its side, is fine.
+         *   - [platformCrate] (lifted 24, so not boardable from the platform) crosses the platform
+         *     from 4 past sweepCrate's right end to 160 past the right lip.
+         *   - Both run on one 8s period half a cycle apart: they meet 4 apart, 60 in over the
+         *     platform, and anyone level with both between them is Mission Failed
+         *     (`MovingPlatformDef.squeezes`). Then they part: climb as the sweep crate swings back
+         *     past you, run 240 behind the crossing crate and walk off the right lip before it
+         *     comes back - measured at 0.3s to spare (testLevel8TheSqueezeLeavesJustEnoughTime).
+         *     There is nowhere on the platform to wait.
+         * [platform] itself is 240 wide, down from 520 - "make the platform more shorter". For
+         * level 9, the sweep crate -> crossing crate step is a short hop up.
          *
-         * **Section 3 - crossing the platform.** [platformCrate] replaces the long stationary
-         * crouch crate the first build had here ("remove the long hanging crate above the
-         * platform, replace it with a short hanging crate which moves left and right"). It is
-         * deliberately NOT a crusher: a crouched body clears it, a standing one is simply blocked
-         * by it as by any other solid, so the worst a mistimed crossing costs is a shove. Its
-         * sweep starts at 950, past the landing's own right edge (`climbLandingX` + the player's
-         * 36 width = 942), so the landing belongs to [sweepCrate] alone and the two hazards never
-         * stack on the same tile. [platform] itself is 240 wide, down from 520 - "make the
-         * platform more shorter" - which is what keeps the crouch-crawl across it short.
+         * **Section 4 - the barrels and the bobbing chain (2026-09-28).** Three `barrel.png`
+         * barrels (32x48) stand in a row on the ground against [platform]'s right face, and the
+         * empty cart ([catchCart]) is parked 50 past them. Past that three short loads bob UP and
+         * DOWN, from a top of 250 down to 6 off the floor, and all three crush through their
+         * undersides - the player, and a cart they come down on; met side-on they are walls. Each peaks 3.39s after the one before it, the time a pushed cart
+         * takes from one to the next, so the chain is a wave moving at cart speed: the cart has to
+         * be pushed under all three in one go, started in a ~0.25s window of each 8s cycle. For
+         * level 9 they are stepping stones - boarded only from another load, never from floor
+         * level (see `noGroundBoarding` / GameWorld.isBoardingFromFloorLevel).
          *
-         * **Section 4 - the barrels and the bobbing pair.** Three `barrel.png` barrels (32x48)
-         * stand in a row on the ground against [platform]'s right face, and past them [bobCrate1]
-         * and [bobCrate2] hang from the ceiling moving UP and DOWN on opposite phases. Their
-         * clearance above the FLOOR travels between [bobLowClearance] (62) and
-         * [bobHighClearance] (90), and both ends of that travel matter:
-         *   - 90 at the top is still under [Player.height] (96), so a standing body never fits,
-         *     at any point in the cycle. That is what makes "player should crouch to avoid them"
-         *     unconditional rather than a timing puzzle - the bob is menace, not a window.
-         *   - 62 at the bottom clears [Player.crouchHeight] (56) by the same 6 units the hang
-         *     line uses, so a crouched body is safe through the whole cycle.
-         * Both carry `crushesOnContact`, so walking in upright is fatal rather than merely
-         * blocked - the crouch is the answer, as asked. "Make sure that it is not possible for
-         * them to jump or climb onto them" falls out of the same numbers: at the bottom of the
-         * bob their tops sit 100 above the floor, inside [Player.climbMaxHeight] (115), but
-         * `findClimbTarget`'s floating-ledge rule refuses them anyway (underside 62 above the
-         * feet, far past its 4-unit tolerance), and 100 is nearly double [Player.maxJumpHeight].
-         * At the top of the bob the tops are 128 up, past `climbMaxHeight` outright.
+         * **Section 5 - the long load.** [highCrate] is long and stationary, lifted 54 above
+         * [highPlatform]'s top (242) with the swing hook and the deck load - "lift this long crate,
+         * swing and the short moving crate after that". 160 under it: a standing body walks
+         * underneath. It hangs 70 clear of bob 3 - a timed hop near the top of bob 3's stroke -
+         * so the loads are a road from end to end; [LEVEL_9_LAYOUT] (the same yard, a different
+         * start) runs the whole of it.
          *
-         * **Section 5 - the high load.** [highCrate] is long and stationary and hangs at
-         * [noCrouchClearance] (130) above the floor - "person doesnt have to crouch for that".
-         * 130 leaves a standing body 34 units of headroom, so it reads as an obstacle from a
-         * distance and turns out to be none, which is the point of putting it right after a
-         * 280-unit crouch-crawl.
+         * **Section 6 - the lever, the travelling load, and the catch.** [dropLever] stands on the
+         * floor under the long load. [dropCrate] hangs on a rope from [dropHook], and the whole rig
+         * travels left and right between the long load and [highPlatform] (`HookCrate.sweepX`).
+         * The load is a physical body ([HookCrate.physical], [BoxPhysics]): on the rope it swings
+         * as the rig speeds up and slows; cut loose by the lever it leaves with the rig's speed
+         * and its own swing, tumbles, and bounces off whatever it strikes - the cart's posts, the
+         * deck's edge, the floor. The empty cart ([catchCart], `startsEmpty`) - a deck between two
+         * handle posts, no step at all; a body can jump into it but not walk through it
+         * (`PushCart.playerSolids`) - arrives under it from the barrels (Section 4). A
+         * load that comes to rest flat on the deck between the posts is caught and rides in the
+         * cart, which is then the same full 48 step as the first cart: walk it right, flush against
+         * [highPlatform], and it is 48 onto it and the canonical 96 up. A miss stays wherever it
+         * comes to rest - no re-hang, no reset; a player who cannot get round it restarts. The
+         * cart takes a hit too: struck, it rolls and stops, and a loose load lying in its way stops
+         * it. The rig's right end stops 68 short of the platform, so a cart already parked there
+         * can never catch - "after catching player has to move it to right". A falling load kills
+         * whoever it comes down on. Once empty, the hook is a swing hook: off the long load, the
+         * swing comes down on the deck load (level 9's road).
          *
-         * **Section 6 - the lever and the drop.** [groundWoodCrate] (the striped `woodcrate2.png`
-         * look, via `LevelLayout.woodCrates`) sits on the floor, [dropLever] stands past it, and
-         * [dropCrate] hangs above them on a rope from [dropHook] - the same `HookCrate` +
-         * `hangingHooks` rigging level 5 uses, minus the swing (this hook is decorative; nothing
-         * grabs it). `Lever.targetMechanismId` points at the crate's id, so an INTERACT in range
-         * detaches it and `HookCrate.update` drops it under gravity onto the floor.
+         * **Section 7 - the pole camera.** [poleCamera] stands on [pole], on the floor against
+         * [highPlatform]'s left face, and parks, ~19s at a time (a 40s cycle), on the lever and on the long load's
+         * top. Its 20-degree cone never covers both, and while it watches the long load the floor
+         * is dark: the cart, the lever and the loaded cart are each worked in one of those parks.
+         * Its range ends just past the lever, so everything left of the long load is out of reach.
          *
-         * The drop is not decoration - it is the way on. [dropCrate] lands 68x48 with its right
-         * edge flush against [highPlatform]'s left face, which turns a 144-tall wall (past
-         * `climbMaxHeight`, unclimbable from the ground) into the same jump-then-mantle pair
-         * [stepCrate] makes of [platform]: 48 up onto the crate, then exactly 96 onto the
-         * platform. **Nothing else reaches [highPlatform]**, so the lever is mandatory, and it is
-         * the only mechanism in the level whose state persists - see `HookCrate.reset`, which the
-         * level's own restart path already calls.
+         * **Section 8 - across the high platform.** [deckCrate] sweeps from out over the gap (where
+         * the swing lands) to 60 past the platform's far lip, at chest height on the platform - a
+         * solid block with nowhere to wait it out. Level 8 climbs up just after it has left, follows
+         * it out, and drops off the lip to the floor, where it passes overhead.
          *
-         * **Section 7 - the pole camera.** [poleCamera] stands on [pole] at [highPlatform]'s left
-         * corner (`pole.png`, no collision, the same arrangement as LEVEL_3's own pole camera),
-         * lens at (2259, 166), and sweeps between exactly the two things the request named: at
-         * [leverAngle] (108 deg, measured straight at [dropLever], 282 away) its cone lands on
-         * the lever; at [crateAngle] (157 deg, straight at [highCrate]'s near corner, 365 away)
-         * it points out along the hanging load instead. Angles are `atan2` in screen space,
-         * where 90 deg is straight down, so the sweep is a tilt from steeply-down to nearly
-         * level, all of it to the LEFT - a player who has already made it onto [highPlatform] is
-         * behind the lens and safe.
+         * **Section 9 - one long table, a laser course above and below.** Level 3's table on the
+         * lifted line, 3050 long, drawn as one continuous slab (`LevelLayout.seamlessTables`) with
+         * a single washed-out, pass-through leg at its far corner. Level 9 runs the top course on
+         * it; level 8 runs the bottom course on the floor under it. Every beam runs surface to
+         * surface (floor to underside, top to off the top of the screen), so every beam is a gate
+         * on a cycle - upright or slanted, alone or in staggered runs - and each course has three
+         * of level 7's security bots between the runs: take the beams before one while it has its
+         * back turned, then catch it from behind and switch it off. The level ends at Container 17
+         * (container17.png), on the floor under the table's far end with the table running on past
+         * it; its trigger reaches from the floor up over the table, so level 8 walks into it below
+         * and level 9 above.
          *
-         * **Why this section is laid out the way it is.** Everything from [groundWoodCrate]
-         * rightward had to be placed against the camera rather than for its own sake, because of
-         * one fact that is easy to rediscover the hard way: from a lens up on a pole, a standing
-         * body on a crate at some x and a load hanging further left occupy OVERLAPPING bearings.
-         * A cone wide enough to see the load will also see anyone standing on anything between
-         * the lens and it. The first cut of this section put the striped crate at 1960 with the
-         * camera at 380/40deg, and the crossing of that crate was lit at the very moment the
-         * camera was supposed to be looking away - a guaranteed death with no tell. Two numbers
-         * fix it together:
-         *   - **the crate moved right to 2075.** A body's head on it sits at bearing 144.7 deg
-         *     at the worst (leftmost) point, and [crateAngle] - half the cone is 147 deg, so it
-         *     clears the blind edge by 2.3 deg. Moving it left again, or widening the cone, puts
-         *     it back under the lens.
-         *   - **the cone narrowed to 20 deg.** At a 40 deg cone no placement separates them.
-         * With `visionRange` 370 the floor itself is out of reach at [crateAngle] entirely (a
-         * ray needs 274/sin(132 deg) = 369 just to touch it, and the cone's shallowest ray there
-         * is 147 deg), and a standing body is out of range altogether left of about 1935 - which
-         * is why the approach waits back under [highCrate] and why the walkthrough test stages at
-         * 1900.
-         *
-         * So the blind window is the whole `sweepPauseDuration` (7s) the camera spends parked on
-         * the load, against a run of roughly 5s from the staging spot through the lever, the
-         * crate, the drop and both mantles. The full cycle is 2x0.95s of sweep plus 2x7s of
-         * pause, 15.9s. Measured rather than argued: the walkthrough driven at 12 different
-         * arrival phases finishes in 32.9-47.2s, never dies, and peaks at 0.43 of the alert bar.
-         * Detection is gradual anyway (`GameWorld.alertProgress` fills over
-         * `getDetectionTimeToCatch`, ~1.1s at this range), so clipping the edge of the cone costs
-         * progress, not the run.
-         *
-         * Falling off costs nothing anywhere here - the ground runs the level's full width and
-         * every climb has its step - so the only ways to fail are the two crushers and the camera.
+         * Falling off costs nothing anywhere here - the ground runs the level's full width - so
+         * the ways to fail are the crushers (the sweep load and the bobbing chain, on the player or
+         * on the cart), the squeeze, a falling load, the lasers, the bots and the camera.
          */
         val LEVEL_8_LAYOUT = run {
             val groundY = 440.0
 
             // --- The shared hang line: see the class doc. Every crate that hangs over the first
-            // half of the level puts its UNDERSIDE here, 62 above the platform's own surface.
+            // half of the level puts its UNDERSIDE here, level with the platform's own surface.
             val hangingCrateHeight = 38.0
             val platformTop = 296.0
-            val hangClearance = 62.0
-            val hangY = platformTop - hangClearance - hangingCrateHeight
+            val hangY = platformTop - hangingCrateHeight
             val longCrateWidth = 174.0
             val shortCrateWidth = 76.0
 
@@ -3399,9 +3502,6 @@ data class LevelData(
                 width = platformWidth,
                 height = groundY - platformTop
             )
-            // Where Player.climbLandingX puts the body when it tops out (box.left + 6), and how
-            // far right that body then reaches. platformCrate's sweep has to start past this.
-            val landingRight = platformLeft + 6.0 + 36.0
 
             // The only way up - and, since 2026-09-26, not standing where it is needed.
             //
@@ -3419,14 +3519,15 @@ data class LevelData(
             // enough that the body is never standing over the gap it is trying to close.
             val cartHeight = 48.0
             val cartWidth = 92.0
-            // Flush against the platform. Reached from cartRestX, this is ~248 units of pushing -
-            // about four and a half strides of the braced gait at GameWorld.PUSH_MOVE_FACTOR's
-            // ~53 u/s, which is the length the animation was cut to be read at.
+            // Flush against the platform. Reached from cartRestX, this is ~148 units of pushing -
+            // under three seconds of the braced gait at GameWorld.PUSH_MOVE_FACTOR's ~53 u/s.
             val cartMaxX = platformLeft - cartWidth
-            // Parked in clear ground: past the plane's hanging load (430..604 - well overhead, but
-            // this is where the player is looking) and short of the sweep crate's own span, so the
-            // cart is read as an object in the way of nothing until the platform explains it.
-            val cartRestX = 560.0
+            // Parked in clear ground just past the plane's hanging load (430..604 - well overhead,
+            // but this is where the player is looking), so the cart is read as an object in the way
+            // of nothing until the platform explains it. It was 560, half under that load, then
+            // 610, and 660 on request ("move the cart at beginning little more to the right",
+            // 2026-09-28) - under the sweep crate's span, which passes over it at crouch height.
+            val cartRestX = 660.0
             // Draggable back past its own rest position, so a pull is a real move and not just an
             // undo - see the tutorial's second step. 430 keeps it inside the plane it started on.
             val cartMinX = 430.0
@@ -3442,16 +3543,28 @@ data class LevelData(
                 height = hangingCrateHeight
             )
 
-            // Parked over the landing (platformLeft + 6 .. + 42): the crate's 76 spans
-            // platformLeft - 40 .. + 36, so it covers all but the last 6 of the landing with its
-            // left end hanging clear out over the gap the player climbs up through. It stops 40
-            // SHORT of the lip on purpose - the further right it parks, the further whoever just
-            // climbed has to walk to get out from under it before it swings back, and that walk
-            // comes out of the same window the climb already spends 1.95s of. At -40 it is 30
-            // units, a quarter of a second.
-            val sweepCrateMaxX = platformLeft - 40.0
-            val sweepCrateSweep = 200.0
+            // "he has to climb onto that and crouch and just as the crate moves left from his
+            // position he has to climb up and quickly drop down from other side ... the two crates
+            // should come very close to each other and if he is in between them at that point
+            // mission should fail" (2026-09-28), then "raise this moving crate to the same level
+            // as the stationary one. make that moving one and the next moving one meet at somewhat
+            // more to the right above the platform". On the hang line, like the overhead crate: its
+            // underside is flush with a standing head on the cart, and with the platform's surface,
+            // so it runs out [sweepCrateReach] over the platform, where the two meet. The climb
+            // goes the moment it has swung back left past the body on the cart.
+            //
+            // 260 of travel, not the 200 it had: from 60 over the platform it has 96 to go to clear
+            // a body at the cart's far end, and the faster it swings the sooner that is - which is
+            // what leaves the run across the platform its time. Its left end stops 20 short of the
+            // overhead crate, which hangs on the same line.
+            val sweepCrateReach = 60.0
+            val sweepCrateMaxX = platformLeft + sweepCrateReach - shortCrateWidth
+            val sweepCrateSweep = 260.0
             val sweepCrateMinX = sweepCrateMaxX - sweepCrateSweep
+            // Long enough that the guaranteed-clear phase outlasts a 1.95s climb with room to step
+            // out from under afterwards (see the class doc), and slow enough to be read from back
+            // down the plane. platformCrate runs on this same period - see Section 3.
+            val sweepCratePeriod = 8.0
             val sweepCrate = MovingPlatformDef(
                 id = "lvl8_sweep_crate",
                 initialX = sweepCrateMinX,
@@ -3460,10 +3573,7 @@ data class LevelData(
                 height = hangingCrateHeight,
                 minX = sweepCrateMinX,
                 maxX = sweepCrateMaxX,
-                // Long enough that the guaranteed-clear phase outlasts a 1.95s climb with room
-                // to step out from under afterwards (see the class doc), and slow enough to be
-                // read from back down the plane.
-                periodSeconds = 8.0,
+                periodSeconds = sweepCratePeriod,
                 // Free-running off the level clock (no startsInactive - the only lever here is
                 // the one on dropCrate, unlike level 6's gantry), starting at the far LEFT end.
                 phaseOffsetSeconds = 0.0,
@@ -3472,30 +3582,57 @@ data class LevelData(
                 isVariant1 = false,
                 // "touching the bottom side of that crate when it is near the platform ends the
                 // level". See MovingPlatformDef.crushesOnContact - it only bites from below.
-                crushesOnContact = true
+                crushesOnContact = true,
+                crushesOnlyFromBelow = true,
+                noGroundBoarding = true,
+                squeezes = true
             )
 
-            // --- SECTION 3: the crossing. Replaces the first build's long stationary crouch
-            // crate. Starts past landingRight so it never contests the landing with sweepCrate,
-            // and ends flush with the platform's right lip so the whole crossing is under it.
-            val platformCrateMinX = 950.0
-            val platformCrateMaxX = platform.right - shortCrateWidth
+            // --- SECTION 3: the crossing. The level's second short moving load, riding just
+            // above the platform's surface.
+            //
+            // Lifted 24 off the hang line (2026-09-28): "lift this crate up a little bit so that
+            // player cant jump from the platform to the crate but can jump from the previous crate
+            // to this crate". From the platform its top is 38 + 24 = 62 up - past maxJumpHeight
+            // (51.2) - and its underside is 24 above the feet, so findClimbTarget's floating-ledge
+            // rule refuses the mantle too. From the top of sweepCrate it is a 24-unit hop up. 24
+            // rather than the ~14 that would already do it, so the refusal has margin. Its
+            // underside (272) still sits far under a standing head on the platform (200) - it is
+            // still a block, never a crouch gap - and 120 over the barrels.
+            val platformCrateLift = 24.0
+            // Left end: the squeeze. Both crates run on ONE period, half a cycle apart, so they
+            // close on each other exactly once per cycle - sweepCrate at its right end as this one
+            // reaches its left - and at that moment they are 4 apart, corner to corner over the
+            // landing: anyone between them is Mission Failed (MovingPlatformDef.squeezes). Then
+            // they part, this one heading out past the right lip, and that is the window: the
+            // climb (1.95s), the 240 across, and off the right lip before it comes back.
+            // For level 9 it is a 24-unit hop up from sweepCrate's top.
+            val sweepCrateMaxRight = sweepCrateMaxX + shortCrateWidth
+            val crateToCrateGap = 4.0
+            val platformCrateMinX = sweepCrateMaxRight + crateToCrateGap
+            // Right end: far past the lip, so it clears the platform for long enough that a body
+            // that climbed the moment sweepCrate let it can walk off the right lip before this
+            // comes back - with a few tenths of a second to spare, no more ("he should have just
+            // enough time to do that"). Measured by testLevel8TheSqueezeLeavesJustEnoughTime.
+            val platformCrateOverswing = 160.0
+            val platformCrateMaxX = platform.right + platformCrateOverswing
             val platformCrate = MovingPlatformDef(
                 id = "lvl8_platform_crate",
-                initialX = platformCrateMinX,
-                y = hangY,
+                // Half a cycle out of step with sweepCrate, which starts at its far left - so
+                // this one starts at its far right.
+                initialX = platformCrateMaxX,
+                y = hangY - platformCrateLift,
                 width = shortCrateWidth,
                 height = hangingCrateHeight,
                 minX = platformCrateMinX,
                 maxX = platformCrateMaxX,
-                // Quicker than the sweep crate: this one is crossed under, not waited out, so a
-                // long period would just mean standing still.
-                periodSeconds = 5.0,
-                phaseOffsetSeconds = 0.0,
+                periodSeconds = sweepCratePeriod,
+                phaseOffsetSeconds = sweepCratePeriod / 2.0,
                 isVariant1 = false,
-                // Deliberately NOT a crusher - see the class doc. A mistimed crossing is a shove,
-                // not a restart; the crouch is what gets past it.
-                crushesOnContact = false
+                // Not a crusher from below; the squeeze against sweepCrate is what ends a run.
+                crushesOnContact = false,
+                noGroundBoarding = true,
+                squeezes = true
             )
 
             // --- SECTION 4a: three barrels in a row on the ground, against the platform's right
@@ -3512,16 +3649,50 @@ data class LevelData(
                 )
             }
 
-            // --- SECTION 4b: the bobbing pair. Clearance above the FLOOR, not the platform:
-            // never more than 90 (under Player.height 96, so upright never fits) and never less
-            // than 62 (over Player.crouchHeight 56, so ducked always does). See the class doc -
-            // both ends of that travel are load-bearing.
-            val bobLowClearance = 62.0
-            val bobHighClearance = 90.0
-            val bobTopHighest = groundY - bobHighClearance - hangingCrateHeight
+            // --- SECTION 4b: the bobbing chain (2026-09-28). Three short loads going UP and DOWN,
+            // which are now the high road rather than a crouch gauntlet: "make these two crates
+            // lift up and down more and it is possible to jump from the previous moving crate to
+            // this but not too easy ... add another similar crate moving up and down before the
+            // long crate after that and space those three so that it is possible to jump from one
+            // to other and finally to the long crate. also make those 3 crates move very close to
+            // the ground when they move down".
+            //
+            // Each top travels from [bobTopHighest] (level with nothing in particular - just high
+            // enough that platformCrate's own 234 is a short drop onto it) down to [bobTopLowest],
+            // which leaves [bobLowClearance] between the underside and the floor: nothing fits
+            // under a load at the bottom of its stroke, and all three crush. The ground road
+            // under them is a timed walk, not a crawl.
+            //
+            // "dont let them jump onto them. if they are in jumpable height, artificially block
+            // getting onto them": at the bottom of the stroke the tops are 44 above the floor,
+            // inside a jump, so every one is `noGroundBoarding` - see GameWorld's
+            // isBoardingFromFloorLevel. They are boarded only from another load.
+            //
+            // One shared period, commensurate with the sweep pair's 8s, and a fixed lag between
+            // neighbours - so every hop opens at the same point of every cycle. The gaps and the
+            // lag were chosen by simulating each hop at 160 phases of a cycle, standing and
+            // running - see testLevel8EveryHopOnTheHighRoadOpensForAShortWindowEveryCycle.
+            val bobLowClearance = 6.0
+            val bobTopHighest = 250.0
             val bobTopLowest = groundY - bobLowClearance - hangingCrateHeight
-            val bobPeriod = 3.0
-            fun bobCrate(id: String, x: Double, phase: Double) = MovingPlatformDef(
+            val bobPeriod = sweepCratePeriod
+            // Each load peaks a quarter-cycle after the one before it, so for part of every cycle
+            // the next one is enough lower to be reached - and the gaps are wide enough that only
+            // that part works. Measured with a running jump taken from the very edge while still
+            // standing on it: platformCrate -> bob 1 ~0.95s
+            // per 8s cycle, bob -> bob ~1.0s, bob 3 -> long crate ~1.5s. Every one is steep - bob
+            // -> bob is open 3.3s at 90 and 1.65s at 100 - so move these only with a re-run of
+            // testLevel8EveryHopOnTheHighRoadOpensForAShortWindowEveryCycle.
+            // Each load peaks exactly as long after the one before it as a pushed cart takes to go
+            // from one to the next ((76 + 103) at the braced gait's ~53 u/s = 3.39s), so the chain
+            // is a wave that travels at cart speed: a cart started under bob 1 at the right moment
+            // meets bob 2 and bob 3 at the same point of their strokes (level 8 now pushes the
+            // empty cart the whole way from the barrels - see Section 6). It was 2.0; with that
+            // there was nowhere under the chain for a cart to stop and no single start that worked.
+            val bobGap = 103.0
+            val bobLag = (shortCrateWidth + bobGap) / (132.0 * GameWorld.PUSH_MOVE_FACTOR)
+            val firstBobGap = 88.0
+            fun bobCrate(id: String, x: Double, highAt: Double) = MovingPlatformDef(
                 id = id,
                 initialX = x,
                 y = bobTopHighest,
@@ -3530,50 +3701,74 @@ data class LevelData(
                 minY = bobTopHighest,
                 maxY = bobTopLowest,
                 periodSeconds = bobPeriod,
-                phaseOffsetSeconds = phase,
+                // t = 0 (the top of the stroke) falls at level time [highAt].
+                phaseOffsetSeconds = (bobPeriod - highAt % bobPeriod) % bobPeriod,
                 isVariant1 = false,
-                // "player should crouch to avoid them" - upright contact is fatal, which is what
-                // makes the crouch an answer rather than a convenience.
-                crushesOnContact = true
+                crushesOnContact = true,
+                crushesOnlyFromBelow = true,
+                noGroundBoarding = true
             )
-            // Opposite phases, so the pair reads as two loads working against each other rather
-            // than one bar moving. 64 apart, enough for a 36-wide body to stand between them.
-            val bobCrate1 = bobCrate("lvl8_bob_crate_1", 1330.0, 0.0)
-            val bobCrate2 = bobCrate("lvl8_bob_crate_2", 1470.0, bobPeriod / 2.0)
+            val bob1X = platformCrateMaxX + shortCrateWidth + firstBobGap
+            val bobCrate1 = bobCrate("lvl8_bob_crate_1", bob1X, 0.0)
+            val bobCrate2 = bobCrate("lvl8_bob_crate_2", bob1X + shortCrateWidth + bobGap, bobLag)
+            val bobCrate3 = bobCrate("lvl8_bob_crate_3", bob1X + 2.0 * (shortCrateWidth + bobGap), 2.0 * bobLag)
 
-            // --- SECTION 5: the long load that turns out to be nothing. 130 above the floor
-            // leaves a standing body 34 units of headroom - "person doesnt have to crouch".
-            val noCrouchClearance = 130.0
+            // --- SECTION 5: the long load, the swing, and the deck load all hang [liftedLine] up:
+            // "lift this long crate, swing and the short moving crate after that and after the
+            // swing the player should land on that short moving crate" (2026-09-28). The swing
+            // lands at exactly the height it leaves from (Player.findSwingTarget), so the long
+            // load's top and the deck load's top share one line.
+            //
+            // 242 - 54 above the high platform - and no higher, because a phone shows the world
+            // only down from about y 130: a body standing up here has its head at 146. And no
+            // lower either: 54 is past a jump (Player.maxJumpHeight 51.2), so the deck load
+            // cannot be hopped onto from the high platform - only the swing boards it. Up there it
+            // is a block at chest height that level 8 has to follow out (Section 8); over the
+            // lower table, 84 further down, it clears a standing head by 4.
+            //
+            // Under the long load is 160 of headroom: the ground road to the lever walks under.
+            //
+            // 70 clear of bob 3 (2026-09-29: "it is not possible to make this jump. move the rest
+            // of the level to left to fix this" - it was 150, with a crate stack in the gap on
+            // level 9 only). Everything from here on is placed off the long load, so the whole
+            // rest of the yard moved left with it. The hop off bob 3 is 8 up and only lands near
+            // the top of bob 3's stroke - a ~1.75s window per 8s cycle, like the bob-to-bob hops
+            // (testLevel8EveryHopOnTheHighRoadOpensForAShortWindowEveryCycle); at 80 it never lands.
+            val liftedLine = platformTop - 54.0
+            val highCrateGap = 70.0
             val highCrate = Rect(
-                x = 1750.0,
-                y = groundY - noCrouchClearance - hangingCrateHeight,
+                x = bob1X + 2.0 * (shortCrateWidth + bobGap) + shortCrateWidth + highCrateGap,
+                y = liftedLine,
                 width = longCrateWidth,
                 height = hangingCrateHeight
             )
 
-            // --- SECTION 6: the striped crate, the lever, and the load they drop ---
-            val woodCrateWidth = 68.0
-            val woodCrateHeight = 48.0
-            val groundWoodCrate = Rect(
-                x = 2075.0,
-                y = groundY - woodCrateHeight,
-                width = woodCrateWidth,
-                height = woodCrateHeight
-            )
-
+            // --- SECTION 6: the lever, the travelling load, and the empty cart that catches it.
+            // "move this hanging crate up a little bit and make it move left and right. remove the
+            // crate at the bottom and replace it with a empty cart. move the lever to under the
+            // long crate" - and, asked afterwards, the cart "catches the crate. after catching
+            // player has to move it to right to get on the platform".
+            // Under the long load's right half, not its middle (2026-09-29): the camera's reach
+            // ends just past the lever, so this is what leaves the load's near end out of it - the
+            // one place on level 9's road to wait for the camera to look away before the swing.
+            // 70 in from the far end, not less: any nearer and it stands where the body lets go
+            // of the catch cart, and the one INTERACT would do both.
             val leverWidth = 22.0
             val leverHeight = 12.0
             val dropLever = Lever(
                 id = "lvl8_drop_lever",
-                x = 2160.0,
+                x = highCrate.right - 70.0 - leverWidth / 2.0,
                 y = groundY - leverHeight,
                 width = leverWidth,
                 height = leverHeight,
                 targetMechanismId = "lvl8_hook_crate"
             )
 
-            // --- SECTION 7's platform first: dropCrate is positioned against its face ---
-            val highPlatformLeft = 2260.0
+            // --- SECTION 7's platform first: the swing and the catch are both placed against it.
+            // 180 clear of the long crate: far past a plain jump (~78), so the only way across up
+            // top is the hook.
+            val highPlatformGap = 180.0
+            val highPlatformLeft = highCrate.right + highPlatformGap
             val highPlatform = Rect(
                 x = highPlatformLeft,
                 y = platformTop,
@@ -3581,20 +3776,39 @@ data class LevelData(
                 height = groundY - platformTop
             )
 
-            // The hanging load, and the only way onto highPlatform. Hung so that when it falls
-            // straight down it lands with its RIGHT edge flush against the platform's left face -
-            // 48 up onto it from the floor, then the same exact 96 mantle stepCrate gives.
-            val dropCrateWidth = 68.0
-            val dropCrateHeight = 48.0
-            val dropRopeLength = 40.0
+            // The load is as tall as the cart's deck is deep (PushCart.DECK_TOP_FRACTION), so once
+            // caught the cart stands exactly like the loaded one at the start of the level: 48 up
+            // onto it, then the same 96 mantle. It is 56 wide against the 71 between the handle
+            // posts - a real crate has to fit through the gap it falls into. Measured by dropping
+            // it at every frame of the rig's cycle over a parked cart: two windows a cycle land it
+            // clean; anything else strikes a post or the deck's edge and goes over. See
+            // HookCrate.physical.
+            val dropCrateWidth = 56.0
+            val dropCrateHeight = cartHeight * PushCart.DECK_TOP_FRACTION
+            // The hook is lifted with the long crate, so its grip point (176) stays 66 above feet
+            // on the long crate - inside the swing's 60..150 grip window. The load is NOT: it
+            // hangs where it always did (top 270) on a rope 54 longer. Lifted with the hook it
+            // fell 54 further, drifted further, and started landing in a cart already flush
+            // against the platform; the same fall as before keeps the catch as measured.
+            val dropCrateTop = 270.0
+            val dropRopeLength = 40.0 + (platformTop - liftedLine)
+            // The rig's travel. Left end just clear of the long crate; right end short enough that
+            // the load can never come down in a cart already parked flush against the platform -
+            // the catch has to happen further left, and the cart then walked the rest of the way.
+            // 68 short, not the 30 a hanging load needs: a load cut loose mid-sweep carries the
+            // rig's speed and its swing, and lands well right of where it hung. Measured by
+            // dropping it at every frame of a cycle over a flush cart: on the 94 rope, 60 short
+            // still let 3 frames in 240 land in it; 68, none (on the old 40 rope 60 was enough).
+            val dropCrateMinX = highCrate.right + 8.0
+            val dropCrateMaxX = highPlatformLeft - 68.0 - dropCrateWidth
             val dropCrateBounds = Rect(
-                x = highPlatformLeft - dropCrateWidth,
-                y = 250.0,
+                x = dropCrateMinX,
+                y = dropCrateTop,
                 width = dropCrateWidth,
                 height = dropCrateHeight
             )
-            // hook.png, hung so its grip point sits exactly one rope-length above the crate -
-            // the same construction level 5 uses for its own hook crate.
+            // hook.png, hung so its grip point sits exactly one rope-length above the crate - the
+            // same construction level 5 uses for its own hook crate.
             val hookWidth = 16.0
             val hookHeight = hookWidth * (2136.0 / 154.0) // hook.png's own cropped aspect ratio
             val dropGripX = dropCrateBounds.x + dropCrateWidth / 2.0 + 4.5
@@ -3609,28 +3823,103 @@ data class LevelData(
                 id = "lvl8_hook_crate",
                 hook = dropHook,
                 bounds = dropCrateBounds,
-                ropeLength = dropRopeLength
+                ropeLength = dropRopeLength,
+                sweepX = dropCrateMaxX - dropCrateMinX,
+                sweepPeriodSeconds = 4.0,
+                noGroundBoarding = true,
+                physical = true
+            )
+
+            // The empty cart. It starts by the barrels, 70 clear of them so a body braced in
+            // behind it has its back foot clear of the last barrel ("move that empty cart near to
+            // the barrels to the far left", then "a little forward otherwise foot seems to go in
+            // front of barrels", 2026-09-29), and has
+            // to be pushed under the whole bobbing chain to the load - a bob that comes down on it
+            // is Mission Failed (GameWorld's cart check), which is why the chain is a wave at cart
+            // speed. Its forward limit is flush against highPlatform, the same as the first cart's
+            // against the mid platform. Empty, only its deck and the lower half of its handle posts
+            // are solid to a body (PushCart.playerSolids): it cannot be walked through, and can be
+            // jumped into.
+            val catchCartMinX = barrels.maxOf { it.right }
+            val catchCartMaxX = highPlatformLeft - cartWidth
+            val catchCart = PushCartDef(
+                id = "lvl8_catch_cart",
+                initialX = catchCartMinX + 70.0,
+                surfaceY = groundY,
+                width = cartWidth,
+                height = cartHeight,
+                minX = catchCartMinX,
+                maxX = catchCartMaxX,
+                startsEmpty = true
+            )
+
+            // --- SECTION 8's deck load first: the camera's pole is placed clear of it.
+            // A short load on the lifted line. Its near end reaches back out over the gap to where
+            // the swing off the rig comes down (Player.swingLandAhead past the grip); its far end
+            // is 60 past the high platform's lip. Level 9 swings onto it at the near end and rides
+            // it out to the upper table. Level 8 never boards it (54 up is past a jump), and on
+            // the high platform it is a solid block at chest height that sweeps the whole
+            // platform - there is nowhere up there to wait it out - so level 8 climbs up just
+            // after it has left the near end, follows it out, and drops off the lip onto the lower
+            // table (84 down, where it then passes overhead) before it comes back. 20s, not the 8 the other loads use:
+            // at 8, and at 12, it came back before a body following it could get off the lip
+            // (walking off an edge drops at Player.dropSpeed, 30 across); at 20 the climb can start
+            // anywhere in a ~4.7s window after it leaves. A multiple of the rig's 4s, so the
+            // swing's timing recurs - and half the pole camera's 40s, so every other time it comes
+            // in the camera is watching the long load (level 8's climb behind it) and every other
+            // time it is watching the lever (level 9's swing onto it) - see poleCamera.
+            val deckCrateMinX = highPlatformLeft - 10.0
+            val deckCrateMaxX = highPlatform.right + 60.0
+            val deckCratePeriod = 20.0
+            val deckCrate = MovingPlatformDef(
+                id = "lvl8_deck_crate",
+                initialX = deckCrateMinX,
+                y = liftedLine,
+                width = shortCrateWidth,
+                height = hangingCrateHeight,
+                minX = deckCrateMinX,
+                maxX = deckCrateMaxX,
+                periodSeconds = deckCratePeriod,
+                // t = 0 (the near end) at level time 6 - when the rig (4s, starting at its near
+                // end) is at its far end, which is where the swing onto it is taken from. 6, not
+                // the first such moment at 2: it puts the near end at 6 + 20k, so the climb behind
+                // it (level 8, ~9-13s) falls in the camera's park on the long load (1-20s of each
+                // 40) and the swing onto it at 26 in its park on the lever (21-40s).
+                phaseOffsetSeconds = deckCratePeriod - 6.0,
+                isVariant1 = false,
+                crushesOnContact = false,
+                noGroundBoarding = true
             )
 
             // --- SECTION 7: the pole and its camera ---
+            // The pole stands on the FLOOR, against the high platform's left face and just left of
+            // the deck load's near end: on the platform (where it used to stand) the lifted deck
+            // load would sweep straight through it. Its top is 34 over the head of a body standing
+            // on the loaded cart, so the lens looks out over it.
             val poleWidth = 18.0
-            val poleHeight = 130.0
+            val poleTop = 262.0
             val pole = Rect(
-                x = highPlatformLeft,
-                y = highPlatform.top - poleHeight,
+                x = deckCrateMinX - 18.0 - poleWidth,
+                y = poleTop,
                 width = poleWidth,
-                height = poleHeight
+                height = groundY - poleTop
             )
             // Same mount convention as LEVEL_3's pole camera: lens hung at the pole's own top
             // cap, nudged 10 left of the pole's centre so the bracket sits on the collar.
             val cameraEyeX = pole.x + poleWidth / 2.0 - 10.0
             val cameraEyeY = pole.y
-            // Measured straight at the two things the request named, from the lens at
-            // (2259, 166), in screen space (90 deg is straight down, so both point down-LEFT):
-            //   lever (2171, 434): dx  -88, dy 268 -> 108 deg, 282 away
-            //   load  (1924, 310): dx -335, dy 144 -> 157 deg, 365 away
-            val leverAngle = 108.0 * (PI / 180.0)
-            val crateAngle = 157.0 * (PI / 180.0)
+            // It parks, in turn, on the lever and on the long crate's top. The ground road works
+            // the lever and both carts while it is parked on the crate - it then looks up and
+            // left, and everything under its lens is dark. (Two other mounts were tried and
+            // dropped: parked on two spots of the floor, a camera sweeps everything between them,
+            // and the lever and the catch are both in that stretch - the ground road had nowhere
+            // to stand.) Level 9 has the same camera - see LEVEL_9_LAYOUT.
+            val leverAngle = atan2(dropLever.centerY - cameraEyeY, dropLever.centerX - cameraEyeX)
+            val crateTarget = Vec2d(highCrate.right - 60.0, highCrate.top - 48.0)
+            // Up and to the left: atan2 says -162 degrees; +360 keeps the sweep a short arc up
+            // from the lever's angle rather than the long way round.
+            val crateAngle = atan2(crateTarget.y - cameraEyeY, crateTarget.x - cameraEyeX)
+                .let { if (it < leverAngle) it + 2.0 * PI else it }
             val poleCamera = CameraSpawn(
                 x = cameraEyeX,
                 y = cameraEyeY,
@@ -3638,45 +3927,193 @@ data class LevelData(
                 maxAngle = crateAngle,
                 startAngle = leverAngle,
                 sweepSpeed = 0.9,
-                // 370 reaches the load's near corner (365) and the lever (282), and nothing
-                // further: a standing body is out of range left of about 1935, which is the
-                // staging ground the approach waits on.
-                visionRange = 370.0,
-                // 20, not the 40-50 the other levels use. A wider cone cannot be aimed at the
-                // hanging load without also covering a body standing on groundWoodCrate - see
-                // the class doc, this is the number that makes the blind window exist at all.
+                // Just past the lever - the farther of its two targets - and no further, so the
+                // plane and the bobbing chain stay out of its reach altogether, and so does the
+                // long load's near end (see dropLever).
+                visionRange = kotlin.math.hypot(dropLever.centerX - cameraEyeX, dropLever.centerY - cameraEyeY) + 6.0,
+                // 20, not the 40-50 the other levels use: narrow enough to leave the floor dark
+                // while it watches the crate.
                 visionFov = 20.0 * (PI / 180.0),
-                // The blind window itself: 7s parked on the load, against a ~5s run from the
-                // staging ground through the lever, the drop and both mantles.
-                sweepPauseDuration = 7.0
+                // Each park is 20s less the ~1s sweep, so a whole cycle is exactly 40s - twice the
+                // deck load's 20 (2026-09-29). It was 7s (a ~16.1s cycle), which drifted against
+                // the deck load and left level 9 standing on the long load's dark end for up to
+                // ~100s waiting for the camera on the lever and the swing's slot to coincide; now
+                // they coincide every 40s. Long parks: the ground road's jobs each get ~19s.
+                sweepPauseDuration = 20.0 - (crateAngle - leverAngle) / 0.9
             )
 
-            val exitX = 2680.0
-            val worldWidth = 3140.0
+            // --- SECTION 9: the table and its two laser courses (2026-09-28).
+            // "remove the whole section after that platform. add the platform type in level 3
+            // begging to that section and make it much longer ...", then (same day) "remove the
+            // bottom platform here. he should walk on ground at the bottom platform ... only add 1
+            // vertical pole at rightmost corner ... make it one continuos platform ... make the
+            // laser course double the length".
+            //
+            // One long table (level 3's table.png) on the lifted line (242), starting 30 past the
+            // deck load's far end: level 9 steps across onto it from the deck load and runs the
+            // top course on it; level 8 drops off the high platform to the floor and runs the
+            // bottom course UNDER it (168 of headroom). It is drawn as one continuous slab - the
+            // art's repeating unit tiled end to end, capped at both ends (GameplayScene,
+            // LevelLayout.seamlessTables) - with its one leg at the far corner, washed out like the
+            // camera's pole and solid to nothing (LevelLayout.passThroughLegs).
+            //
+            // Every beam runs from one surface to another: floor to the table's underside below,
+            // the table's top to off the top of the screen above ("lasers should be connected to
+            // ground or the top or bottom of the platform"). So every beam is a gate on a cycle -
+            // upright or slanted, alone or in a staggered run whose gaps have to be chased - and
+            // each course has three of level 7's security bots on laser-free stretches between the
+            // runs: take the last beams before one while it has its back turned, then catch it
+            // from behind and switch it off (INTERACT). Each patrol starts 122+ past where a body
+            // stands clear of the beam before it - somewhere out of its 120 cone to wait.
+            val tableDepth = 30.0
+            val upperTable = Rect(
+                x = deckCrateMaxX + shortCrateWidth + 30.0,
+                y = liftedLine,
+                width = 3050.0,
+                height = tableDepth
+            )
+            // table.png's leg crop is 178 of the art's 102-tall slab band wide: at a 30-deep slab
+            // that is 52.4, the width the scene gives the slab's right-hand end cap it sits under.
+            val tableLeg = Rect(
+                x = upperTable.right - tableDepth * 178.0 / 102.0,
+                y = upperTable.bottom,
+                width = tableDepth * 178.0 / 102.0,
+                height = groundY - upperTable.bottom
+            )
+            // The level ends at Container 17 ("replace the level end asset in that level with
+            // container17.png", 2026-09-29), standing on the floor under the table's far end - the
+            // table runs on 30 past it ("increase the length of that platform to go beyond the
+            // level end asset", then "reduce the size ... move the container more right", then "too
+            // small now. use a size only a little amount smaller than what was before"). 105 tall
+            // (it was 120), 3.575:1 as the art is (2020x565 after cropping to its alpha). The
+            // trigger is a strip running from the floor up past the table's top, so level 8 walks
+            // into it along the floor and level 9 along the table - neither has to leave the
+            // surface it is on - and it starts [exitApproach] short of the container: the level
+            // ends as the body gets close to it, not when it touches it.
+            val containerHeight = 105.0
+            val exitApproach = 70.0
+            val container17 = Rect(
+                x = upperTable.right - 30.0 - containerHeight * (2020.0 / 565.0),
+                y = groundY - containerHeight,
+                width = containerHeight * (2020.0 / 565.0),
+                height = containerHeight
+            )
+            val exitZone = Rect(
+                x = container17.x - exitApproach,
+                y = upperTable.top - 110.0,
+                width = exitApproach + 44.0,
+                height = groundY - (upperTable.top - 110.0)
+            )
+
+            // A gate: on for [on]s, off for [off]s, [phase] into its cycle; [slant] units across.
+            val lowC = upperTable.bottom
+            val lowS = groundY
+            val lowX = upperTable.x + 60.0
+            fun lowGate(id: String, dx: Double, on: Double, off: Double, phase: Double, slant: Double = 0.0) =
+                LaserDef(id = "lvl8_low_$id", topX = lowX + dx, topY = lowC, bottomX = lowX + dx + slant,
+                    bottomY = lowS, activeDuration = on, inactiveDuration = off, phaseOffsetSeconds = phase, emitterScale = 0.6)
+            fun courseBot(id: String, x0: Double, x1: Double, surface: Double, facing: Double) = CameraBotDef(
+                id = id,
+                startX = if (facing > 0.0) x0 else x1,
+                surfaceY = surface,
+                patrolMinX = x0,
+                patrolMaxX = x1,
+                facing = facing
+            )
+            // Four runs of beams, a bot after each of the first three.
+            val bottomCourse = listOf(
+                lowGate("g1", 0.0, 1.6, 1.2, 0.0),
+                lowGate("g2", 70.0, 1.6, 1.2, -0.4),
+                lowGate("g3", 140.0, 1.6, 1.2, -0.8),
+                lowGate("t1", 240.0, 1.4, 1.4, -0.7, slant = 50.0),
+                lowGate("g4", 360.0, 1.0, 1.4, 0.0),
+                lowGate("g5", 680.0, 0.9, 0.9, 0.0),
+                lowGate("g6", 730.0, 0.9, 0.9, -0.3),
+                lowGate("g7", 780.0, 0.9, 0.9, -0.6),
+                lowGate("t2", 880.0, 1.2, 1.4, 0.0, slant = 60.0),
+                lowGate("g8", 1010.0, 1.2, 1.0, 0.0),
+                lowGate("g9", 1060.0, 1.2, 1.0, -0.5),
+                lowGate("g10", 1380.0, 0.8, 0.9, 0.0),
+                lowGate("g11", 1430.0, 0.8, 0.9, -0.35),
+                lowGate("t3", 1520.0, 1.2, 1.2, -0.4, slant = 50.0),
+                lowGate("g12", 1650.0, 1.6, 1.0, 0.0),
+                lowGate("g13", 1700.0, 1.6, 1.0, -0.5),
+                lowGate("g14", 1750.0, 1.6, 1.0, -1.0),
+                lowGate("g15", 2070.0, 0.8, 0.8, 0.0),
+                lowGate("g16", 2120.0, 0.8, 0.8, -0.3),
+                lowGate("t4", 2210.0, 1.3, 1.3, -0.6, slant = 50.0),
+                lowGate("g17", 2340.0, 1.2, 1.0, 0.0)
+            )
+            val bottomBots = listOf(
+                courseBot("lvl8_low_bot1", lowX + 530.0, lowX + 600.0, lowS, -1.0),
+                courseBot("lvl8_low_bot2", lowX + 1230.0, lowX + 1300.0, lowS, 1.0),
+                courseBot("lvl8_low_bot3", lowX + 1920.0, lowX + 1990.0, lowS, -1.0)
+            )
+
+            // The top course - level 9's - on the table, each beam from its top up off the top of
+            // the screen.
+            val topS = upperTable.top
+            // 140 in: the step across from the deck load lands ~50 onto the table.
+            val topX = upperTable.x + 140.0
+            fun topGate(id: String, dx: Double, on: Double, off: Double, phase: Double, slant: Double = 0.0) =
+                LaserDef(id = "lvl9_top_$id", topX = topX + dx, topY = -300.0, bottomX = topX + dx + slant,
+                    bottomY = topS, activeDuration = on, inactiveDuration = off, phaseOffsetSeconds = phase, emitterScale = 0.6)
+            val topCourse = listOf(
+                topGate("g1", 0.0, 1.4, 1.0, 0.0),
+                topGate("g2", 60.0, 1.4, 1.0, -0.35),
+                topGate("t1", 150.0, 1.2, 1.4, 0.0, slant = 80.0),
+                topGate("g3", 300.0, 0.9, 1.0, -0.5),
+                topGate("g4", 620.0, 1.2, 1.2, 0.0),
+                topGate("g5", 670.0, 1.2, 1.2, -0.4),
+                topGate("g6", 720.0, 1.2, 1.2, -0.8),
+                topGate("t2", 820.0, 1.2, 1.4, 0.0, slant = 80.0),
+                topGate("g7", 990.0, 0.8, 0.9, 0.0),
+                topGate("g8", 1040.0, 0.8, 0.9, -0.35),
+                topGate("g9", 1360.0, 1.0, 1.0, 0.0),
+                topGate("t3", 1450.0, 1.2, 1.2, -0.6, slant = 80.0),
+                topGate("g10", 1600.0, 0.9, 0.9, -0.3),
+                topGate("g11", 1650.0, 0.9, 0.9, -0.6),
+                topGate("g12", 1700.0, 0.9, 0.9, -0.9),
+                topGate("g13", 2030.0, 1.4, 1.0, 0.0),
+                topGate("t4", 2120.0, 1.2, 1.4, -0.7, slant = 80.0),
+                topGate("g14", 2270.0, 0.8, 0.8, 0.0),
+                topGate("g15", 2320.0, 0.8, 0.8, -0.3)
+            )
+            val topBots = listOf(
+                courseBot("lvl9_top_bot1", topX + 470.0, topX + 540.0, topS, 1.0),
+                courseBot("lvl9_top_bot2", topX + 1210.0, topX + 1280.0, topS, -1.0),
+                courseBot("lvl9_top_bot3", topX + 1880.0, topX + 1950.0, topS, 1.0)
+            )
+
+            val worldWidth = exitZone.right + 300.0
             val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
 
-            // The cart is deliberately absent: its footprint moves, so GameWorld adds it to the
-            // solid/climbable/sight-blocking sets per tick from wherever it currently stands.
+            // The carts are deliberately absent: their footprints move, so GameWorld adds them to
+            // the solid/climbable/sight-blocking sets per tick from wherever they currently stand.
             val boxes = listOf(overheadCrate, platform) +
                 barrels +
-                listOf(highCrate, groundWoodCrate, highPlatform)
+                listOf(highCrate, highPlatform, upperTable)
 
             LevelLayout(
                 worldWidth = worldWidth,
                 playerStartX = 236.0,
                 playerStartY = groundY - 96.0,
-                exitZone = Rect(x = exitX, y = groundY - 100.0, width = 44.0, height = 100.0),
+                exitZone = exitZone,
                 platforms = listOf(ground),
                 boxes = boxes,
                 guards = emptyList(),
                 cameras = listOf(poleCamera),
-                // The two long stationary loads take level 2's long chainedcrate.png crop; the
-                // three moving ones pick their art up from MovingPlatformDef.isVariant1 instead.
+                // The long stationary loads take level 2's long chainedcrate.png crop; the moving
+                // ones pick their art up from MovingPlatformDef.isVariant1 instead.
                 hangingCrateVariant1 = listOf(overheadCrate, highCrate),
                 barrels = barrels,
-                woodCrates = listOf(groundWoodCrate),
                 poles = listOf(pole),
-                movingPlatforms = listOf(sweepCrate, platformCrate, bobCrate1, bobCrate2),
+                exitStructure = container17,
+                exitStructureImage = "container17.png",
+                tables = listOf(upperTable),
+                seamlessTables = listOf(upperTable),
+                passThroughLegs = listOf(tableLeg),
+                movingPlatforms = listOf(sweepCrate, platformCrate, bobCrate1, bobCrate2, bobCrate3, deckCrate),
                 pushCarts = listOf(
                     PushCartDef(
                         id = "lvl8_step_cart",
@@ -3686,25 +4123,38 @@ data class LevelData(
                         height = cartHeight,
                         minX = cartMinX,
                         maxX = cartMaxX
-                    )
+                    ),
+                    catchCart
                 ),
-                hangingHooks = listOf(dropHook),
+                // The hook is a swing hook now (once the lever has emptied it), drawn with the
+                // travelling rig rather than in the static hook pass.
+                swingHooks = listOf(dropHook),
                 levers = listOf(dropLever),
-                hookCrates = listOf(dropCrate)
+                hookCrates = listOf(dropCrate),
+                lasers = bottomCourse + topCourse,
+                cameraBots = bottomBots + topBots,
+                // "you cant touch the ground / platforms" - the floor, and the two platforms. The
+                // tables are not on it: level 9 runs its course on the upper one.
+                offLimitFootholds = listOf(platform, highPlatform)
             )
         }
 
         val DEFAULT_LEVEL_8 = LevelData(
             id = "level_8",
             name = "08: Relocation",
-            // Roughly twice the first build's 20-25s: the same read-the-sweep climb, then a
-            // crouch-crawl at Player.crouchForwardSpeed (65) under the bobbing pair, then a wait
-            // on the pole camera before the lever can be pulled. 80 leaves room for one misread
-            // of each without the clock being the thing that beats the player.
-            timeTargetSeconds = 80.0f,
+            // The ground road's walkthrough (testLevel8IsBeatableOnTheGroundRoad) finishes in ~130s:
+            // the crouch-and-climb under the sweep crate, the cart pushed under the bobbing chain,
+            // the lever and the loaded cart each worked only while the camera is parked on the long
+            // crate (up to a 16s camera cycle apiece), the climb behind the deck load, and the
+            // double-length laser course with its three bots. 180 (three minutes, the owner's call
+            // for both 8 and 9, 2026-09-29) is that x1.38 - room for a misread or two.
+            timeTargetSeconds = 180.0f,
             description = "The guards moved Container 17. Follow the trail to its new location.",
-            objectiveHint = "Slip Under the Suspended Load",
+            objectiveHint = "Track Down Container 17",
+            bonusObjective = BonusObjective.NEVER_TOUCH_A_HANGING_CRATE,
             layout = LEVEL_8_LAYOUT,
+            // Level 9 replays this run - see DEFAULT_LEVEL_9.
+            recordsRun = true,
             // Two steps, and only two: the cart is the one move in the game that no earlier level
             // has taught, and nothing about a parked trolley says "this one comes with you". The
             // crouch, the climb and the timing beats are all taught long before here and the
@@ -3717,7 +4167,7 @@ data class LevelData(
                 TutorialStep(
                     id = "step_push_cart_grab",
                     triggerMinX = 430.0,
-                    triggerMaxX = 600.0,
+                    triggerMaxX = 700.0,
                     title = "TAKE THE CART",
                     instructionTouch = "Tap INTERACT to brace against the cart. Tap it again to let go.",
                     instructionDesktop = "Press [E] or [F] to brace against the cart. Press it again to let go.",
@@ -3749,37 +4199,658 @@ data class LevelData(
             )
         )
 
+        /**
+         * Level 9's yard: [LEVEL_8_LAYOUT] exactly - camera, pole and all - with only the start
+         * moved ("make level 8 and level 9 100% identical. only the starting position is changed",
+         * 2026-09-29). The spawn is ON the long load over the plane - "start on the hanging crate
+         * on the top" - and the road runs along the loads: the bobbing chain, the hop off bob 3 onto
+         * the long load, the swing off the travelling hook onto the deck load, the ride out to the
+         * table, its laser course, and the exit. Level 9 fails the moment the floor or a platform
+         * is touched ([LevelData.stayOffTheGround]).
+         *
+         * The travelling hook carries its load until the lever on the floor drops it - which the
+         * echo does: level 8's recorded run, played back (DEFAULT_LEVEL_9.replaysRunOf,
+         * EchoRunner). The swing opens when his earlier self pulls the lever.
+         */
+        val LEVEL_9_LAYOUT = run {
+            val base = LEVEL_8_LAYOUT
+            val overheadCrate = base.hangingCrateVariant1.minBy { it.x }
+            base.copy(
+                playerStartX = overheadCrate.left + 40.0,
+                playerStartY = overheadCrate.top - 96.0
+            )
+        }
+
+        /**
+         * Level 9: the same yard as level 8, run along the roof of it - see [LEVEL_9_LAYOUT].
+         *
+         * The main objective is "never touch the ground" ([stayOffTheGround]): the floor or either
+         * platform is Mission Failed. Star 3 is the clock, as everywhere else.
+         */
         val DEFAULT_LEVEL_9 = LevelData(
             id = "level_9",
             name = "09: Déjà Vu",
-            timeTargetSeconds = 23.0f,
+            // The walkthrough (testLevel9IsBeatableWithoutTouchingTheGround) finishes in ~114s:
+            // the timed hops, a wait on the long load's dark end for the camera to look away with
+            // the swing's slot coming up, the swing onto the deck load, the ride out, and the
+            // double-length top course with its three bots. 180 - three minutes, the same as level 8
+            // (owner, 2026-09-29) - is that x1.58: it also has to follow the figure, not race it.
+            timeTargetSeconds = 180.0f,
             description = "The trail feels strangely familiar, as if you’ve done this before.",
-            objectiveHint = "Find Your Crew's Mark",
+            objectiveHint = "Follow the Figure Without Touching the Ground",
+            bonusObjective = BonusObjective.STAY_OUT_OF_THE_FIGURES_SIGHT,
+            layout = LEVEL_9_LAYOUT,
+            stayOffTheGround = true,
+            // "When the player completes level 8, keep record of the movements and play that in
+            // level 9. the story is he is following behind his previous run" (2026-09-29): the
+            // saved level 8 run (or the bundled one, level8_run.txt, when there is none) walks the
+            // yard as an EchoRunner - a guard's cone and ears, and it pulls the lever that empties
+            // the swing hook when the recording does.
+            replaysRunOf = "level_8",
+            // Level 2's rain and thunder (RainEffect: the rain, the sky lightning behind the
+            // silhouettes and the delayed thunderclap) - "add rain and thunder to level 9 (copy it
+            // from level 2)", 2026-09-29.
+            hasRain = true,
+            tutorialSteps = listOf(
+                TutorialStep(
+                    id = "step_stay_off_the_ground",
+                    triggerMinX = 400.0,
+                    triggerMaxX = 700.0,
+                    title = "STAY OFF THE GROUND",
+                    instructionTouch = "Cross the yard on the hanging loads. Touching the floor or a platform fails the mission.",
+                    instructionDesktop = "Cross the yard on the hanging loads. Touching the floor or a platform fails the mission.",
+                    targetAction = TutorialAction.JUMP_VAULT,
+                    autoDismissSeconds = 6.0,
+                    highlight = TutorialControlHighlight.JUMP,
+                    handwrittenCallout = "Load to load - never the floor!"
+                )
+            ),
             guardSpeed = 95.0,
             guardPatrolMinX = 2600.0,
             guardPatrolMaxX = 3080.0
         )
 
+        /**
+         * Level 10: the tunnels under the yard ("10: Below the Yard").
+         *
+         * Built on level 7's vocabulary - "level 10 will have the same mechanics as level 7"
+         * (2026-09-29): the same standing-height duct (304..440, its own `bglvl10.png`), headwind
+         * fans beaten by spam-tapping, timed steam jets and patrol drones switched off from
+         * behind - plus, since "block the main path in random places and add room.png on top and
+         * add blocks and guards ... player should climb up and get this room and get out from
+         * other end", rooms over the duct's beam with guards in them.
+         *
+         *   1. Twin intakes       two gales back to back, a jet in the calm pocket between them.
+         *   2. The small room     two walls and one guard - the room's rule, taught once.
+         *   3. Drone in the gale  a drone patrolling INSIDE a wind zone. It is caught from behind
+         *                         at spam-tap pace (96 u/s against its 44), and when it turns the
+         *                         way out is to stop tapping and let the gale carry you back out
+         *                         of its sight - the wind is the retreat. Its near end is kept far
+         *                         enough in that the zone's own lip is past its reach.
+         *   4. Steam on patrol    a drone whose patrol runs across a jet: catching it from behind
+         *                         means crossing the jet on the same run.
+         *   5. The big room       three walls, two guards, a jet and a drone in the duct below.
+         *   6. The gale gate      two jets in a wind zone, where there is no standing still -
+         *                         holding back means drifting back.
+         *   7. The lock           a short gust, four jets in a row on the tightest windows in the
+         *                         game, then the fastest drone on the door.
+         *   8. The cell           the duct ends at a shut door, and past it a freight lift up into
+         *                         a room whose far end is a barred cell with the figure you were
+         *                         tracking sitting inside it ([PrisonCellDef]). Reaching the bars
+         *                         ends the level. The door and the lift are worked from wall
+         *                         switches - the level's one tutorial - so level 11, which is
+         *                         built on them, needs none ("introduce those switches and
+         *                         elevators in level 10 at one place", 2026-09-30).
+         *
+         * ## The rooms
+         *
+         * The duct's ceiling slab is a room's floor (its top, [LEVEL_10_ROOM_FLOOR_Y], is where
+         * bglvl10.png's beam is painted black - see GameplayScene.LEVEL_10_BG_*), and it has gaps
+         * in it. Floor-to-ceiling walls close the duct, and guards patrol the rooms. The two
+         * layers take turns:
+         *
+         *   - A WALL is passed above. In front of each one is a shaft: one crate (48, a jump from
+         *     the floor - "player should jump onto 1 box and then climb up"), then a mantle of 111
+         *     onto the slab past the gap - the slab's edge is a floating climb target, since
+         *     nothing braces it from below. The wall's own top is no foothold: standing on it
+         *     would put a head in the slab.
+         *   - A GUARD is passed below. Past each wall the room floor has a drop hole, so the way
+         *     on is back down into the duct, under the guard, where the slab hides you. The next
+         *     wall then sends you up again BEHIND that guard - time it for when he is walking the
+         *     other way, and be down the next hole before he comes back.
+         *
+         * Holes are 100 wide (a body is 36; a jump carries ~84, so none is jumped by accident),
+         * shafts 140 (72 of open air in front of the crate to jump from), and no guard's patrol
+         * reaches either. A room is 141 tall: standing room (96) with a jump's
+         * headroom short of the ceiling, and all of it on screen on the reference phone, whose
+         * top edge is world y ~114.
+         *
+         * Harder than level 7 across the board ("make it harder ... with less time to go through
+         * steam", 2026-09-29): every jet's dormancy is at or under 1.1s, and past the intakes the
+         * dormancy FLOOR drops under level 7's 0.8 ([SteamPipeDef.minDormantDuration], down to
+         * 0.55 on the lock); drones are faster and pause 0.5s at each turn instead of 1.0s; the
+         * gales push harder; and there are five checkpoints for seven beats. The one jet kept at
+         * a 1.0 dormancy is the gale gate's far one - it is crossed at tap pace, not walking pace.
+         *
+         * Sorted by x everywhere, for the same reason as level 7 (the walkthrough's next-pipe scan).
+         * It carries no distance stencils: those are level 7's own statement of its 120m.
+         */
+        val LEVEL_10_LAYOUT = run {
+            val groundY = 440.0
+            val worldWidth = 8600.0
+            val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
+
+            // The same duct height as level 7 - bglvl10.png's corridor is pinned to 304..440, and
+            // the slab over it is exactly the beam painted black above that (281..304).
+            val ceilingBottomY = 304.0
+            val slabTopY = LEVEL_10_ROOM_FLOOR_Y
+            val slabEndX = 8600.0
+            val roomCeilingY = LEVEL_10_ROOM_CEILING_Y
+            val wallW = 40.0
+            // A shaft is wider than a hole: the crate sits at its far end, and the jump onto it
+            // has to start under open air - at 100 a body pressed against the crate still had its
+            // head under the slab and bonked it on every jump.
+            val shaftW = 140.0
+            val holeW = 100.0
+
+            /** One room: its x span, where its shafts up and holes down open, and its guards. */
+            class Room(val left: Double, val right: Double, val shaftsUp: List<Double>, val holesDown: List<Double>)
+            val rooms = listOf(
+                // Beat 2 - the small room: wall, hole, one guard overhead, wall, hole.
+                Room(1520.0, 2440.0, shaftsUp = listOf(1560.0, 2100.0), holesDown = listOf(1780.0, 2300.0)),
+                // Beat 5 - the big room: three walls, two guards.
+                Room(4520.0, 6040.0, shaftsUp = listOf(4560.0, 5120.0, 5680.0), holesDown = listOf(4800.0, 5360.0, 5900.0)),
+                // The end - "at the end of level 10, he should climb up again and it should look
+                // like a prison cell and the figure should be there sitting": the way up is the
+                // freight lift (lvl10_lift) through this room's floor, and there is no way down.
+                Room(7960.0, 8600.0, shaftsUp = emptyList(), holesDown = emptyList())
+            )
+            // The end of the duct: a shut door ("lvl10_door", its switch in front of it), then a
+            // freight lift standing in the duct floor against the duct's end wall. Its switch is on
+            // that wall, reached from the lift - press it and ride up into the cell room. Level
+            // 11's whole vocabulary, met once here where nothing else is going on: the drone on
+            // the door (lvl10_bot_4) has to be dealt with first, then it is just switches.
+            val endDoor = DoorDef(id = "lvl10_door", x = 7990.0, top = ceilingBottomY, bottom = groundY)
+            val endLift = LiftDef(id = "lvl10_lift", x = 8030.0, width = 120.0, upperY = slabTopY, lowerY = groundY, startsUp = false)
+            val endWall = Rect(endLift.x + endLift.width, ceilingBottomY, wallW, groundY - ceilingBottomY)
+            val endSwitches = listOf(
+                DoorSwitchDef("lvl10_sw_door", 7956.0, groundY, listOf(endDoor.id)),
+                // On the end wall's face: a body standing on the lift against the wall is in reach,
+                // and wholly over the lift (clear of the slab beside the shaft) as it rises.
+                DoorSwitchDef("lvl10_sw_lift", endWall.x - 20.0, groundY, listOf(endLift.id))
+            )
+            val shaftsUp = rooms.flatMap { it.shaftsUp }
+            val openings = (shaftsUp.map { it to it + shaftW } + rooms.flatMap { it.holesDown }.map { it to it + holeW } +
+                listOf(endLift.x to endLift.x + endLift.width))
+                .sortedBy { it.first }
+            val slabs = ArrayList<Rect>()
+            var from = 0.0
+            for ((l, r) in openings) {
+                slabs.add(Rect(from, slabTopY, l - from, ceilingBottomY - slabTopY))
+                from = r
+            }
+            slabs.add(Rect(from, slabTopY, slabEndX - from, ceilingBottomY - slabTopY))
+            // Each wall stands right under the far edge of a shaft, so the shaft is the only way on.
+            val corridorWalls = shaftsUp.map { l -> Rect(l + shaftW, ceilingBottomY, wallW, groundY - ceilingBottomY) }
+            // One crate per shaft, flush against the wall and wholly under the gap.
+            val shaftCrates = shaftsUp.map { l -> Rect(l + shaftW - 68.0, groundY - 48.0, 68.0, 48.0) }
+            // The slab piece past each shaft is mounted from the crate: nothing under its edge.
+            val shaftLedges = shaftsUp.map { l -> slabs.first { it.x == l + shaftW } }
+            val roomCeilings = rooms.map { Rect(it.left, roomCeilingY - 600.0, it.right - it.left, 600.0) }
+            val roomWalls = rooms.flatMap {
+                listOf(
+                    Rect(it.left, roomCeilingY, wallW, slabTopY - roomCeilingY),
+                    Rect(it.right - wallW, roomCeilingY, wallW, slabTopY - roomCeilingY)
+                )
+            }
+
+            fun roomGuard(min: Double, max: Double, startX: Double, facing: Double) = GuardSpawn(
+                startX = startX, surfaceY = slabTopY, patrolMinX = min, patrolMaxX = max,
+                speed = 55.0, facing = facing, visionRange = 180.0,
+                width = 30.0, height = 96.0, patrolPauseDuration = 1.0
+            )
+            // On the slab pieces between a hole and the next shaft, never reaching either gap.
+            val guards = listOf(
+                roomGuard(1910.0, 2040.0, startX = 2040.0, facing = -1.0),
+                roomGuard(4930.0, 5070.0, startX = 5070.0, facing = -1.0),
+                roomGuard(5490.0, 5630.0, startX = 5490.0, facing = 1.0)
+            )
+
+            fun fan(id: String, x: Double, range: Double, push: Double) = VentFanDef(
+                id = id, x = x, y = 338.0, width = 36.0, height = 68.0,
+                windRange = range, windPushSpeed = push, windDirection = -1.0, fanImpulse = 10.0
+            )
+
+            fun pipe(
+                id: String, x: Double, mount: PipeMountType, active: Double, inactive: Double, phase: Double,
+                floor: Double = 0.8
+            ) = SteamPipeDef(
+                id = id, x = x, topY = ceilingBottomY, bottomY = groundY, mountType = mount,
+                activeDuration = active, inactiveDuration = inactive, phaseOffsetSeconds = phase,
+                minDormantDuration = floor
+            )
+
+            // Drones here stop for half the time level 7's do at each end of their beat (0.5s
+            // against 1.0s), so a turn comes sooner than a level 7 player has learned to expect.
+            fun bot(id: String, startX: Double, min: Double, max: Double, speed: Double, facing: Double, range: Double) =
+                CameraBotDef(
+                    id = id, startX = startX, surfaceY = groundY, patrolMinX = min, patrolMaxX = max,
+                    speed = speed, facing = facing, visionRange = range, pauseDuration = 0.5
+                )
+
+            val fans = listOf(
+                // Beat 1 - twin intakes: zones 480..820 and 1100..1400.
+                fan("lvl10_fan_1", x = 820.0, range = 340.0, push = 150.0),
+                fan("lvl10_fan_2", x = 1400.0, range = 300.0, push = 155.0),
+                // Beat 3 - the drone's gale: zone 2860..3300, with lvl10_bot_1 patrolling in it.
+                fan("lvl10_fan_3", x = 3300.0, range = 440.0, push = 150.0),
+                // Beat 6 - the gale gate: zone 6140..6500, a jet at each end of it.
+                fan("lvl10_fan_4", x = 6500.0, range = 360.0, push = 160.0),
+                // Beat 7 - a short, violent gust ahead of the lock.
+                fan("lvl10_fan_5", x = 6920.0, range = 140.0, push = 170.0)
+            )
+
+            // Every window is tighter than level 7's tightest (0.9 dormant), and past the intakes
+            // the dormancy floor itself drops below level 7's 0.8 (SteamPipeDef.minDormantDuration).
+            val steamPipes = listOf(
+                // Beat 1 - one just inside the first gale (holding back is being blown clear of
+                // it), one in the calm pocket between the two gales.
+                pipe("lvl10_pipe_1", 600.0, PipeMountType.BOTTOM, active = 3.0, inactive = 1.1, phase = 0.6),
+                pipe("lvl10_pipe_2", 960.0, PipeMountType.TOP, active = 3.0, inactive = 1.0, phase = 0.0),
+                // Beat 4 - one on the way in, one across the drone's patrol.
+                pipe("lvl10_pipe_3", 3700.0, PipeMountType.BOTTOM, active = 3.2, inactive = 0.9, phase = 0.9, floor = 0.7),
+                pipe("lvl10_pipe_4", 4150.0, PipeMountType.TOP, active = 3.2, inactive = 0.9, phase = 0.4, floor = 0.7),
+                // Beat 5 - in the duct under the big room's first guard, between hole 1 and shaft 2.
+                pipe("lvl10_pipe_5", 5000.0, PipeMountType.BOTTOM, active = 3.4, inactive = 0.8, phase = 1.2, floor = 0.65),
+                // Beat 6 - the gale gate: one near the zone's lip, one 60 short of the fan, taken
+                // at spam-tap pace with no standing still between them. The far one keeps a
+                // longer window than its neighbours: at 96 u/s from a safe distance a ~1.1-1.6s
+                // window almost never came round (the walker stalled 53s on it at 0.75/0.6).
+                pipe("lvl10_pipe_6", 6200.0, PipeMountType.TOP, active = 3.4, inactive = 0.8, phase = 2.0, floor = 0.65),
+                pipe("lvl10_pipe_7", 6440.0, PipeMountType.TOP, active = 3.4, inactive = 1.0, phase = 0.0),
+                // Beat 7 - the lock: four jets 110 apart on the shortest windows in the game.
+                pipe("lvl10_pipe_8", 7100.0, PipeMountType.TOP, active = 3.8, inactive = 0.7, phase = 0.0, floor = 0.55),
+                pipe("lvl10_pipe_9", 7210.0, PipeMountType.BOTTOM, active = 3.8, inactive = 0.7, phase = 1.3, floor = 0.55),
+                pipe("lvl10_pipe_10", 7320.0, PipeMountType.TOP, active = 3.8, inactive = 0.7, phase = 2.6, floor = 0.55),
+                pipe("lvl10_pipe_11", 7430.0, PipeMountType.BOTTOM, active = 3.8, inactive = 0.7, phase = 3.4, floor = 0.55)
+            )
+
+            val cameraBots = listOf(
+                // Beat 3 - inside fan 3's zone. Its near end (3010, eye 3008) reaches 2893, past
+                // the zone's lip at 2860, so a body the gale has carried out is out of its sight.
+                // 44 against spam-tap pace's 96: caught, but with little to spare.
+                bot("lvl10_bot_1", 3010.0, 3010.0, 3200.0, speed = 44.0, facing = 1.0, range = 115.0),
+                // Beat 4 - its patrol runs across lvl10_pipe_4 (4150).
+                bot("lvl10_bot_2", 4000.0, 4000.0, 4300.0, speed = 48.0, facing = 1.0, range = 130.0),
+                // Beat 5 - in the duct under the big room's second guard, between hole 2 and
+                // shaft 3: drop in while it heads away, and it has to be dealt with before the climb.
+                bot("lvl10_bot_3", 5480.0, 5480.0, 5600.0, speed = 40.0, facing = 1.0, range = 110.0),
+                // Beat 7 - on the door, the fastest in the game. Caught from its reach's edge in
+                // ~1.6s against a ~2.5s run to its turn; at 58 over 120 it was 1.74s against
+                // 2.07s, which no autopilot and few thumbs would make.
+                bot("lvl10_bot_4", 7800.0, 7800.0, 7940.0, speed = 56.0, facing = 1.0, range = 140.0)
+            )
+
+            // Five for seven beats (level 7 has seven for six): the intakes and the gale gate have
+            // none, so a death there costs the beat before it too. As on level 7, none sits under
+            // anything, in a gale, on a jet or in a drone's reach.
+            fun cp(id: String, x: Double) = Checkpoint(
+                id = id, x = x, y = groundY - 96.0,
+                triggerZone = Rect(x - 20.0, ceilingBottomY, 60.0, groundY - ceilingBottomY)
+            )
+            val checkpoints = listOf(
+                cp("lvl10_cp1_small_room", 1480.0),
+                cp("lvl10_cp2_gale_drone", 3420.0),
+                cp("lvl10_cp3_steam_drone", 4480.0),
+                cp("lvl10_cp4_big_room", 6060.0),
+                cp("lvl10_cp5_lock", 7500.0)
+            )
+
+            // The cell fills the last room's far end; the level ends at its bars.
+            val cellBars = Rect(8380.0, roomCeilingY, 8560.0 - 8380.0, slabTopY - roomCeilingY)
+            val exitX = cellBars.x - 70.0
+            val boxes = slabs + corridorWalls + endWall + shaftCrates + roomCeilings + roomWalls
+
+            LevelLayout(
+                worldWidth = worldWidth,
+                playerStartX = 100.0,
+                playerStartY = groundY - 96.0,
+                exitZone = Rect(x = exitX, y = roomCeilingY, width = 60.0, height = slabTopY - roomCeilingY),
+                platforms = listOf(ground) + boxes,
+                boxes = boxes,
+                guards = guards,
+                fans = fans,
+                cameraBots = cameraBots,
+                steamPipes = steamPipes,
+                hasStartFences = false,
+                canClimb = true,
+                floatingClimbTargets = shaftLedges,
+                prisonCell = PrisonCellDef(bars = cellBars, prisonerX = 8490.0, prisonerFacing = -1.0),
+                // Tall and starting above y 0, a ceiling would otherwise be drawn as level 1's
+                // hanging chained crate (GameplayScene's rule 5).
+                plainPlatforms = roomCeilings,
+                playerStartCrouched = false,
+                manualCheckpoints = checkpoints,
+                roomBackdrops = rooms.map { Rect(it.left, roomCeilingY, it.right - it.left, slabTopY - roomCeilingY) },
+                doors = listOf(endDoor),
+                doorSwitches = endSwitches,
+                lifts = listOf(endLift)
+            )
+        }
+
+        /** Level 10's rooms: their floor (the duct slab's top, where the painted beam starts) and its ceiling. */
+        const val LEVEL_10_ROOM_FLOOR_Y: Double = 281.0
+        const val LEVEL_10_ROOM_CEILING_Y: Double = 140.0
+
         val DEFAULT_LEVEL_10 = LevelData(
             id = "level_10",
             name = "10: Below the Yard",
-            timeTargetSeconds = 24.0f,
+            // LevelWalkthroughTest's rule (1.25..2.0x a clean autopilot run), at its tight end:
+            // testLevel10SimulationPlayableWalkthrough clears it in 151.1s since the prison-cell
+            // ending, most of that waiting on drones, room guards and the shorter steam windows.
+            timeTargetSeconds = 190.0f,
             description = "Follow the underground tunnels in search of the person you were tracking.",
-            objectiveHint = "Cross the Yard Undetected",
-            guardSpeed = 100.0,
-            guardPatrolMinX = 2550.0,
-            guardPatrolMaxX = 3050.0
+            objectiveHint = "Find the Prisoner in the Holding Cells",
+            bonusObjective = BonusObjective.USE_EACH_SWITCH_ONCE,
+            layout = LEVEL_10_LAYOUT,
+            // Its own art: a concrete wall whose lower, lamp-lit corridor under a beam is the duct
+            // (GameplayScene's LEVEL_10_BG_* constants pin it to 304..440).
+            backgroundImage = "bglvl10.png",
+            hasDarknessVignette = false,
+            // Its only tutorial: everything else here is level 7's, taught there. Switches are
+            // new, and level 11 is built on them with no tutorial of its own.
+            tutorialSteps = listOf(
+                TutorialStep(
+                    id = "step_use_switches",
+                    triggerMinX = 7950.0,
+                    triggerMaxX = 8150.0,
+                    title = "SWITCHES",
+                    instructionTouch = "Use the switch to activate mechanisms.",
+                    instructionDesktop = "Use the switch to activate mechanisms.",
+                    targetAction = TutorialAction.INTERACT,
+                    // Pointing at the switch on the wall, not at the INTERACT button: the thing to
+                    // learn is that the panel works the door ("make the text point at the switch").
+                    highlight = TutorialControlHighlight.NONE,
+                    handwrittenCallout = "Use the switch to activate mechanisms",
+                    worldTextX = 7620.0,
+                    worldTextY = 245.0,
+                    // lvl10_sw_door's panel (7956..7968, hung 58 over the floor).
+                    worldAnchorX = 7960.0,
+                    worldAnchorY = 376.0
+                )
+            )
         )
+
+        /**
+         * Level 11: "11: The Prisoner" - getting level 10's prisoner out of the same tunnels
+         * (2026-09-30: "in level 11 you have to help the prisoner you freed in level 10 escape. it
+         * will be inside the same place as level 10. [he] will move forward whenever possible. he
+         * cant climb or parkour. you can use doors as a new mechanism for this level").
+         *
+         * An escort level. The prisoner ([PrisonerDef]) walks right on his own at 72 u/s and only
+         * stops where he cannot go on - a shut door, a wall, a drop. He is seen like the player is
+         * (any guard, camera or bot filling the meter on him is Mission Failed) and steam kills
+         * him. So a DOOR is the only way to hold him, and the level is about where and when to
+         * hold him: doors ([DoorDef]) are thrown from wall switches ([DoorSwitchDef]), stop guards
+         * (a guard turns back at a shut door, so doors decide where his beat runs) and block
+         * sight. Freight lifts ([LiftDef]) move him between the duct and the rooms over it. The
+         * player can do what he cannot - climb a shaft, drop through a hole - and that is the
+         * other half: getting to the far side of a door he is waiting at.
+         *
+         * Same place as level 10: bglvl10.png, the duct (304..440) under the rooms (140..281) on
+         * the slab between them. Left to right:
+         *
+         *   1. The cell       level 10's cell. Throw the switch by the barred gate and he gets up
+         *                     and walks out - onto a freight lift that fills the room's floor,
+         *                     where the room's end wall stops him. Lower it: into the duct.
+         *   2. Steam gate     a shut door just short of a jet. Open it so he meets the jet dead.
+         *   3. Far switch     the next door's switch is on its FAR side. Up the shaft (a hung
+         *                     catwalk, then a mantle), across the room, down the hole beyond it.
+         *   4. Control room   a guard walks the pen between two shut doors. From the control room
+         *                     overhead (he cannot see through the slab) open the pen's far door,
+         *                     let him walk out over the lift into the bay, and shut the bay door
+         *                     behind him - locked in, his beat is the bay. Then let the prisoner
+         *                     through the empty pen onto the lift, which the shut bay door stops
+         *                     him on, and take him up.
+         *   5. Close it behind you   the room door ahead of him is open and a bot works the room
+         *                     past it. Ride up with him, outrun him (132 against his 72), shut the
+         *                     door from its far side before he reaches it, switch the bot off from
+         *                     behind, let him through. Down the last lift.
+         *   6. Over the top   a door holds him, and a bot works the duct past it - where the door's
+         *                     only switch is. Up the shaft into a room with two jets of its own
+         *                     (the player's steam, not his), down its hole behind the bot while it
+         *                     heads away, switch it off from behind, let him through.
+         *   7. Steam lock     two jets with a pocket between them, a door in front of each - one
+         *                     window at a time, the player in the pocket with him.
+         *   8. The way out    past the last jet the duct ends on a freight lift, which the end
+         *                     wall stops him on. Ride it up together into the hatch room: the
+         *                     level is complete once both of you are in it.
+         *
+         * Each beat ends with him held behind a shut door, and that is where its checkpoint is -
+         * an escort level's checkpoints are the prisoner's (GameWorld: taken when he is held in
+         * the zone, unseen), and a respawn puts back doors, lifts and guards as they were then.
+         */
+        val LEVEL_11_LAYOUT = run {
+            val groundY = 440.0
+            val worldWidth = 6100.0
+            val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
+            val ceilingBottomY = 304.0
+            val slabTopY = LEVEL_10_ROOM_FLOOR_Y
+            val roomCeilingY = LEVEL_10_ROOM_CEILING_Y
+            val wallW = 40.0
+
+            fun ductDoor(id: String, x: Double, open: Boolean = false) =
+                DoorDef(id = id, x = x, top = ceilingBottomY, bottom = groundY, startsOpen = open)
+            fun roomDoor(id: String, x: Double, open: Boolean = false, style: DoorStyle = DoorStyle.SHUTTER, width: Double = 20.0) =
+                DoorDef(id = id, x = x, top = roomCeilingY, bottom = slabTopY, width = width, startsOpen = open, style = style)
+            fun lift(id: String, x: Double, width: Double, up: Boolean) =
+                LiftDef(id = id, x = x, width = width, upperY = slabTopY, lowerY = groundY, startsUp = up)
+            fun roomSwitch(id: String, x: Double, vararg targets: String) = DoorSwitchDef(id, x, slabTopY, targets.toList())
+            fun ductSwitch(id: String, x: Double, vararg targets: String) = DoorSwitchDef(id, x, groundY, targets.toList())
+
+            val lifts = listOf(
+                // Beat 1: fills the cell room's floor at its far end, against the room's end wall.
+                lift("lift_1", 540.0, 120.0, up = true),
+                // Beat 4: sits in the duct floor between the pen and the bay; the bay door stops
+                // him on it.
+                lift("lift_2", 3130.0, 90.0, up = false),
+                // Beat 5: at the far end of the control room's floor, against its end wall.
+                lift("lift_3", 4240.0, 120.0, up = true),
+                // Beat 8: the way out, at the duct's end - up into the hatch room.
+                lift("lift_4", 5780.0, 120.0, up = false)
+            )
+
+            val doors = listOf(
+                roomDoor("cell_gate", 240.0, style = DoorStyle.BARS, width = 12.0),
+                ductDoor("door_1", 880.0),
+                ductDoor("door_2", 1500.0),
+                ductDoor("door_3", 2440.0),
+                ductDoor("door_4", 3000.0),
+                ductDoor("door_5", 3220.0, open = true),
+                roomDoor("door_6", 3640.0, open = true),
+                ductDoor("door_7", 4700.0),
+                ductDoor("door_8", 5460.0),
+                ductDoor("door_9", 5640.0)
+            )
+
+            val switches = listOf(
+                roomSwitch("sw_cell", 270.0, "cell_gate"),
+                roomSwitch("sw_lift_1", 500.0, "lift_1"),
+                ductSwitch("sw_lift_1_below", 690.0, "lift_1"),
+                ductSwitch("sw_door_1", 846.0, "door_1"),
+                // Beat 3: past the door, not in front of it.
+                ductSwitch("sw_door_2", 1560.0, "door_2"),
+                // Beat 4: the control room, over the pen - one panel per door, and the lift's
+                // by its shaft, where it is reached from the room floor or from on the lift.
+                roomSwitch("sw_door_3", 2460.0, "door_3"),
+                roomSwitch("sw_door_4", 2960.0, "door_4"),
+                roomSwitch("sw_door_5", 3060.0, "door_5"),
+                roomSwitch("sw_lift_2", 3110.0, "lift_2"),
+                // Beat 5: both sides of the room door.
+                roomSwitch("sw_door_6_near", 3600.0, "door_6"),
+                roomSwitch("sw_door_6_far", 3680.0, "door_6"),
+                // Over the slab's end, in reach from the room floor and from on the lift clear of the
+                // duct wall under its near side (x >= 4240).
+                roomSwitch("sw_lift_3", 4232.0, "lift_3"),
+                ductSwitch("sw_lift_3_below", 4380.0, "lift_3"),
+                // Beat 6: past the door only - the side the bot is on.
+                ductSwitch("sw_door_7", 4742.0, "door_7"),
+                // Beat 7: one in front of the lock, one in the pocket.
+                ductSwitch("sw_door_8", 5426.0, "door_8"),
+                ductSwitch("sw_door_9", 5580.0, "door_9"),
+                // Beat 8: reached from the duct floor or from the lift's near end.
+                ductSwitch("sw_lift_4", 5768.0, "lift_4")
+            )
+
+            /** A room over the duct: its x span, and the gaps in its floor (shafts up, holes down, lift shafts). */
+            class Room(val left: Double, val right: Double)
+            val rooms = listOf(
+                Room(0.0, 700.0),      // the cell
+                Room(1180.0, 1900.0),  // beat 3's room
+                Room(2160.0, 4400.0),  // the control room and the upper floor past it
+                Room(4440.0, 5300.0),  // beat 6's room, over the bot
+                Room(5740.0, 5940.0)   // the hatch room, the way out
+            )
+            // Every gap in the slab, left to right: lift shafts, shafts up (a catwalk in each),
+            // holes down.
+            val shaftW = 140.0
+            val shaftsUp = listOf(1240.0, 2220.0, 4480.0)
+            val holesDown = listOf(1600.0 to 1700.0, 5060.0 to 5160.0)
+            val openings = (lifts.map { it.x to it.x + it.width } + shaftsUp.map { it to it + shaftW } + holesDown)
+                .sortedBy { it.first }
+            val slabs = ArrayList<Rect>()
+            var from = 0.0
+            for ((l, r) in openings) {
+                slabs.add(Rect(from, slabTopY, l - from, ceilingBottomY - slabTopY))
+                from = r
+            }
+            slabs.add(Rect(from, slabTopY, worldWidth - from, ceilingBottomY - slabTopY))
+
+            // The way up a shaft for the player alone. A crate on the duct floor (level 10's step)
+            // would stop the prisoner dead, so the step is a catwalk hung across the shaft's far
+            // end instead: top 334 (a climb of 106 from the floor, under the 115 cap), 6 thick so
+            // its underside (340) clears a standing head (344) - he walks under it. From it, the
+            // slab past the shaft is a mantle of 53 (over a jump's 51.2, so a climb, not a hop).
+            val catwalks = shaftsUp.map { l -> Rect(l + shaftW - 70.0, 334.0, 70.0, 6.0) }
+            val shaftLedges = shaftsUp.map { l -> slabs.first { it.x == l + shaftW } }
+
+            val roomCeilings = rooms.map { Rect(it.left, roomCeilingY - 600.0, it.right - it.left, 600.0) }
+            val roomWalls = rooms.flatMap {
+                listOf(
+                    Rect(it.left, roomCeilingY, wallW, slabTopY - roomCeilingY),
+                    Rect(it.right - wallW, roomCeilingY, wallW, slabTopY - roomCeilingY)
+                )
+            }
+            // The duct's own walls: its start (the lift shaft's near side), the bay's end, the
+            // near side of lift 3's shaft (between the two is sealed duct), and its end.
+            val ductWalls = listOf(500.0, 3560.0, 4200.0, 5900.0).map { Rect(it, ceilingBottomY, wallW, groundY - ceilingBottomY) }
+
+            // Beat 4's guard: his route runs pen to bay (2470..3520), but shut doors turn him, so
+            // what he actually walks is whatever the doors leave him - the pen, at the start.
+            val penGuard = GuardSpawn(
+                startX = 2700.0, surfaceY = groundY, patrolMinX = 2470.0, patrolMaxX = 3520.0,
+                speed = 55.0, facing = 1.0, visionRange = 200.0, width = 30.0, height = 96.0,
+                patrolPauseDuration = 0.8
+            )
+
+            val cameraBots = listOf(
+                // Beat 5: on the control room's floor past door_6. Its near end (3860) reaches
+                // 3738, so the respawn spot past the door (3690) is out of its sight.
+                CameraBotDef(
+                    id = "lvl11_bot_1", startX = 4000.0, surfaceY = slabTopY, patrolMinX = 3860.0, patrolMaxX = 4100.0,
+                    speed = 40.0, facing = 1.0, visionRange = 120.0, pauseDuration = 0.8
+                ),
+                // Beat 6: in the duct past door_7, working up to where the door's switch is. Its
+                // far end (5000) reaches 5154 facing right, so the drop from the hole (5060..5160)
+                // is only safe while it heads back towards the door.
+                CameraBotDef(
+                    id = "lvl11_bot_2", startX = 4900.0, surfaceY = groundY, patrolMinX = 4800.0, patrolMaxX = 5000.0,
+                    speed = 45.0, facing = -1.0, visionRange = 120.0, pauseDuration = 0.8
+                )
+            )
+
+            fun pipe(id: String, x: Double, mount: PipeMountType, phase: Double) = SteamPipeDef(
+                id = id, x = x, topY = ceilingBottomY, bottomY = groundY, mountType = mount,
+                // The longest dormancy the jets allow (1.8, plus the 0.5 flare): he takes ~1.6s
+                // from a door 28-48 short of a jet to clear it, door included.
+                activeDuration = 2.4, inactiveDuration = 1.8, phaseOffsetSeconds = phase
+            )
+            // Beat 6's room jets: floor to ceiling of the room, the player's alone to cross.
+            fun roomPipe(id: String, x: Double, mount: PipeMountType, phase: Double) =
+                pipe(id, x, mount, phase).copy(topY = roomCeilingY, bottomY = slabTopY)
+            val steamPipes = listOf(
+                pipe("lvl11_pipe_1", 940.0, PipeMountType.BOTTOM, phase = 0.0),
+                roomPipe("lvl11_pipe_4", 4800.0, PipeMountType.TOP, phase = 0.0),
+                roomPipe("lvl11_pipe_5", 4960.0, PipeMountType.BOTTOM, phase = 1.6),
+                pipe("lvl11_pipe_2", 5500.0, PipeMountType.TOP, phase = 0.0),
+                // Near anti-phase with the one before it, so the lock is two windows, not one.
+                pipe("lvl11_pipe_3", 5680.0, PipeMountType.BOTTOM, phase = 2.2)
+            )
+
+            // Where he is held at the end of each beat (see the class doc), and where the player
+            // comes back: on his side of the door where the next thing to do is on that side,
+            // past it where it is not.
+            fun cp(id: String, zoneLeft: Double, zoneRight: Double, zoneTop: Double, zoneBottom: Double, spawnX: Double, spawnFeet: Double) =
+                Checkpoint(x = spawnX, y = spawnFeet - 96.0, triggerZone = Rect(zoneLeft, zoneTop, zoneRight - zoneLeft, zoneBottom - zoneTop), id = id)
+            val checkpoints = listOf(
+                cp("lvl11_cp1_steam_gate", 820.0, 880.0, ceilingBottomY, groundY, spawnX = 790.0, spawnFeet = groundY),
+                cp("lvl11_cp2_far_switch", 1440.0, 1500.0, ceilingBottomY, groundY, spawnX = 1420.0, spawnFeet = groundY),
+                cp("lvl11_cp3_pen", 2380.0, 2440.0, ceilingBottomY, groundY, spawnX = 2380.0, spawnFeet = groundY),
+                cp("lvl11_cp4_lift", 3150.0, 3220.0, ceilingBottomY, groundY, spawnX = 3040.0, spawnFeet = slabTopY),
+                cp("lvl11_cp5_room_door", 3580.0, 3640.0, roomCeilingY, slabTopY, spawnX = 3690.0, spawnFeet = slabTopY),
+                cp("lvl11_cp6_last_lift", 4280.0, 4360.0, roomCeilingY, slabTopY, spawnX = 4190.0, spawnFeet = slabTopY),
+                cp("lvl11_cp7_over_the_top", 4640.0, 4700.0, ceilingBottomY, groundY, spawnX = 4420.0, spawnFeet = groundY),
+                cp("lvl11_cp8_lock", 5400.0, 5460.0, ceilingBottomY, groundY, spawnX = 5370.0, spawnFeet = groundY),
+                cp("lvl11_cp9_pocket", 5580.0, 5640.0, ceilingBottomY, groundY, spawnX = 5536.0, spawnFeet = groundY)
+            )
+
+            val cellBars = Rect(60.0, roomCeilingY, 240.0 - 60.0, slabTopY - roomCeilingY)
+            val boxes = slabs + roomCeilings + roomWalls + ductWalls + catwalks
+
+            LevelLayout(
+                worldWidth = worldWidth,
+                playerStartX = 320.0,
+                playerStartY = slabTopY - 96.0,
+                // The hatch room over lift_4: reached only by riding it up.
+                exitZone = Rect(x = 5780.0, y = roomCeilingY, width = 120.0, height = slabTopY - roomCeilingY),
+                platforms = listOf(ground) + boxes,
+                boxes = boxes,
+                guards = listOf(penGuard),
+                cameraBots = cameraBots,
+                steamPipes = steamPipes,
+                hasStartFences = false,
+                canClimb = true,
+                floatingClimbTargets = shaftLedges + catwalks,
+                prisonCell = PrisonCellDef(bars = cellBars, prisonerX = 150.0, prisonerFacing = 1.0, drawsFigure = false),
+                plainPlatforms = roomCeilings + catwalks,
+                manualCheckpoints = checkpoints,
+                roomBackdrops = rooms.map { Rect(it.left, roomCeilingY, it.right - it.left, slabTopY - roomCeilingY) },
+                doors = doors,
+                doorSwitches = switches,
+                lifts = lifts,
+                prisoner = PrisonerDef(x = 110.0, surfaceY = slabTopY, freedByDoorId = "cell_gate"),
+                // exit_sign.png (the asset drop's exit.png, cropped to its alpha, 2.54:1): on the
+                // duct wall past the last jet, over lift_4's near end, above head height (a
+                // standing head is at 344). Dimmed to the lamp-lit wall it hangs on - as painted,
+                // its white letters were the brightest thing in the tunnels.
+                wallDecals = listOf(WallDecal(Rect(5710.0, 310.0, 64.0, 64.0 / 2.54), "exit_sign.png", brightness = 0.5))
+            )
+        }
 
         val DEFAULT_LEVEL_11 = LevelData(
             id = "level_11",
             name = "11: The Prisoner",
-            timeTargetSeconds = 23.0f,
+            // Level11EscortTest's scripted clean run takes 148.7s, most of it waiting on him (he
+            // walks at 72 against the player's 132), on the jets and on the bots; x1.45, rounded
+            // to 5 - a person also has to work out each beat's doors, which the script knows.
+            timeTargetSeconds = 215.0f,
             description = "Rescue the prisoner and escort him to safety. Something about him feels familiar.",
-            objectiveHint = "Follow the Stranger",
-            guardSpeed = 105.0,
-            guardPatrolMinX = 2550.0,
-            guardPatrolMaxX = 3030.0
+            objectiveHint = "Escort the Prisoner to the Exit",
+            bonusObjective = BonusObjective.KEEP_THE_PRISONER_OUT_OF_SIGHT,
+            layout = LEVEL_11_LAYOUT,
+            backgroundImage = "bglvl10.png"
+            // No tutorial: level 10's end teaches switches, doors and lifts, and the rest is
+            // for the player to work out ("dont add any tutorial in level 11", 2026-09-30).
         )
 
         val DEFAULT_LEVEL_12 = LevelData(
@@ -3836,7 +4907,9 @@ data class LevelResult(
     // Star 1: completed == true
     val star1: Boolean get() = completed
 
-    // Star 2: wasDetected == false for the whole run
+    // Star 2: the level's own optional objective (LevelData.bonusObjective) was met - or, on a
+    // level without one, no alert was raised. The field keeps its old name so saves written
+    // before the per-level objectives read back unchanged; it means "star 2 missed".
     val star2: Boolean get() = !wasDetected
 
     // Star 3: timeTaken <= timeTargetSeconds

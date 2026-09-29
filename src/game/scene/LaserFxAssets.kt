@@ -3,6 +3,7 @@ package game.scene
 import game.model.Laser
 import korlibs.image.bitmap.Bitmap
 import korlibs.image.bitmap.Bitmap32
+import korlibs.image.bitmap.mipmaps
 import korlibs.image.color.Colors
 import korlibs.image.color.RGBA
 import korlibs.korge.view.*
@@ -27,20 +28,26 @@ import kotlin.math.*
  */
 object LaserFxAssets {
 
-    val beamBitmap: Bitmap32 by lazy { createBeamBitmap() }
+    val beamBitmap: Bitmap32 by lazy { createBeamBitmap().also { it.mipmaps(true) } }
     val flareBitmap: Bitmap32 by lazy { createFlareBitmap() }
     val cylinderBitmap: Bitmap32 by lazy { createCylinderBitmap() }
     val emitterBitmap: Bitmap32 by lazy { createEmitterBitmap() }
 
+    /**
+     * The beam's cross-section. It is drawn only 2-10 units thick, so it is authored small (16
+     * rows, was 64) and mipmapped (4x16 is a power of two both ways - see SceneAssets on why that
+     * matters): squeezing 64 rows into a 3-pixel line, unfiltered, sampled the profile unevenly
+     * along a slanted beam, and the core broke up into a dotted line on screen.
+     */
     private fun createBeamBitmap(): Bitmap32 {
-        val width = 2
-        val height = 64
+        val width = 4
+        val height = 16
         val bmp = Bitmap32(width, height)
-        val centerY = 31.5
+        val centerY = (height - 1) / 2.0
 
         for (y in 0 until height) {
             val dist = abs(y - centerY)
-            val v = (dist / 31.5).coerceIn(0.0, 1.0)
+            val v = (dist / centerY).coerceIn(0.0, 1.0)
 
             val r: Int
             val g: Int

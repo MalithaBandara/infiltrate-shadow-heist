@@ -1023,6 +1023,14 @@ private val SOUND_CREDITS = listOf(
     SoundCredit("Guard alert", "Sadiquecat, via Freesound, Creative Commons Zero"),
     SoundCredit("Camera alert", "ryanconway, via Freesound, Creative Commons Zero"),
     SoundCredit("Mission music", "DELOSound, via Pixabay"),
+    SoundCredit("Rain", "DRAGON-STUDIO, via Pixabay"),
+    SoundCredit("Thunder", "freesound_community, via Pixabay"),
+    SoundCredit("Vent fan", "DRAGON-STUDIO, via Pixabay"),
+    SoundCredit("Steam jet", "freesound_community, via Pixabay"),
+    SoundCredit("Laser hum", "gyzhor, via Freesound, Creative Commons Zero"),
+    SoundCredit("Crate drop", "InspectorJ, via Freesound, Creative Commons Attribution 4.0"),
+    SoundCredit("Rover and camera motors", "freesound_community, via Pixabay"),
+    SoundCredit("Push cart", "freesound_community, via Pixabay"),
 )
 
 @Composable

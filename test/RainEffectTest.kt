@@ -29,6 +29,8 @@ class RainEffectTest : ViewsForTesting() {
         assertFalse(LevelData.DEFAULT_LEVEL_3.hasRain, "Level 3 must not have rain enabled")
         assertFalse(LevelData.DEFAULT_LEVEL_4.hasRain, "Level 4 must not have rain enabled")
         assertFalse(LevelData.SIDE_SCROLL_LEVEL.hasRain, "Level 5 must not have rain enabled")
+        assertTrue(LevelData.DEFAULT_LEVEL_9.hasRain, "Level 9 has level 2's rain and thunder")
+        assertFalse(LevelData.DEFAULT_LEVEL_8.hasRain, "Level 8 must not have rain enabled")
     }
 
     @Test

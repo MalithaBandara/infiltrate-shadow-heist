@@ -495,7 +495,9 @@ always-visible KorGE view (hiding `KorgeAndroidView` tears down its surface for 
 - Levels: 01 Night Arrival (tutorial), 02 Cargo Yard (rain/lightning/thunder), 03 First Contact
   (WIP), 04 Moving Target (conveyor, vignette), 05 The Crane Yard (swing move), 06 Stolen Manifest
   (lever-crate swing, pit, crane crossing), 07 Service Tunnel (vent gauntlet), 08 Relocation
-  (suspended-load yard, pushable cart), 09-12 (no layout yet, `GameWorld.createDefault` only).
+  (suspended-load yard, pushable cart), 09 Deja Vu (level 8 along the loads), 10 Below the Yard
+  (level 7's mechanics recombined), 11 The Prisoner (escort, doors and lifts), 12 (no layout yet,
+  `GameWorld.createDefault` only).
 
 ## The camera follow (`src/game/model/CameraFollow.kt`) - 2026-09-25
 
@@ -535,6 +537,43 @@ KorGE view is deliberately never hidden** (bug #7), so its loop keeps running un
 
 Covered by 4 tests in `GameplayModelTest.kt`.
 
+## Level 8 records from the first step (2026-09-29)
+
+"starting to record in level 8 should only start when starting to walk". `GameWorld.runStartSeconds`
+is the level clock at the first walk input (a jump on the spot does not count; null until then,
+cleared by a restart); `runClock` counts from it and level 8 captures samples and stamps events on
+it, so a run has no idle lead-in. Level 9's echo is NOT gated on it - it plays from level 9's own
+start (asked for first, then taken back: "no change that"). `testLevel8RecordsFromTheFirstStep`.
+A run saved before this still carries its lead-in until level 8 is completed again.
+
+## Eyes look for a braced body where it is drawn (2026-09-29)
+
+"when in the position for pushing the cart, cameras can see him even though he is not inside the
+vision cone". Vision tests `Player.keyPoints`: head at the top of the box on its centre line. Braced
+(`Player.braceLean`, set by GameWorld from `pushCartSide` once `pushStanceBlend >= 0.5`) the head
+is ~15 ahead and ~66 up, so that point hung in the air behind the figure. Braced key points are
+`PUSH_HEAD_POINT_*` / `PUSH_TORSO_POINT_*` - pixels opaque in every push frame. Re-measure with the
+push clips. `testABracedBodyIsLookedForWhereItIsDrawn`.
+
+## Checkpoints powerup: a death reloads, no MISSION FAILED sheet (2026-09-29)
+
+"when checkpoints are on, death should automatically load back the game at last checkpoint not
+show the mission failed menu". `GameplayScene`'s `world.onGameOver` sets `checkpointRespawnTimer`
+(`CHECKPOINT_RESPAWN_DELAY`, 0.9s - the catch still registers) instead of showing `caughtOverlay`;
+the updater then calls `respawnAtCheckpoint()` + `onCheckpointAutoRespawn`. Scene-only, so there is
+no model test for it.
+
+## Camera bots hold still while they see you (2026-09-29)
+
+"robots should also stay at one place if they start to spot you". `GameWorld.update` skips
+`bot.update` for bots in `detectingCameraBots` (last tick's), the same as a seeing guard is not
+walked on; they roll on once they lose sight. `testACameraBotThatSpotsThePlayerHoldsWhereItIs`.
+Consequence for level 7: waiting inside a bot's reach at its near end while it is heading away no
+longer works (it used to turn before the meter filled). Bot 2's reach (135) runs past pipe 3790,
+so there is nowhere to wait past that jet - wait before it, then run the bot down from behind while
+it heads away. `testLevel7SimulationPlayableWalkthrough`'s walker does exactly that (`catchable`),
+~108s.
+
 ## End-of-run dossier sheets (MISSION FAILED / HEIST COMPLETE)
 
 Both are the main menu's briefing sheet: `dossier_paper.png` stretched to a card, debrief in ink,
@@ -561,6 +600,20 @@ a silent no-op) and **menus** (`ui/MenuSfx.kt`, `expect`/`actual`: `AVAudioPlaye
 / mono WAV only** (iOS/JavaFX can't decode Ogg). Shared clips checked in twice (`resources/sfx/`,
 `ios-shell/Resources/`); Android reads `assets/sfx/`. Credits in `SOUND_CREDITS`
 (`SettingsScreen.kt`), kept in sync with `ATTRIBUTION.md` by hand.
+
+### Ambience beds and the crate thud (2026-09-29)
+
+`AmbientLoops` (`GameAudio.kt`) keeps one korlibs `playForever` channel per bed - rain (`hasRain`
+levels, i.e. 2 and 9), vent fans, steam jets, laser hum, patrol rovers, camera heads, push carts -
+seamless equal-power-crossfaded PCM loops `resources/sfx/loop_*.wav` (22.05kHz mono, cut from the
+long Pixabay sources by waveform/spectrogram - `robot_move.mp3` holds several takes; the rover is
+16.0-25.5s, the camera 0.8-7.2s), only ever volume-ramped (`AMBIENT_RAMP_PER_SEC`). Each source has its own `*_HEARING_RANGE` (230-300, crate thud 480), measured in straight-line 2D distance with squared falloff, so sounds are only heard on or just off screen. **Lasers are one shared voice**: nearest
+lit beam sets the level, each further lit beam in earshot adds `LASER_LOOP_EXTRA_PER_BEAM`, capped at
+`LASER_LOOP_MAX_GAIN` - never stacked hums. `sfx/crate_drop.wav` plays on any hanging crate's hard
+landing (`HookCrate.body` vy collapse, or `isLanded` for plain ones) on every level. `thunder.wav` is
+now Pixabay's clip, no longer procedural. Rovers/cameras/carts loop only while they actually moved that frame. **Android's native mixer only loops bgmusic, so these beds
+use korlibs' own channel there - never run on a device; watch for the per-session crackle above.**
+Verified: `jvmTest` green. Not heard on any platform.
 
 ### Android gameplay crackle - RESOLVED 2026-09-11 (Galaxy S25 Ultra)
 
@@ -646,6 +699,89 @@ fix. Key constants: `truckFront.width = 29` (matches the hood-to-windshield step
 flat floor/platforms, smoothly interpolated between idle/walk to avoid vertical popping).
 `interactAngle` settled at 60 degrees down-right.
 
+## Objectives: main + optional per level (2026-09-29)
+
+Main objectives (HUD row 1, `objectiveHint` + `Localization.levelObjectiveHint`, EN/FR kept in step):
+1 Find the Shipyard Entrance, 2 Find a Way Through the Yard, 3 Reach the Conveyor Belt, 4 Cross the
+Conveyor Line, 5 Cross the Crane Yard, 6 Reach the Security Building, 7 Reach the
+Security Desk, 8 Track Down Container 17, 9 Follow the Figure Without Touching the Ground, 10 Find the
+Prisoner in the Holding Cells, 11 Escort the Prisoner to the Exit.
+
+**Star 2 is now the level's own optional objective** (`LevelData.bonusObjective`,
+`src/game/model/BonusObjective.kt`), shown as the HUD's second "(OPTIONAL)" row and as row 2 of the
+results card. **The HUD objectives block does NOT list the time target** (owner, 2026-09-29) - the
+clock is star 3 on the results card only; `Localization.finishUnder` was removed with it. The old star 2 ("no alerts raised") could never be lost
+on a finished run except through a continue - a catch ends the run - and was free on levels with
+nothing that sees. `BonusObjectiveTracker` is fed once per tick by `GameWorld.observeBonusObjective`;
+a failure survives a checkpoint respawn, only `restartLevel` clears it. Two kinds: DO something
+(met the moment it is done, crossed at the exit if not) and AVOID something (crossed the moment it
+happens, ticked at the exit).
+
+| # | enum | wording | rule |
+| --- | --- | --- | --- |
+| 1 | `BASIC_MOVES` | Jump, Climb and Crouch | all three once; a crouched start is not the crouch |
+| 2 | `NO_DROP_FROM_HANGING_CRATES` | Never Drop from a Hanging Crate | landing at floor level (`FLOOR_LEVEL_BAND`, rescue barrels count) when last stood on a hanging crate/moving container; walking off terrain is fine |
+| 3, 6 | `STAY_UNSEEN` | Stay Completely Unseen | `alertProgress` ever above 0, or a catch |
+| 4 | `USE_A_GADGET` | Deploy a Gadget | any successful `activatePowerup` (Remote Trigger included) - needs stock, nothing grants it |
+| 5 | `SWING_FROM_A_HOOK` | Swing from a Crane Hook | `Player.isSwinging` once - the route needs a swing anyway |
+| 7 | `DISABLE_ALL_SECURITY_BOTS` | Shut Down Every Security Bot | every `CameraBot` id switched off at some point this attempt (a respawn switching them back on keeps the credit) |
+| 8 | `NEVER_TOUCH_A_HANGING_CRATE` | Never Touch a Hanging Crate | body within `TOUCH_MARGIN` (0.25) of any hanging load - on top, side-on or from below. Not 1.0: the ground road passes under bob 1 with ~1 unit to spare |
+| 9 | `STAY_OUT_OF_THE_FIGURES_SIGHT` | Stay Out of the Figure's Sight | `isEchoDetecting` ever true (its cone fills the shared alert meter like a guard's) |
+| 10 | `USE_EACH_SWITCH_ONCE` | Use Each Switch Only Once | any switch thrown a second time this attempt (`GameWorld.hasReusedASwitch`; a restart clears it) |
+| 11 | `KEEP_THE_PRISONER_OUT_OF_SIGHT` | Keep the Prisoner Out of Sight | `isPrisonerSeen` ever true - even the start of noticing him, where the main objective fails only on a full meter |
+
+- Level 12 has none (star 2 stays "no alerts raised").
+- **Saves are unchanged**: `LevelResult.wasDetected` keeps its name and 5-field format but now means
+  "star 2 missed" (`GameWorld.getLevelResult`). Old saves keep whatever star 2 they had.
+- **Proven reachable by a clean autopilot run**: 1, 2, 5, 6 (`LevelWalkthroughTest.
+  testTheOptionalObjectivesOfLevels1To6AreMetByACleanRun`), 7/8/9/10/11 (asserted at the end of their own
+  walkthroughs), 4 by `BonusObjectiveTest`. **Level 3 is NOT proven**: the roof guard notices the
+  autopilot standing up at the first crate even after a crouched approach; an unseen route needs
+  `LEVEL_3_HOLDS` re-searched (`testReplanLevel3` now rejects waits that raise the alert) with an
+  opening wait at the crate. The search is slow - the owner stopped one run.
+- **Level 6's plank guard HEARS the landing**: going as he turns away survives but he hears the jump
+  onto the plank (NORMAL noise, 180), turns and sees you. The walkthrough now goes once he is 140-200
+  out on his beat (65.3s clean run, was 64.5).
+
+## Three-star target times (2026-09-29)
+
+"Play levels 1-9 and set a reasonable time for a real person to beat each level as the target."
+Star 3 is `timeTaken <= LevelData.timeTargetSeconds`. Every target is the level's **autopilot clean
+run x ~1.4**, rounded up to 5s (levels 1 and 5, short and mostly running, get a flat ~15s of slack
+instead). The autopilot never hesitates or misses a jump, so its time is a floor a person can approach,
+not match - the old targets (1 = 30, 3 = 25, 6 = 45, 7 = 85, 4 = 115) were under it, i.e. impossible.
+
+| level | clean run | target | timed by |
+| --- | --- | --- | --- |
+| 1 | 28.8s | 45 | `LevelWalkthroughTest` |
+| 2 | 42.2s | 60 | `LevelWalkthroughTest` |
+| 3 | 46.1s (17s of it holding for guards/cameras) | 65 | `LevelWalkthroughTest` |
+| 4 | 116.9s | 165 | `testLevel4SimulationPlayable` |
+| 5 | 19.2s | 35 | `LevelWalkthroughTest` |
+| 6 | 65.3s | 95 | `LevelWalkthroughTest` |
+| 7 | 107.7s | 155 | `testLevel7SimulationPlayableWalkthrough` |
+| 8 | 130.2s | 180 | `testLevel8IsBeatableOnTheGroundRoad` |
+| 9 | 106.1s | 180 | `testLevel9IsBeatableWithoutTouchingTheGround` |
+
+`test/LevelWalkthroughTest.kt` holds the walkthroughs for 1, 2, 3, 5, 6 (one general `Runner.runRight`
+policy - crouch under head-only ceilings, jump when blocked = the climb, jump a gap at its lip, hold
+at a lip for a moving crate/lift, swing a hook in reach, throw a lever underfoot - plus level 6's
+own legs, lifted from its section tests) and `assertPace`, which pins every target to
+`MIN_TARGET_OVER_CLEAN_RUN` (1.25) .. `MAX_TARGET_OVER_CLEAN_RUN` (2.0) x the clean run. 4/7/8/9's
+times are constants there (`cleanRunsMeasuredElsewhere`) - update them with the level's own test.
+**After changing a level's route or timing, re-run its walkthrough and re-pick the target**; the tests
+fail with "not reachable by hand" / "would not ask for a clean run" when the two drift apart.
+
+- **Level 3's waits are searched, not guessed.** `LEVEL_3_HOLDS` (seconds stood still, crouched, on
+  reaching each 100-unit stage) came from a backtracking replay search that keeps the smallest wait that
+  lives to the next stage. Re-derive after a level 3 change:
+  `REPLAN_LEVEL3=1 ./gradlew jvmTest --tests '*testReplanLevel3' -i` and paste the printed list.
+- **Level 6 needs a pause on the far terrain** (0.5s - anything 0.5..9.5s works, none does not): the pit's
+  overwatch guard is on a fixed clock, and arriving from section 1 without it walks into his beam.
+- **The crouch rule must skip `floatingClimbTargets`** or the autopilot ducks under level 3's table
+  instead of climbing it and walks the ground under the roof guard.
+- Not human-verified: these are simulated clean runs, nobody has timed a person on them.
+
 ## Level 1 geometry - current state
 
 `GameWorld.createDefault()`/`DEFAULT_LEVEL_1`, `worldWidth = 3900`: start gates -> ground ->
@@ -668,6 +804,9 @@ sweeps - correct, not a bug. Grip point on the hook art: `HOOK_GRIP_X/Y_FRACTION
 re-measure if `hook.png` is recropped. `swingDuration` 0.92s over a pacing curve
 (push-off/leap/whip/flight/plant). `findSwingTarget` refuses unless solid ground is level with the
 far ledge (works both directions); `swingLandAhead`/`swingMinReach`/`swingMaxReach` tune the geometry.
+**Grace (2026-09-29, "otherwise it might become too difficult")**: the 75..97 reach window takes
+`SWING_REACH_GRACE` (12) either side, and a landing up to `SWING_LAND_GRACE` (14) short of or past
+a level ledge is pulled onto it (`SWING_LAND_FOOTING` 12 in from its edge) instead of refusing.
 **The camera caps hook height**: for real vertical gain, lower the ledges, not raise the hook.
 `testSwingCarriesThePlayerOverLevel5sGapAndLandsThemOnIt` drives a full walkthrough end to end.
 
@@ -764,11 +903,25 @@ gauntlet, then the exit.
   `minAngle 20 / maxAngle 160 / visionFov 50 / visionRange 230` - wide, mostly-horizontal, re-derived
   (not just shrunk) whenever the cone size changes, since a "smaller cone" can silently stop reaching
   one of its two flanking targets (`testLevel3PoleCameraSweepsLeftAndRightAndReachesBothFlankingBoxGroups`).
+- **The level ends at level 4's conveyor belt** (2026-09-29, "instead of the usual ending asset, add
+  a conveyor belt (from level 4) and going close to it finishes the level"): a real `ConveyorDef`
+  (26 tall, speed -45, from `finalExitX + 70` off the world's right edge), drawn by the shared
+  conveyor pass. `exitZone` starts 70 short of it at the old trigger x, so the route and clean run
+  (46.1s) are unchanged. Any level with conveyors now skips the booth + fence
+  (`world.conveyors.isEmpty()` replaced the `level_4` id check). `jvmTest` + `android-shell` clean;
+  **not seen on a screen**.
+- **Every belt has a left end cap** (`resources/conveyor_end.png`, 128x128, drawn 30x26 against
+  `bounds.x`, outside the collision box - level 4's lands off-world at x -30). Cut by
+  `tools/art/prep_conveyor_end.py` from the original `conveyor.png` - its header explains why the cap
+  is the drum's top half MIRRORED (the drawn belt is symmetric because `conveyor_bot.png` is the top
+  cleats flipped, not the source's own bottom) and why it is cut at source column 364. The drum is
+  repainted as one wheel with a full belt ring about the axle - the source's faint off-centre arc
+  beside the drum read as "two circles".
 - Verified on JVM desktop screenshots in stages; **not on Android or iOS**.
 
 ## Level 4 ("04: Moving Target") - conveyor belt run, `LEVEL_4_LAYOUT`
 
-Ground `y = 440`, `worldWidth = 8600`, exit at `x = 7680`, `timeTargetSeconds = 115`,
+Ground `y = 440`, `worldWidth = 8600`, exit at `x = 7680`, `timeTargetSeconds = 165`,
 `backgroundImage = "metalbg.png"`, `hasDarknessVignette = true`, `canClimb = false`,
 `restartOnConveyorFallOff = true`, `conveyorsStartOnMove = true`.
 
@@ -780,6 +933,8 @@ Ground `y = 440`, `worldWidth = 8600`, exit at `x = 7680`, `timeTargetSeconds = 
   crouch-and-slide under two of them (crate top 366 vs hanging bottom 340 = 26 of air, a crouching
   head clears by 18).
 - Eight timed lasers (`Laser.kt`), varied angles/timing/pairs/triples.
+- **Beam texture** (`LaserFxAssets.beamBitmap`) is 4x16 and mipmapped (every level): it was 2x64
+  unmipmapped, squeezed into a 2-4 unit line, and slanted beams broke up into a dotted line.
 - Darkness vignette centred on the player, rendered between world and HUD so HUD/controls stay
   bright.
 - **Culling rule (CRITICAL)**: never register moving entities in the static `cullTargets` (spawn
@@ -957,8 +1112,8 @@ one thing and folding it into what came before (headwind alone -> steam alone ->
 + faster drone -> jet inside a wind zone -> gust + tightest pair + drone on the door). A lone pipe is
 never the difficulty by itself - only pairs and fan-overlapped pipes are.
 
-`timeTargetSeconds = 85.0` (the sim clears it in 85.3s with zero deaths; 46.7s of pure walking is the
-theoretical floor). **Verified**: `jvmTest` green, `android-shell:compileReleaseKotlin` clean, and
+`timeTargetSeconds = 155.0` (its cautious walkthrough sim clears in 107.7s with zero deaths, x1.4; 46.7s
+of pure walking is the theoretical floor - see "Three-star target times"). **Verified**: `jvmTest` green, `android-shell:compileReleaseKotlin` clean, and
 120m/90m/0m stencils read off the screen at their own positions on JVM desktop. **Not checked**: 60m
 and 30m stencils, anything on Android or iOS.
 
@@ -1004,6 +1159,12 @@ change that quietly comes back.
 - **The exit terminal (`VentCorridorVisual`) is gone entirely** - the owner pointed at its
   blue-and-grey shape and asked for it removed. Start fresh if level 7 ever wants architectural
   framing again; don't resurrect this class.
+- **The level ends at the security desk (2026-09-30)** - objective "Reach the Security Desk".
+  `resources/desk.png` (the asset drop's desk.png: a black desk silhouette under a 2x2 monitor bank,
+  cropped to alpha, 1024x512 POT) is level 7's `exitStructure` (6240, 95 tall - desk top at 45),
+  replacing the entrance.png booth. The chamber's back wall moved 6370 -> 6450 (world 6490) to hold
+  it; `exitZone` 6260 -> 6300, in front of the monitors. The stencil search's right limit is now the
+  nearer of exitZone and the exit structure, so "0m" (6190) stays clear of the desk.
 - **The rovers carry no running lights** - the always-lit cyan glow/lens/pip is gone, replaced by
   `alertLens` (a single red rect, visible only while the rover has the player). A deactivated rover
   still throws amber sparks on a 1.5s blink.
@@ -1136,49 +1297,170 @@ tests pin that nothing shipped sets it and that it stays reachable.
 ## Level 8 ("08: Relocation") - `LEVEL_8_LAYOUT`, the suspended-load yard (built + reworked 2026-09-25)
 
 Unhidden the same day it was built (`.take(7)` -> `.take(8)` in `LevelSelectScreen.kt`,
-`MainMenuScreen.kt`, `GameplayScene.kt`; levels 9-12 remain hidden stubs). Shipped with no tutorial
-steps at first; the cart's two steps were added 2026-09-26 since nothing earlier teaches it.
+`MainMenuScreen.kt`, `GameplayScene.kt`; now `.take(11)` since levels 9-11 exist - level 12
+remain hidden stubs). Shipped with no tutorial steps at first; the cart's two steps were added 2026-09-26
+since nothing earlier teaches it.
 
-Seven numbers do all the work:
+**The layout's doc comment in `LevelData.kt` is the source of truth**; this is the part a future
+session needs before touching it. Since the 2026-09-28 physics pass, **level 8 is the ground road
+only** and level 9 (same yard, see below) is the road along the loads. The loads still reach bob 3
+from the mid platform, but the long crate hangs 150 past it, out of any jump.
+
+- **The route**: push the step cart to the mid platform, crouch at its far end under the sweep crate,
+  climb the moment it swings away, run across behind the crossing crate and off the right lip before
+  the two meet (the squeeze), take the empty cart parked by the barrels and push it under the whole
+  bobbing chain in one timed go, on to the travelling load, pull the lever under the long crate as
+  the load passes over the cart, walk the
+  loaded cart flush against the high platform, climb up just after the deck crate has left the near
+  end, follow it out and drop onto the lower table, run the bottom laser course, walk into the exit.
+  The cart, lever and loaded cart are each worked while the pole camera is parked on the long crate.
+- **Screen height is the ceiling on everything "up"**: the camera never moves vertically and a phone
+  shows world y from about 130 down. That is why the lifted line is 242 (a standing head at 146) and
+  why two stacked tables only leave 108 between them.
 
 | number | value | what it decides |
 | --- | --- | --- |
-| `hangClearance` | 62 | shared hang line for the first-half crates - crouch fits, standing never does |
-| `periodSeconds` (sweep crate) | 8.0 | window the 1.95s climb has to fit inside |
-| `bobLowClearance`/`bobHighClearance` | 62/90 | bobbing pair's travel |
-| `noCrouchClearance` | 130 | post-gauntlet load, deliberately not an obstacle |
-| `visionFov` (pole camera) | 20 deg | narrowest that avoids watching the crate you must cross to reach the lever |
-| `sweepPauseDuration` | 7.0 | the blind window, against a ~5s run through lever + both mantles |
+| `hangY` | undersides level with the platform top (296) | shared hang line for the plane's two loads |
+| `platformCrateLift` / `crateToCrateGap` | 24 / 55 | platform crate unreachable from the platform; a timed running jump from the sweep crate |
+| `periodSeconds` (every moving load) | 8.0 | one shared cycle, so every hop's window recurs identically |
+| `bobTopHighest` / `bobLowClearance` | 250 / 6 | the bobbing chain's stroke - high road stepping stones, floor-level crushers |
+| `firstBobGap` / `bobGap` | 88 / 103 | level 9's hops along the chain, each open ~1-2.7s per cycle |
+| `bobLag` | (76 + 103) / (132 x 0.4) = 3.39s | the chain is a wave at cart-push speed; at 2.0 no single start got a cart through and there is nowhere under it to stop. Push window ~0.25s per cycle |
+| `sweepCrateReach` / `sweepCrateSweep` | 60 over the platform / 260 | the sweep crate is on the hang line with the overhead crate and meets the crossing crate 60 in over the platform; the longer, faster sweep clears the climb sooner |
+| `crateToCrateGap` / `platformCrateOverswing` | 4 / 160 | the squeeze; 0.3s to spare climbing as the sweep crate clears |
+| `highCrateGap` | 70 | bob 3 -> long crate is a timed hop (~1.75s per 8s cycle); at 80 it never lands. Was 150 with a stack on level 9 only - "not possible to make this jump. move the rest of the level to left" (2026-09-29); everything after is placed off the long crate so it all moved left |
+| `dropLever` x / camera `visionRange` | long crate right - 70 / lever distance + 6 | the camera's reach ends just past the lever, so the long crate's near end is dark - level 9's one place to wait before the swing. Nearer than 70 the lever sits where the body lets go of the catch cart |
+| `highPlatformGap` | 180 | far past a plain jump from the long crate |
+| `sweepPauseDuration` (pole camera) | 20 - sweep time (~18.9) | a 40s cycle, twice the deck load's 20: the deck load's near end (6 + 20k, `phaseOffsetSeconds = period - 6`) alternates between the crate park (level 8 climbs behind it) and the lever park (level 9 swings onto it). At 7.0 (~16.1s cycle) the two drifted and level 9 could wait ~100s on the long crate |
+| `liftedLine` | 242 (54 over the high platform) | long crate, swing hook and deck crate share it - the swing lands at the height it leaves; 54 is past a jump from the high platform |
+| drop crate / rope | 56 wide, top 270, rope 94 | the load kept its old height when the hook was lifted - lifted with it, it fell 54 further and landed in a flush cart |
+| rig far end | 68 short of the high platform | 0 catches in a flush cart (60 let 3 frames in); ~0.75s catch window where it is parked |
+| deck crate period | 20s | 8 and 12 came back before a follower could get off the lip; 16 phase-locked with the ~16.1s camera cycle |
+| table | top 242, 3050 long | 168 headroom over the floor for level 8's course; level 9's runs on top |
 
-- **In flux (2026-09-26): section 1's two loads (`overheadCrate`, `sweepCrate`) hang
-  `sectionOneDrop` = 50 BELOW the shared hang line** on the owner's request, with solvability
-  explicitly set aside for now - the sweep crate leaves 12 units over the landing, which no climb
-  fits. `testLevel8HangsAllThreeLoadsOnOneLineJustAboveThePlatform` and
-  `testLevel8IsBeatableByReadingTheLoadSwingingAway` fail until the level is re-tuned. Max drop is
-  62 (the sweep crate then parks inside the platform).
-- **`hangClearance = 62` is boxed in on both sides** - below `crouchHeight` (56) the platform seals
-  shut with no safe pocket (worked through on paper before building, dead-ends at every sweep
-  range); at `height` (96) or above, a standing body just walks under and it isn't an obstacle. 62
-  leaves 6 units of headroom, the minimum this geometry allows.
-- **The crush behaves differently at 62 than an earlier 44** - `Player.bounds` uses `currentHeight`,
-  and `isCrouching` is only set at the END of the climb animation, so a climbing body is 96 tall for
-  the whole 1.95s climb. At 44 neither crouch nor stand fit, so the climb was refused outright; at 62
-  it's allowed and the crate can kill mid-ascent instead - a more literal read of "it can crush him if
-  he tries to climb." **The real tuning target was the WORST window** (clear-and-swinging-BACK, not
-  clear-and-swinging-away) - simulated, not derived, at ≥2.99s vs 1.95s+0.25s needed.
-- **No `unclimbableBoxes` entry anywhere in this level** - `findClimbTarget`'s own 4-unit-tolerance
-  rule and `climbMaxHeight` (115) naturally rule out every hanging crate; the bobbing pair's low point
-  (100, inside range) is refused by the floating-ledge rule alone.
-- **The pole camera problem is bearing overlap, not range**: from a lens on a pole, a body on a crate
-  and a load further left occupy overlapping bearings, so a cone wide enough to see the load also
-  lights anyone crossing between the lens and it. Fixed by moving the crate right (to clear the
-  bearing by 2.3 deg) AND narrowing the cone to 20 deg together - neither alone works. Any future
-  change to camera position/cone/crate placement here needs the bearing math re-checked, not just a
-  smaller-looking cone.
+- **Every hop was measured, not argued, and every one is steep.** Simulated a running jump off the
+  source's edge at 160 phases of the cycle (`testLevel8EveryHopOnTheHighRoadOpensForAShortWindowEveryCycle`,
+  `testLevel8CrateToCrateJumpOpensOnceEveryCycleForAShortWindow`). Bob -> bob is open 3.3s at 90 and
+  1.65s at 100; the last hop 2.2s at 90 and never at 98. Re-run those after touching any gap,
+  period, lag, stroke or sweep span. **The takeoff is taken while still standing on the edge.**
+- **Coyote-jump shove - FIXED 2026-09-28 (`Player.updateStep`, horizontal pass).** A body whose
+  foot centre has just passed an edge falls while its box still overlaps the platform by most of its
+  width, sunk a fraction of a unit into the top. The "straddling an edge" branch used to eject it
+  clear in one step: a ~17-unit sideways teleport on every walk-off, kept in full by a late (coyote)
+  jump press - level 8's first crate-to-crate numbers only worked through it. Now, when the overlap
+  through the TOP face is the shallower one: a body rising fast enough to clear it this step gets no
+  sideways push (the vertical pass owns it); a falling one eases clear at no more than walking pace
+  per step; anything else - e.g. a slow-rising jump that a conveyor crate rides into - is still pushed
+  fully clear, because the vertical pass would otherwise read the overlap as a ceiling and drop the
+  body UNDER the crate (this is what broke `testLevel4SimulationPlayable` in a first, simpler
+  version). Measured reach: grounded edge jumps are unchanged to the hundredth (45.7 level / 34.7 up
+  24 / 63.3 down 50 on the level-3 autopilot rule); only late presses lost ~14 units. Level 3's and
+  level 6's tuned crossings and every level 8 window/walkthrough jump while grounded and were
+  unaffected. Pinned by `testWalkingOffAnEdgeHasNoSidewaysJolt` and
+  `testACoyoteJumpOffAnEdgeGetsNoFreeShove`, both of which fail on the old code (16.7 in one frame).
+  Not seen on a screen - a walk-off should now read as a slide off the edge rather than a hop.
+- **"Artificially block getting onto them" (`noGroundBoarding`).** Every moving load in this level
+  and the travelling crate carry it. `GameWorld.isBoardingFromFloorLevel` records whether the player
+  last stood within `FLOOR_LEVEL_BAND` (60) of the floor on anything but a hanging load; while it
+  holds, those loads get an invisible 60-tall lid (walked into, never stood on) and are left out of
+  the climb targets. From the mid/high platform or another load they are ordinary surfaces. Tests
+  that teleport a body onto a load must first stand it on the mid platform for a frame (see
+  `level8At`), or the lid shoves it off.
+- **The travelling hook crate (`HookCrate.sweepX`, `physical`)** - the rig runs on its own clock
+  (`sweepClock`), paused while the player swings from it; `currentHook` is where the hook is now,
+  `hook` its rest rect (still the swing-hook identity). A player can ride the hanging load.
+- **Box physics (`BoxPhysics.kt`, pure Kotlin, added 2026-09-28).** Every shipped hook crate is
+  `physical` - level 8/9's and level 5's (which falls into the gap under its fixed hook). One hangs as
+  a damped pendulum driven by the rig's acceleration (`swingAngle`/`swingRate`, `SWING_DAMPING`
+  0.6). `detach()` turns it into a `RigidBox` carrying the hook's velocity plus the swing's
+  tangential velocity. `BoxPhysics.step` is an impulse solver - 8 substeps x 6 iterations,
+  **accumulated impulse clamping with the restitution target fixed per contact** (the first version
+  re-applied restitution every iteration, pumped energy and stood crates on their ends), friction
+  0.55, restitution 0.28 above 60 units/s. Contacts are box corners in static rects and rect corners
+  in the box. It sleeps (snapping to the nearest quarter turn) only on static supports.
+  - **Obstacles**: the ground, `boxes`, and carts - a loaded cart is one full box; an empty one is
+    its deck plus two handle posts (`PushCart.deckRect`/`postRects`, fractions of the cart art).
+    Impulses on a cart become `PushCart.vx` (`MASS` 2, `ROLLING_FRICTION` 160, `GameWorld.rollCarts`).
+  - **Catch rule**: at rest on an empty deck, tilt under `CATCH_MAX_TILT` (0.12), between the posts.
+    The caught load snaps to `PushCart.loadBounds`, so a loaded catch cart is identical to the first.
+  - **A miss is final** ("stuck until restart" was the user's call): no re-hang, no lever reset. A
+    settled loose crate is a solid box and blocks carts (`blocksCart`, `cartMinX`/`cartMaxX`).
+  - A crate falling onto the player faster than 150 down is a crush. The scene draws it rotated
+    about its centre (`drawCenterX/Y`, `drawAngle`), rope anchored at the top centre.
+  - The rig's far end stops 68 short of the platform: a cart flush there measured 0 catches.
+- **Empty carts (`PushCartDef.startsEmpty`)**: to a body (`PushCart.playerSolids`) the deck plus the
+  two handle posts up to 12 over it - not walked through, but a running jump drops in and one from
+  the deck climbs out. Not the posts' full 32 (48 off the floor - too little clearance for a 36-wide
+  body over a jump of 51.2) and not 14 (a post top 114 under the high platform is inside a climb).
+  Crates still meet the full posts (`postRects`). The scene skips the load art for empty carts; the
+  caught `HookCrate` draws itself, behind the cart.
+- **The catch cart starts 70 past the barrels** (50 put the braced back foot over the last barrel) and is pushed under the bobbing chain; any crushing
+  load (`crushesOnContact`) that touches a cart is Mission Failed (`GameWorld.crushingLoadOnACart`).
+  Its min is the barrels, so it is no longer kept out of the lever's reach - the walkthrough checks
+  that letting go of it at the catch position does not pull the lever.
+- **Underside-only crushers (`MovingPlatformDef.crushesOnlyFromBelow`, level 8/9's sweep crate and
+  bobs)**: "make level fail only if the cart or person touch the bottom side of the crate".
+  `GameWorld.touchesUnderside`: overlapping, the body's top in the crate's lower half, shallower
+  through the bottom than across. A grounded body flush under one is safe; an airborne/climbing one
+  within 4 of it after its own move is caught (a head bump is resolved - even knocked 3 down -
+  before the pre-move check runs). Side-on they are walls, and they stop a pushed cart
+  (`crusherBlocksCart` in `cartMinX`/`cartMaxX`) - which widened the chain push window to ~3s.
+  Level 6's gantry crate keeps the old "feet under its underside" rule (flag off).
+- **The squeeze (`MovingPlatformDef.squeezes`)**: two flagged loads closer than a body is wide, the
+  body's centre between theirs and the body level with BOTH - so riding on top of one (level 9's
+  hop) is not being caught. `GameWorld.isSqueezedBetweenLoads`.
+- **The pole camera** stands on the FLOOR against the high platform's left face (lens at 262), left
+  of the deck crate's near end - on the platform, the lifted deck crate swept through it. It parks on
+  the lever and on the long crate's top (the angle is taken +2pi so the sweep is the short arc up);
+  the 20-degree cone never covers both, and while it watches the crate everything under the lens -
+  the floor, a body on the loaded cart - is dark. Its range ends just past the lever - bob 3's right
+  is the walkthrough's hiding spot. **Two other mounts were tried and dropped**: a camera hung under
+  the long crate parking on two floor spots sweeps everything between them, and the lever and the
+  catch are both in that stretch - no road left.
+- **Section 8 - the deck crate (`lvl8_deck_crate`)** runs on the lifted line from hpl-10 (where the
+  swing lands) to 60 past the high platform's lip, period 20. On the high platform it is a block at
+  chest height with no pocket to wait in; level 8 climbs up in a ~4.7s window after it leaves the
+  near end and follows it off the lip. Walking off an edge drops at `Player.dropSpeed` (30 across),
+  so the follower needs time to clear the lip before it returns.
+- **Section 9 - one table** (2026-09-28, second pass): the lower table was removed - level 8 walks
+  the FLOOR under the table ("he should walk on ground"). The table is on the lifted line, 3050
+  long, in `LevelLayout.seamlessTables` (new): the scene draws table.png's left end cap (cols
+  0-248), its repeating slab unit (248-481 - the bottom-edge notches recur every ~232.5 columns)
+  tiled end to end, and the right end cap (the leg crop's slab band, 1870-2048) - no seams, no
+  stretching. One `passThroughLegs` leg at the far corner, drawn from the leg crop BELOW the slab
+  band (1870, 102, 178x410) at the pole's alpha, 52.4 wide to sit under the right cap.
+  **Lasers must run surface to surface** ("lasers should be connected to ground or the top or bottom
+  of the platform"): floor to the table's underside below, the table's top to y -300 (off the top
+  of any screen) above - so no crouch or jump beams, only gates on cycles (upright, slanted up to
+  45 degrees, staggered runs). Each course (~2340 long, double the first cut) has three camera bots
+  on laser-free stretches, each patrol starting 122+ past where a body stands after the gate before
+  it. **The level ends at Container 17** (2026-09-29): `resources/container17.png` is the user's
+  Downloads/charAnimations/assets/container17.png (RGBA, white stencil lettering) cropped to its
+  alpha (2020x565), drawn through `LevelLayout.exitStructure` + the new `exitStructureImage`. 105
+  tall on the floor under the table's far end, the table running on 30 past it (120 was too big,
+  72 too small). The exit trigger starts 70 short of its near end (`exitApproach` - the level ends
+  as the body nears it) and runs from the floor up to 110 over the table's top, so level 8 walks in
+  on the floor and level 9 on the table; neither leaves its surface.
+- **Gotcha: `MovingPlatformDef.copy(y = ...)` does NOT move a platform** - `minY`/`maxY`/`initialY`
+  (and `minX`/`maxX` for `initialX`) default at construction and a copy keeps the old values.
+- **A single tap forward** (2026-09-29, all levels, `GameplayScene`): "taking a single step front
+  takes too much time". The body moves instantly; the delay was the animation - the 0.28s walk
+  lean-in plus 0.25s of tap grace. Now the grace is 0.12s and a tap released mid lean-in finishes
+  the lean-in at 3x. Holding forward plays exactly as before.
+- **Walkthroughs**: `testLevel8IsBeatableOnTheGroundRoad` (~130s, the 3-star target is 180 - three
+  minutes for both 8 and 9, owner 2026-09-29) with the camera live, and
+  `testLevel9IsBeatableWithoutTouchingTheGround` (~106s, target 180). The cart
+  push through the chain is timed from `level8ChainPushWindow`. Both use
+  the `Level8Run` runner and take their timing from the same harnesses as the window tests
+  (`level8CatchPhase` pre-simulates the rig to find the lever phase that lands the load in the
+  parked cart; `runCourse` crosses a laser course obstacle by obstacle), so a re-tune moves them
+  together. The level 9 hop harness must prime the body on the overhead crate first or the
+  `noGroundBoarding` lids shove it off. **A swing press is read after the rig has moved that frame**:
+  predict `ahead` with ~1.5 of margin or a press at the edge of reach becomes a plain jump.
 
 ### The push cart - `LevelLayout.pushCarts`, added 2026-09-26
 
-The old fixed step-crate onto the mid platform is now a loaded flatbed (`cart.png`) parked 248 units
+The old fixed step-crate onto the mid platform is now a loaded flatbed (`cart.png`) parked 198 units (at x 610 since 2026-09-28, clear of the overhead crate; was 560)
 short of the platform face - the player must walk it there. First shipped use of the push stance.
 
 - Two numbers inherited from the crate it replaced and must not drift: 48 tall (a jump, not a
@@ -1189,9 +1471,10 @@ short of the platform face - the player must walk it there. First shipped use of
   and the cart's own bounds become his movement limits.
 - **The character is drawn 5% larger than he collides** (`VISUAL_HEIGHT_SCALE = 1.05`) purely so the
   fixed push-pose plate's fist reaches the cart handle's corner - collision, jump arcs, climb windows
-  and every level's crouch gaps are untouched. **The ceiling on this number is level 8's own 62-unit
-  hang line** - a crouched body drawn at `56*1.05=58.8` leaves 3.2 units of headroom where there were
-  6; check that gap before raising this again (`testTheDrawnBodyStillFitsTheTightestCrouchGap`).
+  and every level's crouch gaps are untouched. **The ceiling on this number is the tightest crouch
+  gap left in the game** - level 4's descending hanging crate over its 2-stack (68); level 8 no longer
+  has one. A crouched body is drawn `56*1.05=58.8`; check that gap before raising this again
+  (`testTheDrawnBodyStillFitsTheTightestCrouchGap`).
 - **Grabbing is gated on range + being grounded**, and refuses a body standing on the cart itself (no
   way to jump/crouch off it otherwise).
 - **The grab offset eases to contact rather than freezing as pressed** (`settleIntoCart`,
@@ -1205,19 +1488,11 @@ short of the platform face - the player must walk it there. First shipped use of
 - The tutorial's MOVE step measures cart travel, not player position, since the body moves on its
   own during the settle.
 
-### The lever is mandatory
+### Test traps
 
-Same `HookCrate`/`hangingHooks` rigging as level 5, minus the swing - drops the crate to the ground
-(not onto boxes) against the high platform's face, turning an unclimbable 144-tall wall into a
-jump-then-mantle pair. Nothing else reaches the high platform, so the camera guards a required
-action.
-
-### Measured, not estimated
-
-The walkthrough at 12 arrival phases finishes in 32.9-47.2s, never dies, peaks at 0.43 of the alert
-bar. `timeTargetSeconds = 80`. Two traps for future tests here: read a moving crate's position AFTER
-`world.update`, not before; the sweep crate starts its cycle at the far LEFT end, so a test wanting it
-parked over the landing must run the world forward to get there.
+Read a moving crate's position AFTER `world.update`, not before; the sweep crate starts its cycle at
+the far LEFT end, so a test wanting it parked over the landing must run the world forward to get
+there.
 
 **This is the first shipped level with a camera and no guards** - `GameWorld`'s spotted-guard branch
 used to assume `allGuards.first()` existed as a fallback, which would have crashed here; changed to
@@ -1443,11 +1718,337 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
     can't be seen from CI's (US) simulator. Test UMP with `ConsentDebugSettings` geography EEA +
     a test device ID, or a VPN to an EU country.
 - **Temporary gating for Google Play production approval (2026-09-25)**: levels 8-12 were hidden via
-  `.take(7)` in three places (level 8 since unhidden, `.take(8)`); "Coming Soon" chapter placeholders
+  `.take(7)` in three places (levels 8-11 since unhidden, `.take(11)`); "Coming Soon" chapter placeholders
   removed (replaced with layout-preserving spacers); Settings language list restricted to
   English/French (the only two fully localized); level 2 rain was briefly disabled then reverted.
   **If a Play review ever needs the rain gone again, `LevelData.DEFAULT_LEVEL_2.hasRain` is the whole
   switch.**
+
+## Crush hits are judged on what is drawn (2026-09-29)
+
+"sometimes game ends somewhere around here even though me or the cart [do not touch] the hanging
+crates" (level 8's bobbing chain). Two rects were bigger than their art:
+- The cart: `PushCart.crushParts` - post to post (`deckRect` + `postRects` empty, the post-to-post
+  column loaded). The art rect (`cartArt`) runs past both posts over nothing, and a bob coming down
+  there ended the run with a visible gap. `cartArt` is still what a crusher blocks from the side.
+- The body: `GameWorld.crushBox()` - the centre `Player.footWidth` (~21.6) of the 36-wide box,
+  which is how wide the drawn character is. Both underside crush checks use it; the squeeze and
+  everything else still use `player.bounds`.
+`testABobThatMissesTheDrawnCartOrBodyIsNotACrush` fails on the old rules.
+- Braced into a cart (`GameWorld.crushParts()`, `pushStanceBlend >= 0.5`): the figure leans
+  forward with the trailing leg back, so the body is six columns across the box, heights from
+  `PUSH_CRUSH_PROFILE` (fractions of `visualHeight`, trailing end first, mirrored facing left) -
+  measured as the tallest alpha per column over the push loop and the settled end of
+  pushtransition. Re-measure if those clips are re-cut. `comesDownOn` judges the columns a load
+  reaches together (tallest top vs its underside, joint span across it), so walking into a low
+  load from the side is still not a crush. "i think it happens when the person has passed the
+  crate": a bob behind a pushing body kills only once it reaches the drawn figure.
+  A crushing load that has come down into a braced body's box is left out of his collision list
+  (`overheadLoads` in `update`) - otherwise the collision pass shoves him and the cart its whole
+  width out from under it and it never reaches him ("now the mission does not fail even if the
+  crate comes on top of the person when he is pushing / pulling cart"). He may back out from under
+  it but not walk further in (`overlapX` clamp). The chain push window went 3.25s -> 3.9s of 8
+  (test cap 4.5).
+  `testABobBehindABodyBracedIntoACartIsJudgedOnTheLeaningFigure` fails on the old rules.
+
+## A cut load never stays balanced on a handle post (2026-09-29)
+
+"when i press the lever the box did not fall at some point". The lever and the drop were probed at
+every point of the rig's sweep, over a free and a held cart at every position under it (2304
+drops): the only way it failed to come down was coming to rest on a handle post's top alone, where
+nothing would ever tip it. `updateLooseCrate` now spins a load supported only by post tops
+(`PERCH_TIP_SPIN`) towards the side its middle is over, outward when dead centre.
+`testALoadBalancedOnAHandlePostTipsOff`.
+
+## Level 9 ("09: Deja Vu") - level 8 run along the roof (2026-09-28)
+
+`LEVEL_9_LAYOUT` is `LEVEL_8_LAYOUT.copy(...)`, so every level 8 retune carries over. The request:
+"level 8 and 9 will be the same level but in level 8 you have to go using ground and level 9 you
+cant touch the ground / platforms and have to always be above."
+
+- **Weather**: `hasRain = true` on `DEFAULT_LEVEL_9` - level 2's `RainEffect` (rain, sky lightning,
+  delayed thunder), 2026-09-29. It is a `LevelData` flag, so the layouts stay identical.
+- **Differences from level 8**: only the spawn (on the overhead crate) - "make level 8 and level 9
+  100% identical. only the starting position is changed" (2026-09-29). The stack and the
+  no-camera/no-pole differences are gone; the test asserts the layouts are equal bar the start.
+  Level 9's run waits on the long crate's dark near end for the camera to park on the lever with
+  the swing's slot coming up (~106s walkthrough, target 180).
+- **Route** (the "high road" in code and test comments): overhead -> sweep -> platform crate -> bob 1
+  -> bob 2 -> bob 3 -> long crate -> swing off the travelling hook -> deck crate (ride it
+  out) -> upper table -> top laser course -> drop off its end into the exit.
+- **The echo - level 8's run, replayed (2026-09-29)**: "When the player completes level 8, keep
+  record of the movements and play that in level 9 ... he is following behind his previous run ...
+  add a vision cone infront of that recording ... if the player gets infront him or makes sounds
+  close enough, it works like a guard (he stops and looks at that and if they get caught mission is
+  over) ... when the recording reaches the end, it just stops there and waits". All in
+  `src/game/model/RunRecording.kt`:
+  - `LevelData.recordsRun` (level 8): `GameWorld.runRecorder` (`RunRecorder`) takes a `RunSample`
+    every 0.05s of level time - position, collision height, stance flags, climb progress, both
+    carts' x - plus `RunEvent`s for the lever, each bot switched off and the load's catch. A final
+    sample is forced on the exit frame so the run ends in the exit. The scene then stamps each new
+    sample with the sprite frame it drew (`annotate`: a global index over every player clip in
+    `PlayerAnimationSet` order, plus sprite x/y/rotation/flip), so the replay is frame-exact.
+    Restart clears it.
+  - **Only a completed run is saved** (`GameWorld.completedRun`: null until the exit is reached,
+    null again after a restart), and each completion replaces the last. Saved to its own file `run_level_8.txt` under
+    `views.realSettingsFolder` - NOT NativeStorage, which rewrites its whole store on every set on
+    file-backed platforms - and kept in memory (`GameplayScene.recentRuns`) so a level 9 started
+    from the win card never races the write. Tenths-as-integers text, ~0.9KB per second of run.
+  - **Edge cases (2026-09-29):**
+    - A checkpoint respawn / continue in level 8 (`respawnAtCheckpoint`) calls
+      `RunRecorder.rewindToCheckpoint`: samples and events since the last checkpoint
+      (`markCheckpoint`, at both checkpoint-secure sites) are dropped, the gap up to the respawn is
+      filled with the body standing at the checkpoint (the level clock ran on), and a RESET event
+      is added. Level 9 ignores RESET: an emptied hook stays empty.
+    - REMOTE_TRIGGER throws the lever through `activatePowerup`, which records the LEVER event too
+      - without it level 9's echo would never open the swing.
+    - Other powerups change detection only; the replay is positions, so they need nothing.
+    - Level 9's own respawn does NOT reset the echo: it carries on, and its passed events are
+      re-applied after the mechanisms reset (`EchoRunner.passedEvents`), so the hook stays empty.
+    - Every respawn now resets a hook crate with `reset(atSweepClock = sweepClock)`: the rig keeps
+      its phase against the level clock (it used to restart at its near end, which broke the
+      rig/deck-load relation the level 9 swing needs - in level 8 too).
+  - `LevelData.replaysRunOf = "level_8"` (level 9): the scene loads the saved run, else the bundled
+    `resources/level8_run.txt` (the level 8 walkthrough test's own recording, no sprite frames -
+    the scene picks frames from the stance flags). **Regenerate it after any level 8 change:**
+    `REGEN_LEVEL8_RUN=1 ./gradlew jvmTest --tests '*testTheBundledLevel8RunIsAWholeRun'` (it is
+    also written when missing).
+  - `EchoRunner` is a **pure replay**: "make him actually not turn around. he will still have the
+    vision cone and if the player is in that vision cone he will get caught but he does not run or
+    stop" (2026-09-29, replacing a first cut that stopped, turned and heard like a guard). Its
+    clock is the level clock; its cone (230 range, 60 deg, from its head) faces the way the
+    recorded body faced and feeds the shared alert meter - a catch is Mission Failed.
+  - **The cone starts at the drawn eye, in every pose** (2026-09-29, "make sure it follows
+    correctly under every position and in front of his eye"). `tools/art/prep_eyes.py` measures
+    the eye in all 640 player frames and writes `src/game/scene/PlayerEyePoints.kt` (generated -
+    re-run it after re-cutting any player clip; its clip list mirrors `PlayerAnimations.load()` /
+    `playerFrames` order). The head is found with a round probe (radius 10 in a 256-tall frame -
+    fits a head, not an arm), NOT "topmost pixel": the climb's raised hands, the swing's arm and
+    the wind walk's fist reach head height or higher. The eye is on the face's front edge, capped
+    so a hand touching the face is not taken for it. Each frame the scene takes that point through
+    the echo image's anchor/scale/mirror/swing rotation into `EchoRunner.drawnEye`, which
+    `eyePosition` returns - so the beam AND detection start there. Without a scene (tests) it
+    falls back to a box estimate, which for a braced body uses the push pose's head
+    (`Player.PUSH_HEAD_POINT_*`). `PlayerEyePointsTest` checks the table against the PNGs; the
+    scene ignores the table (and logs) if its frame count stops matching `playerFrames`.
+  - **Automatic checkpoints are taken only on fixed footing** (`GameWorld.isOnFixedFooting`, every
+    level without manual checkpoints): not on a moving load, hook crate or cart, and on a
+    `stayOffTheGround` level not the floor. Level 9 is nearly all moving loads - a checkpoint on one
+    respawned the body in mid-air to fall and fail again. Level 9's fixed footholds are the
+    overhead crate (start), the long crate and the tables. A respawn also clears `touchedGround`,
+    which had been left set and silently switched the ground rule off for the rest of the run. (An
+    instant catch and a "keep the figure in view" objective were tried 2026-09-29 and taken back.) Sound means
+    nothing to it. At the end of the recording it stands (FINISHED). So level 9 is about staying
+    BEHIND it: the walkthrough waits on the start crate until the echo has pushed its cart past
+    the bobbing chain, which comes down into its eyeline.
+  - It drives the level: the carts ride where the recording had them (kinematic - no impacts, no
+    rolling, and **no "bob on a cart" failure in level 9**, since the carts are its), its lever
+    event empties the swing hook (level 9's swing opens when the echo pulls the lever, ~52s into
+    the bundled run), its catch event puts the load in the cart even if the live drop missed
+    (frame times differ from the recording's), and it switches off the bottom-course bots.
+  - **The yard is played back exactly with it** (2026-09-29, "make sure the starting position of
+    everything is recorded at level 8 when the player starts ... exactly playbacked. otherwise it
+    looks like he goes through objects and lasers"). The run starts at level 8's first step, but
+    the lasers and moving loads run on the LEVEL clock - so `RunRecording.worldStart` stores the
+    level 8 clock at that step and level 9 starts its own clock there (`attachEcho`,
+    `restartLevel`). What keeps its own time is recorded in every sample (`RunSample.world`,
+    `RunRecording.worldTracks`: `cam<i>` angle, `bot:<id>` signed x, `hook:<id>` rig clock - format
+    `R2`, ~100 chars/s, a 2-minute run ~260KB) and level 9 drives those from it, so level 8's
+    respawns, detection pauses and all are reproduced. A camera/bot/rig leaves the recording only
+    when THIS level's player gets involved (spotted by it, switches it off, swings from it) and
+    carries on live from there; a level 9 respawn puts all of them back on it. Followed cameras
+    still run their own timers (pause at sweep ends) with the angle pinned to the recording.
+    `testLevel9PlaysLevel8sYardBackExactlyInStepWithTheFigure` compares every moving thing,
+    moment by moment, and fails without the clock sync. An `R1` save (no world) is ignored in
+    favour of the bundled run until level 8 is finished again. A recorder rewind on respawn now
+    keeps each sample's world and only replaces the body.
+  - **Bots are switched off only from their own surface** (`CameraBot.isReachableFrom`, feet
+    within 24 of `surfaceY`). The x-only test let level 8's player switch off the TABLE course's
+    bots from the floor, and level 9's echo replayed that ("all the robots in level 9 seem to be
+    disabled"); replayed BOT events are also checked against the echo's feet.
+  - The bundled run is the level 8 walkthrough's, and `Level8Run.hide()` turns it to face on up the
+    yard at its hiding spot under the long load - facing back left it stared at the chain for
+    ~46s and level 9 could not cross until it left.
+  - **A load stood on its end can not be got onto** (2026-09-29, "when the crate is in this side,
+    he should not be able to climb onto that"): `HookCrate.isLooseAndNotFlat` (cut, not carried,
+    tilted more than `CATCH_MAX_TILT` off flat). It is refused the mantle (`climbRefused`) AND
+    capped with a 200-tall invisible lid (`LOOSE_LOAD_LID_HEIGHT`) - the refusal alone was not
+    enough: from the empty cart's right handle post it is a 44-unit JUMP, not a climb.
+  - Drawn under the player at 0.82 alpha with a guard's `LightConeView` beam and a guard's pip.
+- **"Never touch the ground" is the MAIN objective** (`LevelData.stayOffTheGround`, objective hint
+  "Follow the Figure Without Touching the Ground"): `GameWorld.checkStayOffTheGround` ends the run (game over) the moment
+  the player stands on the floor or a `LevelLayout.offLimitFootholds` platform (the mid and high
+  platforms - NOT the tables). **It checks `layout.platforms`, not `GameWorld.platforms`** - the
+  latter includes `boxes`, which made the first crate count as ground. Star 3 is the clock (90).
+  (An earlier cut made it the optional star with a 7-field save format; that was never shipped and
+  `LevelResult` is back to the shipped 5 fields.)
+- Its one tutorial step (`step_stay_off_the_ground`) auto-dismisses after 6s - a rule has no action
+  to wait for. `testTheDronePromptLetsGoOnItsOwn` lists it as the third allowed exception.
+- **Sharing layout defs between levels is safe**: `LevelLayout` holds only immutable defs, and
+  everything stateful is rebuilt per world by `GameWorld.createFromLayout`
+  (`testEachWorldGetsItsOwnCart`).
+
+## Level 10 ("10: Below the Yard") - `LEVEL_10_LAYOUT`, level 7's mechanics (2026-09-29)
+
+"level 10 will have the same mechanics as level 7 ... make an interesting gameplay", then "make it
+harder ... with less time to go through steam and other methods". Same duct (304..440, standing
+height, `canClimb = false`, no tutorial), same three hazards, but every beat
+is a combination level 7 never asks for. The layout's doc comment is the source of truth: twin
+intakes -> a drone patrolling INSIDE a gale (run it down at `WIND_SPAM_SPEED` 96; stop tapping and
+the wind carries you back out of its sight - its near-end reach is kept inside the zone) -> a drone
+whose patrol crosses a jet -> the relay (two drones; the first only while the second is on its long
+leg) -> two jets in a gale (the far one taken at tap pace) -> a gust, a four-jet lock, a drone on
+the door.
+
+- **Harder than level 7, pinned by `testLevel10IsHarderThanLevel7`**: every jet's dormancy <= 1.1;
+  late jets lower their own floor via **`SteamPipeDef.minDormantDuration`** (new; default 0.8 = the
+  old hard-coded clamp, so level 7's cycles are byte-identical; `SteamPipe.MIN_DORMANT_FLOOR` 0.5 is
+  the hard minimum), down to 0.55 on the lock; drones faster with `pauseDuration` 0.5; gales push
+  harder; 4 checkpoints for 6 beats.
+- **Tuned by simulation, and three limits were found that way**: the door drone at 58 u/s over 120
+  needed a 1.74s catch against a 2.07s turn (now 56 over 140); the gale gate's far jet at a 0.75
+  dormancy stalled the walker 53s at tap pace (kept at 1.0); the relay's second drone has ~2x the
+  first's cycle on purpose (with near-equal cycles the opening came round every ~86s).
+- **Its own background, `bglvl10.png`** (2172x724, from the Downloads asset drop, losslessly
+  recompressed; "use this as the background for level 10 and move the walking part to the
+  bottom"). A concrete wall split by a beam: the lamp-lit corridor UNDER the beam is the duct, and
+  the texture's bottom edge is the floor. The floor sits where every non-level-7 level puts it
+  (standard `worldView.y`, near the screen bottom) and the texture hangs up from it at a fixed
+  scale (`level10BgScale`: beam underside row 470 on world 304, row 724 on 440); a canvas taller
+  than it reaches stretches the plain wall above the beam (rows 0..430). The duct ceiling box is
+  not drawn; instead **the art's beam (rows 427..470) is painted solid black in every background
+  tile** ("make the top line where the steam pipes are attached on top black") - the same black
+  beam level 7's ceiling nozzles are bolted into. Parallax is 1:1 like level 7. Rows measured by mean luma
+  down bare-wall columns - re-measure if the art is swapped. Pinned by
+  `testLevel10PaintedCorridorIsTheWorldDuctAtTheBottomOfTheArt`. **Not seen on a screen.**
+- **No distance stencils** - they load only for `bglvl7.png`.
+- **The rooms (2026-09-29)** - "block the main path in random places and add room.png on top
+  and add blocks and guards ... player should climb up and get this room and get out from other
+  end", then "instead of two boxes. player should jump onto 1 box and then climb up. also remove
+  the grey rectangles. also add a similar smaller section earlier". A small room (x 1520..2440:
+  two walls, one guard) after the intakes and the big one (4520..6040: three walls, two guards,
+  a jet and a drone in the duct below); everything past the small room moved +1000 (world 8250,
+  exit 8100). The duct's ceiling slab (281..304 - its top is where the painted black beam
+  starts) is the rooms' floor. **Walls are passed above, guards below**: each floor-to-ceiling
+  wall has a shaft in front - ONE 68x48 crate (a jump from the floor) then a mantle of 111 (under
+  the 115 cap) onto the slab past the gap, which is a `floatingClimbTargets` entry; past each
+  wall a hole drops back into the duct under the next room guard, and the next shaft brings you
+  up behind him. Guards (96-tall, range 180, pause 1.0) never reach a gap. Level 10 is
+  `canClimb = true`.
+  - **Shafts are 140 wide, holes 100.** At 100 the crate left 32 units in front of it, so a body
+    pressed against the crate still had its head under the slab and bonked it on every jump.
+  - The wall's own top is no foothold from the crate (rise 88 is in climb range, but standing or
+    crouching on it puts a head in the slab, so `findClimbTarget` skips it).
+  - `LevelLayout.roomBackdrops` draws room.png tiled at the rect's height at its authored 3:1.
+    A gap in a room's floor shows room.png's LAST 8 rows stretched down through it
+    (`ROOM_GAP_SOURCE_ROWS` - the art darkens over its bottom sixth, so a taller band showed as a
+    lighter strip under the wall), cut from the same columns of the tile above ("there shouldnt be black in climbable parts") - found from the
+    slab boxes at the room's floor, no extra layout data. (A flat grey `beamOpenings` fill was
+    tried first and rejected.) `resources/room.png` resampled 2172x724 -> 2048x512 (drawn ~571 device px
+    tall at 3x - rounded DOWN to 512, 11% under, rather than up to 1024 from a 724 source).
+  - Draw-path traps: a short slab piece matched the step-crate size rule (skipped explicitly for
+    `bglvl10.png`), and a tall room ceiling starting above y 0 matched level 1's
+    hanging-chained-crate rule (ceilings are in `plainPlatforms`).
+  - Room ceiling 140: the reference phone's top edge is world y ~114, so a room is wholly on
+    screen; 141 of standing room.
+  - The walkthrough climbs by pulsing jump when pushing against a face it is not passing, and
+    waits on the floor short of each crate until the guard it comes up behind is walking away with
+    >= 4.5s of beat left (`SHAFT_EXPOSURE_SECONDS`). Dropping through the big room's second hole
+    gives its second guard a partial glimpse (alert 0.33, drained) - drop while he faces away.
+    `testLevel10sRoomIsTheOnlyWayPastEachWallAndTheOnlyWayPastEachGuardIsBelow` pins the shape.
+  - **The finish time is quantised by the lock**: 147.8s across three different layouts, because
+    the last four jets and the door drone run on the level clock and the walker waits for the same
+    windows however early it arrives. A changed time upstream rarely shows in the total.
+- **The prison cell ending (2026-09-29)** - "at the end of level 10, he should climb up again and
+  it should look like a prison cell and the figure should be there sitting". The duct ends at a
+  sixth wall (8150); the last room (7960..8600) has no way down, and its far end is a `PrisonCellDef` (new, `LevelLayout.prisonCell`): bars over
+  8380..8560 floor to ceiling, a black gloom behind them, and the figure at 8490 facing the door.
+  The exit is on the room floor, 70 short of the bars; a level with a cell draws no extraction
+  booth. World 8600.
+  - **No seated art exists** - the figure is the player's own last crouch frame
+    (`PlayerAnimations.CROUCH_LAST`), huddled on the cell floor: his double, which is level 11's
+    story. Bars are procedural `solidRect`s. Swap in real art if it arrives.
+  - Drawn before the player's container so he walks up in front of the bars.
+  - Walkthrough 151.1s; `timeTargetSeconds` 185 -> 190 to stay 1.25x.
+- **Switches, a door and a lift at the end (2026-09-30)** - "introduce those switches and elevators
+  in level 10 at one place so it can be used in level 11 without any tutorials ... for level 10
+  only tutorial is asking to use the switch". The last climb (crate + shaft at 8000) is gone: past
+  the door drone the duct is shut by `lvl10_door` (7990, switch in front at 7956), then `lvl10_lift`
+  (8030..8150, down, flush) stands against the end wall; its switch is on that wall (8130), reached
+  from on the lift, and it rises into the cell room's floor. `step_use_switches` (7950..8150) is
+  level 10's ONLY tutorial; on a level with switches an INTERACT step completes on a thrown switch
+  (`GameWorld.switchThrowCount`) - the old condition was already true from the bots switched off
+  earlier. A restart shuts the door and lowers the lift (a respawn leaves them). The walkthrough
+  autopilot throws a switch in reach of a shut door ahead / the lift it stands on: 151.7s.
+- Verified: `jvmTest` (354 green), `android-shell:compileReleaseKotlin` clean. **Not seen on any
+  screen, not on Android or iOS.**
+
+## Level 11 ("11: The Prisoner") - `LEVEL_11_LAYOUT`, an escort through level 10's tunnels (2026-09-30)
+
+"help the prisoner you freed in level 10 escape. it will be inside the same place as level 10. [he]
+will move forward whenever possible. he cant climb or parkour. you can use doors as a new mechanism"
+(the request said "the guard will move forward" - read as the prisoner; confirm if that was wrong).
+**The layout's doc comment is the source of truth** for the seven beats; the mechanics:
+
+- **`Prisoner` (`Prisoner.kt`)**: a `Player` body driven by a rule, not input - walks right at 72
+  once freed (the cell gate `freedByDoorId` half open + 0.8s getting up) and stops only at a shut
+  door, a wall, or a lip deeper than `MAX_STEP_DOWN` (30). Never jumps/climbs/crouches. Seen by any
+  guard/camera/bot = the shared alert meter (`GameWorld.isPrisonerSeen`, pip over him); steam kills
+  him (`prisonerLost`). The level completes only when he AND the player are in `exitZone`. He is
+  drawn with the player's frames, created before the cell so its bars cover him inside it
+  (`PrisonCellDef.drawsFigure` = false).
+- **Doors (`Doors.kt`)**: `DoorDef` floor-to-ceiling, panel rolls up (`openness`; only the panel
+  still hanging is solid, passable at ~0.7). A shut door blocks bodies, guards (they turn back at it -
+  doors decide a guard's beat) and sight: `GameWorld.visionOccluders` = occluders + door panels +
+  lifts, used by every vision check and every cone the scene draws (guard cones rebuild on
+  `visionOccluderVersion`). A closing door never comes down on anyone in its doorway (sensor hold).
+- **`DoorSwitchDef`**: INTERACT (edge-detected) toggles every door/lift in `targets`; each door has a
+  colour tag and switches show their targets' tags (the control room's panels are far from their
+  doors). **`LiftDef`**: two stops (room floor 281 / duct floor 440, sunk flush), carries riders,
+  never descends onto a body, freezes while a guard is in its shaft.
+- **Shafts have catwalks, not crates**: a crate on the duct floor would stop him dead. A 6-thick
+  catwalk at 334 (climb 106 from the floor, underside 340 clears his head at 344), then a 53 mantle
+  onto the slab. Drawn as a plain platform with a gusset (the bglvl10 short-box skip now exempts
+  `plainPlatforms`). Drawn as a black pallet hung on two cables from the room ceiling (a bracket
+  off the slab's edge was tried twice and rejected as weird), not the rough block (skipped in the box
+  loop). **Lifts are `resources/elevator.png`** (a black cage: railing + mesh on a deck slab, cut by
+  `tools/art/prep_elevator.py` - its header and `GameplayScene.ELEVATOR_*` are the source of truth):
+  deck scaled to the lift's 14 thickness (top = walking surface), railing + cables at
+  `translucentEffectAlpha` like the crane chains / camera pole, any width drawn as the two end posts
+  with the first bay's mesh repeated between; drawn before the prisoner and player. The prisoner is drawn fully black
+  like the player (the grey tint was rejected, 2026-09-30).
+- **Beat 6 "Over the top" (added 2026-09-30, "make level 11 little longer")**: door_7 holds him with
+  its only switch past it, where `lvl11_bot_2` patrols the duct; the player goes up a third shaft into
+  a room with two room-height jets of its own (`lvl11_pipe_4/5`, topY 140), drops through its hole
+  while the bot heads back towards the door, switches it off from behind. The steam lock and exit
+  moved +900 (world 6100).
+- **Exit sign**: `resources/exit_sign.png` (the asset drop's exit.png, updated 2026-09-30 - no arrow,
+  2.54:1 - cropped to alpha, 256x128 POT, drawn 64x25 at `brightness` 0.5 so it sits on the dim wall)
+  hung on the duct wall at 5710,310 past the last jet, by lift_4 -
+  `LevelLayout.wallDecals` / `WallDecal` (new, generic: any back-wall picture, drawn behind
+  everything, no collision).
+- **Design rule learned building it: the player can only get ahead of him by a bypass (shaft/hole) or
+  by overtaking while he walks and shutting a door behind (132 vs 72).** A door he is waiting at
+  cannot be passed without releasing him - the first draft's last beat deadlocked on exactly that.
+- **Checkpoints are his**: taken when HE is held (not moving, grounded, unseen) inside a zone; a
+  respawn restores doors, lifts, guard positions and him from the snapshot. `Guard.resetToSpawn` /
+  `placeAt` are new; a restart puts guards back at spawn on this level only.
+- Three-star target 215 = scripted clean run 148.7s x1.45 (`Level11EscortTest.testLevel11IsBeatableAsAnEscort`,
+  which also pins 1.25..2.0x). Optional objective `KEEP_THE_PRISONER_OUT_OF_SIGHT` (met by the clean run). **No tutorial at all**
+  ("dont add any tutorial in level 11") - level 10's end teaches switches, doors and lifts
+  (`testLevel10UsesLevel7sMechanicsAndNothingElse` pins both).
+- Verified: `jvmTest`, `android-shell:compileReleaseKotlin`. **Not seen on any screen** (door/switch/
+  lift/prisoner art is procedural `solidRect`s, untuned), not on Android or iOS.
+
+## Unlocking every level for testing (2026-09-28)
+
+`GameProfile.isLevelUnlocked` has carried a `unlockAllForTesting = true` short-circuit for a while,
+but **the mission grid never went through it** - `LevelSelectScreen` re-derived the star gate inline
+(`index == 0 || previous completed`), so the flag looked like it did nothing. The grid now calls
+`profileStorage.isLevelUnlocked(...)`, making that one constant the single switch. Flip it to `false`
+to restore star-gated progression. `LevelSelectScreen`'s premium gate (`id.contains("dlc")`) is
+separate and untouched. The corresponding assertions in `GameplayModelTest` are the ones already
+marked TEMPORARILY DISABLED for this flag.
 
 ## Release 1.0 (build 19) - App Store review readiness (2026-09-26)
 
@@ -1472,6 +2073,33 @@ Review-risk audit done before 19, and what it changed:
 - **Outside the repo, owner's job**: App Store Connect privacy answers must declare tracking
   (Device ID) or an ATT-prompting app is rejected; age rating should allow for ad content
   (AdMob max ad content rating can cap it).
+
+## Android 0.2.0 (versionCode 20) - Android only (2026-09-30)
+
+Owner asked for an Android-only build: `android-shell` `versionCode` 19 -> 20, `versionName` "1.0" ->
+"0.2.0". **iOS was deliberately NOT bumped** (`project.yml` / `ios-testflight.yml` still say 19) - the
+"bump all three together" rule above is broken on purpose here; re-align them at the next iOS
+release. Levels 1-11 listed and unlocked (`unlockAllForTesting = true`). Ads still REAL
+(`USE_TEST_ADS = false`). The signed AAB comes from CI (`gradle.yml` decodes the keystore secrets);
+local `local.properties` has no keystore passwords, so a local `bundleRelease` fails at
+`signReleaseBundle` with a bare NullPointerException.
+
+## Extracted library: `kmp-stealth-game-toolkit` (2026-09-29)
+
+The engine-agnostic pieces of `src/game/model/` - `Geometry.kt`, `Vision.kt`, `Guard.kt`,
+`Camera.kt`, `Laser.kt`, `MovingPlatform.kt`, `Conveyor.kt`, `CameraFollow.kt`, `ScreenLayout.kt`,
+`BoxPhysics.kt` - were copied (not moved; this repo keeps its own copies, unchanged) into a new,
+separate, published KMP library for the hackathon's "giving back" criterion:
+[MalithaBandara/kmp-stealth-game-toolkit](https://github.com/MalithaBandara/kmp-stealth-game-toolkit),
+published via JitPack (`com.github.MalithaBandara.kmp-stealth-game-toolkit:<artifact>:v1.0.0` - the
+group folds the repo name in, per JitPack's multi-artifact convention; see that repo's README). Six
+targets (jvm/android/iosArm64/iosSimulatorArm64/js/wasmJs) build clean in its own CI since none of
+those files import `korlibs.*`. A Compose Desktop demo there proves the vision/guard/camera/laser
+pieces work with zero image assets. `:game` here is unaffected - no dependency either direction. If
+`:game` ever wants to consume that library directly instead of its own copies, the same klib-ABI
+lock that already forces `paywall-build` to compile `GameProfile.kt`/`LevelData.kt` from source
+applies here too (see "Native iOS shell" section above) - it would need the same source-compilation
+approach, not a binary dependency.
 
 ## Keep this file up to date
 
