@@ -53,15 +53,17 @@ object GuardAnimations {
 
     /**
      * Ground covered by one gait cycle as a multiple of the standing silhouette height - the
-     * same units as PlayerAnimations.WALK_STRIDE_PER_HEIGHT. The plate itself measures ~0.523
-     * here (the planted foot tracks backwards ~7.3px per frame, 38 frames over a 530px
-     * silhouette), which would keep the feet perfectly planted against the ground - but at
-     * that stride the legs read as dragging rather than walking, so this is deliberately
-     * pulled down to cycle the gait faster for the same ground speed. The trade is a small,
-     * intentional amount of foot-slide (the animation now "steps" a bit quicker than the
-     * distance covered would strictly call for); a snappier-looking walk was worth it.
+     * same units as PlayerAnimations.WALK_STRIDE_PER_HEIGHT. Measured on the processed frames by
+     * phase-correlating the soles' alpha (bottom five rows) frame to frame: the planted foot
+     * tracks back a median 3.4px per frame, 38 frames over the 244px silhouette = 0.53, which
+     * keeps the feet planted on the surface.
+     *
+     * It was 0.46 - pulled down on purpose so the gait cycled quicker ("legs read as dragging")
+     * at the cost of some foot-slide. That slide is ~15% of every step, backwards, and on level
+     * 6's plank guard (silhouetted on a thin platform at eye level) it read as him gliding: "the
+     * guard walking feels like he is floating" (2026-09-30). Planted wins; don't pull it down again.
      */
-    const val WALK_STRIDE_PER_HEIGHT = 0.46
+    const val WALK_STRIDE_PER_HEIGHT = 0.53
 
     // ---- source geometry ----------------------------------------------------------------
     /**

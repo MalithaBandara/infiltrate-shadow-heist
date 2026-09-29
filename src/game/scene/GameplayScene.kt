@@ -391,6 +391,17 @@ class GameplayScene(
 
         loadingScreen.dismiss()
 
+        // Sprite atlases stay uploaded all level, and art that went off screen for a second is not
+        // re-sent the moment it comes back - both used to stall the frame (see TextureResidency).
+        views.renderContext.agBitmapTextureManager.maxCachedMemory = TextureResidency.CACHED_TEXTURE_BUDGET_BYTES
+        addChild(
+            TextureResidency(
+                with(playerAnimations) {
+                    listOf(idle, walk, jump, crouch, crouchwalk, climb, swing, pushTransition, push, windTransition, windWalk)
+                } + listOfNotNull(guardAnimations?.idle, guardAnimations?.walk)
+            )
+        )
+
         // Combined background & midground layer container (parallax rate 0.2x, looping, unzoomed at native screen height)
         val bgmgContainer = container()
         val bgmgImages = mutableListOf<View>()
@@ -2186,7 +2197,12 @@ class GameplayScene(
         // that used to occupy that gutter is gone. Worth knowing what that costs - the sky in
         // these levels is bright and the ground is black, light type has to survive both, and
         // there is nothing left to separate it from either.
-        val objPanel = hudLayer.container().xy(24.0 + safeInsets.left, 20.0 + safeTopInset)
+        //
+        // Tucked right into the corner (2026-09-30: "it seems to have some padding from corner.
+        // remove that. move it very close to corner"): no safe-area inset on the left any more -
+        // on Android that is the camera cutout's strip, which the block now sits over when the
+        // phone is turned that way round - and an 8/6 margin instead of 24/20.
+        val objPanel = hudLayer.container().xy(OBJECTIVES_CORNER_X, OBJECTIVES_CORNER_Y + safeTopInset)
 
         val objTitle = objPanel.text(
             Localization.objectives(currentLanguage), textSize = 15.0, font = bebasFont, color = COLOR_PRIMARY
@@ -5641,6 +5657,10 @@ class GameplayScene(
 
         /** Rows off the bottom of room.png stretched through a gap in a room's floor (of 512). */
         internal const val ROOM_GAP_SOURCE_ROWS = 8
+
+        /** The objectives block's top-left, from the screen's corner - see objPanel. */
+        internal const val OBJECTIVES_CORNER_X = 8.0
+        internal const val OBJECTIVES_CORNER_Y = 6.0
 
         /**
          * resources/elevator.png, in the pixels of the source art cropped to its alpha

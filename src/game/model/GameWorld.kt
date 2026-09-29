@@ -1635,16 +1635,26 @@ data class GameWorld(
      * else), and on a [LevelData.stayOffTheGround] level not the floor either. An automatic
      * checkpoint is only taken here - level 9 is nearly all moving loads, and a checkpoint on one
      * respawned the body in mid-air, to fall to the floor and fail again.
+     *
+     * Two more ways a checkpoint used to drop the body after a continue (2026-09-30: "after i
+     * press continue and the ad plays, i do not get respawned in the correct place"), both on
+     * level 2 and both because only the body's CENTRE was tested: half on a lift with the centre
+     * just off its edge (the lift was not "under" him, so it counted as fixed - and a respawn has
+     * the lift somewhere else), and balanced on a hanging crate's corner with the centre past it
+     * (walking on, the body keeps its footing; dropped there from a respawn, it slips off). So
+     * anything that moves under ANY part of the feet rules the spot out, and the centre itself
+     * has to be over something fixed.
      */
     private fun isOnFixedFooting(): Boolean {
         val feet = player.y + player.height
         val footCenter = player.x + player.width / 2.0
         fun under(r: Rect) = kotlin.math.abs(feet - r.top) < 4.5 && footCenter >= r.left && footCenter <= r.right
-        if (movingPlatforms.any { under(it.bounds) }) return false
-        if (hookCrates.any { under(it.bounds) }) return false
-        if (pushCarts.any { under(it.bounds) }) return false
+        fun touching(r: Rect) = kotlin.math.abs(feet - r.top) < 4.5 && r.right > player.x && r.left < player.x + player.width
+        if (movingPlatforms.any { touching(it.bounds) }) return false
+        if (hookCrates.any { touching(it.bounds) }) return false
+        if (pushCarts.any { touching(it.bounds) }) return false
         if (levelData.stayOffTheGround && offLimitFootholds.any(::under)) return false
-        return true
+        return platforms.any(::under)
     }
 
     /** The level's optional objective ([LevelData.bonusObjective]); null on a level without one. */
@@ -2240,9 +2250,17 @@ data class GameWorld(
         // See isBoardingFromFloorLevel: a lid on every hanging load the player may not get onto
         // from where they last stood. Tall enough that its own top is out of any jump from the
         // floor band, so it can be walked into but never stood on.
-        val boardingBlocked = if (isBoardingFromFloorLevel) groundBoardingBlockedSurfaces() else emptyList()
+        // On a LevelData.hangingLoadsOffLimits level (8) that is every hanging load, from anywhere.
+        val boardingBlocked = when {
+            levelData.hangingLoadsOffLimits -> hangingCrateRects()
+            isBoardingFromFloorLevel -> groundBoardingBlockedSurfaces()
+            else -> emptyList()
+        }
+        // Level 8's lids reach much higher: it is boarded from the raised platforms and tables
+        // too, so a 60 lid's own top would be something to land on from up there.
+        val lidHeight = if (levelData.hangingLoadsOffLimits) OFF_LIMITS_LID_HEIGHT else BOARDING_LID_HEIGHT
         for (b in boardingBlocked) {
-            playerPlatformsScratch.add(Rect(b.x, b.top - BOARDING_LID_HEIGHT, b.width, BOARDING_LID_HEIGHT))
+            playerPlatformsScratch.add(Rect(b.x, b.top - lidHeight, b.width, lidHeight))
         }
         // A cut load stood on its end (HookCrate.isLooseAndNotFlat) can not be got onto at all -
         // not mantled (climbRefused below) and not jumped onto either (from the cart's handle post
@@ -2506,6 +2524,9 @@ data class GameWorld(
 
         /** Height of the invisible lid on a load that may not be boarded from floor level. */
         const val BOARDING_LID_HEIGHT = 60.0
+
+        /** Height of the lid on every hanging load of a LevelData.hangingLoadsOffLimits level. */
+        const val OFF_LIMITS_LID_HEIGHT = 400.0
 
         /**
          * Height of the lid on a cut load stood on its end: its top is then well out of a jump even
@@ -2860,7 +2881,7 @@ data class GameWorld(
                 y = layout.playerStartY,
                 startX = layout.playerStartX,
                 startY = layout.playerStartY
-            )
+            ).also { it.hangingClimbTargets = layout.hangingClimbTargets }
 
             val guards = layout.guards.map { spawn ->
                 Guard(

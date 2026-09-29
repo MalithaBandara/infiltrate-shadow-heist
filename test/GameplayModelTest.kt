@@ -7524,9 +7524,58 @@ class GameplayModelTest {
     // ---- Level 8's back half: the bobbing chain, the travelling load, the catch, the swing ----
 
     /** Level 8 without its camera, for tests about the mechanisms rather than about being seen. */
-    private fun level8Unwatched(): GameWorld {
+    /**
+     * The yard with its camera off. The hop and swing tests measure the high road - the hanging
+     * loads level 9 runs along - so by default the loads are boardable here, as in level 9; level 8
+     * itself puts them off limits ([LevelData.hangingLoadsOffLimits], see
+     * [testLevel8TheHangingLoadsCannotBeGotOnto]).
+     */
+    private fun level8Unwatched(loadsBoardable: Boolean = true): GameWorld {
         val layout = LevelData.LEVEL_8_LAYOUT.copy(cameras = emptyList())
-        return GameWorld.createFromLayout(LevelData.DEFAULT_LEVEL_8.copy(layout = layout), layout)
+        val level = LevelData.DEFAULT_LEVEL_8.copy(layout = layout, hangingLoadsOffLimits = !loadsBoardable)
+        return GameWorld.createFromLayout(level, layout)
+    }
+
+    @Test
+    fun testLevel8TheHangingLoadsCannotBeGotOnto() {
+        // "artifically block getting on the hanging platform if player somehow tries to in level 8"
+        // (2026-09-30). From the mid platform the sweep crate swings out level with a hop (and the
+        // crossing crate past it): jump at them all through a cycle, both ways, and nothing lands.
+        // The same attempts on the boardable yard (level 9's rules) do land, so the probe works.
+        assertTrue(LevelData.DEFAULT_LEVEL_8.hangingLoadsOffLimits)
+        assertFalse(LevelData.DEFAULT_LEVEL_9.hangingLoadsOffLimits)
+        fun boardings(loadsBoardable: Boolean): Int {
+            var landed = 0
+            val period = Level8Geometry().sweepDef.periodSeconds
+            for (i in 0 until (period / 0.2).toInt()) for (move in listOf(-1.0, 1.0)) {
+                val world = level8Unwatched(loadsBoardable)
+                val p = world.player
+                var t = 0.0
+                while (t < 1.0 + i * 0.2) {
+                    p.x = 960.0
+                    p.y = 296.0 - p.height
+                    p.vx = 0.0
+                    p.vy = 0.0
+                    world.l8Frames()
+                    t += 1.0 / 60.0
+                }
+                for (f in 0 until 120) {
+                    world.l8Frames(move = move, jump = f % 20 < 10)
+                    if (world.isGameOver) break
+                    val feet = p.y + p.height
+                    val fc = p.x + p.width / 2.0
+                    val loads = world.movingPlatforms.map { it.bounds } + world.hangingCrateVariant1 + world.hangingCrateVariant2 +
+                        world.hookCrates.filter { it.isHanging }.map { it.bounds }
+                    if (p.isGrounded && loads.any { kotlin.math.abs(feet - it.top) < 4.5 && fc >= it.left && fc <= it.right }) {
+                        landed++
+                        break
+                    }
+                }
+            }
+            return landed
+        }
+        assertTrue(boardings(loadsBoardable = true) > 0, "the probe can board a load when it is allowed")
+        assertEquals(0, boardings(loadsBoardable = false), "level 8: no hanging load can be got onto")
     }
 
     private fun GameWorld.l8Frames(

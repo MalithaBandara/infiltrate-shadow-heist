@@ -315,6 +315,12 @@ data class LevelLayout(
     // ledge that's meant to be mounted with nothing bracing it underneath. Must also be in
     // [boxes]. See Player.findClimbTarget and LEVEL_3_LAYOUT.
     val floatingClimbTargets: List<Rect> = emptyList(),
+    /**
+     * Floating climb targets (also in [floatingClimbTargets]) the player can walk under, so
+     * nothing stops him at the edge where the grab works - they are grabbed from a wider window
+     * (Player.hangingClimbTargets). LEVEL_11_LAYOUT's shaft catwalks.
+     */
+    val hangingClimbTargets: List<Rect> = emptyList(),
     val movingPlatforms: List<MovingPlatformDef> = emptyList(),
     /**
      * Flatbed carts the player can take hold of and walk along - see [PushCartDef] and
@@ -480,6 +486,14 @@ data class LevelData(
      * platforms". Star 3 stays the clock.
      */
     val stayOffTheGround: Boolean = false,
+    /**
+     * No hanging load can be got onto at all - static hanging crates, moving loads and a hook crate
+     * still on its rope each carry GameWorld's invisible boarding lid (BOARDING_LID_HEIGHT) and
+     * are never climb targets, whatever the body is standing on. Level 8's road is the ground
+     * ("artifically block getting on the hanging platform if player somehow tries to in level 8",
+     * 2026-09-30); level 9, the same yard, is run along those loads and leaves this off.
+     */
+    val hangingLoadsOffLimits: Boolean = false,
     /**
      * The run is recorded ([RunRecorder]) and, when the level is completed without a continue,
      * saved for a later level to replay - level 8's, which level 9 follows ([replaysRunOf]).
@@ -4153,6 +4167,7 @@ data class LevelData(
             objectiveHint = "Track Down Container 17",
             bonusObjective = BonusObjective.NEVER_TOUCH_A_HANGING_CRATE,
             layout = LEVEL_8_LAYOUT,
+            hangingLoadsOffLimits = true,
             // Level 9 replays this run - see DEFAULT_LEVEL_9.
             recordsRun = true,
             // Two steps, and only two: the cart is the one move in the game that no earlier level
@@ -4728,10 +4743,12 @@ data class LevelData(
 
             // The way up a shaft for the player alone. A crate on the duct floor (level 10's step)
             // would stop the prisoner dead, so the step is a catwalk hung across the shaft's far
-            // end instead: top 334 (a climb of 106 from the floor, under the 115 cap), 6 thick so
-            // its underside (340) clears a standing head (344) - he walks under it. From it, the
-            // slab past the shaft is a mantle of 53 (over a jump's 51.2, so a climb, not a hop).
-            val catwalks = shaftsUp.map { l -> Rect(l + shaftW - 70.0, 334.0, 70.0, 6.0) }
+            // end instead: top 326 (a climb of 114 from the floor, under the 115 cap), 6 thick so
+            // its underside (332) clears a standing head (344) - he walks under it, which is why
+            // it is a hanging climb target (grabbed from a wide window, not one exact spot). From
+            // it, the slab past the shaft is a hop of 45 (under a jump's 51.2): "that next part
+            // should be jumpable".
+            val catwalks = shaftsUp.map { l -> Rect(l + shaftW - 70.0, 326.0, 70.0, 6.0) }
             val shaftLedges = shaftsUp.map { l -> slabs.first { it.x == l + shaftW } }
 
             val roomCeilings = rooms.map { Rect(it.left, roomCeilingY - 600.0, it.right - it.left, 600.0) }
@@ -4821,6 +4838,7 @@ data class LevelData(
                 hasStartFences = false,
                 canClimb = true,
                 floatingClimbTargets = shaftLedges + catwalks,
+                hangingClimbTargets = catwalks,
                 prisonCell = PrisonCellDef(bars = cellBars, prisonerX = 150.0, prisonerFacing = 1.0, drawsFigure = false),
                 plainPlatforms = roomCeilings + catwalks,
                 manualCheckpoints = checkpoints,
