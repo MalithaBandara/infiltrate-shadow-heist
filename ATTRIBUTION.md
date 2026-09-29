@@ -31,7 +31,15 @@ tell at a glance which sounds are ours and which are not.
 | `ios-shell/Resources/mainmenu.mp3` | Same, iOS menu bus | Same file as above, duplicated for bundling | Nikita Kondrashev | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
 | `resources/sfx/alert_guard.wav` | Guard detects player | ["Huh 5"](https://freesound.org/s/812300/) | Sadiquecat | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | `resources/sfx/alert_camera.wav` | Camera detects player | ["Missile Lock Detected"](https://freesound.org/s/165504/) | ryanconway | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
-| `resources/sfx/thunder.wav` | Atmospheric thunder clap / rumble | Procedural synthesis | This project | Own work |
+| `resources/sfx/thunder.wav` | Thunder clap / rumble (levels 2, 9) | [Sound effect](https://pixabay.com/sound-effects/id-99753/) via Pixabay | freesound_community | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
+| `resources/sfx/loop_rain.wav` | Rain ambience (levels 2, 9) | [Sound effect](https://pixabay.com/sound-effects/id-437321/) via Pixabay | DRAGON-STUDIO | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
+| `resources/sfx/loop_fan.wav` | Vent fan hum (level 7) | [Sound effect](https://pixabay.com/sound-effects/id-584737/) via Pixabay | DRAGON-STUDIO | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
+| `resources/sfx/loop_steam.wav` | Steam jet hiss (level 7) | [Sound effect](https://pixabay.com/sound-effects/id-36231/) via Pixabay | freesound_community | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
+| `resources/sfx/loop_laser.wav` | Laser hum | ["lightsaber5.mp3"](https://freesound.org/s/47127/) | gyzhor | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| `resources/sfx/crate_drop.wav` | Hanging crate drops | ["Dropping, Wood, K.wav"](https://freesound.org/s/352176/) | InspectorJ | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| `resources/sfx/loop_robot.wav` | Patrol rover motor (level 7, 8) - 16.0-25.5 s of the source | [Sound effect](https://pixabay.com/sound-effects/id-70923/) via Pixabay | freesound_community | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
+| `resources/sfx/loop_camera.wav` | Security camera turning - 0.8-7.2 s of the same source | [Sound effect](https://pixabay.com/sound-effects/id-70923/) via Pixabay | freesound_community | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
+| `resources/sfx/loop_cart.wav` | Push cart rolling | [Sound effect](https://pixabay.com/sound-effects/id-86702/) via Pixabay | freesound_community | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
 | `resources/missionmusic.mp3` | In-mission background music | [Track](https://pixabay.com/music/) via Pixabay | DELOSound | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
 
 ### Notes on the plate cuts
@@ -80,8 +88,9 @@ All under [CC-BY 3.0](http://creativecommons.org/licenses/by/3.0/), compiled by 
 
 ## In-app credits
 
-All seven third-party sounds above (`ui_click`, `toast_success`, `toast_error`, `mainmenu`,
-`alert_guard`, `alert_camera`, `missionmusic`) are also credited inside the app, at
+All fifteen third-party sounds above (`ui_click`, `toast_success`, `toast_error`, `mainmenu`,
+`alert_guard`, `alert_camera`, `missionmusic`, `thunder`, `rain`, `fan_rotating`, `steam`,
+`laser_humming`, `crate_drop`, `robot_move`, `cart_move`) are also credited inside the app, at
 **Settings → About → Credits & Licenses** — see
 `SOUND_CREDITS` in `paywall-build/src/commonMain/kotlin/ui/SettingsScreen.kt`. Keep the two lists
 in sync: this file is the detailed record (source links, exact licence), the in-app panel is the

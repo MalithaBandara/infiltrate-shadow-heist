@@ -164,6 +164,7 @@ class CameraBot(
 
     fun canDeactivate(player: Player): Boolean {
         if (isDeactivated) return false
+        if (!isReachableFrom(player.y + player.height)) return false
         val playerCenterX = player.centerX
         val botCenterX = x + width / 2.0
         val dist = abs(playerCenterX - botCenterX)
@@ -179,6 +180,15 @@ class CameraBot(
         }
         return isBehind
     }
+
+    /**
+     * A body can only reach the switch from the surface the bot drives on. Level 8/9 stack two
+     * laser courses, one on the floor and one on the table over it, and the old test was distance
+     * along x alone - so from the floor the player could switch off the bots running on the table
+     * overhead, and level 9's echo replayed exactly that ("all the robots in level 9 seem to be
+     * disabled").
+     */
+    fun isReachableFrom(feetY: Double): Boolean = kotlin.math.abs(feetY - surfaceY) <= REACH_HEIGHT
 
     fun deactivate() {
         isDeactivated = true
@@ -232,6 +242,9 @@ class CameraBot(
     )
 
     companion object {
+        /** See [isReachableFrom]: feet within this of the bot's own surface (a bot is 26 tall). */
+        const val REACH_HEIGHT = 24.0
+
         /**
          * How far below the top of the bot's box its lens sits, as a fraction of [height], and so
          * where the surveillance cone starts.
@@ -274,7 +287,13 @@ data class SteamPipeDef(
     val jetWidth: Double = 24.0,
     val activeDuration: Double = 1.5,
     val inactiveDuration: Double = 2.0,
-    val phaseOffsetSeconds: Double = 0.0
+    val phaseOffsetSeconds: Double = 0.0,
+    /**
+     * The shortest dormancy any cycle may have, before the fixed warning flare. 0.8 everywhere
+     * the default reaches (level 7 included - it was the hard-coded clamp); level 10's late
+     * jets lower it, and nothing below [MIN_DORMANT_FLOOR] is accepted.
+     */
+    val minDormantDuration: Double = 0.8
 )
 
 /**
@@ -289,8 +308,12 @@ class SteamPipe(
     val jetWidth: Double = 24.0,
     val activeDuration: Double = 1.5,
     val inactiveDuration: Double = 2.0,
-    val phaseOffsetSeconds: Double = 0.0
+    val phaseOffsetSeconds: Double = 0.0,
+    minDormantDuration: Double = 0.8
 ) {
+    /** See [SteamPipeDef.minDormantDuration]. */
+    val minDormantDuration: Double = minDormantDuration.coerceIn(MIN_DORMANT_FLOOR, 1.8)
+
     data class Cycle(
         val start: Double,
         val activeEnd: Double,
@@ -325,11 +348,11 @@ class SteamPipe(
                 (activeDuration * variation).coerceIn(2.2, 3.8)
             }
             val dormant = if (i == 0) {
-                inactiveDuration.coerceIn(0.8, 1.8)
+                inactiveDuration.coerceIn(minDormantDuration, 1.8)
             } else {
                 // Non-constant dormant rest duration (shorter deactive interval: ~0.8s - 1.8s + 0.5s warning)
                 val variation = 0.80 + 0.70 * nextRandom()
-                (inactiveDuration * variation).coerceIn(0.8, 1.8)
+                (inactiveDuration * variation).coerceIn(minDormantDuration, 1.8)
             }
             val warn = WARNING_DURATION // Warning phase with yellow light is exactly 0.5 seconds before steam goes off
             val activeEnd = t + act
@@ -446,11 +469,19 @@ class SteamPipe(
         jetWidth = def.jetWidth,
         activeDuration = def.activeDuration,
         inactiveDuration = def.inactiveDuration,
-        phaseOffsetSeconds = def.phaseOffsetSeconds
+        phaseOffsetSeconds = def.phaseOffsetSeconds,
+        minDormantDuration = def.minDormantDuration
     )
 
     companion object {
         /** Duration of warning phase (yellow light before steam erupts) in seconds. */
         const val WARNING_DURATION = 0.5
+
+        /**
+         * No dormancy may be shorter than this. With the 0.5s flare it leaves a 1.0s window, and
+         * a standing body clears a 24-wide jet from a standing start in ~0.45s at walking pace -
+         * less than that and the window stops being readable.
+         */
+        const val MIN_DORMANT_FLOOR = 0.5
     }
 }

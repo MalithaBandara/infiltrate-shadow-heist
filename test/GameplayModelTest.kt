@@ -2775,6 +2775,9 @@ class GameplayModelTest {
         // walkthrough verification (see LevelData.SIDE_SCROLL_LEVEL_LAYOUT's own doc comment).
         val SWING_TEST_LAYOUT = LevelData.SIDE_SCROLL_LEVEL_LAYOUT
         val SWING_TEST_LEVEL = LevelData.SIDE_SCROLL_LEVEL
+
+        /** The level 8 walkthrough's own recording - run once, shared by the level 9 tests. */
+        private var cachedLevel8Recording: RunRecording? = null
     }
 
     @Test
@@ -3065,7 +3068,7 @@ class GameplayModelTest {
         val world = GameWorld.createDefault(level)
 
         // 1. Level time target scaled for gauntlet
-        assertEquals(115.0f, level.timeTargetSeconds, 1e-4f, "Level 4 target time is 115 seconds")
+        assertEquals(165.0f, level.timeTargetSeconds, 1e-4f, "Level 4 target time is 165 seconds (its clean run is 116.9s x1.4 - see LevelWalkthroughTest)")
         assertEquals(8600.0, world.worldWidth, 1e-4, "World width extended to 8600.0")
         assertTrue(level.hasDarknessVignette, "Level 4 has darkness vignette enabled")
         assertEquals(1.45, level.playerCrouchForwardSpeedMultiplier, 1e-4, "Level 4 has 1.45x crouch forward speed multiplier")
@@ -3608,6 +3611,7 @@ class GameplayModelTest {
 
         println("Level 4 simulation finished at t=${elapsed.toFloat()}s, playerX=${world.player.x.toInt()}, isComplete=${world.isLevelComplete}, restarts=$restartCount")
         assertTrue(world.isLevelComplete, "Level 4 should be playable and beatable via valid gameplay solution. Ended at x=${world.player.x.toInt()} after ${elapsed.toInt()}s with $restartCount restarts.")
+        assertTrue(elapsed <= LevelData.DEFAULT_LEVEL_4.timeTargetSeconds, "...inside its own 3-star target (${elapsed}s vs ${LevelData.DEFAULT_LEVEL_4.timeTargetSeconds}s)")
     }
 
     @Test
@@ -3781,7 +3785,7 @@ class GameplayModelTest {
             "Player should collide horizontally with hanging crate and not pass through it")
 
         // 2. Detach crate and verify it lands on groundY and stays solid
-        hookCrate.isDetached = true
+        hookCrate.detach()
         var dropTime = 0.0
         while (dropTime < 2.0 && !hookCrate.isLanded) {
             world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false)
@@ -6184,7 +6188,13 @@ class GameplayModelTest {
         assertEquals("07: Service Tunnel", levelData.name)
         val layout = levelData.layout
         assertNotNull(layout)
-        assertEquals(6410.0, layout.worldWidth)
+        assertEquals(6490.0, layout.worldWidth)
+        // It ends at the security desk, which stands in the chamber, clear of its back wall.
+        val desk = assertNotNull(layout.exitStructure)
+        assertEquals("desk.png", layout.exitStructureImage)
+        assertEquals(440.0, desk.bottom, 1e-9, "on the floor")
+        assertTrue(desk.right <= layout.boxes.maxOf { it.left }, "in front of the chamber's back wall")
+        assertTrue(layout.exitZone.x in desk.left..desk.right, "the trigger is at the desk")
         assertEquals(100.0, layout.playerStartX)
         assertFalse(layout.playerStartCrouched)
         assertFalse(layout.canClimb)
@@ -6230,6 +6240,8 @@ class GameplayModelTest {
         assertTrue(last < exit.x, "the 0m stencil stands clear of the booth drawn from exitZone.x")
         assertTrue(exit.x - last >= 49.0, "and clear by at least its own drawn width")
         assertTrue(exit.x - last <= 150.0, "but still reads as the door, not as a landmark before it")
+        val desk = assertNotNull(layout.exitStructure)
+        assertTrue(last + 43.2 / 2.0 < desk.left, "the 0m stencil is not behind the security desk")
 
         // And the level has to physically hold all of it, with the player starting behind the
         // 120m mark rather than past it.
@@ -6279,9 +6291,15 @@ class GameplayModelTest {
         val cartMove = LevelData.DEFAULT_LEVEL_8.tutorialSteps.first { it.id == "step_push_cart_move" }
         assertEquals(6.0, cartMove.autoDismissSeconds)
 
+        // Level 9's stay-off-the-ground note is the third: it is a rule, not an action to wait
+        // for, so there is nothing that could ever dismiss it.
+        val offTheGround = LevelData.DEFAULT_LEVEL_9.tutorialSteps.first { it.id == "step_stay_off_the_ground" }
+        assertEquals(6.0, offTheGround.autoDismissSeconds)
+
+        val exceptions = setOf("step_deactivate_bot", "step_push_cart_move", "step_stay_off_the_ground")
         val everywhereElse = LevelData.DEFAULT_LEVELS
             .flatMap { it.tutorialSteps }
-            .filter { it.id != "step_deactivate_bot" && it.id != "step_push_cart_move" }
+            .filter { it.id !in exceptions }
         assertTrue(
             everywhereElse.all { it.autoDismissSeconds == 0.0 },
             "no other tutorial step was given a timeout: " +
@@ -6562,6 +6580,30 @@ class GameplayModelTest {
         assertEquals(0.0, world.windGroundSpeed, "No wind, no wind gait")
     }
     @Test
+    fun testACameraBotThatSpotsThePlayerHoldsWhereItIs() {
+        // "robots should also stay at one place if they start to spot you" - like a guard.
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_7)
+        val bot = world.cameraBots.first()
+        val dt = 1.0 / 60.0
+        bot.reset()
+        world.player.resetTo(bot.x + bot.width + 70.0, bot.surfaceY - 96.0)
+        var f = 0
+        while (bot !in world.detectingCameraBots && f++ < 120) world.update(dt, 0.0, false, false, false)
+        assertTrue(bot in world.detectingCameraBots, "it has him in its cone")
+        val heldX = bot.x
+        repeat(20) {
+            world.update(dt, 0.0, false, false, false)
+            assertFalse(world.isGameOver)
+            assertEquals(heldX, bot.x, "a bot with eyes on him does not move")
+        }
+        // Out of its sight, it rolls on.
+        world.player.resetTo(bot.x - 400.0, bot.surfaceY - 96.0)
+        repeat(30) { world.update(dt, 0.0, false, false, false) }
+        assertTrue(bot !in world.detectingCameraBots)
+        assertNotEquals(heldX, bot.x, "it picks its patrol up again")
+    }
+
+    @Test
     fun testLevel7CameraBotPatrolAndDeactivationFromBehind() {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_7)
         val bot = world.cameraBots.first() // startX = 2080, patrolMinX = 2050, patrolMaxX = 2280
@@ -6648,7 +6690,8 @@ class GameplayModelTest {
         // 120m is 6030 units, which is 45.7s of walking before a single window is waited on -
         // and the walker below deliberately gives ground rather than gamble, so the budget is
         // generous. It is a bound on "does this level finish at all", not a pace target; the
-        // three-star pace is DEFAULT_LEVEL_7.timeTargetSeconds.
+        // three-star pace is DEFAULT_LEVEL_7.timeTargetSeconds (this walker clears it - its target is
+        // the walker's own time x1.4).
         val maxSimTime = 400.0
         while (elapsed < maxSimTime && !world.isLevelComplete && restarts == 0) {
             val px = world.player.x
@@ -6656,12 +6699,22 @@ class GameplayModelTest {
             // 1. Camera Bot stealth:
             // Do not enter bot's patrol territory while bot is facing/walking left towards player.
             // Wait safely outside its vision range until it turns around to face right (away).
+            val crossSpeed = world.player.moveSpeed
+            // A bot heading away can be run down from behind before it turns back. A bot that
+            // spots him holds and stares (it is not walked on while it sees him), so every other
+            // case is waited out of reach of its near end.
+            fun catchable(bot: CameraBot, from: Double): Boolean {
+                if (bot.facing < 0.0) return false
+                val untilTurn = bot.pauseTimer + (bot.patrolMaxX - bot.x) / bot.speed
+                val toCatch = (bot.x - bot.deactivationRange / 2.0 - from) / (crossSpeed - bot.speed)
+                return toCatch <= untilTurn - 0.5
+            }
             val botDangerousAhead = world.cameraBots.firstOrNull { bot ->
                 if (bot.isDeactivated) false
                 else if (bot.facing < 0.0) {
                     px in (bot.patrolMinX - bot.visionRange - 60.0)..bot.patrolMaxX
                 } else {
-                    (bot.x - px) < 15.0 || (px in (bot.patrolMinX - bot.visionRange - 60.0)..bot.patrolMinX && bot.x > bot.patrolMinX + 30.0)
+                    (bot.x - px) < 15.0 || (px in (bot.patrolMinX - bot.visionRange - 60.0)..bot.patrolMinX && !catchable(bot, px))
                 }
             }
             // Approach from behind and deactivate when in range
@@ -6671,8 +6724,6 @@ class GameplayModelTest {
             // 3. Steam Pipe hazard avoidance:
             val nextPipe = world.steamPipes.firstOrNull { pipe -> px < pipe.x + 20.0 }
             val pipeAhead = if (nextPipe != null && (nextPipe.x - px) in 30.0..110.0) nextPipe else null
-
-            val crossSpeed = world.player.moveSpeed
 
             if (crossingPipe != null) {
                 if (px > crossingPipe!!.x + 20.0) {
@@ -6684,14 +6735,30 @@ class GameplayModelTest {
                 // 0.7s, which was fine while no window here was shorter than 2.5s - the manifold
                 // pair now runs ~1.8s windows, and 110 units of approach is 0.83s of it.
                 val needed = (pipeAhead.x + 20.0 - px) / crossSpeed + 0.35
-                if (pipeAhead.remainingInactiveTime(elapsed) >= needed) {
+                // Not into the reach of a bot heading back this way: past the jet there is
+                // nowhere to wait, and a bot that spots him now holds and stares.
+                // Nor after one heading away that will turn back before it can be caught up with
+                // from behind.
+                val botComingBack = world.cameraBots.any { bot ->
+                    !bot.isDeactivated && pipeAhead.x < bot.patrolMinX &&
+                        pipeAhead.x + 20.0 + world.player.width > bot.patrolMinX - bot.visionRange - 60.0 &&
+                        !catchable(bot, px)
+                }
+                if (!botComingBack && pipeAhead.remainingInactiveTime(elapsed) >= needed) {
                     crossingPipe = pipeAhead
                 }
             }
 
             val waitingForPipe = crossingPipe == null && pipeAhead != null
             val shouldPause = waitingForPipe || (crossingPipe == null && botDangerousAhead != null)
-            val moveInput = if (shouldPause) 0.0 else 1.0
+            // A bot that spots him holds and stares now (CameraBot is not walked on while it
+            // sees him), so waiting where it WILL see him when it comes back is not waiting - a
+            // bot heading back this way has to be backed off from, out of reach of its near end.
+            val backOff = crossingPipe == null && world.cameraBots.any { bot ->
+                !bot.isDeactivated && bot.facing < 0.0 && px < bot.patrolMinX &&
+                    px + world.player.width > bot.patrolMinX - bot.visionRange - 10.0
+            }
+            val moveInput = if (backOff) -1.0 else if (shouldPause) 0.0 else 1.0
 
             // 2. Exhaust Fan wind zone: spam forward tap to push through backward air blast (only when moving forward)
             val inFanWind = world.fans.any { it.isPlayerInWind(world.player) }
@@ -6711,7 +6778,324 @@ class GameplayModelTest {
         println("Level 7 simulation finished at t=${elapsed}s, playerX=${world.player.x.toInt()}, isComplete=${world.isLevelComplete}, restarts=$restarts")
         assertTrue(world.isLevelComplete, "Level 7 simulation must reach exit zone within time limit (reached x=${world.player.x} at t=${elapsed}s)")
         assertEquals(0, restarts, "Level 7 simulation should clear without any deaths")
+        assertTrue(elapsed <= LevelData.DEFAULT_LEVEL_7.timeTargetSeconds, "...inside its own 3-star target (${elapsed}s vs ${LevelData.DEFAULT_LEVEL_7.timeTargetSeconds}s)")
+        assertEquals(
+            ObjectiveState.MET, world.bonusObjectiveState,
+            "optional objective: every security bot shut down (${world.cameraBots.filter { !it.isDeactivated }.map { it.id }} left on)"
+        )
     }
+
+    // ---- Level 10: the tunnels under the yard (level 7's mechanics) ---------------------------
+
+    @Test
+    fun testLevel10UsesLevel7sMechanicsAndNothingElse() {
+        val level = LevelData.DEFAULT_LEVEL_10
+        val layout = LevelData.LEVEL_10_LAYOUT
+        assertEquals(layout, level.layout)
+        assertEquals("bglvl10.png", level.resolvedBackgroundImage, "its own art, the corridor pinned to 304..440")
+        assertTrue(layout.canClimb, "the room is reached by climbing")
+        assertTrue(layout.pushCarts.isEmpty() && layout.movingPlatforms.isEmpty())
+        assertTrue(layout.fans.isNotEmpty() && layout.steamPipes.isNotEmpty() && layout.cameraBots.isNotEmpty())
+        assertEquals(layout.steamPipes.sortedBy { it.x }, layout.steamPipes, "the walker's next-pipe scan needs ascending x")
+        assertTrue(layout.steamPipes.none { it.mountType == PipeMountType.PAIR }, "PAIR has no art of its own")
+
+        // Standing height the whole way, like level 7; the level ends up in the last room, at the cell.
+        val slabs = layout.boxes.filter { it.height <= 30.0 }
+        assertTrue(slabs.all { it.bottom == 304.0 && it.top == LevelData.LEVEL_10_ROOM_FLOOR_Y })
+        val cell = assertNotNull(layout.prisonCell)
+        assertEquals(LevelData.LEVEL_10_ROOM_FLOOR_Y, layout.exitZone.bottom, "the exit is on the room's floor")
+        assertTrue(layout.exitZone.right <= cell.bars.left, "reached before the bars")
+        assertTrue(cell.prisonerX in cell.bars.left..cell.bars.right, "the figure is inside the cell")
+        assertTrue(layout.roomBackdrops.any { it.left <= cell.bars.left && it.right >= cell.bars.right }, "in a room")
+
+        // Checkpoints respawn standing: never in a wind zone, a jet or a drone's patrol.
+        for (cp in layout.manualCheckpoints) {
+            assertTrue(layout.fans.none { cp.x + 36.0 >= it.windMinX && cp.x <= it.windMaxX }, "${cp.id} is in a gale")
+            assertTrue(layout.steamPipes.none { kotlin.math.abs(cp.x + 18.0 - it.x) < 60.0 }, "${cp.id} is on a jet")
+            assertTrue(
+                layout.cameraBots.none { cp.x + 36.0 >= it.patrolMinX - it.visionRange && cp.x <= it.patrolMaxX + 32.0 },
+                "${cp.id} is in a drone's reach"
+            )
+        }
+
+        // The drone in the gale: a body the wind has blown back out of the zone is out of its sight.
+        val gale = layout.fans.first { it.id == "lvl10_fan_3" }
+        val galeBot = layout.cameraBots.first { it.id == "lvl10_bot_1" }
+        assertTrue(galeBot.patrolMinX > gale.windMinX && galeBot.patrolMaxX + 32.0 < gale.windMaxX, "it patrols inside the gale")
+        assertTrue(galeBot.patrolMinX - 2.0 - galeBot.visionRange > gale.windMinX, "its reach ends inside the zone")
+        assertTrue(GameWorld.WIND_SPAM_SPEED > galeBot.speed * 2.0, "it can be run down at spam-tap pace")
+
+        // The drone on patrol across a jet.
+        val jetBot = layout.cameraBots.first { it.id == "lvl10_bot_2" }
+        assertTrue(layout.steamPipes.any { it.x in jetBot.patrolMinX..jetBot.patrolMaxX })
+
+        // The gale gate: a jet inside a wind zone's far half.
+        val gate = layout.fans.first { it.id == "lvl10_fan_4" }
+        assertTrue(layout.steamPipes.any { it.x > (gate.windMinX + gate.windMaxX) / 2.0 && it.x < gate.windMaxX })
+
+        // Level 7 taught all of that. The one new thing is the end: a shut door and a freight lift,
+        // each worked from a switch, and the level's only tutorial is the switch - level 11 is built
+        // on them and has no tutorial of its own.
+        assertEquals(listOf("step_use_switches"), level.tutorialSteps.map { it.id })
+        assertEquals(TutorialAction.INTERACT, level.tutorialSteps.single().targetAction)
+        assertTrue(LevelData.DEFAULT_LEVEL_11.tutorialSteps.isEmpty(), "level 11 teaches nothing - level 10 did")
+        val door = layout.doors.single()
+        val lift = layout.lifts.single()
+        assertTrue(layout.doorSwitches.any { door.id in it.targets && it.centerX < door.x }, "the door's switch is in front of it")
+        assertTrue(layout.doorSwitches.any { lift.id in it.targets && it.centerX in lift.x..(lift.x + lift.width) }, "the lift's is reached from on it")
+        assertTrue(door.x + door.width <= lift.x && lift.x + lift.width < cell.bars.left, "door, then lift, then the cell room")
+        assertEquals(LevelData.LEVEL_10_ROOM_FLOOR_Y, lift.upperY, "it rises into the room's floor")
+    }
+
+    @Test
+    fun testLevel10sRoomIsTheOnlyWayPastEachWallAndTheOnlyWayPastEachGuardIsBelow() {
+        // "block the main path in random places and add room.png on top and add blocks and guards
+        // ... player should climb up and get this room and get out from other end" (2026-09-29).
+        val layout = LevelData.LEVEL_10_LAYOUT
+        val floorY = 440.0
+        val roomFloor = LevelData.LEVEL_10_ROOM_FLOOR_Y
+        val slabs = layout.boxes.filter { it.height <= 30.0 }.sortedBy { it.x }
+        val walls = layout.boxes.filter { it.top == 304.0 && it.bottom == floorY }
+        val steps = layout.boxes.filter { it.width == 68.0 && it.height == 48.0 }
+        assertEquals(6, walls.size, "two walls in the small room, three in the big one, the duct's end")
+        // The duct's end is not climbed: the freight lift in front of it is the way up.
+        val endLift = layout.lifts.single()
+        assertTrue(walls.any { it.left == endLift.x + endLift.width }, "the lift stands against the duct's end wall")
+        assertEquals(walls.size - 1, steps.size)
+        val gaps = slabs.zipWithNext { a, b -> a.right to b.left }
+        assertEquals(11, gaps.size, "a shaft up and a hole down per wall, the lift's shaft - but no way down from the cell")
+        val jumpHeight = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_10).player.maxJumpHeight
+        for (w in walls) {
+            if (w.left == endLift.x + endLift.width) continue
+            val step = steps.single { it.right == w.left }
+            // The shaft is open straight above the step and the ledge past it is a mantle, not a jump.
+            assertTrue(gaps.any { (l, r) -> l <= step.left - 36.0 && r == w.left }, "open air over the crate and in front of it at ${w.left}")
+            val ledge = slabs.single { it.left == w.left }
+            assertTrue(ledge in layout.floatingClimbTargets)
+            val rise = step.top - roomFloor
+            assertTrue(rise > jumpHeight && rise <= 115.0, "a mantle from the crate: $rise")
+            // "player should jump onto 1 box and then climb up": the crate is a jump, not a climb.
+            assertTrue(floorY - step.top < 48.5, "one crate, jumped onto from the floor")
+        }
+        // Every guard stands on one slab piece and never reaches a gap; each has a hole before
+        // him (the way under) and a shaft after him (the way back up behind him).
+        assertEquals(3, layout.guards.size)
+        for (g in layout.guards) {
+            assertEquals(roomFloor, g.surfaceY)
+            val slab = slabs.single { g.patrolMinX >= it.left && g.patrolMaxX + g.width <= it.right }
+            assertTrue(gaps.any { (_, r) -> r == slab.left }, "a hole before the guard")
+            assertTrue(gaps.any { (l, r) -> l == slab.right && walls.any { it.left == r } }, "a shaft up behind him")
+        }
+        // The room is on screen on the reference phone (top edge ~114) and a body stands in it.
+        assertTrue(LevelData.LEVEL_10_ROOM_CEILING_Y >= 114.0)
+        assertTrue(roomFloor - LevelData.LEVEL_10_ROOM_CEILING_Y >= 96.0 + 30.0)
+        assertEquals(3, layout.roomBackdrops.size, "a small room early, a big one later, the cell")
+    }
+
+    @Test
+    fun testLevel10IsHarderThanLevel7() {
+        val l7 = LevelData.LEVEL_7_LAYOUT
+        val l10 = LevelData.LEVEL_10_LAYOUT
+        // Less time to get through steam: every window is at most level 7's mid-level ones, and
+        // the late jets' dormancy floor is under the 0.8 level 7 is held to.
+        assertTrue(l10.steamPipes.all { it.inactiveDuration <= 1.1 }, "no level 10 jet has a long window")
+        assertTrue(l10.steamPipes.count { it.minDormantDuration < 0.8 } >= 6, "most late jets drop under level 7's floor")
+        assertTrue(l7.steamPipes.all { it.minDormantDuration == 0.8 }, "level 7 is untouched")
+        val shortest10 = l10.steamPipes.minOf { SteamPipe(it).cycles.take(20).minOf { c -> c.dormantDuration } }
+        val shortest7 = l7.steamPipes.minOf { SteamPipe(it).cycles.take(20).minOf { c -> c.dormantDuration } }
+        assertTrue(shortest10 < shortest7, "the tightest window is tighter: $shortest10 vs $shortest7")
+        assertTrue(l10.steamPipes.size > l7.steamPipes.size - 1, "and there are about as many jets or more")
+        // Drones: faster and quicker to turn.
+        assertTrue(l10.cameraBots.maxOf { it.speed } > l7.cameraBots.maxOf { it.speed })
+        assertTrue(l10.cameraBots.all { it.pauseDuration < 1.0 })
+        // Gales push harder, and a death costs more ground.
+        assertTrue(l10.fans.maxOf { it.windPushSpeed } > l7.fans.maxOf { it.windPushSpeed })
+        assertTrue(l10.manualCheckpoints.size < l7.manualCheckpoints.size)
+    }
+
+    @Test
+    fun testASteamPipesDormancyFloorIsItsOwn() {
+        val def = SteamPipeDef(id = "floor_probe", x = 0.0, activeDuration = 3.0, inactiveDuration = 0.6, minDormantDuration = 0.55)
+        val cycles = SteamPipe(def).cycles
+        assertTrue(cycles.all { it.dormantDuration >= 0.55 - 1e-9 })
+        assertTrue(cycles.any { it.dormantDuration < 0.8 }, "the floor really is lower than the default")
+        // The default is the old hard-coded clamp, so every existing pipe keeps its exact cycles.
+        val plain = SteamPipe(def.copy(minDormantDuration = 0.8)).cycles
+        assertTrue(plain.all { it.dormantDuration >= 0.8 - 1e-9 })
+        // And nothing goes below the readable minimum.
+        assertEquals(SteamPipe.MIN_DORMANT_FLOOR, SteamPipe(def.copy(minDormantDuration = 0.1)).minDormantDuration)
+    }
+
+    @Test
+    fun testLevel10SimulationPlayableWalkthrough() {
+        val elapsed = runVentWalkthrough(LevelData.DEFAULT_LEVEL_10, maxSimTime = 600.0)
+        // LevelWalkthroughTest's pace rule: the target is 1.25..2.0x a clean autopilot run.
+        val ratio = LevelData.DEFAULT_LEVEL_10.timeTargetSeconds / elapsed
+        assertTrue(ratio in 1.2..2.0, "target is ${ratio}x the clean run (${elapsed}s)")
+    }
+
+    /**
+     * Level 7's walkthrough autopilot, made wind-aware: inside a gale the body advances at
+     * [GameWorld.WIND_SPAM_SPEED], not its walking pace, which is what decides whether a drone
+     * patrolling inside one can be run down before it turns. Returns the time taken; fails on a
+     * death or on not reaching the exit.
+     */
+    private fun runVentWalkthrough(levelData: LevelData, maxSimTime: Double): Double {
+        val world = GameWorld.createDefault(levelData)
+        val dt = 1.0 / 60.0
+        var elapsed = 0.0
+        var restarts = 0
+        var deathX = 0.0
+        var deathCause = ""
+        world.onGameOver = {
+            restarts++
+            deathX = world.player.x
+            deathCause = when {
+                world.steamPipes.any { it.intersectsPlayer(world.player.bounds) } -> "steam"
+                world.detectingCameraBots.isNotEmpty() -> "drone " + world.detectingCameraBots.joinToString { it.id }
+                world.detectingGuards.isNotEmpty() -> "guard at " + world.detectingGuards.joinToString { it.x.toInt().toString() }
+                else -> "other"
+            }
+        }
+
+        var crossingPipe: SteamPipe? = null
+        var lastPx = world.player.x
+        var frame = 0
+        // Level 10's shafts up into a room: the crates, and for each the room guard whose
+        // beat ends just short of it - the one he climbs up behind.
+        val steps = world.boxes.filter { it.width == 68.0 && it.height == 48.0 }
+        fun guardBehind(step: Rect) = world.allGuards.firstOrNull { it.patrolMaxX < step.right && it.patrolMaxX > step.left - 500.0 }
+        while (elapsed < maxSimTime && !world.isLevelComplete && restarts == 0) {
+            val px = world.player.x
+            // In the duct or up in the room: the duct's hazards only matter down there.
+            val onFloor = world.player.y + world.player.height > 400.0
+            val inWind = world.fans.any { it.isPlayerInWind(world.player) }
+            val crossSpeed = if (inWind) GameWorld.WIND_SPAM_SPEED else world.player.moveSpeed
+
+            // Whether a jet opens on a crossing starting [delay] from now. Steam state is a pure
+            // function of the level clock, so probe it and put it back.
+            fun opensFor(pipe: SteamPipe, delay: Double, crossTime: Double): Boolean {
+                var t = 0.0
+                var open = true
+                while (t <= crossTime) {
+                    pipe.update(elapsed + delay + t)
+                    if (pipe.isActive) { open = false; break }
+                    t += 0.05
+                }
+                pipe.update(elapsed)
+                return open
+            }
+            fun catchable(bot: CameraBot, from: Double): Boolean {
+                if (bot.facing < 0.0) return false
+                val untilTurn = bot.pauseTimer + (bot.patrolMaxX - bot.x) / bot.speed
+                // A jet between him and the drone has to be waited for and crossed first.
+                val jet = world.steamPipes.firstOrNull { it.x > from + world.player.width && it.x < bot.x }
+                var start = from
+                var spent = 0.0
+                if (jet != null) {
+                    val waitAt = jet.x - jet.jetWidth / 2.0 - world.player.width - 4.0
+                    val walk = ((waitAt - from) / crossSpeed).coerceAtLeast(0.0)
+                    val crossTime = (jet.x + 20.0 - waitAt) / crossSpeed + 0.35
+                    var wait = 0.0
+                    while (!opensFor(jet, walk + wait, crossTime)) {
+                        wait += 0.05
+                        if (walk + wait > untilTurn) return false
+                    }
+                    spent = walk + wait + crossTime
+                    start = jet.x + 20.0
+                }
+                val botX = bot.x + bot.speed * spent
+                val toCatch = spent + (botX - bot.deactivationRange / 2.0 - start) / (crossSpeed - bot.speed)
+                return toCatch <= untilTurn - 0.5
+            }
+            // A bot further on that would see him at the near bot's far end, if it comes back.
+            fun nextBotWatches(bot: CameraBot): Boolean = world.cameraBots.any { other ->
+                other !== bot && !other.isDeactivated && other.patrolMinX > bot.patrolMaxX &&
+                    bot.patrolMaxX + world.player.width > other.patrolMinX - other.visionRange - 10.0 &&
+                    (other.facing < 0.0 || other.x - other.patrolMinX < 90.0)
+            }
+            val botDangerousAhead = world.cameraBots.firstOrNull { bot ->
+                if (bot.isDeactivated || !onFloor) false
+                else if (bot.facing < 0.0) {
+                    px in (bot.patrolMinX - bot.visionRange - 60.0)..bot.patrolMaxX
+                } else {
+                    (bot.x - px) < 15.0 ||
+                        (px in (bot.patrolMinX - bot.visionRange - 60.0)..bot.patrolMinX &&
+                            (!catchable(bot, px) || nextBotWatches(bot)))
+                }
+            }
+            val botToDeactivate = world.cameraBots.firstOrNull { !it.isDeactivated && it.canDeactivate(world.player) }
+            // Level 10's end: a switch in reach that opens a shut door ahead, or raises the lift he
+            // is standing on. Pressed on alternate frames (a switch toggles on the press).
+            val switchToThrow = world.doorSwitches.firstOrNull { sw ->
+                sw.isPlayerInRange(world.player) && sw.targets.any { id ->
+                    world.doors.any { it.id == id && !it.isOpen && it.frame.left >= px } ||
+                        world.lifts.any { it.id == id && !it.isUp && world.player.isGrounded &&
+                            kotlin.math.abs(world.player.y + world.player.height - it.topY) < 1.0 &&
+                            px >= it.def.x && px + world.player.width <= it.def.x + it.def.width }
+                }
+            }
+            val riding = world.lifts.any { it.isMoving }
+            val interact = botToDeactivate != null || (switchToThrow != null && frame % 2 == 0)
+
+            val nextPipe = if (!onFloor) null else world.steamPipes.firstOrNull { pipe -> px < pipe.x + 20.0 }
+            val pipeAhead = if (nextPipe != null && (nextPipe.x - px) in 30.0..110.0) nextPipe else null
+
+            if (crossingPipe != null) {
+                if (px > crossingPipe!!.x + 20.0) crossingPipe = null
+            } else if (pipeAhead != null) {
+                val needed = (pipeAhead.x + 20.0 - px) / crossSpeed + 0.35
+                val botComingBack = world.cameraBots.any { bot ->
+                    !bot.isDeactivated && pipeAhead.x < bot.patrolMinX &&
+                        pipeAhead.x + 20.0 + world.player.width > bot.patrolMinX - bot.visionRange - 60.0 &&
+                        !catchable(bot, px)
+                }
+                if (!botComingBack && pipeAhead.remainingInactiveTime(elapsed) >= needed) {
+                    crossingPipe = pipeAhead
+                }
+            }
+
+            val waitingForPipe = crossingPipe == null && pipeAhead != null
+            val shouldPause = waitingForPipe || (crossingPipe == null && botDangerousAhead != null)
+            // Out of reach of a drone heading back this way - including from inside its beat,
+            // where a turn caught him short of it.
+            val backOff = crossingPipe == null && onFloor && world.cameraBots.any { bot ->
+                !bot.isDeactivated && bot.facing < 0.0 && px < bot.x &&
+                    px + world.player.width > bot.patrolMinX - bot.visionRange - 10.0
+            }
+            // A shaft is only climbed while the guard it comes up behind is walking the other
+            // way with enough of his beat left to get up, across and down the next hole. Waited
+            // for on the floor short of the step, where the slab still hides him.
+            val shaftWait = onFloor && steps.any { step ->
+                val g = guardBehind(step) ?: return@any false
+                val approaching = px + world.player.width in (step.left - 60.0)..(step.left + 1.0)
+                val budget = (g.x - g.patrolMinX) / g.speed + g.patrolPauseDuration + (g.patrolMaxX - g.patrolMinX) / g.speed
+                approaching && !(g.state == GuardState.PATROL && g.facing < 0.0 && g.patrolPauseTimer <= 0.0 && budget >= SHAFT_EXPOSURE_SECONDS)
+            }
+            val moveInput = if (backOff) -1.0 else if (shouldPause || shaftWait || switchToThrow != null || riding) 0.0 else 1.0
+            // In a gale, holding back is simply not tapping - the wind carries him back.
+            val forwardTap = inWind && !shouldPause && !backOff && ((elapsed * 60).toInt() % 2 == 0)
+            // Pushing against a face he is not getting past (a step block, the slab's edge from
+            // the step): a climb fires on a jump PRESS, so pulse it.
+            val stuck = moveInput > 0.0 && !inWind && world.player.isGrounded && kotlin.math.abs(px - lastPx) < 0.01
+            val jump = stuck && frame % 2 == 0
+            lastPx = px
+            frame++
+
+            world.update(dt, moveInput = moveInput, jumpInput = jump, crouchInput = false, interactInput = interact, forwardTap = forwardTap)
+            elapsed += dt
+        }
+
+        println("${levelData.id} simulation finished at t=${elapsed}s, playerX=${world.player.x.toInt()}, isComplete=${world.isLevelComplete}, restarts=$restarts, alert=${world.alertProgress}")
+        assertEquals(0, restarts, "${levelData.id} simulation should clear without any deaths (died at x=${deathX.toInt()} by $deathCause, t=$elapsed)")
+        assertTrue(world.isLevelComplete, "${levelData.id} simulation must reach the exit (reached x=${world.player.x} at t=${elapsed}s)")
+        // Level 10's optional objective: a clean run throws each switch once.
+        if (levelData.bonusObjective != null) assertEquals(ObjectiveState.MET, world.bonusObjectiveState, "${levelData.id}'s optional objective")
+        return elapsed
+    }
+
+    /** How long a level 10 room guard's back has to stay turned for a climb up behind him. */
+    private val SHAFT_EXPOSURE_SECONDS = 4.5
 
     // ---- Level 8: the suspended-load yard ---------------------------------------------------
 
@@ -6723,7 +7107,9 @@ class GameplayModelTest {
         val platform = layout.boxes.first { it.height == 144.0 && it.width == 240.0 }
         val highPlatform = layout.boxes.first { it.height == 144.0 && it.width == 300.0 }
         /** The loaded flatbed that replaced the fixed step crate - see LevelLayout.pushCarts. */
-        val cartDef = layout.pushCarts.single()
+        val cartDef = layout.pushCarts.first { it.id == "lvl8_step_cart" }
+        /** The empty cart that catches the travelling load. */
+        val catchCartDef = layout.pushCarts.first { it.id == "lvl8_catch_cart" }
         /** Where it starts: parked well short of the platform, useless until it is walked over. */
         val cartAtRest = Rect(cartDef.initialX, groundY - cartDef.height, cartDef.width, cartDef.height)
         /** Where the level wants it: shoved flush against the platform's face. */
@@ -6734,7 +7120,7 @@ class GameplayModelTest {
          * it. Tests about the CLIMB start from that state; the walkthrough earns it instead.
          */
         fun parkCartAtPlatform(world: GameWorld) {
-            world.pushCarts.single().x = cartDef.maxX
+            world.pushCarts.first { it.id == "lvl8_step_cart" }.x = cartDef.maxX
         }
         /** The long stationary load hanging over the plane, back where the level starts. */
         val overheadCrate = layout.hangingCrateVariant1.first { it.x < platform.left }
@@ -6742,9 +7128,8 @@ class GameplayModelTest {
         val highCrate = layout.hangingCrateVariant1.first { it.x > platform.right }
         val sweepDef = layout.movingPlatforms.first { it.id == "lvl8_sweep_crate" }
         val platformCrateDef = layout.movingPlatforms.first { it.id == "lvl8_platform_crate" }
-        val bobDefs = layout.movingPlatforms.filter { it.id.startsWith("lvl8_bob_crate") }
+        val bobDefs = layout.movingPlatforms.filter { it.id.startsWith("lvl8_bob_crate") }.sortedBy { it.initialX }
         val barrels = layout.barrels
-        val woodCrate = layout.woodCrates.single()
         val lever = layout.levers.single()
         val hookCrate = layout.hookCrates.single()
         val landingLeft = platform.left + 6.0
@@ -6777,7 +7162,7 @@ class GameplayModelTest {
 
         // The grab prompt has to be reachable on foot before the cart stops the walk: the body
         // is 36 wide and GameWorld grabs from PushCart.GRIP_REACH short of the face.
-        val cart = LevelData.LEVEL_8_LAYOUT.pushCarts.single()
+        val cart = LevelData.LEVEL_8_LAYOUT.pushCarts.first()
         assertTrue(
             grab.triggerMinX < cart.initialX - 36.0 - PushCart.GRIP_REACH,
             "the grab prompt must open while walking up to the cart, not once already against it"
@@ -6821,34 +7206,23 @@ class GameplayModelTest {
     }
 
     @Test
-    fun testLevel8HangsAllThreeLoadsOnOneLineJustAboveThePlatform() {
-        // "move all three hanging crates little bit down to a level where the bottom level is
-        // just above the top of the platform". All three share one underside height, and that
-        // height is boxed in on both sides: below Player.crouchHeight the platform seals shut
-        // (nothing gets past the crate that sweeps it), at Player.height the crossing stops being
-        // an obstacle at all.
+    fun testLevel8HangsThePlaneLoadsWithTheirUndersidesLevelWithThePlatformTop() {
+        // "take these crates down to a level where their bottom is at the level of the top of the
+        // platform" (2026-09-28) - and "raise this moving crate to the same level as the
+        // stationary one": both plane loads share that underside, and the sweep crate runs out
+        // over the platform, where it meets the crossing crate.
         val g = Level8Geometry()
         val p = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8).player
-
-        val bottoms = listOf(
-            "the long plane load" to g.overheadCrate.bottom,
-            "the sweeping load" to g.sweepDef.y + g.sweepDef.height,
-            "the platform load" to g.platformCrateDef.y + g.platformCrateDef.height
+        assertEquals(g.platform.top, g.overheadCrate.bottom, 1e-9, "the long plane load's underside is level with the platform top")
+        assertEquals(g.overheadCrate.y, g.sweepDef.y, 1e-9, "the sweep crate hangs level with the stationary one")
+        val meet = g.sweepDef.maxX + g.sweepDef.width
+        assertTrue(meet - g.platform.left in 40.0..100.0, "they meet over the platform, some way in (${meet - g.platform.left})")
+        assertTrue(g.sweepDef.minX > g.overheadCrate.right, "the sweep crate never reaches the stationary one")
+        val platformCrateBottom = g.platformCrateDef.y + g.platformCrateDef.height
+        assertTrue(
+            g.platform.top - platformCrateBottom < p.crouchHeight,
+            "the platform crate is lifted, but never into a gap a crouched body fits under"
         )
-        val first = bottoms.first().second
-        for ((name, bottom) in bottoms) {
-            assertEquals(first, bottom, 0.001, "$name must hang on the same line as the others")
-            val clearance = g.platform.top - bottom
-            assertTrue(clearance > 0.0, "$name must hang ABOVE the platform surface, not through it")
-            assertTrue(
-                clearance > p.crouchHeight,
-                "$name leaves $clearance over the platform - a crouched body (${p.crouchHeight}) would not fit"
-            )
-            assertTrue(
-                clearance < p.height,
-                "$name leaves $clearance over the platform - a standing body (${p.height}) walks straight under"
-            )
-        }
     }
 
     @Test
@@ -6862,17 +7236,22 @@ class GameplayModelTest {
         val p = world.player
         val sweep = world.movingPlatforms.first { it.id == "lvl8_sweep_crate" }
 
-        for ((name, bottom) in listOf("the long load" to g.overheadCrate.bottom, "the moving load" to sweep.bounds.bottom)) {
-            val reach = g.groundY - bottom
+        for ((name, box) in listOf("the long load" to g.overheadCrate, "the moving load" to sweep.bounds)) {
+            val reach = g.groundY - box.bottom
             assertTrue(reach > p.climbMaxHeight, "$name hangs $reach above the floor, inside climb reach (${p.climbMaxHeight})")
-            assertTrue(reach > p.maxJumpHeight + p.height, "$name is within a jumping body's reach ($reach)")
+            // Its underside is inside a jumping head's reach now (the hang line is level with the
+            // platform top), but its TOP - the only thing a body could stand on - is not.
+            val top = g.groundY - box.top
+            assertTrue(top > p.maxJumpHeight + p.height, "$name's top is within a jumping body's reach ($top)")
         }
 
-        // And the same thing driven: run the whole plane jumping the whole way, and the feet
-        // must never come to rest anywhere but the floor and the step crate.
+        // And the same thing driven: run the long load's stretch jumping the whole way, and the
+        // feet must never come to rest anywhere but the floor and the cart. It stops short of the
+        // sweeping load, which is a crusher - a head jumped into it as it swings in is a death,
+        // not a landing, and that belongs to the sweep crate's own tests.
         val dt = 1.0 / 60.0
         var frame = 0
-        while (p.x < g.platform.left - 80.0 && frame < 3000) {
+        while (p.x + p.width < g.sweepDef.minX - 10.0 && frame < 3000) {
             // Pulsed, not held: Player re-arms the jump only on release.
             world.update(dt, moveInput = 1.0, jumpInput = (frame % 10) < 5, crouchInput = false, interactInput = false)
             val feet = p.y + p.height
@@ -6919,30 +7298,215 @@ class GameplayModelTest {
     }
 
     @Test
-    fun testLevel8PlatformCrateSweepsTheCrossingButNeverTheLanding() {
-        // "replace it with a short hanging crate which moves left and right". Two things about
-        // where it is allowed to travel: it must stay off the landing (that tile belongs to the
-        // sweep crate, and stacking both hazards on it would make the climb unsurvivable no
-        // matter how well it was read), and it must not be a crusher - a mistimed crossing costs
-        // a shove, not the run.
+    fun testLevel8PlatformCrateSwingsPastTheRightLip() {
+        // "make the right crate swing some way past the platform". At the far end of each swing
+        // its left edge clears the lip, so the whole platform is open and the way off the right
+        // side is clear for a moment every cycle.
         val g = Level8Geometry()
-        val p = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8).player
-        val landingRight = g.landingLeft + p.width
-
-        assertTrue(
-            g.platformCrateDef.minX > landingRight,
-            "the platform crate must never reach the landing (min ${g.platformCrateDef.minX} vs landing end $landingRight)"
-        )
-        assertTrue(
-            g.platformCrateDef.maxX + g.platformCrateDef.width <= g.platform.right + 0.001,
-            "the platform crate should sweep the platform, not overhang past its right lip"
-        )
         assertTrue(g.platformCrateDef.maxX > g.platformCrateDef.minX, "it has to actually move left and right")
+        assertTrue(
+            g.platformCrateDef.maxX > g.platform.right,
+            "at the end of its swing the crate must be clear past the lip (left edge ${g.platformCrateDef.maxX} vs ${g.platform.right})"
+        )
+        assertTrue(
+            g.platformCrateDef.minX < g.platform.right - g.platformCrateDef.width,
+            "...and at the other end it must be back over the platform, or it crosses nothing"
+        )
         assertFalse(g.platformCrateDef.crushesOnContact, "the platform crate is a blocker, not a crusher")
+        // Out past the lip it hangs over the barrels; a body standing on them must still fit
+        // under it, since that is where dropping off the lip lands.
+        val p = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8).player
+        val barrelTop = g.barrels.minOf { it.top }
+        assertTrue(
+            barrelTop - (g.platformCrateDef.y + g.platformCrateDef.height) >= p.height,
+            "a body standing on the barrels must fit under the crate once it has swung out past the lip"
+        )
         assertTrue(
             g.layout.hangingCrateVariant1.none { it.x > g.platform.left && it.x < g.platform.right },
             "the long stationary crouch crate that used to hang here must be gone"
         )
+    }
+
+    @Test
+    fun testLevel8TheTwoMovingLoadsSqueezeWhoeverIsBetweenThem() {
+        // "the two crates should come very close to each other and if he is in between them at
+        // that point mission should fail". They never overlap, close to 4 apart once a cycle -
+        // less than a body - and a body standing on the landing then is Mission Failed.
+        val g = Level8Geometry()
+        val p0 = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8).player
+        val sweepFarRight = g.sweepDef.maxX + g.sweepDef.width
+        val gap = g.platformCrateDef.minX - sweepFarRight
+        assertTrue(gap in 0.0..8.0, "they come very close ($gap)")
+        assertTrue(gap < p0.width, "...closer than a body is wide")
+        assertTrue(g.sweepDef.squeezes && g.platformCrateDef.squeezes)
+
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        val sweep = world.movingPlatforms.first { it.id == "lvl8_sweep_crate" }
+        val crossing = world.movingPlatforms.first { it.id == "lvl8_platform_crate" }
+        val dt = 1.0 / 60.0
+        repeat((40.0 / dt).toInt()) {
+            world.player.x = 236.0
+            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+            assertFalse(sweep.bounds.intersects(crossing.bounds), "the moving loads touched: ${sweep.bounds} vs ${crossing.bounds}")
+        }
+
+        // Where a body is when they meet (level time 4, mod 8).
+        fun caught(place: (GameWorld) -> Unit, crouch: Boolean = false): Boolean {
+            val w = level8At(0.1) { }
+            while (w.totalElapsedSeconds < 3.2) {
+                place(w)
+                w.update(dt, 0.0, false, crouch, false)
+                if (w.isGameOver) return true
+            }
+            repeat(60 * 2) {
+                place(w)
+                w.update(dt, 0.0, false, crouch, false)
+                if (w.isGameOver) return true
+            }
+            return false
+        }
+        val meet = g.sweepDef.maxX + g.sweepDef.width
+        assertTrue(caught({ it.player.x = meet - it.player.width / 2.0; it.player.y = g.platform.top - it.player.height; it.player.vy = 0.0 }),
+            "standing where they meet, as they meet, is Mission Failed")
+        assertFalse(caught({
+            val s = it.movingPlatforms.first { m -> m.id == "lvl8_sweep_crate" }
+            it.player.x = s.right - 50.0; it.player.y = s.top - it.player.height; it.player.vy = 0.0
+        }), "riding on top of the sweep crate is not between them")
+        assertFalse(caught({
+            val c = it.pushCarts.first { m -> m.id == "lvl8_step_cart" }
+            c.x = c.maxX
+            it.player.x = c.x + c.width - it.player.width; it.player.y = c.y - it.player.height; it.player.vy = 0.0
+        }, crouch = true), "crouched on the cart under the sweep crate is not between them")
+    }
+
+    /** Level 8 run [seconds] in, with the player parked (and re-parked every frame) by [park]. */
+    private fun level8At(seconds: Double, park: (GameWorld) -> Unit): GameWorld {
+        val world = level8Unwatched()
+        val dt = 1.0 / 60.0
+        var t = 0.0
+        // Up on the mid platform first, the way the high road arrives - a body that last stood at
+        // floor level is not allowed onto the hanging loads at all (isBoardingFromFloorLevel).
+        repeat(3) {
+            world.player.x = 960.0
+            world.player.y = 296.0 - world.player.height
+            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+            t += dt
+        }
+        while (t < seconds) {
+            park(world)
+            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
+            t += dt
+        }
+        return world
+    }
+
+    /**
+     * Stands the body on top of the sweep crate at its right edge until [t0], then jumps right -
+     * straight away, or ([runUp]) from 30 back at a run, taking off as the feet reach the edge.
+     * True if it comes down on the platform crate.
+     */
+    private fun level8CrateToCrateJumpLands(t0: Double, runUp: Boolean): Boolean {
+        val world = level8At(t0) { w ->
+            val s = w.movingPlatforms.first { it.id == "lvl8_sweep_crate" }
+            w.player.x = s.right - 18.0 - (if (runUp) 30.0 else 0.0)
+            w.player.y = s.top - w.player.height
+            w.player.vx = 0.0
+            w.player.vy = 0.0
+        }
+        val s = world.movingPlatforms.first { it.id == "lvl8_sweep_crate" }
+        val c = world.movingPlatforms.first { it.id == "lvl8_platform_crate" }
+        val p = world.player
+        var jumped = !runUp
+        for (f in 0 until 150) {
+            val jumpNow = if (runUp) !jumped && p.isGrounded && p.x + p.width / 2.0 >= s.right - 2.5 else f == 0
+            if (jumpNow) jumped = true
+            world.update(1.0 / 60.0, moveInput = 1.0, jumpInput = jumpNow, crouchInput = false, interactInput = false)
+            if (world.isGameOver) return false
+            val footCenter = p.x + p.width / 2.0
+            if (jumped && p.isGrounded && kotlin.math.abs(p.y + p.height - c.top) < 1.5 &&
+                footCenter >= c.left && footCenter <= c.right
+            ) return true
+            if (p.y + p.height > c.bottom + 20.0) return false
+        }
+        return false
+    }
+
+    @Test
+    fun testLevel8TheSqueezeLeavesJustEnoughTime() {
+        // "just as the crate moves left from his position he has to climb up and quickly drop down
+        // from other side. he should have just enough time to do that." Climbing the moment the
+        // sweep crate clears gets across and off the right lip; hanging back much gets caught.
+        val g = Level8Geometry()
+        fun escapes(delay: Double): Boolean = try {
+            val run = Level8Run()
+            run.upToTheMidPlatform(climbDelay = delay)
+            var f = 0
+            while (!(run.onFloor && run.p.x > g.platform.right) && f < 60 * 12) { run.frame(move = 1.0); f++ }
+            run.onFloor && run.p.x > g.platform.right
+        } catch (e: AssertionError) {
+            false
+        }
+        assertTrue(escapes(0.0), "straight up and across makes it")
+        var latest = 0.0
+        while (latest < 3.0 && escapes(latest + 0.1)) latest += 0.1
+        println("LEVEL8 squeeze: the climb can wait ${latest}s at most")
+        assertTrue(latest < 0.8, "...with only a little time to spare (${latest}s)")
+    }
+
+    @Test
+    fun testLevel8PlatformCrateCannotBeJumpedOrClimbedOntoFromThePlatform() {
+        // "lift this crate up a little bit so that player cant jump from the platform to the
+        // crate". Driven at every point of a cycle: stand on the platform against the crate's
+        // near face and keep jumping into it - the feet must never come to rest on its top.
+        val g = Level8Geometry()
+        val period = g.platformCrateDef.periodSeconds
+        var tried = 0
+        for (i in 0 until 80) {
+            val world = level8At(1.0 + i * period / 80) { }
+            val c = world.movingPlatforms.first { it.id == "lvl8_platform_crate" }
+            val p = world.player
+            if (c.left < g.platform.left + 40.0 || c.left > g.platform.right) continue
+            tried++
+            p.x = c.left - p.width - 1.0
+            p.y = g.platform.top - p.height
+            p.vx = 0.0
+            p.vy = 0.0
+            for (f in 0 until 120) {
+                world.update(1.0 / 60.0, moveInput = 1.0, jumpInput = f % 10 < 5, crouchInput = false, interactInput = false)
+                // Shoved back off the landing onto the sweep crate, it is not "from the platform".
+                if (world.isGameOver || (p.isGrounded && kotlin.math.abs(p.y + p.height - g.platform.top) > 1.5)) break
+                assertFalse(
+                    p.isGrounded && kotlin.math.abs(p.y + p.height - c.top) < 1.5,
+                    "reached the platform crate's top from the platform (phase $i)"
+                )
+            }
+        }
+        assertTrue(tried >= 15, "the crate has to spend real time over the platform for this to mean anything ($tried)")
+    }
+
+    @Test
+    fun testLevel8CrateToCrateJumpOpensOnceEveryCycleForAShortWindow() {
+        // "can jump from the previous crate to this crate. make sure in every period the crates
+        // are close enough to jump from one to other but not too easy to make the jump". Two
+        // crates on one period, half a cycle apart, close to the same gap once every cycle - so
+        // three cycles are sampled and each must open the jump, for a short part of the cycle.
+        // The jump is taken from the very edge while still standing on it.
+        val g = Level8Geometry()
+        assertEquals(g.sweepDef.periodSeconds, g.platformCrateDef.periodSeconds, 1e-9, "one shared period")
+        val period = g.platformCrateDef.periodSeconds
+        val steps = 80
+        val stepSeconds = period / steps
+        for (cycle in 0 until 3) {
+            var running = 0
+            for (i in 0 until steps) {
+                val t0 = 1.0 + cycle * period + i * stepSeconds
+                if (level8CrateToCrateJumpLands(t0, runUp = true)) running++
+            }
+            val window = running * stepSeconds
+            // The two now meet 4 apart (the squeeze), so this is a short hop up - level 9's.
+            assertTrue(window > 0.5, "cycle $cycle: the jump must open for a real moment (${window}s)")
+            assertTrue(window < 2.5, "cycle $cycle: the jump is open too long to be a timing jump (${window}s)")
+        }
     }
 
     @Test
@@ -6961,268 +7525,617 @@ class GameplayModelTest {
         }
     }
 
-    @Test
-    fun testLevel8BobbingPairForcesTheCrouchAtEveryPointOfItsTravel() {
-        // "2 short hanging crates that move up and down. player should crouch to avoid them."
-        // The crouch has to be the answer at EVERY phase, not at the lucky ones - so the whole
-        // travel is checked, not just the endpoints: never more than Player.height of clearance
-        // (upright never fits) and never less than crouchHeight (ducked always does).
-        val g = Level8Geometry()
-        val p = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8).player
-        assertEquals(2, g.bobDefs.size, "there should be exactly two bobbing loads")
+    // ---- Level 8's back half: the bobbing chain, the travelling load, the catch, the swing ----
 
-        for (d in g.bobDefs) {
-            assertEquals(d.minX, d.maxX, 0.001, "a bobbing load moves vertically, not horizontally")
-            assertTrue(d.maxY > d.minY, "...and it has to actually move")
-            assertTrue(d.crushesOnContact, "walking into one upright must be fatal, or the crouch is optional")
-
-            val highest = g.groundY - (d.minY + d.height) // crate at the top of its bob
-            val lowest = g.groundY - (d.maxY + d.height)  // crate at the bottom of its bob
-            assertTrue(
-                highest < p.height,
-                "at the top of its bob ${d.id} leaves $highest - a standing body (${p.height}) fits under it"
-            )
-            assertTrue(
-                lowest > p.crouchHeight,
-                "at the bottom of its bob ${d.id} leaves $lowest - a crouched body (${p.crouchHeight}) is crushed"
-            )
-        }
-        // Opposite phases, so the pair reads as two loads rather than one bar.
-        assertTrue(
-            g.bobDefs.map { it.phaseOffsetSeconds }.distinct().size == 2,
-            "the two loads should bob out of phase with each other"
-        )
+    /** Level 8 without its camera, for tests about the mechanisms rather than about being seen. */
+    private fun level8Unwatched(): GameWorld {
+        val layout = LevelData.LEVEL_8_LAYOUT.copy(cameras = emptyList())
+        return GameWorld.createFromLayout(LevelData.DEFAULT_LEVEL_8.copy(layout = layout), layout)
     }
 
-    @Test
-    fun testLevel8BobbingPairCanBeNeitherJumpedNorClimbedOnto() {
-        // "make sure that it is not possible for them to jump or climb onto them. it should be
-        // at that height not too be able to jump onto it". Driven, not just measured: crouch the
-        // whole gauntlet with the jump button pulsing, and the feet must stay on the floor.
-        val g = Level8Geometry()
-        val p = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8).player
+    private fun GameWorld.l8Frames(
+        frames: Int = 1,
+        move: Double = 0.0,
+        jump: Boolean = false,
+        interact: Boolean = false
+    ) {
+        repeat(frames) { update(1.0 / 60.0, move, jump, false, interact) }
+    }
 
-        for (d in g.bobDefs) {
-            // At the bottom of the bob the top is inside climbMaxHeight, so the ONLY thing
-            // refusing the mantle is findClimbTarget's floating-ledge rule (underside more than
-            // 4 above the feet). Pin that the underside really is clear of the feet.
-            val lowestUnderside = g.groundY - (d.maxY + d.height)
-            assertTrue(lowestUnderside > 4.0, "${d.id} must never brace against the floor, or it becomes climbable")
-            // At the top of the bob it is out of climb reach outright.
-            assertTrue(g.groundY - d.minY > p.climbMaxHeight, "${d.id} is inside climb reach at the top of its bob")
-            // And never within a jump, at any phase.
-            assertTrue(g.groundY - d.maxY > p.maxJumpHeight, "${d.id} is jumpable at the bottom of its bob")
+    /**
+     * A hop along the high road: stood 30 back from [srcId]'s right edge until level time [t0],
+     * then a run and a jump off the edge. True if it comes down on [dstId]'s top - or, for a null
+     * [dstId], on the long crate's.
+     */
+    private fun level8HopLands(srcId: String, dstId: String?, t0: Double): Boolean {
+        val world = level8At(t0) { w ->
+            val s = w.movingPlatforms.first { it.id == srcId }.bounds
+            w.player.x = s.right - 48.0
+            w.player.y = s.top - w.player.height
+            w.player.vx = 0.0
+            w.player.vy = 0.0
         }
+        if (world.isGameOver) return false
+        val p = world.player
+        val longCrate = Level8Geometry().highCrate
+        var jumped = false
+        for (f in 0 until 180) {
+            val s = world.movingPlatforms.first { it.id == srcId }.bounds
+            val jumpNow = !jumped && p.isGrounded && p.x + p.width / 2.0 >= s.right - 2.5
+            if (jumpNow) jumped = true
+            world.update(1.0 / 60.0, moveInput = 1.0, jumpInput = jumpNow, crouchInput = false, interactInput = false)
+            if (world.isGameOver) return false
+            val d = if (dstId == null) longCrate else world.movingPlatforms.first { it.id == dstId }.bounds
+            val footCenter = p.x + p.width / 2.0
+            if (jumped && p.isGrounded && kotlin.math.abs(p.y + p.height - d.top) < 1.5 &&
+                footCenter >= d.left && footCenter <= d.right
+            ) return true
+            if (jumped && f > 5 && p.isGrounded) return false
+            if (p.y + p.height > 438.0) return false
+        }
+        return false
+    }
 
-        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
-        val pl = world.player
-        val dt = 1.0 / 60.0
-        val gauntletStart = g.bobDefs.minOf { it.initialX } - 120.0
-        val gauntletEnd = g.bobDefs.maxOf { it.initialX + it.width } + 60.0
-        // Teleport to the run-up rather than walking the whole level - this test is about the
-        // gauntlet, and the route in is the walkthrough test's job.
-        pl.x = gauntletStart
-        pl.y = g.groundY - pl.height
-        var frame = 0
-        while (pl.x < gauntletEnd && frame < 3000) {
-            world.update(dt, moveInput = 1.0, jumpInput = (frame % 10) < 5, crouchInput = true, interactInput = false)
-            assertFalse(world.isGameOver, "a crouched crossing of the bobbing pair must survive (x=${pl.x})")
-            if (pl.isGrounded) {
-                assertEquals(
-                    g.groundY, pl.y + pl.height, 1.0,
-                    "nothing in the gauntlet may be landed on (feet at ${pl.y + pl.height}, x=${pl.x})"
-                )
+    /** The level-clock phases (mod the shared 8s cycle) at which a hop lands, sampled every 0.05s. */
+    private fun level8HopWindow(srcId: String, dstId: String?, cycles: Int = 1): List<Double> {
+        val period = Level8Geometry().sweepDef.periodSeconds
+        val out = ArrayList<Double>()
+        val steps = (period / 0.05).toInt()
+        for (c in 0 until cycles) for (i in 0 until steps) {
+            val t0 = period * (1 + c) + i * 0.05
+            if (level8HopLands(srcId, dstId, t0)) out.add(t0)
+        }
+        return out
+    }
+
+    /** The middle of the longest unbroken run of [times] (sampled [step] apart), mod [period]. */
+    private fun middleOfLongestRun(times: List<Double>, step: Double, period: Double): Double {
+        require(times.isNotEmpty())
+        var bestStart = 0
+        var bestLen = 0
+        var start = 0
+        for (i in 1..times.size) {
+            if (i == times.size || times[i] - times[i - 1] > step * 1.5) {
+                if (i - start > bestLen) {
+                    bestLen = i - start
+                    bestStart = start
+                }
+                start = i
             }
-            frame++
         }
-        assertTrue(pl.x >= gauntletEnd, "the crouched crossing must get all the way through (stopped at ${pl.x})")
+        val mid = (times[bestStart] + times[bestStart + bestLen - 1]) / 2.0
+        return ((mid % period) + period) % period
     }
 
     @Test
-    fun testLevel8HighCrateIsWalkedUnderStandingUp() {
-        // "after that add a long hanging crate. person doesnt have to crouch for that."
+    fun testLevel8BobChainRunsFromHighDownToJustOffTheFloor() {
+        // "make these two crates lift up and down more ... add another similar crate ... make
+        // those 3 crates move very close to the ground when they move down".
         val g = Level8Geometry()
-        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
-        val p = world.player
-        assertTrue(
-            g.groundY - g.highCrate.bottom > p.height,
-            "the high load must clear a standing body (${g.groundY - g.highCrate.bottom} vs ${p.height})"
+        val p = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8).player
+        assertEquals(3, g.bobDefs.size, "three bobbing loads")
+        for (d in g.bobDefs) {
+            val lowClearance = g.groundY - (d.maxY + d.height)
+            assertTrue(lowClearance in 0.0..10.0, "${d.id} must come down to just off the floor ($lowClearance)")
+            assertTrue(lowClearance < p.crouchHeight, "...so nothing fits under it at the bottom")
+            assertTrue(d.maxY - d.minY >= 100.0, "${d.id} must travel a long way (was 28; now ${d.maxY - d.minY})")
+            assertTrue(d.crushesOnContact, "${d.id}: caught under it is Mission Failed")
+            assertEquals(g.sweepDef.periodSeconds, d.periodSeconds, 1e-9, "one cycle shared with the sweep pair")
+        }
+        // In order along the road: the crossing crate, the three, then the long crate.
+        val xs = g.bobDefs.map { it.initialX }
+        assertEquals(xs.sorted(), xs)
+        assertTrue(g.platformCrateDef.maxX + g.platformCrateDef.width < xs.first())
+        assertTrue(g.bobDefs.last().initialX + g.bobDefs.last().width < g.highCrate.left)
+
+        // Driven: stand on the floor under bob 1 and wait - it comes down on you.
+        val world = level8Unwatched()
+        val b1 = world.movingPlatforms.first { it.id == "lvl8_bob_crate_1" }
+        val player = world.player
+        player.x = b1.left + (b1.width - player.width) / 2.0
+        player.y = g.groundY - player.height
+        var frames = 0
+        while (!world.isGameOver && frames < 60 * 10) {
+            world.l8Frames()
+            frames++
+        }
+        assertTrue(world.isGameOver, "a body left standing under a bobbing load must be crushed")
+    }
+
+    @Test
+    fun testLevel8NoHangingLoadCanBeBoardedFromFloorLevel() {
+        // "dont let them jump onto them. if they are in jumpable height, artificially block
+        // getting onto them. do the same with all the hanging crates in this level".
+        val g = Level8Geometry()
+        for (d in g.layout.movingPlatforms) assertTrue(d.noGroundBoarding, "${d.id} must refuse floor-level boarding")
+        assertTrue(g.hookCrate.noGroundBoarding, "the travelling load too")
+        // The two stationary loads need no flag: out of reach from anything at floor level.
+        val p = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8).player
+        for (box in listOf(g.overheadCrate, g.highCrate)) {
+            assertTrue(g.groundY - g.cartDef.height - box.top > p.maxJumpHeight,
+                "a stationary load's top must be out of jump reach even from a cart deck")
+            assertTrue(box.bottom < g.groundY - g.cartDef.height - 4.0,
+                "...and floating clear of it, so it is no climb either")
+        }
+
+        // Driven: from the floor beside each bobbing load, at points right round its cycle, run
+        // at it jumping. Getting crushed is allowed (it is a hazard); standing on it is not.
+        for (id in listOf("lvl8_bob_crate_1", "lvl8_bob_crate_2", "lvl8_bob_crate_3")) {
+            for (k in 0 until 16) {
+                val world = level8Unwatched()
+                val b = world.movingPlatforms.first { it.id == id }
+                val player = world.player
+                val start = k * 0.5
+                var t = 0.0
+                while (t < start) {
+                    player.x = b.left - player.width - 24.0
+                    player.y = g.groundY - player.height
+                    world.l8Frames()
+                    t += 1.0 / 60.0
+                }
+                for (f in 0 until 180) {
+                    world.l8Frames(move = 1.0, jump = f % 10 < 5)
+                    if (world.isGameOver) break
+                    val feet = player.y + player.height
+                    for (mp in world.movingPlatforms) {
+                        val fc = player.x + player.width / 2.0
+                        assertFalse(
+                            player.isGrounded && kotlin.math.abs(feet - mp.top) < 1.5 && fc >= mp.left && fc <= mp.right,
+                            "got onto ${mp.id} from floor level (start ${start}s)"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun testLevel8EveryHopOnTheHighRoadOpensForAShortWindowEveryCycle() {
+        // "it is possible to jump from the previous moving crate to this but not too easy as well
+        // (they should use proper timing) ... space those three so that it is possible to jump
+        // from one to other and finally to the long crate". Every load shares one cycle, so each
+        // hop's window recurs identically - two cycles are sampled to show it, and each has to be
+        // real (a timed jump) without being most of the cycle.
+        val hops = listOf(
+            "lvl8_platform_crate" to "lvl8_bob_crate_1",
+            "lvl8_bob_crate_1" to "lvl8_bob_crate_2",
+            "lvl8_bob_crate_2" to "lvl8_bob_crate_3"
         )
-        assertTrue(g.highCrate.left > g.bobDefs.maxOf { it.initialX }, "it comes after the bobbing pair")
-
-        // Driven: walk it standing, never crouching, and nothing may stop or kill the body.
-        val dt = 1.0 / 60.0
-        p.x = g.highCrate.left - 80.0
-        p.y = g.groundY - p.height
-        var frame = 0
-        while (p.x < g.highCrate.right + 40.0 && frame < 2000) {
-            world.update(dt, moveInput = 1.0, jumpInput = false, crouchInput = false, interactInput = false)
-            assertFalse(world.isGameOver, "the high load must not be able to kill anyone (x=${p.x})")
-            assertFalse(p.isCrouching, "nothing should force a crouch here")
-            frame++
+        val period = Level8Geometry().sweepDef.periodSeconds
+        for ((src, dst) in hops) {
+            val window = level8HopWindow(src, dst, cycles = 2)
+            for (c in 0 until 2) {
+                val inCycle = window.count { it >= period * (1 + c) && it < period * (2 + c) } * 0.05
+                val name = "$src -> ${dst ?: "the long crate"}"
+                println("LEVEL8 window $name cycle $c: ${inCycle}s")
+                assertTrue(inCycle >= 0.5, "$name must open every cycle (cycle $c: ${inCycle}s)")
+                // The chain is a wave at cart speed now (bob lag 3.39s) - wider hop windows
+                // than the 2.0s lag gave, still well under half a cycle.
+                assertTrue(inCycle <= 3.0, "$name is open too long to need timing (cycle $c: ${inCycle}s)")
+            }
         }
-        assertTrue(p.x >= g.highCrate.right + 40.0, "a standing walk must clear the high load (stopped at ${p.x})")
     }
 
     @Test
-    fun testLevel8LeverDropsTheHookCrateAndThatCrateIsTheWayUp() {
-        // "there is a wooden crate (the striped one) and a lever after that. above them is a
-        // wooden box connected using rope to a hook. pressing the lever drops the crate."
-        // Plus the part the request left open - what the drop is FOR. It is the only way onto
-        // the high platform, so both halves are pinned together.
+    fun testLevel8LongCrateAndDeckLoadShareTheLiftedLine() {
+        // "lift this long crate, swing and the short moving crate after that and after the swing
+        // the player should land on that short moving crate": the swing lands at exactly the
+        // height it leaves from, so the long crate's top IS the deck load's.
         val g = Level8Geometry()
-        assertTrue(g.woodCrate in g.layout.boxes, "the striped crate must be a real box, not just art")
-        assertEquals(g.groundY, g.woodCrate.bottom, 0.001, "the striped crate stands on the floor")
-        assertTrue(g.lever.x > g.woodCrate.right, "the lever comes after the striped crate")
-        assertEquals("lvl8_hook_crate", g.lever.targetMechanismId, "the lever must be wired to the hanging box")
-        assertTrue(g.hookCrate.ropeLength > 0.0, "the hanging box hangs on a rope")
-        assertTrue(g.layout.hangingHooks.contains(g.hookCrate.hook), "...and that rope hangs from a drawn hook")
-        assertTrue(g.hookCrate.bounds.bottom < g.groundY - 100.0, "it starts well up in the air")
+        val p = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8).player
+        val deck = g.layout.movingPlatforms.first { it.id == "lvl8_deck_crate" }
+        assertEquals(deck.y, g.highCrate.top, 1e-9, "the long crate's top is level with the deck load's")
+        assertTrue(g.highPlatform.top - g.highCrate.top > p.maxJumpHeight, "the deck load is out of a jump from the high platform")
+        assertTrue(g.highCrate.top - 96.0 >= 140.0, "...and a body standing up there is still on a phone's screen")
+        // On the high platform it is a block at chest height (level 8 follows it out); on the
+        // floor beyond, it passes clean over a standing head.
+        assertTrue(g.groundY - (deck.y + deck.height) >= p.height, "a standing body on the floor fits under it")
+        assertTrue(g.groundY - g.highCrate.bottom > p.visualHeight, "a standing body (drawn) walks under the long crate")
+        // Far past a plain jump - the hook is the only way across up top.
+        assertTrue(g.highPlatform.left - g.highCrate.right > 150.0, "the gap to the platform must need the swing")
+        // "move the lever to under the long crate".
+        assertTrue(g.lever.centerX > g.highCrate.left && g.lever.centerX < g.highCrate.right, "the lever stands under the long crate")
+        assertEquals(g.groundY, g.lever.y + g.lever.height, 1e-9, "on the floor")
+    }
 
-        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
-        val p = world.player
+    @Test
+    fun testLevel8TravellingLoadFitsTheCartAndCannotLandInOneAlreadyAtThePlatform() {
+        val g = Level8Geometry()
+        val hc = g.hookCrate
+        assertTrue(hc.sweepX > 40.0, "the hanging load must move left and right")
+        assertTrue(hc.physical, "...and swing, fall and bounce as a real body")
+        assertTrue(hc.hook in g.layout.swingHooks, "its hook is a swing hook once it is empty")
+        assertTrue(g.catchCartDef.startsEmpty, "the cart under it starts empty")
+        val cart = PushCart(g.catchCartDef)
+        val clearance = (cart.loadBounds.width - hc.initialBounds.width) / 2.0
+        assertTrue(clearance in 2.0..8.0, "it has to fit between the handle posts, with a little room ($clearance a side)")
+        assertEquals(cart.deckY - cart.y, hc.initialBounds.height, 1e-6, "as tall as the deck is deep - a loaded cart is the 48 step")
+        // "after catching player has to move it to right": a cart already flush against the
+        // platform catches nothing, whenever in the rig's cycle the load is dropped - measured by
+        // dropping it at every frame of a cycle, since it drifts with the rig as it falls.
+        assertEquals(g.highPlatform.left, g.catchCartDef.maxX + g.catchCartDef.width, 1e-9, "flush against the platform")
+        assertTrue(
+            level8CatchWindow(g.catchCartDef.maxX).isEmpty(),
+            "a cart already at the platform must never catch the load"
+        )
+    }
+
+    @Test
+    fun testLevel8LeverDropsTheLoadIntoTheEmptyCartWhenTimed() {
+        // Physics, not a snap: the load leaves its rope with the rig's speed and its own swing, so
+        // the right moment to pull is not "when it is over the cart" but a moment measured for
+        // where the cart stands. Pulled then it lands in the cart; pulled half a cycle later it
+        // does not, and stays wherever it ends up.
+        val g = Level8Geometry()
+        fun dropAt(cartX: Double, phase: Double): GameWorld {
+            val world = level8Unwatched()
+            val hc = world.hookCrates.single()
+            val cart = world.pushCarts.first { it.id == "lvl8_catch_cart" }
+            val lever = world.levers.single()
+            val p = world.player
+            cart.x = cartX
+            val period = hc.sweepPeriodSeconds
+            while (!(hc.sweepClock >= 12.0 && (((hc.sweepClock - phase) % period) + period) % period < 1.0 / 60.0 * 1.01)) {
+                p.x = lever.centerX - p.width / 2.0
+                p.y = g.groundY - p.height
+                world.l8Frames()
+            }
+            world.l8Frames(interact = true)
+            var f = 0
+            while (f < 600 && hc.carriedByCartId == null && hc.body?.isAsleep != true) { world.l8Frames(); f++ }
+            return world
+        }
+        val hc0 = g.hookCrate
+        val cartX = hc0.initialBounds.centerX + hc0.sweepX / 2.0 - g.catchCartDef.width / 2.0
+        val window = level8CatchWindow(cartX)
+        val phase = middleOfLongestRun(window, 1.0 / 60.0, hc0.sweepPeriodSeconds)
+        // A phase well clear of every catching one.
+        val missPhase = (0 until 40).map { it * hc0.sweepPeriodSeconds / 40.0 }
+            .first { m -> window.none { kotlin.math.abs(it - m) < 0.3 } }
+        val caught = dropAt(cartX, phase)
+        val hc = caught.hookCrates.single()
+        val cart = caught.pushCarts.first { it.id == "lvl8_catch_cart" }
+        assertEquals("lvl8_catch_cart", hc.carriedByCartId, "a drop at the measured moment lands in the cart")
+        assertTrue(cart.isLoaded)
+        assertEquals(g.catchCartDef.height, cart.bounds.height, 1e-9, "loaded, it is the full 48 step")
+        assertEquals(cart.y, hc.bounds.top, 1e-6, "the load fills the deck to the handle tops")
+        val before = hc.bounds.x
+        cart.x += 20.0
+        caught.l8Frames()
+        assertEquals(before + 20.0, hc.bounds.x, 1e-6, "the caught load moves with its cart")
+
+        val missed = dropAt(cartX, missPhase)
+        val loose = missed.hookCrates.single()
+        assertNull(loose.carriedByCartId, "pulled at the wrong moment, it misses")
+        val body = loose.body!!
+        assertTrue(kotlin.math.hypot(body.vx, body.vy) < 10.0, "...and comes to rest wherever it ends up")
+        assertFalse(missed.pushCarts.first { it.id == "lvl8_catch_cart" }.isLoaded)
+    }
+
+    @Test
+    fun testLevel8HangingLoadSwingsOnItsRopeAndLeavesWithItsMomentum() {
+        // "make the crate hanging ... behave according to physics instead of just dropping down".
+        // On the rope it lags and swings as the rig speeds up and slows; cut loose it carries the
+        // rig's speed and its own swing, so it lands downrange of where it hung, and tumbles.
+        // Without the catch cart: its whole travel lies under the rig, and this is about the
+        // fall, not the catch.
+        val layout = LevelData.LEVEL_8_LAYOUT.copy(
+            cameras = emptyList(),
+            pushCarts = LevelData.LEVEL_8_LAYOUT.pushCarts.filter { it.id != "lvl8_catch_cart" }
+        )
+        val world = GameWorld.createFromLayout(LevelData.DEFAULT_LEVEL_8.copy(layout = layout), layout)
         val hc = world.hookCrates.single()
-        val dt = 1.0 / 60.0
-
-        // Before the pull: still hanging, and the high platform is unreachable.
-        assertFalse(hc.isDetached, "the box must start attached")
-        assertTrue(
-            g.groundY - g.highPlatform.top > p.climbMaxHeight,
-            "the high platform must be out of reach from the floor, or the lever is pointless"
-        )
-
-        // Stand at the lever and press interact.
-        p.x = g.lever.centerX - p.width / 2.0
-        p.y = g.groundY - p.height
-        assertTrue(g.lever.isPlayerInRange(p), "the lever has to be reachable from the floor beside it")
-        var frame = 0
-        while (!hc.isLanded && frame < 600) {
-            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = true)
-            frame++
+        var maxSwing = 0.0
+        repeat(60 * 8) {
+            world.l8Frames()
+            maxSwing = maxOf(maxSwing, kotlin.math.abs(hc.swingAngle))
         }
-        assertTrue(hc.isDetached, "pressing the lever must detach the box")
-        assertTrue(hc.isLanded, "...and it must fall all the way to the floor")
-        assertEquals(g.groundY, hc.bounds.bottom, 0.001, "it lands on the ground")
-
-        // Where it lands is the whole point: a jump onto it, then the same 96 mantle the step
-        // crate gives onto the mid platform.
-        assertEquals(
-            g.highPlatform.left, hc.bounds.right, 0.001,
-            "the dropped box must land flush against the high platform's face"
-        )
-        val hop = g.groundY - hc.bounds.top
-        assertTrue(hop <= p.maxJumpHeight, "floor -> dropped box must be a jump ($hop vs ${p.maxJumpHeight})")
-        val mantle = hc.bounds.top - g.highPlatform.top
-        assertTrue(
-            mantle > p.climbMinHeight && mantle <= p.climbMaxHeight,
-            "dropped box -> high platform must be a climb ($mantle, window ${p.climbMinHeight}..${p.climbMaxHeight})"
-        )
+        assertTrue(maxSwing > 3.0 * PI / 180.0, "it swings on its rope as the rig moves (max ${maxSwing * 180.0 / PI} deg)")
+        assertTrue(maxSwing < 25.0 * PI / 180.0, "...a sway, not a whirl")
+        // Cut it at full speed, heading right, nothing underneath.
+        while (!(hc.hookVx > 0.9 * hc.sweepX * PI / hc.sweepPeriodSeconds)) world.l8Frames()
+        val hungAt = hc.bounds.centerX
+        hc.detach()
+        val body = hc.body!!
+        assertTrue(body.vx > 0.0, "it leaves with the rig's speed")
+        var f = 0
+        while (f < 600 && !body.isAsleep) { world.l8Frames(); f++ }
+        assertTrue(hc.bounds.centerX > hungAt + 10.0, "and lands downrange of where it hung (${hc.bounds.centerX - hungAt})")
     }
 
     @Test
-    fun testLevel8PoleCameraSweepsBetweenTheLoadAndTheLever() {
-        // "a high platform with a camera pole connected to it that switches from looking at
-        // hanging crates and the lever". Both named targets have to be inside the cone at their
-        // own end of the sweep - and, just as important, the lever's patch of floor has to go
-        // DARK at the other end, or there is no window to pull it in.
+    fun testLevel8ACartTakesTheImpactOfALoadThatHitsIt() {
+        // The cart is a body too: a load that strikes it gives it a shove, and it rolls a little
+        // and stops - it does not sit there like a wall. Dropped across a post, the load cannot
+        // land in the deck and ends up somewhere it has to be left.
+        val g = Level8Geometry()
+        var shoved = 0
+        for (k in 0 until 40) {
+            val world = level8Unwatched()
+            val hc = world.hookCrates.single()
+            val cart = world.pushCarts.first { it.id == "lvl8_catch_cart" }
+            cart.x = hc.initialBounds.centerX + hc.sweepX / 2.0 - cart.width / 2.0
+            val x0 = cart.x
+            repeat(60 * 12 + k * 6) { world.l8Frames() }
+            hc.detach()
+            var f = 0
+            var maxV = 0.0
+            while (f < 600 && hc.carriedByCartId == null && hc.body?.isAsleep != true) {
+                world.l8Frames(); f++
+                maxV = maxOf(maxV, kotlin.math.abs(cart.vx))
+            }
+            world.l8Frames(120)
+            if (maxV > 5.0 && kotlin.math.abs(cart.x - x0) > 0.5) shoved++
+            assertEquals(0.0, cart.vx, 1e-9, "a rolling cart comes to a stop")
+            assertTrue(cart.x in g.catchCartDef.minX..g.catchCartDef.maxX, "...inside its own travel")
+        }
+        assertTrue(shoved > 0, "at least some drops shove the cart along")
+    }
+
+    @Test
+    fun testLevel8AMissedDropStaysWhereItLands() {
+        // "if not dropped correctly, it should bounce away realistically and it should not get
+        // reset back". Nothing under it: it comes down, bounces, settles - and stays settled.
+        val g = Level8Geometry()
+        val world = level8Unwatched()
+        val hc = world.hookCrates.single()
+        val lever = world.levers.single()
+        val cart = world.pushCarts.first { it.id == "lvl8_catch_cart" }
+        cart.x = cart.maxX
+        val p = world.player
+        p.x = lever.centerX - p.width / 2.0
+        p.y = g.groundY - p.height
+        world.l8Frames(interact = true)
+        world.l8Frames()
+        assertTrue(hc.isDetached && lever.isActivated)
+        var frames = 0
+        while (hc.body?.isAsleep != true && frames < 600) { world.l8Frames(); frames++ }
+        assertTrue(hc.body?.isAsleep == true, "a missed load comes to rest")
+        assertEquals(g.groundY, hc.bounds.bottom, 0.5, "...on the floor")
+        assertNull(hc.carriedByCartId)
+        val restAt = hc.bounds
+        world.l8Frames(60 * 5)
+        assertEquals(restAt, hc.bounds, "and it stays there - nothing takes it back up")
+        assertTrue(hc.isDetached && lever.isActivated, "the lever stays thrown")
+    }
+
+    @Test
+    fun testLevel8ALoadStoodOnItsEndCannotBeGotOnto() {
+        // "when the crate is in this side, he should not be able to climb onto that": a missed
+        // drop that ends up stood on its end in the empty cart is not a way up - not mantled, and
+        // not jumped onto from the cart's deck or handle post either. Every start in and around
+        // the cart, both ways, a jump at every few frames of the approach.
+        val g = Level8Geometry()
+        fun world(): Pair<GameWorld, HookCrate> {
+            val w = level8Unwatched()
+            val hc = w.hookCrates.single()
+            val cart = w.pushCarts.first { it.id == "lvl8_catch_cart" }
+            hc.detach()
+            val body = hc.body!!
+            body.angle = PI / 2.0
+            body.cx = cart.loadBounds.centerX
+            body.cy = cart.deckY - body.width / 2.0
+            hc.syncBodyBounds()
+            return w to hc
+        }
+        val (w0, hc0) = world()
+        val cart0 = w0.pushCarts.first { it.id == "lvl8_catch_cart" }
+        w0.l8Frames(60)
+        assertNull(hc0.carriedByCartId, "on its end it is not caught")
+        assertTrue(hc0.isLooseAndNotFlat)
+        var tries = 0
+        for (dir in listOf(1.0, -1.0)) {
+            var sx = cart0.x - 90.0
+            while (sx <= cart0.x + cart0.width + 60.0) {
+                for (k in 0 until 40 step 3) {
+                    val (w, hc) = world()
+                    val p = w.player
+                    p.x = sx
+                    p.y = 300.0
+                    w.l8Frames(90)
+                    if (kotlin.math.abs(p.y + p.height - hc.bounds.top) < 2.0) continue
+                    tries++
+                    for (f in 0 until 180) {
+                        w.l8Frames(move = dir, jump = f == k || (f > k + 30 && f % 25 == 0))
+                        val fc = p.centerX
+                        assertFalse(
+                            p.isGrounded && kotlin.math.abs(p.y + p.height - hc.bounds.top) < 2.0 && fc >= hc.bounds.left && fc <= hc.bounds.right,
+                            "got up onto the load stood on its end (from x=$sx, dir=$dir, jump at $k)"
+                        )
+                    }
+                }
+                sx += 6.0
+            }
+        }
+        assertTrue(tries > 500)
+        // Hanging on its hook, or lying flat in the cart after a clean catch, it is not affected.
+        w0.restartLevel()
+        assertFalse(w0.hookCrates.single().isLooseAndNotFlat)
+        assertEquals(g.groundY, cart0.y + cart0.height, 1e-9)
+    }
+
+    @Test
+    fun testLevel8AFallingLoadCrushesWhoeverItComesDownOn() {
+        val g = Level8Geometry()
+        val world = level8Unwatched()
+        val hc = world.hookCrates.single()
+        val p = world.player
+        p.x = hc.bounds.centerX - p.width / 2.0
+        p.y = g.groundY - p.height
+        hc.detach()
+        var frames = 0
+        while (!world.isGameOver && frames < 120) { world.l8Frames(); frames++ }
+        assertTrue(world.isGameOver, "a load dropped on the player is Mission Failed")
+    }
+
+    @Test
+    fun testLevel8OnlyTheLoadedCartIsAStepOntoTheHighPlatform() {
+        val g = Level8Geometry()
+        fun topsOut(loaded: Boolean): Boolean {
+            val world = level8Unwatched()
+            val cart = world.pushCarts.first { it.id == "lvl8_catch_cart" }
+            val hc = world.hookCrates.single()
+            cart.x = cart.maxX
+            if (loaded) {
+                hc.isDetached = true
+                hc.isLanded = true
+                hc.carriedByCartId = cart.id
+                cart.isLoaded = true
+            }
+            val p = world.player
+            // The deck load sweeps the high platform at chest height: go just after it has left
+            // the near end, heading out - as the walkthrough does.
+            val deck = world.movingPlatforms.first { it.id == "lvl8_deck_crate" }
+            while (!(deck.vx > 0.0 && deck.left > g.highPlatform.left + 60.0)) world.l8Frames()
+            p.x = cart.bounds.right - p.width
+            p.y = cart.bounds.top - p.height
+            for (f in 0 until 240) {
+                world.l8Frames(move = 1.0, jump = f % 10 < 5)
+                if (p.isGrounded && kotlin.math.abs(p.y + p.height - g.highPlatform.top) < 1.0 &&
+                    p.x >= g.highPlatform.left - 1.0
+                ) return true
+            }
+            return false
+        }
+        assertFalse(topsOut(loaded = false), "the empty cart's deck is no step - the platform is out of climb reach")
+        assertTrue(topsOut(loaded = true), "the loaded cart is: jump on, then the same 96 mantle as the first cart")
+    }
+
+    @Test
+    fun testLevel8SwingFromTheLongCrateNeedsTheEmptyHookAndTiming() {
+        // The swing off the travelling hook comes down on the deck load - so it is on only while
+        // the hook passes within reach AND the deck load is in at its near end.
+        val g = Level8Geometry()
+        fun attempts(emptyHook: Boolean): Pair<Int, Int> {
+            var ok = 0
+            var swung = 0
+            for (k in 0 until 40) {
+                val world = level8Unwatched()
+                val hc = world.hookCrates.single()
+                val cart = world.pushCarts.first { it.id == "lvl8_catch_cart" }
+                if (emptyHook) {
+                    hc.isDetached = true
+                    hc.isLanded = true
+                    hc.carriedByCartId = cart.id
+                    cart.isLoaded = true
+                }
+                val p = world.player
+                val deck = world.movingPlatforms.first { it.id == "lvl8_deck_crate" }
+                // Arrive from up high (not from floor level).
+                repeat(3) {
+                    p.x = g.highPlatform.left + 60.0
+                    p.y = g.highPlatform.top - p.height
+                    world.l8Frames()
+                }
+                // From level time 23.5 to 27.5 - the deck load is at its near end at 26.
+                while (world.totalElapsedSeconds < 23.5 + k * 0.1) {
+                    p.x = g.highCrate.right - 118.0
+                    p.y = g.highCrate.top - p.height
+                    p.vx = 0.0
+                    p.vy = 0.0
+                    world.l8Frames()
+                }
+                var didSwing = false
+                for (f in 0 until 200) {
+                    val grip = Player.hookGripX(hc.currentHook)
+                    val ahead = grip - p.centerX
+                    val inReach = ahead in 76.5..95.5
+                    world.l8Frames(move = if (p.isSwinging) 0.0 else 1.0, jump = inReach && f % 2 == 0)
+                    if (p.isSwinging) didSwing = true
+                    if (didSwing && !p.isSwinging && p.isGrounded) {
+                        val fc = p.centerX
+                        if (kotlin.math.abs(p.y + p.height - deck.top) < 3.0 && fc >= deck.left && fc <= deck.right) ok++
+                        break
+                    }
+                    if (p.y + p.height > 400.0 || world.isGameOver) break
+                }
+                if (didSwing) swung++
+            }
+            return ok to swung
+        }
+        val (loadedOk, loadedSwung) = attempts(emptyHook = false)
+        assertEquals(0, loadedSwung, "a hook still carrying its load cannot be swung from")
+        assertEquals(0, loadedOk)
+        val (ok, swung) = attempts(emptyHook = true)
+        assertTrue(ok >= 3, "once emptied, the swing must land on the deck load at some point ($ok/40, $swung swung)")
+        assertTrue(ok <= 30, "...but only when the hook and the deck load are both there, not whenever ($ok/40)")
+    }
+
+    @Test
+    fun testLevel8PoleCameraParksOnTheLeverAndOnTheLongCrate() {
+        // The lever, and the long crate's top - the floor is dark while it watches the crate.
         val g = Level8Geometry()
         val cam = g.layout.cameras.single()
         val pole = g.layout.poles.single()
-
-        assertEquals(g.highPlatform.top, pole.bottom, 0.001, "the pole must stand on the high platform")
+        assertEquals(g.groundY, pole.bottom, 0.001, "the pole stands on the floor")
+        assertTrue(pole.right <= g.highPlatform.left, "...left of the high platform")
         assertTrue(pole !in g.layout.boxes, "the pole is decoration - it must not collide")
-        assertTrue(cam.y <= pole.top + 0.001, "the camera sits at the pole's own top cap")
-
+        val deck = g.layout.movingPlatforms.first { it.id == "lvl8_deck_crate" }
+        assertTrue(deck.minX > pole.right, "the deck load never sweeps through the pole")
         fun reaches(targetX: Double, targetY: Double, angle: Double): Boolean {
             val dx = targetX - cam.x
             val dy = targetY - cam.y
-            val dist = kotlin.math.sqrt(dx * dx + dy * dy)
-            if (dist > cam.visionRange) return false
-            val bearing = kotlin.math.atan2(dy, dx)
-            var delta = bearing - angle
+            if (kotlin.math.sqrt(dx * dx + dy * dy) > cam.visionRange) return false
+            var delta = kotlin.math.atan2(dy, dx) - angle
             while (delta > PI) delta -= 2.0 * PI
             while (delta < -PI) delta += 2.0 * PI
             return kotlin.math.abs(delta) <= cam.visionFov / 2.0
         }
-
-        // The lever, at the near end of the sweep.
-        assertTrue(
-            reaches(g.lever.centerX, g.lever.centerY, cam.minAngle),
-            "one end of the sweep must land on the lever"
-        )
-        // The hanging load, at the far end. Its near (right) corner is the closest part of it.
-        assertTrue(
-            reaches(g.highCrate.right, g.highCrate.bottom, cam.maxAngle),
-            "the other end must land on the hanging load"
-        )
-        // ...and the lever must NOT still be lit from the far end, or the pull is unwindowed.
-        assertFalse(
-            reaches(g.lever.centerX, g.lever.centerY, cam.maxAngle),
-            "the lever has to go dark while the camera looks at the load"
-        )
-        assertTrue(cam.maxAngle > cam.minAngle, "the camera has to actually sweep")
-        // Both bearings point left and down from the lens, so a body already up on the high
-        // platform is behind it.
-        for (a in listOf(cam.minAngle, cam.maxAngle)) {
-            assertTrue(kotlin.math.cos(a) < 0.0, "the sweep must point left, away from the platform it stands on")
+        val crateHead = Pair(g.highCrate.right - 60.0, g.highCrate.top - 48.0)
+        assertTrue(reaches(g.lever.centerX, g.lever.centerY, cam.minAngle), "one end of the sweep lands on the lever")
+        assertTrue(reaches(crateHead.first, crateHead.second, cam.maxAngle), "the other on a body on the long crate")
+        assertFalse(reaches(g.lever.centerX, g.lever.centerY, cam.maxAngle), "the lever goes dark while it watches the crate")
+        // A body on the loaded cart at the platform is under the lens while it watches the crate.
+        val cartTop = g.groundY - g.catchCartDef.height
+        for (x in listOf(g.catchCartDef.maxX + 10.0, g.catchCartDef.maxX + 50.0)) {
+            for (y in listOf(cartTop - 90.0, cartTop - 48.0, cartTop - 5.0)) {
+                assertFalse(reaches(x, y, cam.maxAngle), "a body on the loaded cart is dark while it watches the crate ($x,$y)")
+            }
         }
+        // Level 9 has the same camera.
+        assertEquals(g.layout.cameras, LevelData.LEVEL_9_LAYOUT.cameras)
+        assertEquals(g.layout.poles, LevelData.LEVEL_9_LAYOUT.poles)
     }
 
     @Test
-    fun testLevel8SweepCrateRefusesOrKillsTheClimbWhileItIsParkedOverTheLanding() {
-        // "when it is at right it can crush the person if he tries to climb". At the 62 hang
-        // line a crouched body fits on the landing, so findClimbTarget ALLOWS the mantle and the
-        // crate kills it part-way up instead of refusing it outright - Player.bounds is 96 tall
-        // for the whole climb (isCrouching is only set when it finishes). Either outcome is the
-        // request honoured; what must never happen is walking away from it unharmed.
-        val g = Level8Geometry()
-        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
-        val crate = world.movingPlatforms.first { it.id == "lvl8_sweep_crate" }
-        val p = world.player
+    fun testLevel8SweepCrateKillsOnlyThroughItsUnderside() {
+        // "make level fail only if the cart or person touch the bottom side of the crate". On the
+        // step cart the sweep crate passes flush over a standing head - safe - but a jump into it
+        // is Mission Failed. Walked into from the side it is just a wall.
         val dt = 1.0 / 60.0
-        val landingRight = g.landingLeft + p.width
-
-        // First let the load actually swing over the landing - it starts its cycle at the far
-        // left end of the sweep, so there is nothing to test until it gets there.
-        var settle = 0
-        while (settle < 1200 && !(crate.right > g.landingLeft && crate.left < landingRight)) {
-            world.update(dt, moveInput = 0.0, jumpInput = false, crouchInput = false, interactInput = false)
-            settle++
-        }
-        assertTrue(
-            crate.right > g.landingLeft && crate.left < landingRight,
-            "the load has to reach the landing at some point in its cycle, or it gates nothing"
-        )
-
-        // Now park the body on the cart, already walked flush into the platform face, and try
-        // to go up. This test is about the load over the landing, not about the push, so the
-        // cart starts where a player who had done the pushing would have left it.
-        g.parkCartAtPlatform(world)
-        p.x = g.cartAtPlatform.right - p.width
-        p.y = g.cartAtPlatform.top - p.height
-        var blockedFrames = 0
-        var toppedOutClean = false
-        var frame = 0
-        while (frame < 2000) {
-            world.update(dt, moveInput = 1.0, jumpInput = (frame % 10) < 5, crouchInput = false, interactInput = false)
-            if (world.isGameOver) break
-            // Read coverage AFTER the update: the crate moves inside that call, and the climb
-            // decision is made against its post-update position. Reading it before makes a climb
-            // that starts on the frame the load finally clears look like a violation.
-            val covers = crate.right > g.landingLeft && crate.left < landingRight
-            if (p.isGrounded && kotlin.math.abs((p.y + p.height) - g.platform.top) < 1.0) {
-                toppedOutClean = covers
-                break
+        fun onTheCart(jump: Boolean): Boolean {
+            val world = level8Unwatched()
+            val cart = world.pushCarts.first { it.id == "lvl8_step_cart" }
+            cart.x = cart.maxX
+            val sweep = world.movingPlatforms.first { it.id == "lvl8_sweep_crate" }
+            val p = world.player
+            while (!(sweep.vx > 0.0 && sweep.right < p.x - 40.0 && world.totalElapsedSeconds > 1.0)) {
+                p.x = cart.x + 20.0
+                p.y = cart.y - p.height
+                p.vx = 0.0
+                p.vy = 0.0
+                world.update(dt, 0.0, false, false, false)
             }
-            if (!covers) break
-            if (!p.isClimbing) blockedFrames++
-            frame++
+            repeat(60 * 4) {
+                val over = sweep.left < p.x && sweep.right > p.x + p.width
+                world.update(dt, 0.0, jump && over && p.isGrounded, false, false)
+                if (world.isGameOver) return false
+            }
+            return true
         }
-        assertFalse(toppedOutClean, "nobody tops out clean while the load is still over the landing")
-        assertTrue(
-            blockedFrames > 0 || world.isGameOver,
-            "the parked load must either refuse the climb or kill it - it did neither"
-        )
+        assertTrue(onTheCart(jump = false), "standing on the cart as it passes over is safe")
+        assertFalse(onTheCart(jump = true), "jumping up into its underside is Mission Failed")
+
+        // A bobbing load, low, walked into from the side: a wall, not a death.
+        val world = level8Unwatched()
+        val bob = world.movingPlatforms.first { it.id == "lvl8_bob_crate_1" }
+        val p = world.player
+        while (!(bob.bottom > 440.0 - 30.0)) { p.x = 236.0; world.update(dt, 0.0, false, false, false) }
+        p.x = bob.left - p.width - 1.0
+        p.y = 440.0 - p.height
+        repeat(20) { world.update(dt, 1.0, false, false, false) }
+        assertFalse(world.isGameOver, "running into its side is not the underside")
+        assertTrue(p.x + p.width <= bob.left + 1.0, "...it stops the body")
     }
 
     @Test
@@ -7262,119 +8175,1303 @@ class GameplayModelTest {
         assertTrue(world.isGameOver, "a climb started as the load swings back must be crushed, not completed")
     }
 
-    @Test
-    fun testLevel8IsBeatableByReadingTheLoadSwingingAway() {
-        // The whole route, on the two cues the level is built around.
-        //
-        // The climb: go up only when the load is clear of the landing AND travelling away from
-        // it. Off the cosine that leaves at least 0.3734 of a period - 2.99s - before it comes
-        // back, against 1.95s of climb and a ~0.25s walk out from under.
-        //
-        // The lever: the camera watches the whole last stretch, so hold at a staging spot short
-        // of its reach and set off only on the frame it parks on the hanging load, which buys
-        // the full sweepPauseDuration. Committing any later in that pause, or from further back,
-        // runs out of window - which is the point of the mechanism.
-        //
-        // And before either of those, the cart: walk into it, take hold, walk it the rest of the
-        // way to the platform, let go. That is the whole first section now, and this test is the
-        // proof it can actually be done rather than just that the numbers line up.
-        //
-        // A run that reads all three must never die.
+    /**
+     * Drives a full run of level 8, camera and all, one stage at a time. Every stage waits on the
+     * cue the level gives for it - a load swung clear, a load risen overhead, the camera parked
+     * the other way, a hop's window - and any death anywhere fails the run with the stage named.
+     */
+    private inner class Level8Run(val level: LevelData = LevelData.DEFAULT_LEVEL_8) {
+        val world = GameWorld.createDefault(level)
         val g = Level8Geometry()
-        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
-        val crate = world.movingPlatforms.first { it.id == "lvl8_sweep_crate" }
-        val platformCrate = world.movingPlatforms.first { it.id == "lvl8_platform_crate" }
-        val hookCrate = world.hookCrates.single()
-        val cam = world.cameras.single()
-        val cart = world.pushCarts.single()
         val p = world.player
+        /** The pole camera (levels 8 and 9 share it). */
+        val cam get() = world.cameras.single()
         val dt = 1.0 / 60.0
-        val landingRight = g.landingLeft + p.width
-        val bobLeft = g.bobDefs.minOf { it.initialX } - 60.0
-        val bobRight = g.bobDefs.maxOf { it.initialX + it.width } + 40.0
-        // Short of where the camera can reach a standing body on the floor - see the layout doc.
-        val staging = 1900.0
-
         var elapsed = 0.0
         var climbs = 0
-        var wasClimbing = false
-        var stalledFor = 0.0
-        var parkedOnLoadFor = 0.0
-        var committed = false
-        var pulledLever = false
-        while (elapsed < 150.0 && !world.isLevelComplete) {
-            val beforeX = p.x
-            val feet = p.y + p.height
-            val onFloor = p.isGrounded && feet >= g.groundY - 0.5
-            val onStep = p.isGrounded && kotlin.math.abs(feet - g.cartAtPlatform.top) < 1.0
-            val onMidPlatform = p.isGrounded && kotlin.math.abs(feet - g.platform.top) < 1.0
-            val landingClear = crate.right < g.landingLeft || crate.left > landingRight
+        var stage = "start"
+        private var wasClimbing = false
+        private var frameNo = 0
+        private var stalledFor = 0.0
 
-            // The camera's blind window opens the instant it parks on the hanging load.
-            val parkedOnLoad = cam.currentAngle >= cam.maxAngle - 0.01
-            parkedOnLoadFor = if (parkedOnLoad) parkedOnLoadFor + dt else 0.0
-            if (!committed && parkedOnLoad && parkedOnLoadFor <= 0.2 && onFloor && p.x + p.width >= staging - 40.0) {
-                committed = true
-            }
-            val holdForCamera = !committed && onFloor && p.x + p.width >= staging
-            val atLever = onFloor && kotlin.math.abs(p.centerX - g.lever.centerX) < 24.0
-            val waiting = holdForCamera || (atLever && !hookCrate.isDetached)
+        val feet get() = p.y + p.height
+        val onFloor get() = p.isGrounded && feet >= g.groundY - 0.5
+        val stalled get() = stalledFor > 0.05
+        /** A jump press that re-arms: the player only jumps again after the button is let go. */
+        val pulse get() = frameNo % 10 < 5
+        /** Pressed every other frame - for a press that has to land inside a short window. */
+        val alt get() = frameNo % 2 == 0
+        fun mp(id: String) = world.movingPlatforms.first { it.id == id }
+        fun bob(i: Int) = mp("lvl8_bob_crate_$i")
+        val sweep get() = mp("lvl8_sweep_crate")
+        val crossing get() = mp("lvl8_platform_crate")
+        val stepCart get() = world.pushCarts.first { it.id == "lvl8_step_cart" }
+        val catchCart get() = world.pushCarts.first { it.id == "lvl8_catch_cart" }
+        val deck get() = mp("lvl8_deck_crate")
+        val hook get() = world.hookCrates.single()
+        /** The pole camera parked on the long crate's top (its max angle) - the floor is dark. */
+        val camOnCrate get() = cam.currentAngle >= cam.maxAngle - 0.01
+        val camOnLever get() = cam.currentAngle <= cam.minAngle + 0.01
+        /** Out of the camera's reach, left of the long crate's near end and clear of bob 3. */
+        val hideX get() = bob(3).right + 44.0
 
-            val stalled = stalledFor > 0.05
+        /**
+         * Back to [hideX], and turned to face on up the yard again: this run is level 9's echo,
+         * and one that waited here looking back left would stare at the bobbing chain level 9
+         * has to cross for the whole wait.
+         */
+        fun hide() {
+            walkTo(hideX, "back to the hiding spot")
+            if (p.facing < 0.0) frame(move = 1.0)
+            frame()
+        }
 
-            // ---- the cart ----------------------------------------------------------------
-            // Take hold on the frame the walk stalls against its face, and let go the moment it
-            // is flush against the platform. Both are level-triggered: GameWorld edge-detects
-            // INTERACT, so holding the flag down across frames still toggles exactly once.
-            val cartParked = cart.x >= cart.maxX - 0.5
-            val holdingCart = world.grippedCart != null
-            val takeCart = !holdingCart && !cartParked && onFloor && stalled &&
-                p.x + p.width >= cart.bounds.left - 6.0
-            val dropCart = holdingCart && cartParked
+        private var lastPos = ""
 
-            // Walk into the face and press up off the stall, the same way the level 2 walkthrough
-            // drives its crate hops - the face itself does the positioning, so nothing here
-            // depends on hitting a jump at one particular x.
-            val jump = when {
-                waiting -> false
-                // A braced body cannot jump anyway; asking it to would only be noise.
-                world.grippedCart != null -> false
-                // Clear AND swinging away: the cue with the guaranteed margin behind it.
-                onStep -> stalled && landingClear && crate.vx < 0.0
-                onFloor -> stalled
-                else -> false
-            }
-            // Duck under the crate sweeping the mid platform, and for the whole bobbing gauntlet.
-            val crouch = (onMidPlatform && p.x + p.width > platformCrate.left - 30.0 && p.x < platformCrate.right + 30.0) ||
-                (onFloor && p.x + p.width > bobLeft && p.x < bobRight)
-            world.update(
-                dt,
-                moveInput = if (waiting) 0.0 else 1.0,
-                jumpInput = jump,
-                crouchInput = crouch,
-                interactInput = atLever || takeCart || dropCart
-            )
-            if (hookCrate.isDetached) pulledLever = true
-            stalledFor = if (kotlin.math.abs(p.x - beforeX) < 0.5) stalledFor + dt else 0.0
+        fun frame(move: Double = 0.0, jump: Boolean = false, interact: Boolean = false, crouch: Boolean = false) {
+            val before = p.x
+            lastPos = "x=${p.x.toInt()} feet=${feet.toInt()} cam=${world.cameras.firstOrNull()?.let { (it.currentAngle * 180.0 / PI).toInt() }}deg"
+            world.update(dt, move, jump, crouch, interact)
+            stalledFor = if (kotlin.math.abs(p.x - before) < 0.5) stalledFor + dt else 0.0
             elapsed += dt
+            frameNo++
             if (p.isClimbing && !wasClimbing) climbs++
             wasClimbing = p.isClimbing
-            assertFalse(world.isGameOver, "a run that reads the level must not die (x=${p.x}, t=$elapsed)")
+            assertFalse(
+                world.isGameOver,
+                "a run that reads level 8 must not die (stage '$stage', x=${p.x}, feet=$feet, t=$elapsed, " +
+                    "seenBy=${world.detectingCameras.size} cams/${world.detectingGuards.size} guards, alert=${world.alertProgress}, before: $lastPos)"
+            )
+            assertTrue(elapsed < 600.0, "level 8 run stalled (stage '$stage', x=${p.x}, feet=$feet)")
         }
-        assertTrue(world.isLevelComplete, "level 8 must be beatable (stopped at x=${p.x} after ${elapsed}s)")
-        assertTrue(pulledLever, "the route has to go through the lever - nothing else reaches the high platform")
-        assertEquals(
-            cart.maxX, cart.x, 0.5,
-            "the route has to walk the cart to the platform - nothing else reaches the mid one"
-        )
-        assertNull(world.grippedCart, "and let go of it again")
-        // The step crate onto the mid platform, and the dropped box onto the high one. Getting
-        // onto the dropped box itself is a jump once it has settled and a climb if the player
-        // catches it still falling, so it is not counted here.
-        assertTrue(climbs >= 2, "the route needs both mantles - the step crate and the dropped box (saw $climbs)")
+
+        fun until(label: String, done: () -> Boolean, input: () -> Unit) {
+            stage = label
+            while (!done()) input()
+        }
+
+        /** Level-triggered INTERACT is fine for levers; the cart's grip toggles on the press edge. */
+        fun tapInteract() {
+            frame(interact = true)
+            frame()
+        }
+
+        fun walkTo(x: Double, label: String) = until(label, { kotlin.math.abs(p.x - x) < 1.6 }) {
+            frame(move = if (p.x < x) 1.0 else -1.0)
+        }
+
+        fun standUntil(label: String, cond: () -> Boolean) = until(label, cond) { frame() }
+
+        fun waitForPhase(label: String, clock: () -> Double, period: Double, phase: Double) =
+            standUntil(label) { (((clock() - phase) % period) + period) % period < dt * 1.01 }
+
+        /**
+         * The cart, and the climb onto the mid platform: onto the cart, crouched at its far end
+         * under the sweep crate, and up the moment it swings away left - then straight across
+         * the platform behind the crossing crate and off its right lip before it comes back.
+         */
+        fun upToTheMidPlatform(climbDelay: Double = 0.0) {
+            val cart = stepCart
+            until("take the step cart", { world.grippedCart != null }) {
+                frame(move = 1.0, interact = stalled && onFloor)
+            }
+            frame()
+            until("push the step cart", { cart.x >= cart.maxX - 0.5 }) { frame(move = 1.0) }
+            tapInteract()
+            // Onto the deck - never while the sweep crate is overhead: a jumping head reaches it.
+            until("hop onto the step cart", { p.isGrounded && kotlin.math.abs(feet - cart.bounds.top) < 1.0 }) {
+                val clear = sweep.right < p.x - 20.0 || sweep.left > p.x + 100.0
+                frame(move = 1.0, jump = stalled && onFloor && clear && pulse)
+            }
+            // To the far end, crouched from the start: the crate passes over at crouch height.
+            until("crouch at the cart's far end", { stalled && p.isCrouching }) { frame(move = 1.0, crouch = true) }
+            // Wait for it to come over and go again - then up, the moment it has cleared the body.
+            until("the sweep crate to come over", { sweep.right > p.x + p.width - 2.0 && sweep.vx > 0.0 }) {
+                frame(crouch = true)
+            }
+            until("wait crouched for the sweep crate to swing away", { sweep.vx < 0.0 && sweep.right < p.x - 1.0 }) {
+                frame(crouch = true)
+            }
+            val waitUntil = elapsed + climbDelay
+            until("hang back", { elapsed >= waitUntil }) { frame(crouch = true) }
+            until("climb onto the mid platform", { p.isGrounded && kotlin.math.abs(feet - g.platform.top) < 1.0 }) {
+                frame(move = 1.0, jump = !p.isClimbing && pulse)
+            }
+        }
+
+        /** Across the mid platform behind the crossing crate, off the lip, down behind the catch cart. */
+        fun acrossAndDown() {
+            until("off the mid platform's right lip", { onFloor && p.x > g.barrels.maxOf { it.right } }) {
+                frame(move = 1.0)
+            }
+            until("up to the catch cart", { stalled && onFloor }) { frame(move = 1.0) }
+        }
+
+        /**
+         * Takes the empty cart by the barrels and pushes it under the whole bobbing chain in one
+         * go, started at the one moment that carries it through (see [level8ChainPushWindow]),
+         * and stops out of the camera's reach, still holding it.
+         */
+        fun pushTheCatchCartUnderTheChain(window: List<Double>) {
+            until("take the catch cart", { world.grippedCart != null }) {
+                frame(move = 1.0, interact = stalled && onFloor)
+            }
+            until("bend into it", { !world.isSettlingIntoCart }) { frame() }
+            standUntil("the chain to come round") { inWindow(window, g.bobDefs.first().periodSeconds) }
+            until("push it under the chain", { p.x >= hideX }) { frame(move = 1.0) }
+        }
+
+        /** Waits out of the camera's reach until it has just parked on the long crate. */
+        fun waitForTheCameraOnTheCrate(minLeft: Double) {
+            hide()
+            standUntil("camera to park on the long crate") { camOnCrate && cam.sweepPauseTimer >= minLeft }
+        }
+
+        /** Pushes the held empty cart on to where the load's travel passes over its deck. */
+        fun parkTheCatchCart() {
+            standUntil("camera to park on the long crate") { camOnCrate && cam.sweepPauseTimer >= 6.5 }
+            val cart = catchCart
+            val target = hook.initialBounds.centerX + hook.sweepX / 2.0 - (cart.loadBounds.centerX - cart.x)
+            until("push the catch cart under the load", { cart.x >= target }) { frame(move = 1.0) }
+            tapInteract()
+            assertNull(world.grippedCart, "let go of the cart")
+            assertFalse(world.levers.single().isActivated, "letting go of the cart must not pull the lever")
+        }
+
+        /**
+         * Pulls the lever at the one point of the rig's cycle that lands the load in the cart
+         * where it is parked - measured beforehand, the way a player learns it (see
+         * [level8CatchPhase]), because the load drifts with the rig and its swing as it falls.
+         * A miss is final, so this has to be right first time.
+         */
+        fun dropTheLoadIntoTheCart() {
+            val cart = catchCart
+            val period = hook.sweepPeriodSeconds
+            val phase = level8CatchPhase(cart.x)
+            waitForTheCameraOnTheCrate(minLeft = 6.5)
+            walkTo(g.lever.centerX - p.width / 2.0, "to the lever")
+            waitForPhase("the load to come round", { hook.sweepClock }, period, phase)
+            frame(interact = true)
+            hide()
+            until("the load comes down", { hook.carriedByCartId != null || hook.body?.isAsleep == true }) { frame() }
+            assertEquals(cart.id, hook.carriedByCartId, "the timed drop has to land in the cart")
+        }
+
+        /** The deck load's phase (0 = parked at its near end), [ahead] seconds from now. */
+        fun deckPhase(ahead: Double = 0.0): Double {
+            val d = g.layout.movingPlatforms.first { it.id == "lvl8_deck_crate" }
+            val t = world.totalElapsedSeconds + ahead + d.phaseOffsetSeconds
+            return ((t % d.periodSeconds) + d.periodSeconds) % d.periodSeconds
+        }
+
+        /**
+         * Walks the loaded cart flush against the high platform and climbs up it - inside one of
+         * the camera's parks on the long crate, and just after the deck load has left the near
+         * end of the platform heading out, so the climb lands behind it.
+         */
+        fun pushTheLoadedCartAndClimb() {
+            hide()
+            standUntil("camera on the crate, deck load about to leave") {
+                camOnCrate && cam.sweepPauseTimer >= 6.5 && deckPhase(ahead = 3.6) in 2.8..6.0
+            }
+            val cart = catchCart
+            until("take the loaded cart", { world.grippedCart != null }) {
+                frame(move = 1.0, interact = stalled && onFloor)
+            }
+            frame()
+            until("push it to the high platform", { cart.x >= cart.maxX - 0.5 }) { frame(move = 1.0) }
+            tapInteract()
+            until("onto the loaded cart", { p.isGrounded && kotlin.math.abs(feet - cart.bounds.top) < 1.0 }) {
+                frame(move = 1.0, jump = stalled && onFloor && pulse)
+            }
+            until("climb onto the high platform", { p.isGrounded && kotlin.math.abs(feet - g.highPlatform.top) < 1.0 }) {
+                val behindIt = deckPhase() in 2.9..7.0
+                frame(move = 1.0, jump = stalled && behindIt && pulse)
+            }
+        }
+
+        fun toTheExit() = until("walk to the exit", { world.isLevelComplete }) { frame(move = 1.0) }
+
+        /** Behind the deck load across the high platform, and off its lip down to the floor. */
+        fun acrossTheHighPlatformAndDown() {
+            until("follow the deck load off the high platform", { onFloor && p.x > g.highPlatform.right }) {
+                frame(move = 1.0)
+            }
+        }
+
+        /**
+         * Through a laser course, obstacle by obstacle, the way it reads: a beam hung low enough to
+         * crouch under is crouched under, one low enough to jump is jumped with a running start,
+         * and anything on a cycle is waited out just short of its reach and crossed the moment it
+         * goes off with enough of its off-time left to get clear.
+         */
+        fun runCourse(courseIds: String, surfaceTop: Double) {
+            val course = world.lasers.filter { it.id.startsWith(courseIds) }.sortedBy { minOf(it.topX, it.bottomX) }
+            val bots = world.cameraBots.filter { it.id.startsWith(courseIds) }.toMutableList()
+            fun botsBefore(x: Double) {
+                while (bots.isNotEmpty() && bots.first().patrolMinX < x) {
+                    val b = bots.removeAt(0)
+                    // Out of its sight until it has just set off away along its beat, then run it
+                    // down from behind and switch it off.
+                    standUntil("${b.id} to turn its back") {
+                        b.facing > 0.0 && b.pauseTimer <= 0.0 && b.x <= b.patrolMinX + 6.0
+                    }
+                    until("sneak up on ${b.id}", { b.isDeactivated }) {
+                        frame(move = if (b.canDeactivate(p)) 0.0 else 1.0, interact = b.canDeactivate(p))
+                    }
+                }
+            }
+            for (l in course) {
+                botsBefore(minOf(l.topX, l.bottomX))
+                val zl = minOf(l.topX, l.bottomX) - l.beamThickness / 2.0
+                val zr = maxOf(l.topX, l.bottomX) + l.beamThickness / 2.0
+                val low = l.isAlwaysActive && minOf(l.topY, l.bottomY) >= surfaceTop - 30.0
+                val high = l.isAlwaysActive && maxOf(l.topY, l.bottomY) <= surfaceTop - 60.0
+                when {
+                    high -> {
+                        until("up to ${l.id}", { p.x + p.width >= zl - 10.0 }) { frame(move = 1.0) }
+                        until("crouch under ${l.id}", { p.x > zr + 2.0 }) { frame(move = 1.0, crouch = true) }
+                    }
+                    low -> {
+                        until("run up to ${l.id}", { p.x + p.width >= zl - 17.0 }) { frame(move = 1.0) }
+                        until("take off for ${l.id}", { !p.isGrounded }) { frame(move = 1.0, jump = true) }
+                        until("over ${l.id}", { p.isGrounded }) { frame(move = 1.0) }
+                        assertTrue(p.x > zr, "cleared ${l.id}")
+                    }
+                    else -> {
+                        val waitX = zl - p.width - 6.0
+                        until("up to ${l.id}", { p.x >= waitX - 1.6 }) { frame(move = 1.0) }
+                        standUntil("${l.id} to switch off") {
+                            !l.isActive && l.remainingInactiveTime(world.totalElapsedSeconds) >= (zr + 2.0 - p.x) / p.moveSpeed + 0.12
+                        }
+                        until("through ${l.id}", { p.x > zr + 1.0 }) { frame(move = 1.0) }
+                    }
+                }
+            }
+            botsBefore(Double.MAX_VALUE)
+        }
+
+        /**
+         * Stands 30 back from the right edge of [src], riding it, waits until [ready], then runs
+         * and jumps from the edge while still standing on it. True if it comes down where
+         * [landed] says.
+         */
+        fun hopFrom(label: String, src: () -> Rect, ready: () -> Boolean, landed: () -> Boolean): Boolean {
+            until("stand ready on $label", { kotlin.math.abs(p.x - (src().right - 48.0)) < 1.6 && p.isGrounded }) {
+                frame(move = if (p.x < src().right - 48.0) 1.0 else -1.0)
+            }
+            standUntil("wait on $label") { ready() }
+            var jumped = false
+            until("hop off $label", { (jumped && p.isGrounded) || world.isLevelComplete }) {
+                val jumpNow = !jumped && p.isGrounded && p.x + p.width / 2.0 >= src().right - 2.5
+                if (jumpNow) jumped = true
+                frame(move = 1.0, jump = jumpNow)
+            }
+            return landed()
+        }
+
+        /** True inside the interior of a run of [ok] phases (sampled 0.05 apart), mod [period]. */
+        fun inWindow(ok: List<Double>, period: Double, margin: Double = 0.1, ahead: Double = 0.0): Boolean {
+            val ph = (((world.totalElapsedSeconds + ahead) % period) + period) % period
+            fun has(x: Double) = ok.any { kotlin.math.abs(((it - x) % period + period + period / 2) % period - period / 2) < 0.026 }
+            return has(ph) && has(ph - margin) && has(ph + margin)
+        }
+
+        /** Stands 30 back from the right edge of [srcId], riding it, and hops at [phase]. */
+        fun hop(srcId: String, dstTop: () -> Double, dstLanded: () -> Boolean, phase: Double, extra: () -> Boolean = { true }) {
+            val src = mp(srcId)
+            val period = g.sweepDef.periodSeconds
+            until("stand ready on $srcId", { kotlin.math.abs(p.x - (src.right - 48.0)) < 1.6 && p.isGrounded }) {
+                frame(move = if (p.x < src.right - 48.0) 1.0 else -1.0)
+            }
+            while (true) {
+                waitForPhase("wait on $srcId for the hop", { world.totalElapsedSeconds }, period, phase)
+                if (extra()) break
+                frame()
+            }
+            var jumped = false
+            until("hop off $srcId", { jumped && p.isGrounded }) {
+                val jumpNow = !jumped && p.isGrounded && p.x + p.width / 2.0 >= src.right - 2.5
+                if (jumpNow) jumped = true
+                frame(move = 1.0, jump = jumpNow)
+            }
+            assertTrue(dstLanded(), "the hop off $srcId at its window must land (feet=$feet, wanted ${dstTop()})")
+        }
+    }
+
+    /**
+     * Whether the empty cart, taken by the barrels and bent into by level time [t0], can be pushed
+     * straight on from then under the whole bobbing chain without a load coming down on it or on
+     * the body behind it.
+     */
+    private fun level8ChainPushLands(t0: Double): Boolean {
+        val world = level8Unwatched()
+        val cart = world.pushCarts.first { it.id == "lvl8_catch_cart" }
+        val p = world.player
+        val dt = 1.0 / 60.0
+        while (world.totalElapsedSeconds < t0 - 1.2) {
+            p.x = cart.x - p.width - 4.0
+            p.y = 440.0 - p.height
+            p.vx = 0.0
+            p.vy = 0.0
+            world.update(dt, 0.0, false, false, false)
+        }
+        world.update(dt, 0.0, false, false, true)
+        world.update(dt, 0.0, false, false, false)
+        if (world.grippedCart !== cart) return false
+        while (world.totalElapsedSeconds < t0) world.update(dt, 0.0, false, false, false)
+        if (world.isSettlingIntoCart) return false
+        val end = world.movingPlatforms.filter { it.id.startsWith("lvl8_bob_crate") }.maxOf { it.right } + 44.0
+        var f = 0
+        while (p.x < end && !world.isGameOver && f < 60 * 30) {
+            world.update(dt, 1.0, false, false, false)
+            f++
+        }
+        return !world.isGameOver && p.x >= end
+    }
+
+    /** The level-clock phases (mod the chain's period) at which that push gets through. */
+    private fun level8ChainPushWindow(): List<Double> {
+        val period = LevelData.LEVEL_8_LAYOUT.movingPlatforms.first { it.id == "lvl8_bob_crate_1" }.periodSeconds
+        return (0 until (period / 0.05).toInt()).map { 16.0 + it * 0.05 }.filter { level8ChainPushLands(it) }.map { it % period }
+    }
+
+    /**
+     * The rig phase (its own clock, mod its period) at which pulling the lever lands the load in
+     * a catch cart parked at [cartX]: every frame of one cycle is tried in a fresh world, after
+     * 12s for the swing to settle into its steady state, and the middle of the longest run of
+     * catches is returned. The same thing a player does by eye.
+     */
+    private fun level8CatchPhase(cartX: Double): Double {
+        val period = LevelData.LEVEL_8_LAYOUT.hookCrates.single().sweepPeriodSeconds
+        return middleOfLongestRun(level8CatchWindow(cartX), 1.0 / 60.0, period)
+    }
+
+    /** Every rig phase, one frame apart, at which a pull lands the load in a cart at [cartX]. */
+    private fun level8CatchWindow(cartX: Double): List<Double> {
+        val period = LevelData.LEVEL_8_LAYOUT.hookCrates.single().sweepPeriodSeconds
+        val dt = 1.0 / 60.0
+        val ok = ArrayList<Double>()
+        val frames = (period / dt).toInt()
+        for (i in 0 until frames) {
+            val world = level8Unwatched()
+            val hc = world.hookCrates.single()
+            val cart = world.pushCarts.first { it.id == "lvl8_catch_cart" }
+            val lever = world.levers.single()
+            val p = world.player
+            cart.x = cartX
+            val target = i * dt
+            var n = 0
+            while (n < 60 * 20) {
+                p.x = lever.centerX - p.width / 2.0
+                p.y = 440.0 - p.height
+                if (hc.sweepClock >= 12.0 && (((hc.sweepClock - target) % period) + period) % period < dt * 1.01) break
+                world.update(dt, 0.0, false, false, false)
+                n++
+            }
+            world.update(dt, 0.0, false, false, true)
+            var f = 0
+            while (f < 600 && hc.carriedByCartId == null && hc.body?.isAsleep != true) {
+                world.update(dt, 0.0, false, false, false)
+                f++
+            }
+            if (hc.carriedByCartId != null) ok.add(target)
+        }
+        return ok
+    }
+
+    @Test
+    fun testLevel8EndsOnOneLongTableWithALaserCourseAboveAndBelow() {
+        // "remove the bottom platform here. he should walk on ground ... lasers should be
+        // connected to ground or the top or bottom of the platform ... only add 1 vertical pole at
+        // rightmost corner ... make it one continuos platform ... make the laser course double the
+        // length of the current size."
+        val g = Level8Geometry()
+        val lay = g.layout
+        val table = lay.tables.single()
+        assertTrue(table in lay.boxes, "solid")
+        assertEquals(listOf(table), lay.seamlessTables, "drawn as one continuous slab")
+        assertTrue(lay.tableParts.isEmpty(), "no stretched pieces")
+        assertTrue(table.width >= 2500.0, "twice the old course's length")
+        assertEquals(g.highCrate.top, table.top, 1e-9, "on the lifted line, level with the deck load")
+        // Nothing after the high platform but the table: no guards, no dock loads.
+        assertTrue(lay.guards.isEmpty())
+        assertTrue(lay.hangingCrateVariant1.all { it.right < g.highPlatform.left } && lay.hangingCrateVariant2.isEmpty())
+        // One leg, at the far corner, washed out and solid to nothing.
+        val leg = lay.passThroughLegs.single()
+        assertEquals(table.right, leg.right, 1e-9, "at the rightmost corner")
+        assertEquals(g.groundY, leg.bottom, 1e-9, "standing on the floor")
+        assertTrue(leg !in lay.boxes && leg !in lay.tableDecorations)
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        assertEquals(lay.passThroughLegs, world.passThroughLegs)
+        assertEquals(lay.seamlessTables, world.seamlessTables)
+        val p = world.player
+        assertTrue(world.platforms.none { it == leg }, "the leg is walked through")
+        // Floor to table: out of any climb, and room to stand under.
+        assertTrue(g.groundY - table.top > p.climbMaxHeight)
+        assertTrue(g.groundY - table.bottom > p.height)
+        // Every beam runs from a surface to a surface: floor to the table's underside below it,
+        // the table's top up off the top of the screen above it.
+        val bottom = lay.lasers.filter { it.id.startsWith("lvl8_low_") }
+        val top = lay.lasers.filter { it.id.startsWith("lvl9_top_") }
+        assertTrue(bottom.size >= 20 && top.size >= 18, "a long course each")
+        for (l in bottom) {
+            assertEquals(table.bottom, minOf(l.topY, l.bottomY), 1e-9, "${l.id} hangs from the table's underside")
+            assertEquals(g.groundY, maxOf(l.topY, l.bottomY), 1e-9, "${l.id} stands on the floor")
+            assertTrue(minOf(l.topX, l.bottomX) >= table.left && maxOf(l.topX, l.bottomX) <= table.right)
+        }
+        for (l in top) {
+            assertEquals(table.top, maxOf(l.topY, l.bottomY), 1e-9, "${l.id} stands on the table")
+            assertTrue(minOf(l.topY, l.bottomY) < 0.0, "${l.id} runs up off the top of the screen")
+            assertTrue(minOf(l.topX, l.bottomX) >= table.left && maxOf(l.topX, l.bottomX) <= table.right)
+        }
+        fun span(ls: List<LaserDef>) = ls.maxOf { maxOf(it.topX, it.bottomX) } - ls.minOf { minOf(it.topX, it.bottomX) }
+        assertTrue(span(bottom) >= 2200.0 && span(top) >= 2200.0, "double the old length (${span(bottom)}, ${span(top)})")
+        // "add security bots like in level 7": three on each course.
+        val lowBots = lay.cameraBots.filter { it.id.startsWith("lvl8_low_") }
+        val topBots = lay.cameraBots.filter { it.id.startsWith("lvl9_top_") }
+        assertEquals(3, lowBots.size)
+        assertEquals(3, topBots.size)
+        assertTrue(lowBots.all { it.surfaceY == g.groundY } && topBots.all { it.surfaceY == table.top })
+        for (b in lowBots + topBots) {
+            val beams = (if (b in lowBots) bottom else top).map { minOf(it.topX, it.bottomX) to maxOf(it.topX, it.bottomX) }
+            assertTrue(beams.none { (l, r) -> r >= b.patrolMinX - 3.0 && l <= b.patrolMaxX + b.width + 3.0 }, "${b.id} patrols clear of the beams")
+        }
+        // The level ends at Container 17, on the floor under the table's far end, the table
+        // running on past it; the trigger runs from the floor up past the table's top so both
+        // levels walk into it on the surface they are on.
+        val c17 = lay.exitStructure!!
+        assertEquals("container17.png", lay.exitStructureImage)
+        assertEquals(g.groundY, c17.bottom, 1e-9, "the container stands on the floor")
+        assertTrue(c17.top > table.bottom, "...under the table")
+        assertTrue(table.right > c17.right + 20.0, "the table runs on beyond it")
+        assertTrue(c17.height in 95.0..115.0, "a little under its first 120")
+        assertTrue(c17.top > table.bottom + 30.0, "...with room over it")
+        assertTrue(c17.left - lay.exitZone.left in 40.0..100.0, "the level ends as the body nears it")
+        assertTrue(lay.exitZone.right > c17.left, "...and reaches it")
+        assertEquals(g.groundY, lay.exitZone.bottom, 1e-9)
+        assertTrue(lay.exitZone.top < table.top - 96.0, "reachable standing on the table")
+        val beams = (bottom + top).maxOf { maxOf(it.topX, it.bottomX) }
+        assertTrue(lay.exitZone.left > beams, "past every beam")
+        assertTrue(java.io.File("resources/container17.png").exists())
+    }
+
+    @Test
+    fun testLevel8EmptyCartCannotBeWalkedThroughButCanBeJumpedInto() {
+        // "right now i can just go through the empty cart. i should be able to jump inside it but
+        // not go through it. move that empty cart near to the barrels to the far left".
+        val g = Level8Geometry()
+        assertEquals(g.barrels.maxOf { it.right } + 70.0, g.catchCartDef.initialX, 1e-9, "it starts by the barrels, room behind it")
+        val bob1 = g.bobDefs.first()
+        assertTrue(g.catchCartDef.initialX + g.catchCartDef.width < bob1.minX, "...clear of the bobbing chain")
+        val dt = 1.0 / 60.0
+        fun world(): Pair<GameWorld, PushCart> {
+            val w = level8Unwatched()
+            val cart = w.pushCarts.first { it.id == "lvl8_catch_cart" }
+            w.player.x = cart.x - w.player.width - 30.0
+            w.player.y = 440.0 - w.player.height
+            return w to cart
+        }
+        // Walked into, it stops the body.
+        val (w1, c1) = world()
+        repeat(120) { w1.update(dt, 1.0, false, false, false) }
+        assertTrue(w1.player.x + w1.player.width <= c1.x + c1.width * PushCart.POST_LEFT_FRACTION + 0.5, "walked into, the near post stops the body")
+        // A running jump drops in onto the deck, between the posts.
+        val (w2, c2) = world()
+        var inside = false
+        for (f in 0 until 120) {
+            val jump = w2.player.x + w2.player.width >= c2.x - 12.0 && w2.player.isGrounded && w2.player.y + w2.player.height > 439.0
+            w2.update(dt, if (w2.player.x + w2.player.width / 2.0 < c2.x + c2.width / 2.0) 1.0 else 0.0, jump, false, false)
+            if (w2.player.isGrounded && kotlin.math.abs(w2.player.y + w2.player.height - c2.deckY) < 1.0) { inside = true; break }
+        }
+        assertTrue(inside, "a running jump lands inside, on the deck")
+        // ...and a jump from the deck gets back out over a post (back towards the barrels - the
+        // chain is right beyond the far one).
+        var out = false
+        for (f in 0 until 120) {
+            w2.update(dt, -1.0, w2.player.isGrounded && f % 10 < 5, false, false)
+            if (w2.player.isGrounded && w2.player.x + w2.player.width < c2.x) { out = true; break }
+        }
+        assertTrue(out, "and jumps back out")
+        assertFalse(w2.isGameOver)
+    }
+
+    @Test
+    fun testLevel8ACartRunIntoALowBobIsStoppedNotCrushed() {
+        // Only the underside kills: a cart pushed into the side of a bob that is down stops
+        // against it.
+        val world = level8Unwatched()
+        val cart = world.pushCarts.first { it.id == "lvl8_catch_cart" }
+        val bob = world.movingPlatforms.first { it.id == "lvl8_bob_crate_1" }
+        val p = world.player
+        val dt = 1.0 / 60.0
+        // Take it as bob 1 comes down, so the cart arrives as it reaches the bottom of its stroke.
+        while (!(bob.bottom > 400.0 && bob.vy > 0.0)) {
+            p.x = cart.x - p.width - 4.0
+            p.y = 440.0 - p.height
+            p.vx = 0.0
+            p.vy = 0.0
+            world.update(dt, 0.0, false, false, false)
+        }
+        world.update(dt, 0.0, false, false, true)
+        world.update(dt, 0.0, false, false, false)
+        assertSame(cart, world.grippedCart)
+        repeat(90) { world.update(dt, 1.0, false, false, false) }
+        assertFalse(world.isGameOver, "pushed into its side, the cart is not crushed")
+        assertTrue(cart.x + cart.width <= bob.left + 0.5, "...it stops against it")
+    }
+
+    @Test
+    fun testABobBehindABodyBracedIntoACartIsJudgedOnTheLeaningFigure() {
+        // "i think it happens when the person has passed the crate ... its like the bounding box
+        // of the person is larger than his actual self when he is in this position": braced into
+        // a cart the figure leans forward, trailing leg back - over the back of the box it is
+        // knee-to-hip high, not 96. A bob coming down behind him gets that far before it hits.
+        // And then it does hit - "now the mission does not fail even if the crate comes on top of
+        // the person when he is pushing / pulling cart": the load coming into the top of the box
+        // shoved him, cart and all, clean out from under it, so it never reached him at all.
+        val dt = 1.0 / 60.0
+        /** Braced into the catch cart with the bob's near edge [over] units over the box. */
+        fun under(over: Double): Pair<GameWorld, MovingPlatform> {
+            val w = level8Unwatched()
+            val cart = w.pushCarts.first { it.id == "lvl8_catch_cart" }
+            val p = w.player
+            cart.x = 2100.0
+            p.x = cart.x - p.width - 10.0
+            p.y = 440.0 - p.height
+            var g = 0
+            while (w.grippedCart == null && g++ < 30) w.update(dt, 0.0, false, false, g % 2 == 0)
+            repeat(120) { w.update(dt, 0.0, false, false, false) }
+            assertNotNull(w.grippedCart)
+            assertTrue(w.isPushing, "braced")
+            val bob = w.movingPlatforms.first { it.id == "lvl8_bob_crate_3" }
+            var up = 0
+            while (bob.bottom > p.y - 40.0 && up++ < 60 * 10) w.update(dt, 0.0, false, false, false)
+            // Carried there, body and cart together, while the bob is up.
+            val d = cart.x - p.x
+            p.x = bob.right - over
+            cart.x = p.x + d
+            return w to bob
+        }
+        for (over in listOf(14.0, 36.0)) {
+            val (w, bob) = under(over)
+            val p = w.player
+            val x0 = p.x
+            val feet = p.y + p.height
+            var lowestAlive = 0.0
+            var f = 0
+            while (!w.isGameOver && f++ < 60 * 9) {
+                lowestAlive = maxOf(lowestAlive, bob.bottom)
+                w.update(dt, 0.0, false, false, false)
+            }
+            assertTrue(w.isGameOver, "a bob coming down on the braced figure ($over over) is a crush")
+            assertEquals(x0, p.x, 0.5, "he was not shoved out from under it ($over over)")
+            val tallest = GameWorld.PUSH_CRUSH_PROFILE.max() * p.visualHeight
+            assertTrue(feet - lowestAlive < tallest + 2.0, "it had to reach the drawn figure first ($over over: ${feet - lowestAlive} above the feet)")
+            if (over == 14.0) {
+                assertTrue(feet - lowestAlive < 70.0, "over the back it reaches hip height, well under the old 96, before it hits (${feet - lowestAlive})")
+            }
+        }
+    }
+
+    @Test
+    fun testALoadBalancedOnAHandlePostTipsOff() {
+        // A cut load that came to rest on a handle post's top and nothing else stayed up there for
+        // good - as if the lever had not dropped it.
+        val w = level8Unwatched()
+        val hc = w.hookCrates.single()
+        val cart = w.pushCarts.first { it.id == "lvl8_catch_cart" }
+        hc.detach()
+        val post = cart.postRects.minBy { it.x }
+        val body = hc.body!!
+        body.angle = 0.0
+        body.vx = 0.0; body.vy = 0.0; body.omega = 0.0
+        body.cx = post.centerX
+        body.cy = post.top - body.height / 2.0
+        hc.syncBodyBounds()
+        w.l8Frames(60 * 4)
+        assertTrue(hc.bounds.bottom > post.top + 10.0, "it came off the post (${hc.bounds.bottom} vs ${post.top})")
+    }
+
+    @Test
+    fun testABobThatMissesTheDrawnCartOrBodyIsNotACrush() {
+        // "sometimes game ends somewhere around here even though me or the cart [do not touch] the
+        // hanging crates". Two rectangles were bigger than what is drawn: the cart's art rect runs
+        // past its handle posts at both ends (empty space), and the body's collision box is 36
+        // wide around a drawn body ~21 across. A bob coming down in that empty space touched
+        // nothing on screen and still ended the run.
+        val dt = 1.0 / 60.0
+
+        // The cart: a bob coming down just behind its rear handle post, over the empty end of the
+        // art rect. It passes down beside the post and stops level with the deck's edge - a side
+        // contact, never the deck's top.
+        val w1 = level8Unwatched()
+        val cart = w1.pushCarts.first { it.id == "lvl8_catch_cart" }
+        val bob1 = w1.movingPlatforms.first { it.id == "lvl8_bob_crate_1" }
+        val rearPost = cart.postRects.minBy { it.x }
+        assertTrue(rearPost.x - cart.x > 4.0, "the art rect runs past the post")
+        cart.x = bob1.right - 4.0
+        w1.player.x = 236.0
+        var lowest = 0.0
+        repeat(60 * 9) {
+            w1.update(dt, 0.0, false, false, false)
+            lowest = maxOf(lowest, bob1.bottom)
+        }
+        assertTrue(lowest > cart.y + 30.0, "it came right down past the handle tops ($lowest)")
+        assertFalse(w1.isGameOver, "...and never touched the post or the deck's top")
+        assertTrue(bob1.right < cart.postRects.minOf { it.left }, "it came down clear of the post")
+
+        // The body: standing with the bob's edge over the empty front of the collision box, clear
+        // of the drawn body. It comes down past the chest - no crush.
+        val w2 = level8Unwatched()
+        val b2 = w2.movingPlatforms.first { it.id == "lvl8_bob_crate_1" }
+        val p = w2.player
+        val margin = (p.width - p.footWidth) / 2.0
+        assertTrue(margin > 6.0)
+        var alive = true
+        var passedChest = false
+        repeat(60 * 9) {
+            p.x = b2.left - p.width + margin - 2.0
+            p.y = 440.0 - p.height
+            p.vx = 0.0
+            w2.update(dt, 0.0, false, false, false)
+            if (b2.bottom > p.y + p.height * 0.5) passedChest = true
+            if (w2.isGameOver) alive = false
+        }
+        assertTrue(passedChest, "it came down level with the chest")
+        assertTrue(alive, "coming down in front of the drawn body is not a crush")
+
+        // Over the drawn body it is.
+        val w3 = level8Unwatched()
+        val b3 = w3.movingPlatforms.first { it.id == "lvl8_bob_crate_1" }
+        val p3 = w3.player
+        var f = 0
+        while (!w3.isGameOver && f++ < 60 * 9) {
+            p3.x = b3.left - p3.width + margin + 4.0
+            p3.y = 440.0 - p3.height
+            w3.update(dt, 0.0, false, false, false)
+        }
+        assertTrue(w3.isGameOver, "a bob coming down on the body itself still crushes")
+    }
+
+    @Test
+    fun testLevel8ABobComingDownOnTheCartIsMissionFailed() {
+        // "Mission fails" if a bobbing crate comes down on the cart being pushed under it.
+        val world = level8Unwatched()
+        val cart = world.pushCarts.first { it.id == "lvl8_catch_cart" }
+        val bob1 = world.movingPlatforms.first { it.id == "lvl8_bob_crate_1" }
+        cart.x = bob1.left
+        world.player.x = 236.0
+        var f = 0
+        while (!world.isGameOver && f < 60 * 10) { world.update(1.0 / 60.0, 0.0, false, false, false); f++ }
+        assertTrue(world.isGameOver, "a cart parked under the chain is crushed")
+        // The chain is a wave at cart speed: each load peaks as long after the one before as a
+        // pushed cart takes to get from one to the next.
+        val g = Level8Geometry()
+        val lag = (g.bobDefs[1].phaseOffsetSeconds - g.bobDefs[0].phaseOffsetSeconds).let { d ->
+            (((-d) % 8.0) + 8.0) % 8.0
+        }
+        val travel = (g.bobDefs[1].initialX - g.bobDefs[0].initialX) / (world.player.moveSpeed * GameWorld.PUSH_MOVE_FACTOR)
+        assertEquals(travel, lag, 0.01, "bob lag matches the push")
+        val window = level8ChainPushWindow()
+        println("LEVEL8 chain push window: ${window.size * 0.05}s of 8")
+        // A cart can wait against a low bob's side now (only undersides crush), so the window is
+        // wider than a single timed start - and wider again since a bob coming down behind a
+        // braced body is judged on the leaning figure (3.9s) - but still only about half of it.
+        assertTrue(window.isNotEmpty() && window.size * 0.05 <= 4.5, "it gets through only when timed (${window.size * 0.05}s)")
+    }
+
+    /** The whole ground road, stage by stage - see [testLevel8IsBeatableOnTheGroundRoad]. */
+    private fun level8Walkthrough(): Level8Run {
+        val chainWindow = level8ChainPushWindow()
+        assertTrue(chainWindow.isNotEmpty(), "the chain must let a pushed cart through at some point of its cycle")
+        val run = Level8Run()
+        run.upToTheMidPlatform()
+        run.acrossAndDown()
+        run.pushTheCatchCartUnderTheChain(chainWindow)
+        run.parkTheCatchCart()
+        run.dropTheLoadIntoTheCart()
+        run.pushTheLoadedCartAndClimb()
+        run.acrossTheHighPlatformAndDown()
+        run.runCourse("lvl8_low_", run.g.groundY)
+        run.toTheExit()
+        return run
+    }
+
+    /** The recording [level8Walkthrough] leaves behind - what a player's own level 8 run gives level 9. */
+    private fun level8Recording(): RunRecording =
+        cachedLevel8Recording ?: level8Walkthrough().world.runRecorder!!.finish().also { cachedLevel8Recording = it }
+
+    @Test
+    fun testLevel8IsBeatableOnTheGroundRoad() {
+        // "in level 8 you have to go using ground". The ground road, on the cues the level gives:
+        // crouch on the cart under the sweep crate and climb as it swings away, cross behind the
+        // crossing crate and off the lip before the two meet, push the empty cart from the barrels
+        // under the bobbing chain in one timed go, then work the lever and the carts only while the
+        // camera is parked on the long crate - drop the swinging load into the empty cart at the
+        // moment that lands it, walk the loaded cart to the high platform and climb it behind the
+        // deck load, follow it out and drop onto the lower table, and run the laser course under
+        // the upper one to the exit. A run that reads all of that must never die.
+        val run = level8Walkthrough()
+        println("LEVEL8 ground road: ${run.elapsed}s, ${run.climbs} climbs")
+        assertTrue(run.world.isLevelComplete)
+        assertEquals("lvl8_catch_cart", run.hook.carriedByCartId, "the route goes through the catch")
+        assertTrue(run.climbs >= 2, "both mantles - the first cart and the loaded one (saw ${run.climbs})")
+        assertEquals(ObjectiveState.MET, run.world.bonusObjectiveState, "optional objective: never touched a hanging crate")
         assertTrue(
-            elapsed <= LevelData.DEFAULT_LEVEL_8.timeTargetSeconds,
-            "...and inside its own 3-star target (${elapsed}s vs ${LevelData.DEFAULT_LEVEL_8.timeTargetSeconds}s)"
+            run.elapsed <= LevelData.DEFAULT_LEVEL_8.timeTargetSeconds,
+            "...inside its own 3-star target (${run.elapsed}s vs ${LevelData.DEFAULT_LEVEL_8.timeTargetSeconds}s)"
+        )
+    }
+
+    // ---- The recorded run (level 8) and its echo (level 9) ------------------------------------
+
+    @Test
+    fun testLevel8RecordsItsRunForLevel9() {
+        // "When the player completes level 8, keep record of the movements and play that in level 9".
+        assertTrue(LevelData.DEFAULT_LEVEL_8.recordsRun)
+        assertEquals("level_8", LevelData.DEFAULT_LEVEL_9.replaysRunOf)
+        assertNull(GameWorld.createDefault(LevelData.DEFAULT_LEVEL_9).runRecorder, "level 9 records nothing")
+        val run = level8Walkthrough()
+        val rec = run.world.runRecorder!!.finish()
+        assertEquals(run.world.totalElapsedSeconds, rec.duration, 0.06, "a sample every 0.05s for the whole run")
+        assertEquals(listOf("lvl8_step_cart", "lvl8_catch_cart"), rec.cartIds)
+        val last = rec.samples.last()
+        assertTrue(Rect(last.x, last.y, 36.0, 96.0).intersects(run.world.exitZone), "it ends in the exit")
+        assertEquals(listOf("lvl8_drop_lever"), rec.events.filter { it.kind == RunEventKind.LEVER }.map { it.id })
+        assertEquals(3, rec.events.count { it.kind == RunEventKind.BOT }, "the three bottom-course bots it switched off")
+        // It saves and loads.
+        val text = rec.encode()
+        println("LEVEL8 recording: ${rec.samples.size} samples, ${text.length} chars")
+        // ~100 chars a second: the body, the carts, and the level's own state (a camera, six
+        // bots, a rig) that level 9 plays back.
+        assertTrue(text.length < 400_000, "${text.length} chars")
+        val back = RunRecording.decode(text)!!
+        assertEquals(rec.samples.size, back.samples.size)
+        // The level's own state comes back too - where the run started on the clock, and every track.
+        assertTrue(rec.hasWorld && back.hasWorld)
+        assertEquals(rec.worldStart, back.worldStart, 1e-9)
+        assertEquals(rec.worldTracks, back.worldTracks)
+        for (j in rec.worldTracks.indices) {
+            val tol = if (rec.worldTracks[j].startsWith("cam")) 0.0006 else 0.006
+            assertEquals(rec.samples[400].world[j], back.samples[400].world[j], tol, rec.worldTracks[j])
+        }
+        assertEquals(rec.events.map { it.kind to it.id }, back.events.map { it.kind to it.id })
+        for ((x, y) in rec.events.zip(back.events)) assertEquals(x.t, y.t, 0.006)
+        assertEquals(rec.samples[400].x, back.samples[400].x, 0.051)
+        assertEquals(rec.samples[400].cartXs[1], back.samples[400].cartXs[1], 0.051)
+        assertNull(RunRecording.decode("nonsense"))
+        // A restart starts the recording over.
+        run.world.restartLevel()
+        assertEquals(0, run.world.runRecorder!!.sampleCount)
+    }
+
+    @Test
+    fun testTheBundledLevel8RunIsAWholeRun() {
+        // Level 9 falls back on resources/level8_run.txt when no level 8 run of the player's own
+        // was saved. It is the walkthrough's own recording - regenerate it with
+        // REGEN_LEVEL8_RUN=1 after a change to level 8.
+        val file = java.io.File("resources/level8_run.txt")
+        if (System.getenv("REGEN_LEVEL8_RUN") == "1" || !file.exists()) file.writeText(level8Recording().encode())
+        val rec = RunRecording.decode(file.readText())
+        assertNotNull(rec, "it loads")
+        val last = rec.samples.last()
+        assertTrue(Rect(last.x, last.y, 36.0, 96.0).intersects(LevelData.LEVEL_8_LAYOUT.exitZone), "it ends in the exit")
+        assertTrue(rec.events.any { it.kind == RunEventKind.LEVER }, "it pulls the lever")
+    }
+
+    @Test
+    fun testLevel8RecordsFromTheFirstStep() {
+        // "starting to record in level 8 should only start when starting to walk" - and level 9's
+        // echo still plays from level 9's own start, whatever the player does.
+        val dt = 1.0 / 60.0
+        val w8 = level8Unwatched()
+        repeat(120) { w8.update(dt, 0.0, false, false, false) }
+        w8.update(dt, 0.0, true, false, false)
+        repeat(60) { w8.update(dt, 0.0, false, false, false) }
+        assertNull(w8.runStartSeconds, "standing, or a jump on the spot, is not walking")
+        assertEquals(0, w8.runRecorder!!.sampleCount, "nothing recorded before the first step")
+        repeat(60) { w8.update(dt, 1.0, false, false, false) }
+        val rec = w8.runRecorder!!.finish()
+        assertTrue(rec.samples.size in 19..22, "only the one second's walk (${rec.samples.size} samples)")
+        assertTrue(rec.samples.last().x > rec.samples.first().x)
+        // Level 9: the echo sets off with the level, the player stood still.
+        val w9 = level9Unwatched()
+        w9.attachEcho(level8Recording())
+        w9.activePowerups.invisibilityTimer = 1e9
+        repeat(60) { w9.update(dt, 0.0, false, false, false) }
+        assertEquals(1.0, w9.echo!!.clock, 1e-6)
+    }
+
+    @Test
+    fun testABracedBodyIsLookedForWhereItIsDrawn() {
+        // "when in the position for pushing the cart, cameras can see him even though he is not
+        // inside the vision cone": braced, the figure leans forward and down, and the eyes looked
+        // for its head on the box's centre line at the top of the box - in the air behind it.
+        val dt = 1.0 / 60.0
+        val w = level8Unwatched()
+        val cart = w.pushCarts.first { it.id == "lvl8_catch_cart" }
+        val p = w.player
+        cart.x = 2100.0
+        p.x = cart.x - p.width - 10.0
+        p.y = 440.0 - p.height
+        val standing = p.keyPoints
+        var g = 0
+        while (w.grippedCart == null && g++ < 30) w.update(dt, 0.0, false, false, g % 2 == 0)
+        repeat(120) { w.update(dt, 0.0, false, false, false) }
+        assertTrue(w.isPushing)
+        val feet = p.y + p.height
+        val head = p.keyPoints[0]
+        assertTrue(head.x > p.centerX + 10.0, "the head is ahead, over the cart side (${head.x - p.centerX})")
+        assertTrue(feet - head.y in 60.0..72.0, "and down at the leaning head's height (${feet - head.y})")
+        assertTrue(standing[0].y < head.y - 15.0)
+        // A cone that takes in the empty air above the braced figure - where the old head point
+        // was - but none of the figure: not seen.
+        val eye = Vec2d(p.centerX - 150.0, feet - 150.0)
+        val airPoint = Vec2d(p.centerX, p.y + 10.0)
+        val toAir = kotlin.math.atan2(airPoint.y - eye.y, airPoint.x - eye.x)
+        val seesAir = VisionSystem.getPlayerSpottedDistance(eye, toAir - 0.12, 400.0, 0.2, p, emptyList())
+        assertNull(seesAir, "a cone over the figure's back does not see him")
+        // Let go and he stands up: the points are the standing ones again.
+        w.update(dt, 0.0, false, false, true)
+        repeat(90) { w.update(dt, 0.0, false, false, false) }
+        assertEquals(0.0, p.braceLean)
+        assertEquals(p.centerX, p.keyPoints[0].x, 1e-9)
+    }
+
+    @Test
+    fun testTheEchoReplaysTheRunAndMovesTheCarts() {
+        val rec = level8Recording()
+        val world = level9Unwatched()
+        world.attachEcho(rec)
+        val echo = world.echo!!
+        // The player stands on the start crate out of the picture - this is about the replay.
+        world.activePowerups.invisibilityTimer = 1e9
+        val dt = 1.0 / 60.0
+        val lever = world.levers.single()
+        val hook = world.hookCrates.single()
+        val leverAt = rec.events.first { it.kind == RunEventKind.LEVER }.t
+        while (echo.state != EchoState.FINISHED) {
+            world.update(dt, 0.0, false, false, false)
+            assertFalse(world.isGameOver, "standing still on the start crate, never seen (t=${world.totalElapsedSeconds})")
+            val s = rec.sampleAt(echo.clock)
+            assertEquals(s.x, echo.x, 1e-6)
+            for ((i, id) in rec.cartIds.withIndex()) assertEquals(s.cartXs[i], world.pushCarts.first { it.id == id }.x, 1e-6)
+            if (echo.clock < leverAt - 0.1) assertFalse(lever.isActivated, "not before the recorded pull")
+            if (echo.clock > leverAt + 0.1) assertTrue(lever.isActivated && hook.isDetached, "it pulls the lever - the swing hook is empty after")
+        }
+        assertEquals(rec.duration, echo.clock, 1e-6)
+        // "when the recording reaches the end, it just stops there and waits".
+        val endX = echo.x
+        repeat(120) { world.update(dt, 0.0, false, false, false) }
+        assertEquals(endX, echo.x, 1e-9)
+        assertEquals(EchoState.FINISHED, echo.state)
+    }
+
+    /** Level 9 with the echo, the camera left out, at level time [t] - the player stood by [park]. */
+    private fun level9WithEchoAt(t: Double, park: (GameWorld) -> Unit): GameWorld {
+        val world = level9Unwatched()
+        world.attachEcho(level8Recording())
+        while (world.totalElapsedSeconds < t) {
+            park(world)
+            world.update(1.0 / 60.0, 0.0, false, false, false)
+        }
+        return world
+    }
+
+    @Test
+    fun testTheEchoCatchesAPlayerInItsConeButNeverStopsOrTurns() {
+        // "make him actually not turn around. he will still have the vision cone and if the
+        // player is in that vision cone he will get caught but he does not run or stop". Level 9
+        // has nowhere else to be but up on the loads, so this puts the body on the floor the way a
+        // guard test would - with the ground rule off, to watch only the echo.
+        val rec = level8Recording()
+        val layout = LevelData.LEVEL_9_LAYOUT.copy(cameras = emptyList())
+        val level = LevelData.DEFAULT_LEVEL_9.copy(layout = layout, stayOffTheGround = false)
+        fun world(): GameWorld = GameWorld.createFromLayout(level, layout).also { it.attachEcho(rec) }
+        val dt = 1.0 / 60.0
+        /** On to a moment it walks along the floor facing right, the player kept well behind. */
+        fun toTheFloorWalk(w: GameWorld) {
+            val echo = w.echo!!
+            val p = w.player
+            while (!(echo.current.isGrounded && echo.facing > 0.0 && echo.y + 96.0 > 439.0 && echo.clock > 2.0 && !echo.current.isPushing)) {
+                p.x = echo.x - 400.0; p.y = 440.0 - p.height
+                w.update(dt, 0.0, false, false, false)
+            }
+        }
+
+        // In front of it, in its cone: caught, in a guard's time - and it kept walking its run.
+        val w1 = world()
+        toTheFloorWalk(w1)
+        val echo = w1.echo!!
+        val p = w1.player
+        var frames = 0
+        while (!w1.isGameOver && frames < 180) {
+            p.x = echo.x + 120.0
+            p.y = 440.0 - p.height
+            val clock = echo.clock
+            val facing = echo.facing
+            w1.update(dt, 0.0, false, false, false)
+            if (w1.isGameOver) break
+            assertEquals(clock + dt, echo.clock, 1e-9, "it never stops")
+            assertEquals(rec.sampleAt(echo.clock).facingLeft, echo.current.facingLeft, "it faces only the way the run did")
+            if (w1.isEchoDetecting) assertEquals(facing, echo.facing, "...and never turns to look")
+            frames++
+        }
+        assertTrue(w1.isGameOver, "stood in its cone, caught")
+        assertTrue(frames * dt < 1.6, "a guard's catch time (${frames * dt}s)")
+
+        // Walking up noisily right behind it: it hears nothing, does not turn, and nobody is caught.
+        val w2 = world()
+        toTheFloorWalk(w2)
+        val e2 = w2.echo!!
+        repeat(40) {
+            w2.player.x = e2.x - 70.0
+            w2.player.y = 440.0 - w2.player.height
+            val clock = e2.clock
+            w2.update(dt, 1.0, false, false, false)
+            assertEquals(clock + dt, e2.clock, 1e-9)
+            assertEquals(rec.sampleAt(e2.clock).facingLeft, e2.current.facingLeft)
+        }
+        assertFalse(w2.isGameOver, "behind it, however loud, is safe")
+    }
+
+    @Test
+    fun testOnlyACompletedRunIsHandedOverAndTheNextOneReplacesIt() {
+        // "make sure only successful runs are recorded. if he completes the level again new one
+        // should replace the old one".
+        val world = level8Unwatched()
+        val p = world.player
+        val dt = 1.0 / 60.0
+        // Mid-run: nothing to save.
+        repeat(120) { world.update(dt, 1.0, false, false, false) }
+        assertNull(world.completedRun, "a run still going is not a run")
+        // Failed: still nothing.
+        p.x = world.movingPlatforms.first { it.id == "lvl8_bob_crate_1" }.left
+        p.y = 440.0 - p.height
+        var guard = 0
+        while (!world.isGameOver && guard++ < 60 * 10) world.update(dt, 0.0, false, false, false)
+        assertTrue(world.isGameOver)
+        assertNull(world.completedRun, "a failed run is not recorded")
+        // Completed: there it is, ending in the exit.
+        fun completeFrom(x: Double): RunRecording {
+            world.restartLevel()
+            assertNull(world.completedRun, "a restart starts a new run")
+            repeat(30) { world.update(dt, 0.0, false, false, false) }
+            world.lasers.forEach { it.disable() }
+            world.cameraBots.forEach { it.deactivate() }
+            p.x = x
+            p.y = 440.0 - p.height
+            var frames = 0
+            while (!world.isLevelComplete && !world.isGameOver && frames++ < 60 * 20) world.update(dt, 1.0, false, false, false)
+            assertTrue(world.isLevelComplete, "walked into the exit (x=${p.x}, over=${world.isGameOver})")
+            return world.completedRun!!
+        }
+        val exit = world.exitZone
+        val first = completeFrom(exit.left - 80.0)
+        val last = first.samples.last()
+        assertTrue(Rect(last.x, last.y, 36.0, 96.0).intersects(exit))
+        // Completed again: a new run, which is the one handed over now.
+        val second = completeFrom(exit.left - 200.0)
+        assertNotEquals(first.samples.size, second.samples.size)
+        assertEquals(second.samples.size, world.completedRun!!.samples.size)
+    }
+
+    @Test
+    fun testALeverThrownWithRemoteTriggerIsRecordedForTheEcho() {
+        // A level 8 run that threw the lever with the REMOTE_TRIGGER powerup still has to have its
+        // echo throw it in level 9 - that lever is what opens level 9's swing.
+        val world = level8Unwatched()
+        repeat(10) { world.update(1.0 / 60.0, 0.0, false, false, false) }
+        assertTrue(world.activatePowerup(PowerupType.REMOTE_TRIGGER))
+        repeat(10) { world.update(1.0 / 60.0, 0.0, false, false, false) }
+        val rec = world.runRecorder!!.finish()
+        assertEquals(listOf("lvl8_drop_lever"), rec.events.filter { it.kind == RunEventKind.LEVER }.map { it.id })
+    }
+
+    @Test
+    fun testALevel8RespawnCutsTheFailedAttemptOutOfTheRecording() {
+        // Checkpoints (the powerup, or the one continue): the run is still recorded and saved, and
+        // what happened between the checkpoint and the death is not in it - the replay stands at
+        // the checkpoint for that long (the level clock ran on) and carries on from there.
+        val world = level8Unwatched()
+        val p = world.player
+        val dt = 1.0 / 60.0
+        // Walk until a checkpoint is secured, then some way on past it.
+        while (!world.hasAdvancedCheckpoint) world.update(dt, 1.0, false, false, false)
+        val cpX = world.lastCheckpointX
+        val cpSamples = world.runRecorder!!.sampleCount
+        repeat(60) { world.update(dt, 1.0, false, false, false) }
+        assertTrue(p.x > cpX + 30.0)
+        val lever = world.levers.single()
+        world.activatePowerup(PowerupType.REMOTE_TRIGGER)
+        repeat(30) { world.update(dt, 0.0, false, false, false) }
+        val respawnAt = world.totalElapsedSeconds
+        assertTrue(world.respawnAtCheckpoint())
+        assertFalse(lever.isActivated, "the respawn put the lever back")
+        repeat(30) { world.update(dt, 0.0, false, false, false) }
+        val rec = world.runRecorder!!.finish()
+        assertEquals(world.totalElapsedSeconds, rec.duration, 0.06, "no time lost: the clock ran on")
+        // Everything from the checkpoint to the respawn is the body standing at the checkpoint.
+        val gap = rec.samples.subList(cpSamples + 1, (respawnAt / rec.step).toInt())
+        assertTrue(gap.isNotEmpty())
+        for (smp in gap) assertEquals(cpX, smp.x, 1.0, "the failed attempt is gone")
+        // Its lever pull went with it, and the respawn is marked.
+        assertTrue(rec.events.none { it.kind == RunEventKind.LEVER }, "the lever it threw before dying is not in the run")
+        assertEquals(RunEventKind.RESET, rec.events.last().kind)
+        assertNotNull(RunRecording.decode(rec.encode()))
+    }
+
+    @Test
+    fun testALevel9RespawnLeavesTheEchoAndWhatItDidAlone() {
+        // Level 9's own checkpoints: the echo carries on where it is, and a hook it has already
+        // emptied stays empty - the swing is not taken away. The rig keeps its phase against the
+        // level clock (the deck load's), so the swing's slot still comes round.
+        val rec = level8Recording()
+        val world = level9Unwatched()
+        world.attachEcho(rec)
+        world.activePowerups.invisibilityTimer = 1e9
+        val echo = world.echo!!
+        val hook = world.hookCrates.single()
+        val leverAt = rec.events.first { it.kind == RunEventKind.LEVER }.t
+        while (echo.clock < leverAt + 3.0) world.update(1.0 / 60.0, 0.0, false, false, false)
+        assertTrue(hook.isDetached)
+        val clock = echo.clock
+        val rig = hook.sweepClock
+        assertTrue(world.respawnAtCheckpoint())
+        assertEquals(clock, echo.clock, 1e-9, "the echo is not reset")
+        assertTrue(hook.isDetached && world.levers.single().isActivated, "the hook it emptied stays empty")
+        assertEquals(rig, hook.sweepClock, 1e-9, "the rig keeps its phase")
+        world.update(1.0 / 60.0, 0.0, false, false, false)
+        assertEquals(clock + 1.0 / 60.0, echo.clock, 1e-9, "...and it carries on")
+    }
+
+    // ---- Level 9: the same yard, off the ground --------------------------------------------
+
+    private fun level9Unwatched(): GameWorld {
+        val layout = LevelData.LEVEL_9_LAYOUT.copy(cameras = emptyList())
+        return GameWorld.createFromLayout(LevelData.DEFAULT_LEVEL_9.copy(layout = layout), layout)
+    }
+
+    /** The surfaces of level 9's high road, by name, where they are in [w] right now. */
+    private fun level9Surface(w: GameWorld, name: String): Rect {
+        val lay = LevelData.LEVEL_9_LAYOUT
+        return when (name) {
+            "overhead" -> lay.hangingCrateVariant1.minBy { it.x }
+            "long" -> lay.hangingCrateVariant1.sortedBy { it.x }[1]
+            "upper" -> lay.tables.single()
+            else -> w.movingPlatforms.first { it.id == name }.bounds
+        }
+    }
+
+    /** Level 9's hop harness: up on the overhead crate first (never floor level), then as ever. */
+    private fun level9HopLands(from: String, to: String, t0: Double): Boolean {
+        val w = level9Unwatched()
+        val p = w.player
+        val dt = 1.0 / 60.0
+        var t = 0.0
+        val start = level9Surface(w, "overhead")
+        repeat(3) {
+            p.x = start.left + 40.0; p.y = start.top - p.height
+            w.update(dt, 0.0, false, false, false); t += dt
+        }
+        while (t < t0) {
+            val s = level9Surface(w, from)
+            p.x = s.right - 48.0; p.y = s.top - p.height; p.vx = 0.0; p.vy = 0.0
+            w.update(dt, 0.0, false, false, false); t += dt
+        }
+        if (w.isGameOver) return false
+        var jumped = false
+        for (f in 0 until 200) {
+            val s = level9Surface(w, from)
+            val jumpNow = !jumped && p.isGrounded && p.x + p.width / 2.0 >= s.right - 2.5
+            if (jumpNow) jumped = true
+            w.update(dt, 1.0, jumpNow, false, false)
+            if (w.isGameOver) return false
+            val d = level9Surface(w, to)
+            val fc = p.x + p.width / 2.0
+            if (jumped && p.isGrounded && kotlin.math.abs(p.y + p.height - d.top) < 2.0 && fc >= d.left && fc <= d.right) return true
+            if (jumped && f > 5 && p.isGrounded) return false
+            if (p.y + p.height > 438.0) return false
+        }
+        return false
+    }
+
+    /** The level-clock phases (mod 8) at which a level 9 hop lands, sampled every 0.05s. */
+    private fun level9HopWindow(from: String, to: String): List<Double> {
+        val out = ArrayList<Double>()
+        for (i in 0 until 160) {
+            val t0 = 8.0 + i * 0.05
+            if (level9HopLands(from, to, t0)) out.add(t0 % 8.0)
+        }
+        return out
+    }
+
+    @Test
+    fun testLevel9IsLevel8WithADifferentStart() {
+        // "make level 8 and level 9 100% identical. only the starting position is changed".
+        val l8 = LevelData.LEVEL_8_LAYOUT
+        val l9 = LevelData.LEVEL_9_LAYOUT
+        assertTrue(LevelData.DEFAULT_LEVEL_9.stayOffTheGround, "level 9's main objective is the ground")
+        assertFalse(LevelData.DEFAULT_LEVEL_8.stayOffTheGround)
+        assertEquals("Follow the Figure Without Touching the Ground", LevelData.DEFAULT_LEVEL_9.objectiveHint)
+        assertEquals(l8, l9.copy(playerStartX = l8.playerStartX, playerStartY = l8.playerStartY), "the same yard")
+        assertNotEquals(l8.playerStartX to l8.playerStartY, l9.playerStartX to l9.playerStartY)
+        // "start on the hanging crate on the top".
+        val overhead = l9.hangingCrateVariant1.minBy { it.x }
+        assertEquals(overhead.top, l9.playerStartY + 96.0, 1e-9, "the spawn is on the first hanging load")
+    }
+
+    @Test
+    fun testLevel8Bob3ToTheLongLoadIsATimedHop() {
+        // "it is not possible to make this jump. move the rest of the level to left to fix this".
+        val window = level8HopWindow("lvl8_bob_crate_3", null, cycles = 2)
+        val period = Level8Geometry().sweepDef.periodSeconds
+        for (c in 0 until 2) {
+            val inCycle = window.count { it >= period * (1 + c) && it < period * (2 + c) } * 0.05
+            println("LEVEL8 window bob 3 -> the long crate cycle $c: ${inCycle}s")
+            assertTrue(inCycle in 0.5..3.0, "bob 3 -> the long crate opens every cycle, only when timed (${inCycle}s)")
+        }
+    }
+
+    @Test
+    fun testLevel9TouchingTheGroundFailsTheMission() {
+        // "make the main objective of level 9 to not touch the ground and mission will fail if he
+        // touches ground / platforms".
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_9)
+        val p = world.player
+        var failed = 0
+        world.onGameOver = { failed++ }
+        repeat(30) { world.update(1.0 / 60.0, 0.0, false, false, false) }
+        assertFalse(world.isGameOver, "standing on the first hanging load is not the ground")
+        p.x = 150.0
+        p.y = 440.0 - p.height
+        repeat(10) { world.update(1.0 / 60.0, 0.0, false, false, false) }
+        assertTrue(world.touchedGround && world.isGameOver, "the floor is Mission Failed")
+        assertEquals(1, failed)
+        // Star 3 is the clock again, and the save format is the shipped five fields.
+        val r = world.getLevelResult()
+        assertEquals(5, r.serialize().split(",").size)
+        assertEquals(r, LevelResult.deserialize(r.serialize()))
+        world.restartLevel()
+        assertFalse(world.touchedGround || world.isGameOver)
+        // The platforms count too.
+        val world2 = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_9)
+        val hp = LevelData.LEVEL_9_LAYOUT.boxes.first { it.width == 300.0 && it.height == 144.0 }
+        world2.player.x = hp.left + 100.0
+        world2.player.y = hp.top - world2.player.height
+        repeat(10) { world2.update(1.0 / 60.0, 0.0, false, false, false) }
+        assertTrue(world2.isGameOver, "the high platform is off limits as well")
+        // The tables are not: level 9's course runs along the upper one.
+        val world3 = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_9)
+        for (t in LevelData.LEVEL_9_LAYOUT.tables) {
+            world3.player.x = t.left + 400.0
+            world3.player.y = t.top - world3.player.height
+            repeat(10) { world3.update(1.0 / 60.0, 0.0, false, false, false) }
+        }
+        assertFalse(world3.touchedGround, "the tables are not the ground")
+        // And level 8 never fails for it.
+        val w8 = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
+        repeat(30) { w8.update(1.0 / 60.0, 0.0, false, false, false) }
+        assertFalse(w8.isGameOver)
+    }
+
+    @Test
+    fun testLevel9IsBeatableWithoutTouchingTheGround() {
+        // The whole yard on the loads: across the plane on the overhead and sweep loads, along
+        // the crossing load and the bobbing chain, onto the long load, the swing off
+        // the travelling hook onto the deck load, the ride out to the upper table, its laser
+        // course, and a drop into the exit. Every hop at its own measured window.
+        //
+        // The hook still carries its load until the echo - his own level 8 run, played back -
+        // pulls the lever on the floor below.
+        val g = Level8Geometry()
+        val period = g.sweepDef.periodSeconds
+        val hops = listOf(
+            "overhead" to "lvl8_sweep_crate",
+            "lvl8_sweep_crate" to "lvl8_platform_crate",
+            "lvl8_platform_crate" to "lvl8_bob_crate_1",
+            "lvl8_bob_crate_1" to "lvl8_bob_crate_2",
+            "lvl8_bob_crate_2" to "lvl8_bob_crate_3",
+            "lvl8_bob_crate_3" to "long"
+        )
+        val windows = hops.associateWith { (a, b) -> level9HopWindow(a, b) }
+        for ((hop, w) in windows) assertTrue(w.isNotEmpty(), "level 9 hop ${hop.first} -> ${hop.second} never lands")
+
+        val run = Level8Run(LevelData.DEFAULT_LEVEL_9)
+        // Following his own level 8 run: it is what pulls the lever that empties the swing hook.
+        run.world.attachEcho(level8Recording())
+        fun landedOn(name: String): Boolean {
+            val d = level9Surface(run.world, name)
+            val fc = run.p.x + run.p.width / 2.0
+            return run.p.isGrounded && kotlin.math.abs(run.feet - d.top) < 2.0 && fc >= d.left && fc <= d.right
+        }
+        // Behind it, never in front: it looks the way its run went and nothing turns it round. The
+        // bobbing chain comes down into its eyeline, so stay on the start crate until it has
+        // pushed its cart out past the chain; it waits at its hiding spot facing on up the yard
+        // (Level8Run.hide), so from then on the chain is behind it.
+        val echo = run.world.echo!!
+        run.standUntil("the echo to get past the bobbing chain") { echo.x > run.bob(3).right + 20.0 }
+        for ((hop, w) in windows) {
+            val (a, b) = hop
+            val ok = run.hopFrom(a, { level9Surface(run.world, a) }, { run.inWindow(w, period) }) { landedOn(b) }
+            assertTrue(ok, "the hop $a -> $b at its window must land (x=${run.p.x}, feet=${run.feet}, t=${run.elapsed})")
+        }
+
+        // The swing: back on the long load, run at the edge as the hook comes round, and take it
+        // only when it would come down on the deck load - which has to still be there 1.1s later.
+        val long = level9Surface(run.world, "long")
+        val deck = run.mp("lvl8_deck_crate")
+        val deckDef = g.layout.movingPlatforms.first { it.id == "lvl8_deck_crate" }
+        fun deckLeftAt(ahead: Double): Double {
+            val ph = run.deckPhase(ahead) / deckDef.periodSeconds
+            return deckDef.minX + (deckDef.maxX - deckDef.minX) * (0.5 - 0.5 * kotlin.math.cos(2.0 * PI * ph))
+        }
+        // The pole camera watches the long load's top, all but its near end, which is past its
+        // reach: wait there until it is parked on the lever with the swing's slot (the deck load
+        // coming in) due before it swings back.
+        run.walkTo(long.left + 2.0, "the dark end of the long load")
+        run.standUntil("the echo to pull the lever") { run.hook.isDetached }
+        run.standUntil("the camera on the lever, the swing's slot coming up") {
+            run.camOnLever && (20.0 - run.deckPhase(ahead = 0.8)) in 1.2..(run.cam.sweepPauseTimer - 1.0)
+        }
+        var swung = false
+        while (!swung) {
+            run.walkTo(long.right - 60.0, "back on the long load")
+            // Set off when the deck load is 0.8s from its near end.
+            run.standUntil("the deck load to come in") { run.deckPhase(ahead = 0.8) < 0.05 }
+            run.until("run for the hook", { swung || run.p.x + run.p.width / 2.0 >= long.right - 1.0 }) {
+                val grip = Player.hookGripX(run.hook.currentHook)
+                val ahead = grip - (run.p.x + run.p.width / 2.0)
+                val land = grip + run.p.swingLandAhead
+                val onDeckNow = land >= deck.left + 4.0 && land <= deck.right - 4.0
+                val onDeckLater = land >= deckLeftAt(1.15) + 4.0 && land <= deckLeftAt(1.15) + deck.width - 4.0
+                val go = run.p.isGrounded && run.p.runUpDistance >= run.p.minSwingRunUp &&
+                    ahead in (run.p.swingMinReach + 1.5)..(run.p.swingMaxReach - 1.5) && onDeckNow && onDeckLater
+                run.frame(move = 1.0, jump = go)
+                if (run.p.isSwinging) swung = true
+            }
+            if (!swung) run.frame()
+        }
+        run.until("the swing", { !run.p.isSwinging && run.p.isGrounded }) { run.frame() }
+        assertTrue(landedOn("lvl8_deck_crate"), "the swing comes down on the deck load (x=${run.p.x}, feet=${run.feet})")
+
+        // Ride it out, and step across onto the upper table at its far end.
+        run.until("ride the deck load out", { deck.left >= deckDef.maxX - 1.0 }) {
+            run.frame(move = if (run.p.x + run.p.width < deck.right - 4.0) 1.0 else 0.0)
+        }
+        val ok = run.hopFrom("deck", { deck.bounds }, { true }) { landedOn("upper") }
+        assertTrue(ok, "across onto the upper table (x=${run.p.x}, feet=${run.feet})")
+
+        run.runCourse("lvl9_top_", level9Surface(run.world, "upper").top)
+        run.toTheExit()
+        println("LEVEL9 high road: ${run.elapsed}s")
+        assertTrue(run.world.isLevelComplete)
+        assertFalse(run.world.touchedGround, "the whole run off the ground")
+        assertEquals(ObjectiveState.MET, run.world.bonusObjectiveState, "optional objective: never in the figure's sight")
+        assertTrue(
+            run.elapsed <= LevelData.DEFAULT_LEVEL_9.timeTargetSeconds,
+            "...inside its own 3-star target (${run.elapsed}s vs ${LevelData.DEFAULT_LEVEL_9.timeTargetSeconds}s)"
         )
     }
 
@@ -7388,7 +9485,7 @@ class GameplayModelTest {
      */
     private fun level8WithPlayerAtCart(fromLeft: Boolean = true): Pair<GameWorld, PushCart> {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
-        val cart = world.pushCarts.single()
+        val cart = world.pushCarts.first()
         val p = world.player
         p.x = if (fromLeft) cart.bounds.left - p.width else cart.bounds.right
         p.y = 440.0 - p.height
@@ -7440,7 +9537,7 @@ class GameplayModelTest {
         // lean-in instead of by narrowing the reach, which would make the player line the grab
         // up by hand.
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
-        val cart = world.pushCarts.single()
+        val cart = world.pushCarts.first()
         val p = world.player
         // As far back as the grab reaches, minus a hair so it still registers.
         val gap = PushCart.GRIP_REACH - 2.0
@@ -7478,7 +9575,7 @@ class GameplayModelTest {
         for (fromLeft in listOf(true, false)) {
             for (gap in listOf(0.0, 8.0, PushCart.GRIP_REACH - 2.0)) {
                 val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
-                val cart = world.pushCarts.single()
+                val cart = world.pushCarts.first()
                 val p = world.player
                 p.x = if (fromLeft) cart.bounds.left - p.width - gap else cart.bounds.right + gap
                 p.y = 440.0 - p.height
@@ -7500,7 +9597,7 @@ class GameplayModelTest {
         // The body moves during the bend, so anything that reads movement has to be reading the
         // CART - the tutorial's push/pull prompt does exactly that, for this reason.
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
-        val cart = world.pushCarts.single()
+        val cart = world.pushCarts.first()
         val p = world.player
         p.x = cart.bounds.left - p.width - (PushCart.GRIP_REACH - 2.0)
         p.y = 440.0 - p.height
@@ -7523,7 +9620,7 @@ class GameplayModelTest {
         // stance is solved for the hand instead; this pins where that hand ends up.
         for (fromLeft in listOf(true, false)) {
             val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
-            val cart = world.pushCarts.single()
+            val cart = world.pushCarts.first()
             val p = world.player
             p.x = if (fromLeft) cart.bounds.left - p.width - 6.0 else cart.bounds.right + 6.0
             p.y = 440.0 - p.height
@@ -7565,7 +9662,7 @@ class GameplayModelTest {
         // turns into the curved grip - is rows 14..22 of cart.png's 256, i.e. 2.6..4.1 units
         // below the handle's top on a 48-tall cart.
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
-        val cart = world.pushCarts.single()
+        val cart = world.pushCarts.first()
         val fistHeight = world.player.visualHeight * PushCart.BRACED_FIST_HEIGHT_PER_HEIGHT
         val belowTop = cart.height - fistHeight
         assertTrue(
@@ -7579,21 +9676,16 @@ class GameplayModelTest {
     fun testTheDrawnBodyStillFitsTheTightestCrouchGap() {
         // Player.VISUAL_HEIGHT_SCALE draws the body bigger than it collides, which is free for
         // gameplay but NOT free for how the game reads: a crouched body drawn taller than the
-        // gap it is crouching under looks like a clipping bug. Level 8's hang line is the
-        // tightest gap in the game (62 - see its own guidelines section, "the lowest the geometry
-        // allows"), so it is the one that decides how far this can go.
+        // gap it is crouching under looks like a clipping bug. Level 8's crouch gaps are gone
+        // (2026-09-28 - its loads now come down to the floor and are ridden, not ducked), so the
+        // tightest left is level 4's descending hanging crate over its 2-stack: bottom 250 over a
+        // stack top of 318, a 68-unit gap.
         val p = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8).player
-        val hangClearance = 62.0
+        val tightestCrouchGap = 68.0
         val drawnCrouch = p.crouchHeight * Player.VISUAL_HEIGHT_SCALE
         assertTrue(
-            drawnCrouch < hangClearance,
-            "a crouched body is drawn $drawnCrouch tall and has to fit under $hangClearance"
-        )
-        // And the other end of that window still holds: standing must NOT fit under the bobbing
-        // pair's high point, or the crouch stops being the answer there.
-        assertTrue(
-            p.visualHeight > 90.0,
-            "a standing body (drawn ${p.visualHeight}) must still not fit under the 90 bob gap"
+            drawnCrouch < tightestCrouchGap,
+            "a crouched body is drawn $drawnCrouch tall and has to fit under $tightestCrouchGap"
         )
     }
 
@@ -7602,7 +9694,9 @@ class GameplayModelTest {
         // A braced body can neither jump nor crouch, so someone who grabbed the cart he was
         // standing on would have no way back off it - and would be dragging his own floor.
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
-        val cart = world.pushCarts.single()
+        val cart = world.pushCarts.first()
+        // At the platform, clear of where the sweep crate passes over it at crouch height.
+        cart.x = cart.maxX
         val p = world.player
         p.x = cart.bounds.left + 20.0
         p.y = cart.bounds.top - p.height
@@ -7618,7 +9712,7 @@ class GameplayModelTest {
     @Test
     fun testCartIsOutOfReachFromAcrossTheYard() {
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
-        val cart = world.pushCarts.single()
+        val cart = world.pushCarts.first()
         val p = world.player
         // The spawn - a long walk short of it. Range is the whole gate here, exactly as it is
         // for a lever or a camera bot.
@@ -7718,10 +9812,10 @@ class GameplayModelTest {
         assertEquals(cartA.maxX, cartA.x, 0.5)
 
         val second = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
-        val cartB = second.pushCarts.single()
+        val cartB = second.pushCarts.first()
         assertNotSame(cartA, cartB, "each world builds its own cart")
         assertEquals(
-            LevelData.LEVEL_8_LAYOUT.pushCarts.single().initialX, cartB.x, 1e-9,
+            LevelData.LEVEL_8_LAYOUT.pushCarts.first().initialX, cartB.x, 1e-9,
             "a fresh run starts with the cart parked again"
         )
     }
@@ -7731,7 +9825,7 @@ class GameplayModelTest {
         // It is a solid body, not a prop: a sightline stops at it in both positions. Checked
         // through VisionSystem directly, since level 8 has no guard to aim.
         val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_8)
-        val cart = world.pushCarts.single()
+        val cart = world.pushCarts.first()
         val p = world.player
         p.y = 440.0 - p.height
         for (cartX in listOf(cart.minX, cart.maxX)) {
@@ -8158,5 +10252,60 @@ class GameplayModelTest {
 
         com.sample.demo.lifecycle.GameAppLifecycle.markForeground()
         assertTrue(com.sample.demo.lifecycle.GameAppLifecycle.isForeground)
+    }
+
+    // ---- Walking off an edge: no sideways jolt (the "coyote-jump shove") ---------------------
+
+    /**
+     * Stands a body on a raised box and walks it off the right end, pressing jump [jumpAfter]
+     * frames after the feet leave it (null: never). Returns the per-frame x steps from the frame
+     * the feet leave until it next stands on something.
+     */
+    private fun walkOffTheBoxEdge(jumpAfter: Int?): List<Double> {
+        val ground = Rect(0.0, 440.0, 2000.0, 100.0)
+        val box = Rect(100.0, 392.0, 200.0, 48.0)
+        val platforms = listOf(ground, box)
+        val p = Player(x = box.right - 60.0, y = box.top - 96.0)
+        val dt = 1.0 / 60.0
+        repeat(5) { p.update(dt, 0.0, false, platforms) }
+        assertTrue(p.isGrounded, "starts standing on the box")
+        val steps = ArrayList<Double>()
+        var leftAt = -1
+        for (f in 0 until 240) {
+            val before = p.x
+            val jump = jumpAfter != null && leftAt >= 0 && f - leftAt == jumpAfter
+            p.update(dt, 1.0, jump, platforms)
+            if (leftAt < 0 && !p.isGrounded) leftAt = f
+            if (leftAt >= 0) steps.add(p.x - before)
+            if (leftAt >= 0 && f > leftAt && p.isGrounded) break
+        }
+        assertTrue(leftAt >= 0, "the body has to actually walk off")
+        return steps
+    }
+
+    @Test
+    fun testWalkingOffAnEdgeHasNoSidewaysJolt() {
+        // Once the foot centre passes an edge the feet are off it and the body falls - while its
+        // box still overlaps the platform by most of its width. That overlap used to be resolved
+        // as a side wall in one step: a ~17-unit sideways teleport on every walk-off. Now the body
+        // eases clear at no more than walking pace on top of its own movement.
+        val walk = Player(0.0, 0.0).moveSpeed / 60.0
+        for (step in walkOffTheBoxEdge(jumpAfter = null)) {
+            assertTrue(step <= 2.0 * walk + 1e-6, "a walk-off moved $step in one frame (walking is $walk)")
+        }
+    }
+
+    @Test
+    fun testACoyoteJumpOffAnEdgeGetsNoFreeShove() {
+        // The same overlap, kept by a late jump press inside coyote time: the rising body clears
+        // the top face in its own step, so no sideways push is applied at all. It used to keep the
+        // whole ~17-unit teleport - level 8's crate-to-crate numbers were first tuned on it.
+        val walk = Player(0.0, 0.0).moveSpeed / 60.0
+        for (late in 1..3) {
+            val steps = walkOffTheBoxEdge(jumpAfter = late)
+            for (step in steps) {
+                assertTrue(step <= 2.0 * walk + 1e-6, "a coyote jump ${late} frame(s) late moved $step in one frame")
+            }
+        }
     }
 }

@@ -184,6 +184,28 @@ data class Guard(
         }
     }
 
+    private val spawnX: Double = x
+    private val spawnFacing: Double = facing
+
+    /**
+     * Back to where and how he started. Level 11 needs it: its doors shut guards into parts of
+     * their route, so a restart that left him wherever he had been locked would start the level
+     * from a different puzzle.
+     */
+    fun resetToSpawn() {
+        placeAt(spawnX, spawnFacing)
+    }
+
+    /** Puts him at [x], facing [facing], patrolling - a checkpoint restoring where he was. */
+    fun placeAt(x: Double, facing: Double) {
+        this.x = x
+        this.facing = facing
+        patrolFacing = facing
+        returnToPatrol()
+        this.facing = facing
+        patrolFacing = facing
+    }
+
     fun update(dt: Double, obstacles: List<Rect> = emptyList()) {
         isWalking = false
         when (state) {

@@ -44,7 +44,16 @@ class GameSounds(
     val toastSuccess: Sound?,
     val cameraDetect: Sound?,
     val bgMusic: Sound?,
-    val thunder: Sound? = null
+    val thunder: Sound? = null,
+    val crateDrop: Sound? = null,
+    /** Looping ambience beds: seamless PCM loops in `sfx/loop_*.wav`, played through [AmbientLoops]. */
+    val rain: Sound? = null,
+    val fan: Sound? = null,
+    val laserHum: Sound? = null,
+    val steam: Sound? = null,
+    val robot: Sound? = null,
+    val cameraMotor: Sound? = null,
+    val cartRoll: Sound? = null
 ) {
     /**
      * Plays every loaded clip once at zero volume, immediately, then stops it - this is a
@@ -68,7 +77,7 @@ class GameSounds(
      */
     fun primeAll(context: CoroutineContext) {
         gameSfxOutput?.prepare(GameAudio.SfxFile.ALL)
-        for (sound in listOf(stepA, stepB, impact, climb, uiClick, guardInvestigate, toastSuccess, cameraDetect, thunder)) {
+        for (sound in listOf(stepA, stepB, impact, climb, uiClick, guardInvestigate, toastSuccess, cameraDetect, thunder, crateDrop)) {
             try {
                 sound?.play(context, PlaybackParameters(volume = 0.0))?.stop()
             } catch (_: Throwable) {
@@ -152,6 +161,56 @@ object GameAudio {
      */
     const val THUNDER_GAIN = 0.90
 
+    /** A cut hanging load hitting something; scaled by how hard it landed (see the scene). */
+    const val CRATE_DROP_GAIN = 0.9
+
+    /** Level 2/9 rain bed - a constant backdrop, deliberately well under the music. */
+    const val RAIN_LOOP_GAIN = 0.32
+
+    /**
+     * Ceiling of the vent-fan hum, reached at the fan itself; it fades to nothing at
+     * its own hearing range (see the *_HEARING_RANGE constants) away.
+     */
+    const val FAN_LOOP_GAIN = 0.55
+
+    /** Steam-jet hiss at the nozzle while it is erupting. */
+    const val STEAM_LOOP_GAIN = 0.7
+
+    /**
+     * Laser hum. One shared voice for every beam, however many are lit: a second beam in earshot
+     * adds [LASER_LOOP_EXTRA_PER_BEAM] on top of [LASER_LOOP_GAIN], capped at [LASER_LOOP_MAX_GAIN],
+     * so a bank of beams is a little louder than one but never a pile of overlapping hums.
+     */
+    const val LASER_LOOP_GAIN = 0.32
+    const val LASER_LOOP_EXTRA_PER_BEAM = 0.04
+    const val LASER_LOOP_MAX_GAIN = 0.44
+
+    /** Patrol-rover motor hum while a rover is rolling. */
+    const val ROBOT_LOOP_GAIN = 0.4
+
+    /** Security-camera servo whine while a camera head is actually turning. */
+    const val CAMERA_LOOP_GAIN = 0.32
+
+    /** Push-cart rolling, scaled by how fast the cart is moving. */
+    const val CART_LOOP_GAIN = 0.55
+
+    /**
+     * How far each source can be heard, in world units (straight-line, so a duct above or a floor
+     * below counts). The visible field is ~770+ wide, so these keep a sound to what is on or just
+     * off screen; volume falls off with the square of the remaining distance, so it is faint well
+     * before the edge rather than a flat bed that simply stops.
+     */
+    const val FAN_HEARING_RANGE = 300.0
+    const val STEAM_HEARING_RANGE = 240.0
+    const val LASER_HEARING_RANGE = 260.0
+    const val ROBOT_HEARING_RANGE = 260.0
+    const val CAMERA_HEARING_RANGE = 300.0
+    const val CART_HEARING_RANGE = 230.0
+    const val CRATE_HEARING_RANGE = 480.0
+
+    /** Volume-units per second an ambient bed ramps at, so a bed never clicks on or off. */
+    const val AMBIENT_RAMP_PER_SEC = 2.5
+
     /**
      * How fast `GameplayScene.kt`'s `syncBgMusicVolume` ramps toward a changed target volume,
      * in volume-units-per-second (full 0..1 sweep in 1/5s = 0.2s). See that function's own doc
@@ -176,7 +235,8 @@ object GameAudio {
         const val TOAST_SUCCESS = "sfx/toast_success.wav"
         const val CAMERA_DETECT = "sfx/camera_detect.wav"
         const val THUNDER = "sfx/thunder.wav"
-        val ALL = listOf(STEP_A, STEP_B, IMPACT, CLIMB, UI_CLICK, GUARD_INVESTIGATE, TOAST_SUCCESS, CAMERA_DETECT, THUNDER)
+        const val CRATE_DROP = "sfx/crate_drop.wav"
+        val ALL = listOf(STEP_A, STEP_B, IMPACT, CLIMB, UI_CLICK, GUARD_INVESTIGATE, TOAST_SUCCESS, CAMERA_DETECT, THUNDER, CRATE_DROP)
     }
 
     /**
@@ -258,7 +318,15 @@ object GameAudio {
             toastSuccess = clip("toast_success"),
             cameraDetect = clip("camera_detect"),
             bgMusic = music("bgmusic"),
-            thunder = clip("thunder")
+            thunder = clip("thunder"),
+            crateDrop = clip("crate_drop"),
+            rain = clip("loop_rain"),
+            fan = clip("loop_fan"),
+            laserHum = clip("loop_laser"),
+            steam = clip("loop_steam"),
+            robot = clip("loop_robot"),
+            cameraMotor = clip("loop_camera"),
+            cartRoll = clip("loop_cart")
         )
         if (!audioPrimed) {
             audioPrimed = true
@@ -289,5 +357,60 @@ fun Sound?.playSfx(context: CoroutineContext, gain: Double, sfxVolume: Float, cl
     } catch (_: Throwable) {
         // Defensive: headless test runners or environments lacking an audio backend (e.g. ALSA on Linux)
         // must never crash the game or test suite when attempting to play a sound effect.
+    }
+}
+
+
+/**
+ * The looping ambience beds (rain, vent fans, laser hum, steam). Each is one long-lived korlibs
+ * channel started on first need and left running - only its volume moves, ramped, so a bed fades
+ * in and out with distance instead of clicking. One channel per bed, never per source: a room of
+ * five lasers is one hum, not five.
+ */
+class AmbientLoops(private val context: CoroutineContext) {
+    private class Bed(val sound: Sound?) {
+        var channel: SoundChannel? = null
+        var applied = 0.0
+    }
+
+    private val beds = HashMap<String, Bed>()
+
+    /** [target] is the wanted final volume (0 = silent); [dtSec] paces the ramp. */
+    fun set(name: String, sound: Sound?, target: Double, dtSec: Double) {
+        if (sound == null) return
+        val bed = beds.getOrPut(name) { Bed(sound) }
+        val goal = target.coerceIn(0.0, 1.0)
+        val step = GameAudio.AMBIENT_RAMP_PER_SEC * dtSec
+        val next = when {
+            bed.applied < goal -> minOf(goal, bed.applied + step)
+            bed.applied > goal -> maxOf(goal, bed.applied - step)
+            else -> bed.applied
+        }
+        if (bed.channel == null) {
+            if (next <= 0.001) return
+            try {
+                bed.channel = sound.playForever(context).also { it.volume = next }
+                bed.applied = next
+            } catch (_: Throwable) {
+            }
+            return
+        }
+        if (kotlin.math.abs(next - bed.applied) <= 0.0005) return
+        try {
+            bed.channel?.volume = next
+            bed.applied = next
+        } catch (_: Throwable) {
+        }
+    }
+
+    fun stopAll() {
+        for (bed in beds.values) {
+            try {
+                bed.channel?.stop()
+            } catch (_: Throwable) {
+            }
+            bed.channel = null
+            bed.applied = 0.0
+        }
     }
 }

@@ -23,7 +23,14 @@ data class PushCartDef(
     val width: Double,
     val height: Double,
     val minX: Double,
-    val maxX: Double
+    val maxX: Double,
+    /**
+     * Starts as a bare flatbed with nothing on the deck (LEVEL_8_LAYOUT's second cart). Until a
+     * [HookCrate] comes down in it the cart only collides up to its deck, so it is no step at all -
+     * the handle posts are drawn but pass-through. Once loaded it is the same full-height block as
+     * a cart that started loaded.
+     */
+    val startsEmpty: Boolean = false
 )
 
 /**
@@ -45,10 +52,67 @@ class PushCart(private val def: PushCartDef) {
 
     var x: Double = def.initialX
 
-    /** Wheels on the ground, so the top edge is the only height that ever matters. */
+    val startsEmpty: Boolean get() = def.startsEmpty
+
+    /** False while an empty cart still has nothing on its deck - see [PushCartDef.startsEmpty]. */
+    var isLoaded: Boolean = !def.startsEmpty
+
+    /** Top of the ART (handle tops), where the scene draws it. Wheels on the ground. */
     val y: Double get() = def.surfaceY - def.height
 
-    val bounds: Rect get() = Rect(x, y, def.width, def.height)
+    /** Rolling speed after a crate's impact - see GameWorld.rollCarts. Zero while held. */
+    var vx: Double = 0.0
+
+    /** The deck as a crate meets it: the flat bed between the wheels, post to post. */
+    val deckRect: Rect
+        get() = Rect(
+            x + def.width * POST_LEFT_FRACTION, deckY,
+            def.width * (POST_RIGHT_FRACTION + POST_WIDTH_FRACTION - POST_LEFT_FRACTION), def.surfaceY - deckY
+        )
+
+    /** The two handle posts above the deck, as a crate meets them. */
+    val postRects: List<Rect>
+        get() = listOf(
+            Rect(x + def.width * POST_LEFT_FRACTION, y, def.width * POST_WIDTH_FRACTION, deckY - y),
+            Rect(x + def.width * POST_RIGHT_FRACTION, y, def.width * POST_WIDTH_FRACTION, deckY - y)
+        )
+
+    /** The deck's top surface, in world y - where a load sits. */
+    val deckY: Double get() = y + def.height * DECK_TOP_FRACTION
+
+    /**
+     * What a BODY collides with. Loaded, the whole cart ([bounds]). Empty, the deck plus the two
+     * handle posts up to [EMPTY_POST_SOLID_HEIGHT] over it: before, it was the deck alone, and a
+     * body walked straight through the handles ("right now i can just go through the empty cart.
+     * i should be able to jump inside it but not go through it"). Not the posts' full drawn
+     * height - 32 over a 16 deck is 48 off the floor, which a jump (51.2) clears by too little to
+     * get a 36-wide body over a post; at 12 over the deck (28 off the floor) a running jump drops
+     * in, and one from the deck climbs out. Not 14: a post top 14 up is 114 under LEVEL_8's high
+     * platform - inside a climb (115) - and the empty cart became a step onto it. A falling crate still meets the full posts
+     * ([postRects]).
+     */
+    val playerSolids: List<Rect>
+        get() = if (isLoaded) listOf(bounds) else listOf(bounds) + postRects.map {
+            Rect(it.x, deckY - EMPTY_POST_SOLID_HEIGHT, it.width, EMPTY_POST_SOLID_HEIGHT)
+        }
+
+    /**
+     * What a load coming down can actually hit: the whole cart once loaded; empty, the deck and
+     * the two handle posts - NOT the open space between the posts above the deck, which the art
+     * rect includes. A bob coming down into that space touches nothing until it reaches the deck
+     * (2026-09-29: "sometimes game ends ... even though me or the cart [do not touch] the hanging
+     * crates"). Post to post: the art rect also runs past the posts at both ends, over nothing.
+     */
+    val crushParts: List<Rect>
+        get() {
+            val deck = deckRect
+            return if (isLoaded) listOf(Rect(deck.x, y, deck.width, def.surfaceY - y)) else listOf(deck) + postRects
+        }
+
+    /** The solid footprint: the full height once loaded, only up to the deck while empty. */
+    val bounds: Rect
+        get() = if (isLoaded) Rect(x, y, def.width, def.height)
+        else Rect(x, deckY, def.width, def.surfaceY - deckY)
 
     /**
      * Where a braced hand takes hold, in world x: the near handle's upright, at the height the
@@ -91,9 +155,14 @@ class PushCart(private val def: PushCartDef) {
 
     fun reset() {
         x = def.initialX
+        vx = 0.0
+        isLoaded = !def.startsEmpty
     }
 
     companion object {
+        /** How far over the deck an empty cart's handle posts stop a body - see [playerSolids]. */
+        const val EMPTY_POST_SOLID_HEIGHT = 12.0
+
         /** How far short of the cart's face the grab still registers, in world units. */
         const val GRIP_REACH = 22.0
 
@@ -104,6 +173,17 @@ class PushCart(private val def: PushCartDef) {
 
         /** Top of the deck, as a fraction of the art's height measured DOWN from its top edge. */
         const val DECK_TOP_FRACTION = 0.668
+
+        /** A cart weighs this many crates - see GameWorld.updateLooseCrate. */
+        const val MASS = 2.0
+
+        /** How fast a rolling cart that nobody is holding slows down, units/s per second. */
+        const val ROLLING_FRICTION = 160.0
+
+        /** Outer face of each handle post, and a post's width (the inner faces are the LOAD fractions). */
+        const val POST_LEFT_FRACTION = 0.0742
+        const val POST_RIGHT_FRACTION = 0.8867
+        const val POST_WIDTH_FRACTION = 0.0371
 
         /** Inner faces of the two handle posts - the span a load on the deck fills. */
         const val LOAD_LEFT_FRACTION = 0.1113

@@ -206,6 +206,18 @@ data class Player(
     val swingMinReach: Double = 75.0
     val swingMaxReach: Double = 97.0
 
+    /**
+     * Grace on both of the above, and on where the swing comes down (2026-09-29, "add some grace
+     * distance range for the swing to work. otherwise it might become too difficult to do"). The
+     * reach window is really [swingMinReach] - grace .. [swingMaxReach] + grace; and a landing
+     * spot up to [SWING_LAND_GRACE] short of or past a ledge level with the take-off is pulled
+     * onto it rather than refusing the swing - level 9's swing lands on a moving load.
+     */
+    val swingReachGrace: Double = SWING_REACH_GRACE
+
+    /** Where the swing [findSwingTarget] just accepted will come down - see [SWING_LAND_GRACE]. */
+    private var foundSwingLandCenterX: Double? = null
+
     /** Minimum continuous running distance required to initiate a swing from a hook. */
     val minSwingRunUp: Double = 20.0
     var runUpDistance: Double = 0.0
@@ -267,8 +279,22 @@ data class Player(
     val centerY: Double get() = currentTopY + currentHeight / 2.0
     val center: Vec2d get() = Vec2d(centerX, centerY)
 
+    /**
+     * +1 / -1 while braced into a cart on that side (GameWorld sets it), else 0. The braced figure
+     * leans forward and down - its head ~15 ahead of the box's centre and ~66 up, not on the centre
+     * line at the box's top - and a vision cone looking for the head on the centre line saw him
+     * through empty air, from outside where he is drawn (2026-09-29: "when in the position for
+     * pushing the cart, cameras can see him even though he is not inside the vision cone"). The
+     * braced points are where the push clips are opaque in every frame (see PUSH_*_POINT).
+     */
+    var braceLean: Double = 0.0
+
     val keyPoints: List<Vec2d>
-        get() = listOf(
+        get() = if (braceLean != 0.0) listOf(
+            Vec2d(centerX + braceLean * PUSH_HEAD_POINT_X * visualHeight, y + height - PUSH_HEAD_POINT_Y * visualHeight),
+            Vec2d(centerX + braceLean * PUSH_TORSO_POINT_X * visualHeight, y + height - PUSH_TORSO_POINT_Y * visualHeight),
+            Vec2d(centerX, y + height - 8.0)
+        ) else listOf(
             Vec2d(centerX, currentTopY + 10.0),                      // Head
             Vec2d(centerX, currentTopY + currentHeight * 0.5),       // Torso
             Vec2d(centerX, y + height - 8.0)                         // Feet
@@ -294,6 +320,7 @@ data class Player(
         vx = 0.0
         vy = 0.0
         facing = 1.0
+        braceLean = 0.0
         isGrounded = false
         isCrouching = false
         crouchSuppressedByJump = false
@@ -458,19 +485,28 @@ data class Player(
             val gripX = hookGripX(hook)
             val gripY = hookGripY(hook)
             val ahead = (gripX - centerX) * direction
-            if (ahead < swingMinReach || ahead > swingMaxReach) continue
+            if (ahead < swingMinReach - swingReachGrace || ahead > swingMaxReach + swingReachGrace) continue
 
             val gripHeight = feetY - gripY
             if (gripHeight < swingMinGripHeight || gripHeight > swingMaxGripHeight) continue
 
+            // Where the fixed swing comes down, pulled onto a level ledge it only just misses.
             val landCenterX = gripX + direction * swingLandAhead
-            val landed = platforms.any { p ->
-                landCenterX >= p.left && landCenterX <= p.right && abs(p.top - feetY) <= 4.0
+            var landAt: Double? = null
+            for (p in platforms) {
+                if (abs(p.top - feetY) > 4.0) continue
+                val lo = p.left + SWING_LAND_FOOTING
+                val hi = p.right - SWING_LAND_FOOTING
+                val onIt = if (lo <= hi) landCenterX.coerceIn(lo, hi) else p.centerX
+                if (landCenterX >= p.left && landCenterX <= p.right) { landAt = landCenterX; break }
+                if (abs(onIt - landCenterX) <= SWING_LAND_GRACE) landAt = onIt
             }
-            if (!landed) continue
+            if (landAt == null) continue
 
+            foundSwingLandCenterX = landAt
             return hook
         }
+        foundSwingLandCenterX = null
         return null
     }
 
@@ -482,7 +518,8 @@ data class Player(
         swingGripY = hookGripY(hook)
         swingStartCenterX = centerX
         swingStartFeetY = y + height
-        swingLandCenterX = swingGripX + direction * swingLandAhead
+        swingLandCenterX = foundSwingLandCenterX ?: (swingGripX + direction * swingLandAhead)
+        foundSwingLandCenterX = null
         swingLandFeetY = swingStartFeetY
         isGrounded = false
         isCrouching = false
@@ -852,6 +889,35 @@ data class Player(
                             continue
                         }
 
+                        // Least penetration first. A body that has just stepped off an edge (foot
+                        // centre past it, so it no longer stands there) sinks a fraction of a unit
+                        // into the platform's top while still overlapping it by most of its width.
+                        // Treating that as a side wall ejected it clear in a single step - a
+                        // ~17-unit sideways jolt on every walk-off, kept in full by a coyote jump.
+                        // When the overlap through the TOP is the shallower one:
+                        //   - rising fast enough to clear it this step (a coyote jump): it is the
+                        //     vertical pass's to resolve - no sideways push at all;
+                        //   - falling (sliding off the edge): ease clear sideways at no more than
+                        //     walking pace instead of in one jump. The feet are already off the
+                        //     edge (foot centre outside it, or isStandingOrLandingOnTop above would
+                        //     have caught it), so the vertical pass lets it keep falling.
+                        // Anything else - rising too slowly to clear, e.g. a jump caught by a
+                        // crate riding into it - is still pushed fully clear here, or the vertical
+                        // pass would take the overlap for a ceiling and drop the body under it.
+                        val nearerLeft = abs((platform.left - width) - newX) <= abs(platform.right - newX)
+                        val penX = minOf(hRect.right - platform.left, platform.right - hRect.left)
+                        val penTop = hRect.bottom - platform.top
+                        if (penTop in 0.0..penX && hRect.top < platform.top) {
+                            if (vy < 0.0 && -vy * dt >= penTop) {
+                                continue
+                            }
+                            if (vy >= 0.0) {
+                                val slide = minOf(penX, moveSpeed * dt)
+                                newX = if (nearerLeft) newX - slide else newX + slide
+                                continue
+                            }
+                        }
+
                         // Already overlapping before this step and straddling an edge: push out whichever side is nearer.
                         if (abs((platform.left - width) - newX) <= abs(platform.right - newX)) {
                             newX = minOf(newX, platform.left - width)
@@ -995,7 +1061,25 @@ data class Player(
          * so 3.2 units of headroom where there were 6. That is the number to check before raising
          * this further, and `testTheDrawnBodyStillFitsTheTightestCrouchGap` pins it.
          */
+        /** See [swingReachGrace]: units either side of the 75..97 reach window. */
+        const val SWING_REACH_GRACE = 12.0
+        /** See [swingReachGrace]: how far a swing's landing may be pulled onto a ledge. */
+        const val SWING_LAND_GRACE = 14.0
+        /** A landing pulled onto a ledge comes down at least this far in from its edge. */
+        const val SWING_LAND_FOOTING = 12.0
+
         const val VISUAL_HEIGHT_SCALE = 1.05
+
+        /**
+         * The braced push figure's head and torso, as fractions of visualHeight: forward of the
+         * box's centre (in the push direction) and up from the feet. Measured on resources/player/
+         * push + the settled end of pushtransition at the drawn scale: the head at (+15.5, 66) and
+         * the waist at (-3.5, 45) are opaque in every one of those frames. See braceLean.
+         */
+        const val PUSH_HEAD_POINT_X = 0.154
+        const val PUSH_HEAD_POINT_Y = 0.655
+        const val PUSH_TORSO_POINT_X = -0.035
+        const val PUSH_TORSO_POINT_Y = 0.45
 
         /**
          * Closes the last couple of units once the hand comes off the lip, raw frames ~156-163.

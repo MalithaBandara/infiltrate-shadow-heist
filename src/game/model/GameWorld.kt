@@ -35,6 +35,10 @@ data class GameWorld(
     val tableParts: List<Rect> = emptyList(),
     /** Purely decorative table pieces, no collision - see LevelLayout.tableDecorations. */
     val tableDecorations: List<Rect> = emptyList(),
+    /** Washed-out table legs with no collision - see LevelLayout.passThroughLegs. */
+    val passThroughLegs: List<Rect> = emptyList(),
+    /** Tables drawn as one tiled slab - see LevelLayout.seamlessTables. */
+    val seamlessTables: List<Rect> = emptyList(),
     /** Boxes climbable despite being a floating ledge - see LevelLayout.floatingClimbTargets. */
     val floatingClimbTargets: List<Rect> = emptyList(),
     /** Boxes the player may not mantle onto at all - see LevelLayout.unclimbableBoxes. */
@@ -96,7 +100,8 @@ data class GameWorld(
                 // A cart within arm's reach, or one already in hand - letting go has to stay
                 // possible even after the grab has carried the body out of its own grab range.
                 grippedCart != null ||
-                pushCarts.any { it.canGrip(player) }
+                pushCarts.any { it.canGrip(player) } ||
+                doorSwitches.any { it.isPlayerInRange(player) }
     val hangingCrateVariant1: List<Rect>
         get() = staticHangingCrateVariant1 + conveyorCrates.filter { it.isHanging && it.isVariant1 }.map { it.bounds }
     val hangingCrateVariant2: List<Rect>
@@ -126,6 +131,8 @@ data class GameWorld(
         tables: List<Rect> = emptyList(),
         tableParts: List<Rect> = emptyList(),
         tableDecorations: List<Rect> = emptyList(),
+        passThroughLegs: List<Rect> = emptyList(),
+        seamlessTables: List<Rect> = emptyList(),
         floatingClimbTargets: List<Rect> = emptyList(),
         unclimbableBoxes: List<Rect> = emptyList(),
         hangingCrateVariant1: List<Rect> = emptyList(),
@@ -174,6 +181,8 @@ data class GameWorld(
         tables = tables,
         tableParts = tableParts,
         tableDecorations = tableDecorations,
+        passThroughLegs = passThroughLegs,
+        seamlessTables = seamlessTables,
         floatingClimbTargets = floatingClimbTargets,
         unclimbableBoxes = unclimbableBoxes,
         staticHangingCrateVariant1 = hangingCrateVariant1,
@@ -204,6 +213,188 @@ data class GameWorld(
     val allGuards: List<Guard>
         get() = if (hasNoGuards) emptyList() else if (extraGuards.isEmpty()) listOf(guard) else listOf(guard) + extraGuards
 
+    // ---- level 11: doors, lifts and the prisoner (LevelLayout.doors/doorSwitches/lifts/prisoner) ----
+    //
+    // Assigned by createFromLayout rather than taken through the constructors - nothing but a
+    // layout ever has them.
+
+    var doors: List<Door> = emptyList()
+        internal set
+    var doorSwitches: List<DoorSwitchDef> = emptyList()
+        internal set
+    var lifts: List<Lift> = emptyList()
+        internal set
+    var prisoner: Prisoner? = null
+        internal set
+
+    /** True for the frames something with eyes has the prisoner in sight - the scene's pip over him. */
+    var isPrisonerSeen: Boolean = false
+        private set
+
+    /** Set when the run ended because the prisoner was seen or killed, for the fail card's reason. */
+    var prisonerLost: Boolean = false
+        private set
+
+    /** Fired whenever a switch is thrown (the scene's clunk). */
+    var onSwitchThrown: ((DoorSwitchDef) -> Unit)? = null
+
+    /** Switches thrown this attempt - what completes an INTERACT tutorial on a level with switches. */
+    var switchThrowCount: Int = 0
+        private set
+
+    /** Times each switch has been thrown this attempt, by id (BonusObjective.USE_EACH_SWITCH_ONCE). */
+    private val switchThrows = HashMap<String, Int>()
+
+    /** Some switch has been thrown a second time this attempt. */
+    var hasReusedASwitch: Boolean = false
+        private set
+
+    private var switchInteractWasDown = false
+
+    /**
+     * What blocks sight this tick: the level's own [occluders] plus every door panel still hanging
+     * and every lift platform. Just [occluders] on a level without doors or lifts. The scene draws
+     * cones against this, so a guard's beam stops at a shut door exactly where his sight does.
+     */
+    var visionOccluders: List<Rect> = occluders
+        private set
+
+    /** Bumped whenever [visionOccluders] changes shape - the scene rebuilds cached cones on it. */
+    var visionOccluderVersion: Int = 0
+        private set
+
+    private fun dynamicDoorSolids(): List<Rect> {
+        if (doors.isEmpty() && lifts.isEmpty()) return emptyList()
+        val out = ArrayList<Rect>(doors.size + lifts.size)
+        for (d in doors) d.panel?.let { out.add(it) }
+        for (l in lifts) out.add(l.bounds)
+        return out
+    }
+
+    internal fun refreshVisionOccluders() {
+        if (doors.isEmpty() && lifts.isEmpty()) return
+        val next = occluders + dynamicDoorSolids()
+        if (next != visionOccluders) {
+            visionOccluders = next
+            visionOccluderVersion++
+        }
+    }
+
+    /** A body standing on [r]'s top, feet centre over it - riding it, the way a moving platform is ridden. */
+    private fun standsOn(body: Player, r: Rect): Boolean {
+        if (!body.isGrounded) return false
+        val feet = body.y + body.height
+        val fc = body.x + body.width / 2.0
+        return kotlin.math.abs(feet - r.top) < 4.5 && fc >= r.left && fc <= r.right
+    }
+
+    /** Switches, doors and lifts - before anyone moves this tick. */
+    private fun updateDoorsAndLifts(dt: Double, interactInput: Boolean) {
+        if (doorSwitches.isEmpty() && doors.isEmpty() && lifts.isEmpty()) return
+        val pressed = interactInput && !switchInteractWasDown
+        switchInteractWasDown = interactInput
+        if (pressed) {
+            for (sw in doorSwitches) {
+                if (!sw.isPlayerInRange(player)) continue
+                for (id in sw.targets) {
+                    doors.firstOrNull { it.id == id }?.toggle()
+                    lifts.firstOrNull { it.id == id }?.toggle()
+                }
+                switchThrowCount++
+                val n = (switchThrows[sw.id] ?: 0) + 1
+                switchThrows[sw.id] = n
+                if (n > 1) hasReusedASwitch = true
+                onSwitchThrown?.invoke(sw)
+                break
+            }
+        }
+        val p = prisoner
+        val bodies = ArrayList<Rect>(allGuards.size + 2)
+        bodies.add(player.bounds)
+        if (p != null) bodies.add(p.bounds)
+        for (g in allGuards) bodies.add(g.bounds)
+        for (d in doors) {
+            d.update(dt, bodies)
+            if (p != null && !p.isFree && d.id == p.def.freedByDoorId && d.openness >= PRISONER_FREED_AT) p.free()
+        }
+        for (l in lifts) {
+            val before = l.bounds
+            val playerRides = standsOn(player, before)
+            val prisonerRides = p != null && standsOn(p.body, before)
+            // A guard in the shaft stops it: the lift is not for carrying guards (he has no
+            // gravity to follow it down with, and nowhere to walk off it at the top).
+            val guardInShaft = allGuards.any { it.bounds.intersects(l.shaft) }
+            val blockers = ArrayList<Rect>(2)
+            if (!playerRides) blockers.add(player.bounds)
+            if (p != null && !prisonerRides) blockers.add(p.bounds)
+            val dy = l.update(dt, blockers, frozen = guardInShaft)
+            if (dy != 0.0) {
+                if (playerRides) player.y += dy
+                if (prisonerRides) p!!.body.y += dy
+            }
+        }
+    }
+
+    /** Level 11: the prisoner has walked into steam - Mission Failed. */
+    private fun losePrisoner() {
+        prisonerLost = true
+        isGameOver = true
+        onGameOver?.invoke()
+    }
+
+    /** Everything a checkpoint on a prisoner level puts back as it was when taken. */
+    private class EscortSnapshot(
+        val prisonerX: Double,
+        val prisonerY: Double,
+        val doors: List<Pair<Boolean, Double>>,
+        val lifts: List<Pair<Boolean, Double>>,
+        val guards: List<Pair<Double, Double>>
+    )
+
+    private var escortSnapshot: EscortSnapshot? = null
+
+    private fun takeEscortSnapshot(p: Prisoner) {
+        escortSnapshot = EscortSnapshot(
+            prisonerX = p.body.x,
+            prisonerY = p.body.y,
+            doors = doors.map { it.isOpen to it.openness },
+            lifts = lifts.map { it.isUp to it.topY },
+            guards = allGuards.map { it.x to it.facing }
+        )
+    }
+
+    /** Doors, lifts, guards and the prisoner back to the level's start (a restart) or the last checkpoint. */
+    private fun resetEscort(toCheckpoint: Boolean) {
+        val p = prisoner
+        if (p == null) {
+            // Level 10's door and lift: back to shut and down on a restart; a respawn (from before
+            // them) leaves them as they are.
+            if (!toCheckpoint) {
+                for (d in doors) d.reset()
+                for (l in lifts) l.reset()
+                switchInteractWasDown = false
+                refreshVisionOccluders()
+            }
+            return
+        }
+        val snap = if (toCheckpoint) escortSnapshot else null
+        if (snap == null) {
+            for (d in doors) d.reset()
+            for (l in lifts) l.reset()
+            for (g in allGuards) g.resetToSpawn()
+            p.reset()
+        } else {
+            doors.forEachIndexed { i, d -> snap.doors.getOrNull(i)?.let { (o, v) -> d.restore(o, v) } }
+            lifts.forEachIndexed { i, l -> snap.lifts.getOrNull(i)?.let { (u, y) -> l.restore(u, y) } }
+            allGuards.forEachIndexed { i, g -> snap.guards.getOrNull(i)?.let { (x, f) -> g.placeAt(x, f) } }
+            p.restore(snap.prisonerX, snap.prisonerY)
+        }
+        isPrisonerSeen = false
+        prisonerLost = false
+        switchInteractWasDown = false
+        refreshVisionOccluders()
+    }
+
     /**
      * Reused buffer for the platform list handed to [Player.update] - the level's platforms plus
      * every guard's current bounds. Guards move, so this genuinely has to be rebuilt each frame,
@@ -211,6 +402,354 @@ data class GameWorld(
      * times a second. Safe to reuse because [Player] only iterates it and never retains it.
      */
     private val playerPlatformsScratch = ArrayList<Rect>()
+
+    /**
+     * True while the player last stood at floor level - the ground, or anything standing on it
+     * within [FLOOR_LEVEL_BAND] (barrels, carts, a dropped crate) - rather than on a hanging load or
+     * a raised platform. While it holds, every [MovingPlatformDef.noGroundBoarding] surface is
+     * capped with an invisible lid and left out of the climb targets, so it cannot be got onto.
+     * Updated on every grounded frame and held through the air, so it describes the surface the
+     * current jump left from.
+     */
+    var isBoardingFromFloorLevel: Boolean = true
+        private set
+
+    /** The surfaces [isBoardingFromFloorLevel] applies to, where they are this tick. */
+    private fun groundBoardingBlockedSurfaces(): List<Rect> {
+        val out = ArrayList<Rect>()
+        for (mp in movingPlatforms) if (mp.noGroundBoarding) out.add(mp.bounds)
+        for (hc in hookCrates) if (hc.noGroundBoarding && hc.isHanging) out.add(hc.bounds)
+        return out
+    }
+
+    private fun updateBoardingFromFloorLevel(groundY: Double) {
+        if (!player.isGrounded) return
+        val feet = player.y + player.height
+        val footCenter = player.x + player.width / 2.0
+        val onHangingLoad = groundBoardingBlockedSurfaces().any {
+            kotlin.math.abs(feet - it.top) < 4.5 && footCenter >= it.left && footCenter <= it.right
+        }
+        isBoardingFromFloorLevel = feet >= groundY - FLOOR_LEVEL_BAND && !onHangingLoad
+    }
+
+    /**
+     * Hook crates: the rig's sweep (held still while the player is swinging from it) and, for a
+     * [HookCrate.physical] one, the swing on the rope, the tumble once cut, the catch in a cart and
+     * the ride in it afterwards. A plain one just drops to the floor.
+     */
+    private fun updateHookCrates(dt: Double, groundY: Double) {
+        for (hc in hookCrates) {
+            // A body standing on a hanging crate rides it, the way one rides a moving platform.
+            val riding = hc.isHanging && player.isGrounded && run {
+                val feet = player.y + player.height
+                val fc = player.x + player.width / 2.0
+                kotlin.math.abs(feet - hc.bounds.top) < 4.5 && fc >= hc.bounds.left && fc <= hc.bounds.right
+            }
+            val beforeTop = hc.bounds.top
+            val beforeCx = hc.bounds.centerX
+            val hookIndex = hookCrates.indexOf(hc)
+            // Swinging from it takes this rig off the recording for good - see followRecordedWorld.
+            if (player.isSwinging && followedHooks.getOrElse(hookIndex) { false }) followedHooks[hookIndex] = false
+            if (!player.isSwinging) hc.advanceSweep(dt, recordedHookClock(hookIndex))
+            if (riding) {
+                player.x += hc.bounds.centerX - beforeCx
+                player.y += hc.bounds.top - beforeTop
+            }
+            if (!hc.physical) {
+                hc.update(dt, 1000.0, groundY)
+                continue
+            }
+            val carrierId = hc.carriedByCartId
+            if (carrierId != null) {
+                val cart = pushCarts.firstOrNull { it.id == carrierId } ?: continue
+                hc.bounds = Rect(cart.x + hc.carryOffsetX, cart.deckY - hc.bounds.height, hc.bounds.width, hc.bounds.height)
+                hc.body?.let { it.cx = hc.bounds.centerX; it.cy = hc.bounds.centerY }
+                continue
+            }
+            val body = hc.body ?: continue
+            if (body.isAsleep) continue
+            updateLooseCrate(hc, body, dt, groundY)
+            if (isGameOver) return
+        }
+        rollCarts(dt)
+    }
+
+    /** Scratch for [updateLooseCrate]. */
+    private val crateSupports = HashSet<BoxObstacle>()
+
+    /** One tick of a cut [HookCrate.physical] crate: tumble, hit things, maybe land in a cart. */
+    private fun updateLooseCrate(hc: HookCrate, body: RigidBox, dt: Double, groundY: Double) {
+        val obstacles = ArrayList<BoxObstacle>()
+        obstacles.add(BoxObstacle(Rect(-1000.0, groundY, worldWidth + 2000.0, 200.0)))
+        for (b in boxes) obstacles.add(BoxObstacle(b))
+        val cartDecks = HashMap<BoxObstacle, PushCart>()
+        for (cart in pushCarts) {
+            // A cart the echo is playing back goes where the recording says, whatever hits it.
+            val held = grippedCart === cart || isEchoCart(cart)
+            val inv = if (held) 0.0 else 1.0 / PushCart.MASS
+            val vx = if (held) 0.0 else cart.vx
+            if (cart.isLoaded) {
+                obstacles.add(BoxObstacle(cart.bounds, vx, inv, cart))
+                continue
+            }
+            val deck = BoxObstacle(cart.deckRect, vx, inv, cart)
+            cartDecks[deck] = cart
+            obstacles.add(deck)
+            for (post in cart.postRects) obstacles.add(BoxObstacle(post, vx, inv, cart))
+        }
+        BoxPhysics.step(body, dt, obstacles, crateSupports) { owner, jx ->
+            if (owner is PushCart && owner !== grippedCart && !isEchoCart(owner)) owner.vx += jx / PushCart.MASS
+        }
+        hc.syncBodyBounds()
+
+        // Resting on the top of a handle post and nothing else - balanced on a stick, a thing no
+        // real load does for long, and it had nothing to ever knock it off: it sat up there for
+        // good, looking as if the lever had not dropped it. It tips off to the side its middle
+        // is over (outward, when dead centre).
+        if (crateSupports.isNotEmpty() && crateSupports.all { it.owner is PushCart && it.rect.width < body.width / 2.0 } &&
+            kotlin.math.abs(body.omega) < BoxPhysics.REST_SPIN
+        ) {
+            val post = crateSupports.first()
+            val cart = post.owner as PushCart
+            val off = body.cx - post.rect.centerX
+            val side = if (kotlin.math.abs(off) > 1.0) kotlin.math.sign(off)
+                else if (post.rect.centerX < cart.bounds.centerX) -1.0 else 1.0
+            body.omega += side * PERCH_TIP_SPIN * dt
+        }
+
+        // Coming down on the player is Mission Failed, like any other falling load.
+        if (!isGameOver && !isLevelComplete && body.vy > 150.0) {
+            val pb = player.bounds
+            if (pb.intersects(hc.bounds) && pb.bottom > hc.bounds.bottom - 0.5) {
+                isGameOver = true
+                onGameOver?.invoke()
+                onHangingCrateHit?.invoke()
+                return
+            }
+        }
+
+        // Caught: at rest, near square, sitting on an empty cart's deck between its posts.
+        val deck = crateSupports.firstOrNull { it in cartDecks }
+        if (deck != null) {
+            val cart = cartDecks.getValue(deck)
+            val slow = kotlin.math.hypot(body.vx - cart.vx, body.vy) < BoxPhysics.REST_SPEED * 2.0 &&
+                kotlin.math.abs(body.omega) < BoxPhysics.REST_SPIN
+            val square = kotlin.math.round(body.angle / kotlin.math.PI) * kotlin.math.PI
+            val tilt = kotlin.math.abs(body.angle - square)
+            val bb = body.aabb()
+            val between = bb.left >= cart.loadBounds.left - 1.0 && bb.right <= cart.loadBounds.right + 1.0
+            if (slow && tilt < HookCrate.CATCH_MAX_TILT && between) {
+                body.angle = square
+                body.vx = 0.0
+                body.vy = 0.0
+                body.omega = 0.0
+                body.cy = cart.deckY - body.height / 2.0
+                BoxPhysics.settleIfResting(body, BoxPhysics.REST_TIME, supported = true, supportTop = null)
+                hc.syncBodyBounds()
+                hc.carriedByCartId = cart.id
+                hc.carryOffsetX = hc.bounds.x - cart.x
+                hc.isLanded = true
+                cart.isLoaded = true
+                cart.vx = 0.0
+                runRecorder?.event(runClock, RunEventKind.CATCH, "${hc.id}>${cart.id}")
+                return
+            }
+        }
+        // Otherwise it goes to sleep only on something that cannot move - never on a cart.
+        val onCart = crateSupports.any { it.owner is PushCart }
+        val staticTop = crateSupports.filter { it.owner == null }.minOfOrNull { it.rect.top }
+        if (!onCart && BoxPhysics.settleIfResting(body, dt, supported = staticTop != null, supportTop = staticTop)) {
+            hc.syncBodyBounds()
+            hc.isLanded = true
+        }
+    }
+
+    /**
+     * MovingPlatformDef.squeezes: two such loads closer together than a body is wide, with the
+     * body's centre between theirs and the body level with BOTH of them - so standing on top of
+     * one of them (level 9's hop from one to the other) is not being caught between them.
+     */
+    private fun isSqueezedBetweenLoads(p: Rect): Boolean {
+        for (a in movingPlatforms) {
+            if (!a.squeezes) continue
+            val ab = a.bounds
+            for (b in movingPlatforms) {
+                if (b === a || !b.squeezes) continue
+                val bb = b.bounds
+                if (bb.centerX <= ab.centerX) continue
+                if (bb.left - ab.right >= player.width) continue
+                val c = p.centerX
+                if (c <= ab.centerX || c >= bb.centerX) continue
+                val levelWithA = p.top < ab.bottom && p.bottom > ab.top
+                val levelWithB = p.top < bb.bottom && p.bottom > bb.top
+                if (levelWithA && levelWithB) return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * A crushing load (MovingPlatformDef.crushesOnContact) that comes down on a cart - handles
+     * included, loaded or not - is Mission Failed too: LEVEL_8_LAYOUT's bobbing chain over the
+     * empty cart being pushed under it.
+     */
+    private fun crushingLoadOnACart(): Boolean {
+        // With an echo the carts are its, played back where its run had them - not the player's.
+        if (pushCarts.isEmpty() || echo != null) return false
+        for (mp in movingPlatforms) {
+            if (!mp.crushesOnContact) continue
+            val mb = mp.bounds
+            for (cart in pushCarts) {
+                // The parts a load can hit (PushCart.crushParts), not the art rect: an empty cart
+                // is an open frame, and a load in the gap between its handles touches nothing.
+                for (part in cart.crushParts) {
+                    val hit = if (mp.crushesOnlyFromBelow) touchesUnderside(part, mb, 0.0) else mb.intersects(part)
+                    if (hit) return true
+                }
+            }
+        }
+        return false
+    }
+
+    /**
+     * The body as a load coming down meets it: the drawn character is ~21 units across inside the
+     * 36-unit collision box (Player.footWidth), so a crusher is judged on that centre span - one
+     * coming down in front of the chest, clear of the drawn body, is a miss.
+     */
+    private fun crushBox(): Rect {
+        val b = player.bounds
+        val w = player.footWidth
+        return Rect(b.x + (b.width - w) / 2.0, b.y, w, b.height)
+    }
+
+    /**
+     * The body as a load coming down meets it, as the parts actually drawn. Standing, that is
+     * [crushBox]. Braced into a cart the figure leans forward with the trailing leg well back, so
+     * over the box it is a slope - tall at the fists, knee-high at the back boot - nowhere near
+     * the 96-unit box: a bob coming down just behind a pushing body (one he has walked on past)
+     * touched nothing drawn and still ended the run (2026-09-29: "i think it happens when the
+     * person has passed the crate ... its like the bounding box of the person is larger than his
+     * actual self when he is in this position"). The slope is [PUSH_CRUSH_PROFILE], the push
+     * clips' own silhouette.
+     */
+    private fun crushParts(): List<Rect> {
+        if (grippedCart == null || pushStanceBlend < 0.5 || pushCartSide == 0.0) return listOf(crushBox())
+        val b = player.bounds
+        val n = PUSH_CRUSH_PROFILE.size
+        val w = b.width / n
+        val vh = player.visualHeight
+        return List(n) { i ->
+            // Profile index 0 is the trailing end; facing left the body is mirrored.
+            val k = if (pushCartSide > 0.0) i else n - 1 - i
+            val h = minOf(b.height, PUSH_CRUSH_PROFILE[k] * vh)
+            Rect(b.x + i * w, b.bottom - h, w, h)
+        }
+    }
+
+    /** How far a body box standing at [x] overlaps [r] across. */
+    private fun overlapX(x: Double, r: Rect): Double =
+        (minOf(x + player.width, r.right) - maxOf(x, r.left)).coerceAtLeast(0.0)
+
+    /**
+     * [touchesUnderside] against the body's drawn [parts] taken together: the parts the load
+     * reaches, their tallest top against its underside and their joint span across it.
+     */
+    private fun comesDownOn(parts: List<Rect>, crate: Rect, reach: Double): Boolean {
+        if (parts.size == 1) return touchesUnderside(parts[0], crate, reach)
+        var top = Double.MAX_VALUE
+        var left = Double.MAX_VALUE
+        var right = -Double.MAX_VALUE
+        for (o in parts) {
+            if (!Rect(o.x, o.y - reach, o.width, o.height + reach).intersects(crate)) continue
+            top = minOf(top, o.top)
+            left = minOf(left, o.left)
+            right = maxOf(right, o.right)
+        }
+        if (top == Double.MAX_VALUE || top <= crate.centerY) return false
+        val across = minOf(right, crate.right) - maxOf(left, crate.left)
+        return crate.bottom - top <= across
+    }
+
+    /** A cart's whole drawn rect, handles included, loaded or not. */
+    private fun cartArt(cart: PushCart): Rect = Rect(cart.x, cart.y, cart.width, cart.height)
+
+    /**
+     * [o] is touching [crate]'s underside, not a side: overlapping it (or within [reach] under
+     * it), with its own top in the crate's lower half and the contact shallower through the
+     * bottom face than across. See MovingPlatformDef.crushesOnlyFromBelow.
+     */
+    private fun touchesUnderside(o: Rect, crate: Rect, reach: Double): Boolean {
+        if (!Rect(o.x, o.y - reach, o.width, o.height + reach).intersects(crate)) return false
+        if (o.top <= crate.centerY) return false
+        val across = minOf(o.right, crate.right) - maxOf(o.left, crate.left)
+        val up = crate.bottom - o.top
+        return up <= across
+    }
+
+    /**
+     * A crushing load hanging low enough to be in a cart's way stops it from the side, like a
+     * wall - running a cart into one is not being crushed (only its underside does that).
+     */
+    private fun crusherBlocksCart(mb: Rect, cart: PushCart): Boolean {
+        val art = cartArt(cart)
+        return mb.bottom > art.top + 0.5 && mb.top < art.bottom
+    }
+
+    /** A loose crate lying still low enough to stand in a cart's way. */
+    private fun blocksCart(hc: HookCrate, cart: PushCart): Boolean =
+        hc.physical && hc.carriedByCartId == null && hc.body?.isAsleep == true && hc.bounds.bottom > cart.y + 1.0
+
+    /**
+     * How far [cart] can go right now: its own travel limits, narrowed by any crate lying on the
+     * floor in its path - a cart stops against a dropped load rather than passing through it.
+     */
+    private fun cartMinX(cart: PushCart): Double {
+        var m = cart.minX
+        for (hc in hookCrates) {
+            if (blocksCart(hc, cart) && hc.bounds.centerX < cart.x + cart.width / 2.0) m = maxOf(m, hc.bounds.right)
+        }
+        for (mp in movingPlatforms) {
+            if (!mp.crushesOnContact || !mp.crushesOnlyFromBelow) continue
+            val mb = mp.bounds
+            if (mb.right <= cart.x + 0.5 && crusherBlocksCart(mb, cart)) m = maxOf(m, mb.right)
+        }
+        return m
+    }
+
+    private fun cartMaxX(cart: PushCart): Double {
+        var m = cart.maxX
+        for (hc in hookCrates) {
+            if (blocksCart(hc, cart) && hc.bounds.centerX >= cart.x + cart.width / 2.0) m = minOf(m, hc.bounds.left - cart.width)
+        }
+        for (mp in movingPlatforms) {
+            if (!mp.crushesOnContact || !mp.crushesOnlyFromBelow) continue
+            val mb = mp.bounds
+            if (mb.left >= cart.x + cart.width - 0.5 && crusherBlocksCart(mb, cart)) m = minOf(m, mb.left - cart.width)
+        }
+        return m
+    }
+
+    /** A cart nobody is holding rolls on whatever a crate's impact gave it, and slows to a stop. */
+    private fun rollCarts(dt: Double) {
+        for (cart in pushCarts) {
+            if (cart === grippedCart || isEchoCart(cart)) {
+                cart.vx = 0.0
+                continue
+            }
+            if (cart.vx == 0.0) continue
+            val decel = PushCart.ROLLING_FRICTION * dt
+            cart.vx = if (kotlin.math.abs(cart.vx) <= decel) 0.0 else cart.vx - decel * kotlin.math.sign(cart.vx)
+            val nx = cart.x + cart.vx * dt
+            val lo = cartMinX(cart)
+            val hi = cartMaxX(cart)
+            if (nx < lo || nx > hi) {
+                cart.x = nx.coerceIn(minOf(lo, cart.x), maxOf(hi, cart.x))
+                cart.vx = 0.0
+            } else {
+                cart.x = nx
+            }
+        }
+    }
 
     var isPlayerInVision: Boolean = false
         private set
@@ -515,15 +1054,34 @@ data class GameWorld(
         for (crate in conveyorCrates) crate.reset()
         for (laser in lasers) laser.reset()
         for (lever in levers) lever.reset()
-        for (hc in hookCrates) hc.reset()
+        for (hc in hookCrates) hc.reset(atSweepClock = hc.sweepClock)
         for (b in cameraBots) b.reset()
         for (f in fans) f.reset()
         for (p in steamPipes) p.reset()
+        // Level 8: the failed attempt is cut from the recording (RunRecorder.rewindToCheckpoint).
+        runRecorder?.let { rec ->
+            rec.rewindToCheckpoint()
+            // Mechanisms reset: the replay does the same, so its lever and its catch play again.
+            rec.event(runClock, RunEventKind.RESET, "")
+        }
+        // Level 9: the echo is not his to reset - it carries on, and what it has already done to
+        // the level (the lever, the catch, the bots) stands.
+        echo?.let { e ->
+            for (ev in e.passedEvents()) applyEchoEvent(ev)
+            applyEchoCarts(e.current)
+        }
+        followRecordedWorld()
+        isEchoDetecting = false
+        // Level 9: the fall that ended the attempt is behind him - the ground rule applies again.
+        touchedGround = false
+        bonusTracker?.onRespawn()
+        resetEscort(toCheckpoint = true)
         activePowerups.invisibilityTimer = 3.0
         laserGraceTimer = 3.0
         spawnGraceTimer = 3.0
         resetPushStance()
         resetWindStance()
+        isBoardingFromFloorLevel = true
         if (playerStartCrouched) player.isCrouching = true
         return true
     }
@@ -546,8 +1104,10 @@ data class GameWorld(
         spottedCount = 0
         wasDetected = false
         hasPlayerCrouchedOnce = false
+        touchedGround = false
         timeTaken = 0.0f
         totalElapsedSeconds = 0.0
+        runStartSeconds = null
         // A restart always resumes: whatever put the run on hold (pause overlay, backgrounded
         // app, ad) is over by the time anything asks for a fresh attempt, and a stuck flag here
         // would freeze the new run outright.
@@ -571,10 +1131,25 @@ data class GameWorld(
         for (b in cameraBots) b.reset()
         for (f in fans) f.reset()
         for (p in steamPipes) p.reset()
+        runRecorder?.clear()
+        echo?.let {
+            it.reset()
+            applyEchoCarts(it.current)
+            if (it.recording.hasWorld) totalElapsedSeconds = it.recording.worldStart
+        }
+        followRecordedWorld()
+        isEchoDetecting = false
+        bonusTracker?.reset()
+        escortSnapshot = null
+        switchThrowCount = 0
+        switchThrows.clear()
+        hasReusedASwitch = false
+        resetEscort(toCheckpoint = false)
         activePowerups.invisibilityTimer = 0.0
         laserGraceTimer = 0.0
         resetPushStance()
         resetWindStance()
+        isBoardingFromFloorLevel = true
         if (playerStartCrouched) player.isCrouching = true
         conveyorsActive = !conveyorsStartOnMove
     }
@@ -737,12 +1312,14 @@ data class GameWorld(
             pushCartGripStartOffsetX = target
             player.x = cart.x - target
         }
-        val minPlayerX = cart.minX - pushCartGripOffsetX
-        val maxPlayerX = cart.maxX - pushCartGripOffsetX
+        val lo = cartMinX(cart)
+        val hi = cartMaxX(cart)
+        val minPlayerX = lo - pushCartGripOffsetX
+        val maxPlayerX = hi - pushCartGripOffsetX
         if (minPlayerX <= maxPlayerX) {
             player.x = player.x.coerceIn(minPlayerX, maxPlayerX)
         }
-        cart.x = (player.x + pushCartGripOffsetX).coerceIn(cart.minX, cart.maxX)
+        cart.x = (player.x + pushCartGripOffsetX).coerceIn(minOf(lo, cart.x), maxOf(hi, cart.x))
 
         val dx = player.x - playerXBefore
         if (dx != 0.0) {
@@ -753,6 +1330,224 @@ data class GameWorld(
 
     private val recentlySeeingGuards = LinkedHashSet<Guard>()
 
+    // ---- the recorded run (LevelData.recordsRun) and its replay (LevelData.replaysRunOf) ----
+
+    /** Records this run for a later level to replay - level 8's, which level 9 follows. */
+    val runRecorder: RunRecorder? = if (levelData.recordsRun) RunRecorder(pushCarts.map { it.id }, worldTrackNames()) else null
+
+    /**
+     * The parts of the level that keep their own time rather than following the level clock -
+     * each camera's sweep, each bot's patrol, each hook rig's travel. The lasers and the moving
+     * loads need nothing: they are a function of the clock, which the replay starts at
+     * [RunRecording.worldStart]. See [RunRecording.worldTracks] for the names.
+     */
+    private fun worldTrackNames(): List<String> =
+        cameras.indices.map { "cam$it" } + cameraBots.map { "bot:${it.id}" } + hookCrates.map { "hook:${it.id}" }
+
+    private fun worldTrackValues(): DoubleArray {
+        val out = DoubleArray(cameras.size + cameraBots.size + hookCrates.size)
+        var i = 0
+        for (c in cameras) out[i++] = c.currentAngle
+        for (b in cameraBots) out[i++] = if (b.facing < 0.0) -b.x else b.x
+        for (hc in hookCrates) out[i++] = hc.sweepClock
+        return out
+    }
+
+    // ---- level 9: the level played back with the run (RunRecording.worldTracks) ----
+    //
+    // "make sure the starting position of everything is recorded at level 8 when the player starts
+    // and ... exactly playbacked. otherwise it looks like he goes through objects and lasers in
+    // level 9". Each camera, bot and rig here follows level 8's recording, so what the echo walked
+    // past is where it was - UNTIL this level's player gets involved with it: a camera or bot that
+    // spots him, a bot he switches off, a rig he swings from carries on live from where it is. A
+    // respawn puts every one back on the recording.
+
+    private val followedCameras = BooleanArray(cameras.size)
+    private val followedBots = BooleanArray(cameraBots.size)
+    private val followedHooks = BooleanArray(hookCrates.size)
+
+    /** Index of each world track in the replayed recording, or -1 - see [followRecordedWorld]. */
+    private var cameraTrack = IntArray(0)
+    private var botTrack = IntArray(0)
+    private var hookTrack = IntArray(0)
+
+    /** Puts every camera, bot and rig back on the echo's recording (a no-op without one). */
+    private fun followRecordedWorld() {
+        val rec = echo?.recording ?: return
+        if (!rec.hasWorld) return
+        cameraTrack = IntArray(cameras.size) { rec.worldTracks.indexOf("cam$it") }
+        botTrack = IntArray(cameraBots.size) { rec.worldTracks.indexOf("bot:${cameraBots[it].id}") }
+        hookTrack = IntArray(hookCrates.size) { rec.worldTracks.indexOf("hook:${hookCrates[it].id}") }
+        for (i in cameras.indices) followedCameras[i] = cameraTrack[i] >= 0
+        for (i in cameraBots.indices) followedBots[i] = botTrack[i] >= 0
+        for (i in hookCrates.indices) followedHooks[i] = hookTrack[i] >= 0
+        applyRecordedWorld(echo!!.current)
+    }
+
+    /** Sets every followed camera, bot and rig to [sample]'s recorded state. */
+    private fun applyRecordedWorld(sample: RunSample) {
+        val w = sample.world
+        for (i in cameras.indices) if (followedCameras[i] && cameraTrack[i] < w.size) cameras[i].currentAngle = w[cameraTrack[i]]
+        for (i in cameraBots.indices) {
+            if (!followedBots[i] || botTrack[i] >= w.size) continue
+            val v = w[botTrack[i]]
+            cameraBots[i].x = kotlin.math.abs(v)
+            cameraBots[i].facing = if (v < 0.0) -1.0 else 1.0
+        }
+    }
+
+    /** A camera that has spotted this level's player stops following the recording. */
+    private fun releaseCamera(c: Camera) {
+        val i = cameras.indexOf(c)
+        if (i < 0 || !followedCameras[i]) return
+        followedCameras[i] = false
+        // Carry on the way the recording was turning.
+        val rec = echo?.recording
+        if (rec != null && cameraTrack[i] >= 0) {
+            val now = rec.sampleAt(echo!!.clock).world.getOrNull(cameraTrack[i])
+            val before = rec.sampleAt(echo!!.clock - rec.step).world.getOrNull(cameraTrack[i])
+            if (now != null && before != null && now != before) c.sweepDirection = if (now > before) 1.0 else -1.0
+        }
+    }
+
+    private fun releaseBot(b: CameraBot) {
+        val i = cameraBots.indexOf(b)
+        if (i >= 0) followedBots[i] = false
+    }
+
+    /** The recorded rig clock for hook crate [i] this tick, or null when it runs on its own. */
+    private fun recordedHookClock(i: Int): Double? {
+        if (!followedHooks.getOrElse(i) { false }) return null
+        return echo?.current?.world?.getOrNull(hookTrack[i])
+    }
+
+    /**
+     * The recorded run, only once it has succeeded - null until the exit is reached, and null again
+     * after a restart. "make sure only successful runs are recorded. if he completes the level
+     * again new one should replace the old one": this is the only thing the scene saves, and it
+     * saves it over the last one every time.
+     */
+    val completedRun: RunRecording?
+        get() = if (isLevelComplete) runRecorder?.finish() else null
+
+    /** The recorded run being played back as a watcher that sees and hears like a guard. */
+    var echo: EchoRunner? = null
+        private set
+
+    /** True for the frames the [echo] has eyes on the player - the scene's pip over it. */
+    var isEchoDetecting: Boolean = false
+        private set
+
+    /** Level 9: plays [recording] back from the start of the run. */
+    fun attachEcho(recording: RunRecording) {
+        echo = EchoRunner(recording).also { applyEchoCarts(it.current) }
+        // The level's clock starts where the run's did, so the lasers and loads are in the phase
+        // they were in when it passed them.
+        if (recording.hasWorld) totalElapsedSeconds = recording.worldStart
+        followRecordedWorld()
+    }
+
+    private fun isEchoCart(cart: PushCart): Boolean = echo?.recording?.cartIds?.contains(cart.id) == true
+
+    /** The carts go where the recording had them, unless the player has one in hand. */
+    private fun applyEchoCarts(sample: RunSample) {
+        val rec = echo?.recording ?: return
+        for (i in rec.cartIds.indices) {
+            if (i >= sample.cartXs.size) break
+            val cart = pushCarts.firstOrNull { it.id == rec.cartIds[i] } ?: continue
+            if (cart === grippedCart) continue
+            cart.x = sample.cartXs[i]
+            cart.vx = 0.0
+        }
+    }
+
+    private fun updateEcho(dt: Double) {
+        val e = echo ?: return
+        val sample = e.update(dt) { applyEchoEvent(it) }
+        applyEchoCarts(sample)
+    }
+
+    private fun applyEchoEvent(ev: RunEvent) {
+        when (ev.kind) {
+            RunEventKind.LEVER -> levers.firstOrNull { it.id == ev.id && !it.isActivated }?.let { triggerLever(it) }
+            // Only a bot the recorded body could actually reach - a run saved before
+            // CameraBot.isReachableFrom holds switch-offs made from under the table.
+            RunEventKind.BOT -> cameraBots.firstOrNull { it.id == ev.id && !it.isDeactivated }
+                ?.takeIf { b -> echo?.let { b.isReachableFrom(it.bounds.bottom) } != false }
+                ?.deactivate()
+            RunEventKind.CATCH -> echoCatch(ev.id)
+            // Level 8 respawned here and its mechanisms went back to the start. Level 9 keeps an
+            // emptied hook empty - the swing is the player's road, and his run pulls the lever
+            // again anyway - so nothing is undone; the carts already follow the recording.
+            RunEventKind.RESET -> Unit
+        }
+    }
+
+    /**
+     * The recorded run caught the load in a cart here. The replay's own drop is live physics, and
+     * the level's frame times are not the recording's, so it can come down a little differently -
+     * the catch is made good: the load is put in the cart the run caught it in.
+     */
+    private fun echoCatch(id: String) {
+        val (crateId, cartId) = id.split('>', limit = 2).takeIf { it.size == 2 } ?: return
+        val hc = hookCrates.firstOrNull { it.id == crateId } ?: return
+        val cart = pushCarts.firstOrNull { it.id == cartId } ?: return
+        if (hc.carriedByCartId == cartId) return
+        if (!hc.isDetached) hc.detach()
+        hc.body?.let { b ->
+            b.angle = 0.0
+            b.omega = 0.0
+            b.vx = 0.0
+            b.vy = 0.0
+        }
+        hc.carryOffsetX = cart.loadBounds.centerX - cart.x - hc.bounds.width / 2.0
+        hc.bounds = Rect(cart.x + hc.carryOffsetX, cart.deckY - hc.bounds.height, hc.bounds.width, hc.bounds.height)
+        hc.body?.let { it.cx = hc.bounds.centerX; it.cy = hc.bounds.centerY }
+        hc.carriedByCartId = cartId
+        hc.isLanded = true
+        cart.isLoaded = true
+    }
+
+    /**
+     * The level clock when the player first walked, or null until then. Level 8's recording starts
+     * there, not at the level's start ("starting to record in level 8 should only start when
+     * starting to walk"), so a run holds no idle lead-in and level 9's echo - which plays from
+     * level 9's own start - sets off at once.
+     */
+    var runStartSeconds: Double? = null
+        private set
+
+    /** Seconds of the recorded run so far - see [runStartSeconds]. */
+    private val runClock: Double get() = totalElapsedSeconds - (runStartSeconds ?: totalElapsedSeconds)
+
+    private fun captureRunSample() {
+        val rec = runRecorder ?: return
+        if (runStartSeconds == null) return
+        rec.capture(runClock) {
+            val p = player
+            var flags = 0
+            if (p.facing < 0.0) flags = flags or RunSample.FACING_LEFT
+            if (p.isGrounded) flags = flags or RunSample.GROUNDED
+            if (p.isCrouching) flags = flags or RunSample.CROUCHING
+            if (p.isClimbing) flags = flags or RunSample.CLIMBING
+            if (p.isSwinging) flags = flags or RunSample.SWINGING
+            if (!isPushStanceIdle) flags = flags or RunSample.PUSHING
+            if (p.vy < 0.0) flags = flags or RunSample.RISING
+            RunSample(
+                x = p.x,
+                y = p.y,
+                height = p.currentHeight,
+                flags = flags,
+                phase = if (p.isClimbing) p.climbProgress else 0.0,
+                cartXs = DoubleArray(rec.cartIds.size) { i -> pushCarts.firstOrNull { it.id == rec.cartIds[i] }?.x ?: 0.0 },
+                spriteX = p.width / 2.0,
+                spriteY = p.height,
+                rotation = if (p.isSwinging) p.swingRotationDegrees else 0.0,
+                world = worldTrackValues()
+            )
+        }
+    }
+
     /** Activates a lever exactly as walking up and pressing interact would - shared by the normal
      *  in-range interact path and REMOTE_TRIGGER's remote one below. */
     private fun triggerLever(lever: Lever) {
@@ -760,7 +1555,7 @@ data class GameWorld(
         if (lever.targetMechanismId != null) {
             for (hc in hookCrates) {
                 if (hc.id == lever.targetMechanismId) {
-                    hc.isDetached = true
+                    hc.detach()
                 }
             }
             for (mp in movingPlatforms) {
@@ -799,12 +1594,16 @@ data class GameWorld(
                 .minByOrNull { player.center.distanceTo(Vec2d(it.centerX, it.centerY)) }
                 ?: return false
             triggerLever(target)
+            // A lever the run threw from afar is still a lever level 9's echo has to throw.
+            runRecorder?.event(runClock, RunEventKind.LEVER, target.id)
+            bonusTracker?.onGadgetUsed()
             return true
         }
         activePowerups.activate(type)
         if (type == PowerupType.SMOKE_SCREEN) {
             for (c in cameras) c.resetDetectionPause()
         }
+        bonusTracker?.onGadgetUsed()
         return true
     }
 
@@ -823,10 +1622,116 @@ data class GameWorld(
         return LevelResult(
             levelId = levelData.id,
             completed = isLevelComplete,
-            wasDetected = wasDetected,
+            // Star 2: the level's own optional objective where it has one - see LevelResult.star2.
+            wasDetected = bonusTracker?.let { bonusObjectiveState != ObjectiveState.MET } ?: wasDetected,
             timeTaken = timeTaken,
             timeTargetSeconds = levelData.timeTargetSeconds
         )
+    }
+
+    /**
+     * True while the body stands on something that will still be there after a respawn: not a
+     * moving load, a hanging hook crate or a cart (all of which a respawn puts back somewhere
+     * else), and on a [LevelData.stayOffTheGround] level not the floor either. An automatic
+     * checkpoint is only taken here - level 9 is nearly all moving loads, and a checkpoint on one
+     * respawned the body in mid-air, to fall to the floor and fail again.
+     */
+    private fun isOnFixedFooting(): Boolean {
+        val feet = player.y + player.height
+        val footCenter = player.x + player.width / 2.0
+        fun under(r: Rect) = kotlin.math.abs(feet - r.top) < 4.5 && footCenter >= r.left && footCenter <= r.right
+        if (movingPlatforms.any { under(it.bounds) }) return false
+        if (hookCrates.any { under(it.bounds) }) return false
+        if (pushCarts.any { under(it.bounds) }) return false
+        if (levelData.stayOffTheGround && offLimitFootholds.any(::under)) return false
+        return true
+    }
+
+    /** The level's optional objective ([LevelData.bonusObjective]); null on a level without one. */
+    val bonusTracker: BonusObjectiveTracker? = levelData.bonusObjective?.let { BonusObjectiveTracker(it) }
+
+    val bonusObjectiveState: ObjectiveState
+        get() = bonusTracker?.state(isLevelComplete) ?: ObjectiveState.OPEN
+
+    /** Every hanging load's rect this tick: static hanging crates, moving loads, hanging hook crates. */
+    private fun hangingCrateRects(): List<Rect> {
+        val out = ArrayList<Rect>()
+        out.addAll(hangingCrateVariant1)
+        out.addAll(hangingCrateVariant2)
+        for (mp in movingPlatforms) out.add(mp.bounds)
+        for (hc in hookCrates) if (hc.isHanging) out.add(hc.bounds)
+        return out
+    }
+
+    private fun observeBonusObjective(groundY: Double) {
+        val tracker = bonusTracker ?: return
+        val objective = tracker.objective
+        var onHangingCrate = false
+        var atFloorLevel = false
+        var touchingHangingCrate = false
+        if (objective == BonusObjective.NO_DROP_FROM_HANGING_CRATES && player.isGrounded) {
+            val feet = player.y + player.height
+            val footCenter = player.x + player.width / 2.0
+            onHangingCrate = hangingCrateRects().any {
+                kotlin.math.abs(feet - it.top) < 4.5 && footCenter >= it.left && footCenter <= it.right
+            }
+            atFloorLevel = feet >= groundY - FLOOR_LEVEL_BAND
+        }
+        if (objective == BonusObjective.NEVER_TOUCH_A_HANGING_CRATE) {
+            // Collision leaves a body exactly flush against what it stands on or walks into, so
+            // "touching" is overlapping a box grown by a hair on every side - not a whole unit,
+            // which level 8's ground road passes under the bobbing chain with to spare.
+            val b = player.bounds
+            val reach = Rect(b.x - TOUCH_MARGIN, b.y - TOUCH_MARGIN, b.width + 2 * TOUCH_MARGIN, b.height + 2 * TOUCH_MARGIN)
+            touchingHangingCrate = hangingCrateRects().any { it.intersects(reach) }
+        }
+        tracker.observe(
+            isJumping = player.isJumping,
+            isClimbing = player.isClimbing,
+            isCrouching = player.isCrouching,
+            isSwinging = player.isSwinging,
+            isGrounded = player.isGrounded,
+            onHangingCrate = onHangingCrate,
+            touchingHangingCrate = touchingHangingCrate,
+            atFloorLevel = atFloorLevel,
+            alertRaised = alertProgress > 0.0 || wasDetected || spottedCount > 0,
+            seenByFigure = isEchoDetecting,
+            switchReused = hasReusedASwitch,
+            prisonerSeen = isPrisonerSeen,
+            deactivatedBots = if (objective == BonusObjective.DISABLE_ALL_SECURITY_BOTS)
+                cameraBots.filter { it.isDeactivated }.map { it.id } else emptyList(),
+            botCount = cameraBots.size
+        )
+    }
+
+    /**
+     * Level 9's rule (LevelData.stayOffTheGround): set the moment the player stands on the floor or
+     * on a LevelLayout.offLimitFootholds platform, which is Mission Failed.
+     */
+    var touchedGround: Boolean = false
+        private set
+
+    /** Fired once, on the frame [touchedGround] first becomes true. */
+    var onTouchedGround: (() -> Unit)? = null
+
+    // The floor is the layout's own platforms list - GameWorld's [platforms] also carries every
+    // box, crates included, which are exactly what a stay-off-the-ground run stands on.
+    private val offLimitFootholds: List<Rect> =
+        levelData.layout?.let { it.platforms + it.offLimitFootholds }.orEmpty()
+
+    private fun checkStayOffTheGround() {
+        if (!levelData.stayOffTheGround || touchedGround || isGameOver || isLevelComplete || !player.isGrounded) return
+        val feet = player.y + player.height
+        val footCenter = player.x + player.width / 2.0
+        val onGround = offLimitFootholds.any {
+            kotlin.math.abs(feet - it.top) < 1.5 && footCenter >= it.left && footCenter <= it.right
+        }
+        if (onGround) {
+            touchedGround = true
+            onTouchedGround?.invoke()
+            isGameOver = true
+            onGameOver?.invoke()
+        }
     }
 
     fun update(dt: Double, moveInput: Double, jumpInput: Boolean) {
@@ -867,33 +1772,52 @@ data class GameWorld(
         if (spawnGraceTimer > 0.0) {
             spawnGraceTimer = (spawnGraceTimer - dt).coerceAtLeast(0.0)
         }
+        if (runStartSeconds == null && moveInput != 0.0) {
+            runStartSeconds = totalElapsedSeconds
+            runRecorder?.worldStart = totalElapsedSeconds
+        }
 
         if (interactInput) {
             for (lever in levers) {
                 if (!lever.isActivated && lever.isPlayerInRange(player)) {
                     triggerLever(lever)
+                    runRecorder?.event(runClock, RunEventKind.LEVER, lever.id)
                 }
             }
             for (bot in cameraBots) {
                 if (!bot.isDeactivated && bot.canDeactivate(player)) {
                     bot.deactivate()
+                    releaseBot(bot)
+                    runRecorder?.event(runClock, RunEventKind.BOT, bot.id)
                     onCameraBotDeactivated?.invoke(bot)
                 }
             }
         }
 
+        updateDoorsAndLifts(dt, interactInput)
+        refreshVisionOccluders()
+
         updatePushStance(dt, interactInput)
+        // Where eyes look for him (Player.keyPoints) follows the braced lean - see braceLean.
+        player.braceLean = if (grippedCart != null && pushStanceBlend >= 0.5) pushCartSide else 0.0
+
+        updateEcho(dt)
 
         updateFans(dt, forwardTap, moveInput)
 
-        for (bot in cameraBots) {
+        // A bot with eyes on the player holds where it is, the way a guard does (see the guard
+        // loop below: a seeing guard is not walked on) - "robots should also stay at one place if
+        // they start to spot you". It picks its patrol up again once it loses sight.
+        for ((i, bot) in cameraBots.withIndex()) {
+            if (followedBots[i]) continue
+            if (bot in detectingCameraBots) continue
             bot.update(dt)
         }
+        echo?.let { applyRecordedWorld(it.current) }
 
         val groundY = platforms.firstOrNull { it.y > 300.0 }?.y ?: 440.0
-        for (hc in hookCrates) {
-            hc.update(dt, 1000.0, groundY)
-        }
+        updateHookCrates(dt, groundY)
+        if (isGameOver) return
 
         if (!conveyorsActive && (moveInput != 0.0 || jumpInput)) {
             conveyorsActive = true
@@ -919,7 +1843,7 @@ data class GameWorld(
             // Guards vision checks - skipped if Phantom Cloak puts guards to sleep
             if (!activePowerups.isPhantomCloakActive) {
                 for (g in allGuards) {
-                    val d = VisionSystem.getPlayerSpottedDistance(g, player, occluders)
+                    val d = VisionSystem.getPlayerSpottedDistance(g, player, visionOccluders)
                     if (d != null) {
                         seeingGuards.add(g)
                         if (spottedDist == null || d < spottedDist) {
@@ -933,9 +1857,10 @@ data class GameWorld(
             // Cameras vision checks - skipped if Smoke Screen disables cameras
             if (!activePowerups.isSmokeScreenActive) {
                 for (c in cameras) {
-                    val d = VisionSystem.getPlayerSpottedDistance(c, player, occluders)
+                    val d = VisionSystem.getPlayerSpottedDistance(c, player, visionOccluders)
                     if (d != null) {
                         c.onPlayerSpotted()
+                        releaseCamera(c)
                         seeingCameras.add(c)
                         if (spottedDist == null || d < spottedDist) {
                             spottedDist = d
@@ -951,10 +1876,11 @@ data class GameWorld(
                             visionRange = b.visionRange,
                             visionFov = b.visionFov,
                             player = player,
-                            occluders = occluders
+                            occluders = visionOccluders
                         )
                         if (d != null) {
                             seeingCameraBots.add(b)
+                            releaseBot(b)
                             if (spottedDist == null || d < spottedDist) {
                                 spottedDist = d
                                 detectorRange = b.visionRange
@@ -964,6 +1890,65 @@ data class GameWorld(
                 }
             }
         }
+
+        // The echo watches like a guard (Phantom Cloak puts it to sleep too).
+        var echoSees = false
+        val e = echo
+        if (e != null && !activePowerups.isInvisibilityActive && spawnGraceTimer <= 0.0 && !activePowerups.isPhantomCloakActive) {
+            val d = VisionSystem.getPlayerSpottedDistance(e.eyePosition, e.facingAngle, e.visionRange, e.visionFov, player, visionOccluders)
+            if (d != null) {
+                echoSees = true
+                if (spottedDist == null || d < spottedDist) {
+                    spottedDist = d
+                    detectorRange = e.visionRange
+                }
+            }
+        }
+        e?.see(echoSees)
+        isEchoDetecting = echoSees
+
+        // Level 11: the prisoner is looked for by the same eyes, into the same meter. The player's
+        // own gadgets do not hide him (invisibility is the operative's), but a sleeping guard or a
+        // blinded camera sees nobody.
+        var prisonerSeen = false
+        val pr = prisoner
+        if (pr != null && pr.isFree && !pr.hasEscaped && spawnGraceTimer <= 0.0) {
+            // Every eye that could see him, as (distance or null, its range).
+            val looks = ArrayList<Pair<Double?, Double>>()
+            if (!activePowerups.isPhantomCloakActive) {
+                for (g in allGuards) {
+                    val d = VisionSystem.getPlayerSpottedDistance(g, pr.body, visionOccluders)
+                    if (d != null && g !in seeingGuards) seeingGuards.add(g)
+                    looks.add(d to g.visionRange)
+                }
+            }
+            if (!activePowerups.isSmokeScreenActive) {
+                for (c in cameras) {
+                    val d = VisionSystem.getPlayerSpottedDistance(c, pr.body, visionOccluders)
+                    if (d != null && c !in seeingCameras) {
+                        c.onPlayerSpotted()
+                        seeingCameras.add(c)
+                    }
+                    looks.add(d to c.visionRange)
+                }
+                for (b in cameraBots) {
+                    if (b.isDeactivated) continue
+                    val d = VisionSystem.getPlayerSpottedDistance(b.eyePosition, b.facingAngle, b.visionRange, b.visionFov, pr.body, visionOccluders)
+                    if (d != null && b !in seeingCameraBots) seeingCameraBots.add(b)
+                    looks.add(d to b.visionRange)
+                }
+            }
+            for ((d, range) in looks) {
+                if (d == null) continue
+                prisonerSeen = true
+                val best = spottedDist
+                if (best == null || d < best) {
+                    spottedDist = d
+                    detectorRange = range
+                }
+            }
+        }
+        isPrisonerSeen = prisonerSeen
 
         val inVision = spottedDist != null
         isPlayerInVision = inVision
@@ -998,6 +1983,7 @@ data class GameWorld(
                 // only escaped being a crash because nothing currently assigns onSpotted.
                 val spotter = seeingGuards.firstOrNull() ?: allGuards.firstOrNull()
                 if (spotter != null) onSpotted?.invoke(spotter, player)
+                if (prisonerSeen) prisonerLost = true
                 isGameOver = true
                 onGameOver?.invoke()
                 for (g in allGuards) g.returnToPatrol()
@@ -1024,11 +2010,31 @@ data class GameWorld(
 
         // Safe checkpoint recording: update checkpoint when operative is safe on solid ground
         if (!isGameOver && player.isGrounded && !inVision && alertProgress == 0.0) {
-            if (manualCheckpoints.isEmpty()) {
-                if (player.x > lastCheckpointX + 250.0) {
+            val esc = prisoner
+            if (esc != null) {
+                // An escort level's checkpoints are the prisoner's: taken when HE is standing held
+                // in one (behind a shut door), unseen, so a respawn puts both of them back somewhere
+                // safe. The player comes back at the checkpoint's own spot.
+                for (i in manualCheckpoints.indices) {
+                    val cp = manualCheckpoints[i]
+                    val zone = cp.triggerZone ?: continue
+                    if (i > currentManualCheckpointIndex && esc.isFree && esc.isHeld && esc.body.isGrounded &&
+                        !isPrisonerSeen && esc.bounds.intersects(zone)
+                    ) {
+                        currentManualCheckpointIndex = i
+                        lastCheckpointX = cp.x
+                        lastCheckpointY = cp.y
+                        hasAdvancedCheckpoint = true
+                        takeEscortSnapshot(esc)
+                        onCheckpointSecured?.invoke(lastCheckpointX, lastCheckpointY)
+                    }
+                }
+            } else if (manualCheckpoints.isEmpty()) {
+                if (player.x > lastCheckpointX + 250.0 && isOnFixedFooting()) {
                     lastCheckpointX = player.x
                     lastCheckpointY = player.y
                     hasAdvancedCheckpoint = true
+                    runRecorder?.markCheckpoint()
                     onCheckpointSecured?.invoke(lastCheckpointX, lastCheckpointY)
                 }
             } else {
@@ -1040,6 +2046,7 @@ data class GameWorld(
                         lastCheckpointX = cp.x
                         lastCheckpointY = cp.y
                         hasAdvancedCheckpoint = true
+                        runRecorder?.markCheckpoint()
                         onCheckpointSecured?.invoke(lastCheckpointX, lastCheckpointY)
                     }
                 }
@@ -1073,14 +2080,25 @@ data class GameWorld(
         // platform. Same presentation as the conveyor crates' crush below.
         if (!isGameOver && !isLevelComplete) {
             val pBounds = player.bounds
+            val pCrush = crushParts()
             for (mp in movingPlatforms) {
                 if (!mp.crushesOnContact) continue
-                if (pBounds.intersects(mp.bounds) && pBounds.bottom > mp.bounds.bottom) {
+                // A body standing flush under one is not touching it; one rising into it is
+                // stopped flush by the collision pass, so off the ground a unit's gap counts.
+                val crushed = if (mp.crushesOnlyFromBelow) comesDownOn(pCrush, mp.bounds, if (player.isGrounded) 0.0 else 1.0)
+                else pCrush.any { it.intersects(mp.bounds) && it.bottom > mp.bounds.bottom }
+                if (crushed) {
                     isGameOver = true
                     onGameOver?.invoke()
                     onHangingCrateHit?.invoke()
                     return
                 }
+            }
+            if (isSqueezedBetweenLoads(pBounds) || crushingLoadOnACart()) {
+                isGameOver = true
+                onGameOver?.invoke()
+                onHangingCrateHit?.invoke()
+                return
             }
         }
 
@@ -1152,29 +2170,32 @@ data class GameWorld(
         val crateBounds = if (hasConveyorCrates) conveyorCrates.map { it.bounds } else emptyList()
         val floorCrateBounds = if (hasConveyorCrates) conveyorCrates.filter { !it.isHanging }.map { it.bounds } else emptyList()
         val hasHookCrates = hookCrates.isNotEmpty()
-        val hookCrateBounds = if (hasHookCrates) hookCrates.map { it.bounds } else emptyList()
+        // A crate riding in a cart is inside the loaded cart's own footprint - nothing to add.
+        val hookCrateBounds = if (hasHookCrates) hookCrates.filter { it.carriedByCartId == null }.map { it.bounds } else emptyList()
         // A cart is solid wherever it stands - EXCEPT the one in the player's hands, which is
         // left out of his own platform/climb lists (see followGrippedCart: he is pinned to it, so
         // it would be a wall travelling with him). It still blocks sight and still blocks guards.
         val hasPushCarts = pushCarts.isNotEmpty()
-        val pushCartBounds = if (hasPushCarts) pushCarts.map { it.bounds } else emptyList()
+        // An empty cart is its deck and the lower half of its two handle posts (PushCart.playerSolids).
         val freePushCartBounds = when {
             !hasPushCarts -> emptyList()
-            grippedCart == null -> pushCartBounds
-            else -> pushCarts.filter { it !== grippedCart }.map { it.bounds }
+            grippedCart == null -> pushCarts.flatMap { it.playerSolids }
+            else -> pushCarts.filter { it !== grippedCart }.flatMap { it.playerSolids }
         }
         val dynamicBounds = if (hasMovingPlatforms || hasConveyorCrates || hasHookCrates || hasPushCarts) {
             movingBounds + crateBounds + hookCrateBounds + freePushCartBounds
         } else emptyList()
-        val currentPlatforms = if (dynamicBounds.isNotEmpty()) platforms + dynamicBounds else platforms
+        val doorSolids = dynamicDoorSolids()
+        val currentPlatforms = (if (dynamicBounds.isNotEmpty()) platforms + dynamicBounds else platforms)
+            .let { if (doorSolids.isEmpty()) it else it + doorSolids }
         val currentBoxes = if (dynamicBounds.isNotEmpty()) {
             val dynamicBoxes = movingBounds + floorCrateBounds + hookCrateBounds + freePushCartBounds
             if (dynamicBoxes.isNotEmpty()) boxes + dynamicBoxes else boxes
         } else boxes
         // Sight is blocked by every cart, held or not - the body behind one is behind it either way.
         val currentOccluders = if (dynamicBounds.isNotEmpty() || hasPushCarts) {
-            occluders + dynamicBounds + (if (grippedCart != null) listOf(grippedCart!!.bounds) else emptyList())
-        } else occluders
+            visionOccluders + dynamicBounds + (if (grippedCart != null) listOf(grippedCart!!.bounds) else emptyList())
+        } else visionOccluders
 
         // Guards without eyes on the player keep walking their route (unless asleep from Phantom Cloak)
         if (!isGameOver && !activePowerups.isPhantomCloakActive) {
@@ -1186,18 +2207,75 @@ data class GameWorld(
 
         // Update cameras - paused while Smoke Screen is active
         if (!activePowerups.isSmokeScreenActive) {
-            for (c in cameras) {
+            for ((i, c) in cameras.withIndex()) {
                 c.update(dt)
+                // One on the recording keeps its own timers running (a pause at the end of its
+                // sweep reads the same either way) but points where the recording says.
+                if (followedCameras[i]) echo?.current?.world?.getOrNull(cameraTrack[i])?.let { c.currentAngle = it }
             }
         }
 
         playerPlatformsScratch.clear()
         playerPlatformsScratch.addAll(currentPlatforms)
+        // A crushing load that has come down into a braced body's box from above is not a wall to
+        // it: the box is far taller than the leaning figure (crushParts), and the collision pass
+        // shoved the body - and the cart with it - clean out from under the load, the load's whole
+        // width in a frame, so one coming down right on top of him never reached anything drawn
+        // (2026-09-29: "now the mission does not fail even if the crate comes on top of the person
+        // when he is pushing / pulling cart"). It is left out, so it carries on down onto the
+        // figure and the crush check judges it; walking further in under it is held off below.
+        val overheadLoads = ArrayList<Rect>(0)
+        if (grippedCart != null && crushParts().size > 1) {
+            val pb = player.bounds
+            for (mp in movingPlatforms) {
+                if (!mp.crushesOnContact) continue
+                val mb = mp.bounds
+                if (mb.intersects(pb) && mb.bottom < pb.bottom && mb.top < pb.top) {
+                    overheadLoads.add(mb)
+                    playerPlatformsScratch.remove(mb)
+                }
+            }
+        }
         for (g in allGuards) playerPlatformsScratch.add(g.bounds)
-        val climbTargets = if (canClimb) currentBoxes else emptyList()
-        val climbFloatingTargets = if (canClimb) (floatingClimbTargets + hookCrateBounds) else emptyList()
-        val activeSwingHooks = if (hookCrates.isEmpty()) swingHooks else swingHooks.filter { hook ->
-            hookCrates.none { !it.isDetached && it.hook == hook }
+        // See isBoardingFromFloorLevel: a lid on every hanging load the player may not get onto
+        // from where they last stood. Tall enough that its own top is out of any jump from the
+        // floor band, so it can be walked into but never stood on.
+        val boardingBlocked = if (isBoardingFromFloorLevel) groundBoardingBlockedSurfaces() else emptyList()
+        for (b in boardingBlocked) {
+            playerPlatformsScratch.add(Rect(b.x, b.top - BOARDING_LID_HEIGHT, b.width, BOARDING_LID_HEIGHT))
+        }
+        // A cut load stood on its end (HookCrate.isLooseAndNotFlat) can not be got onto at all -
+        // not mantled (climbRefused below) and not jumped onto either (from the cart's handle post
+        // it is a 44-unit hop): a lid like the one above, tall enough that its own top is out of
+        // reach from anything near it.
+        for (hc in hookCrates) {
+            if (!hc.isLooseAndNotFlat) continue
+            val b = hc.bounds
+            playerPlatformsScratch.add(Rect(b.x, b.top - LOOSE_LOAD_LID_HEIGHT, b.width, LOOSE_LOAD_LID_HEIGHT))
+        }
+        val climbTargets = when {
+            !canClimb -> emptyList()
+            boardingBlocked.isEmpty() -> currentBoxes
+            else -> currentBoxes.filter { it !in boardingBlocked }
+        }
+        // A cut load stood on its end (or still tumbling) is refused the mantle - HookCrate.isLooseAndNotFlat.
+        val climbRefused = if (hasHookCrates && hookCrates.any { it.isLooseAndNotFlat }) {
+            unclimbableBoxes + hookCrates.filter { it.isLooseAndNotFlat }.map { it.bounds }
+        } else unclimbableBoxes
+        val climbFloatingTargets = when {
+            !canClimb -> emptyList()
+            boardingBlocked.isEmpty() -> floatingClimbTargets + hookCrateBounds
+            else -> (floatingClimbTargets + hookCrateBounds).filter { it !in boardingBlocked }
+        }
+        // A hook still carrying its crate cannot be swung from. A travelling rig's hook is wherever
+        // it has got to; a fixed one is exactly its declared rect, as before.
+        val activeSwingHooks = if (hookCrates.isEmpty()) swingHooks else swingHooks.mapNotNull { hook ->
+            val hc = hookCrates.firstOrNull { it.hook == hook }
+            when {
+                hc == null -> hook
+                hc.isDetached -> hc.currentHook
+                else -> null
+            }
         }
         // A braced body cannot jump, duck or sprint. Suppressing the other two inputs outright
         // (rather than letting them cancel the stance) is what keeps the scene's animation
@@ -1223,12 +2301,40 @@ data class GameWorld(
         val playerXBeforeMove = player.x
         player.update(
             dt, effectiveMoveInput, effectiveJumpInput, effectiveCrouchInput, playerPlatformsScratch,
-            climbTargets, activeSwingHooks, climbFloatingTargets, unclimbableBoxes
+            climbTargets, activeSwingHooks, climbFloatingTargets, climbRefused
         )
+        // ...and he may back out from under an overhead load (above) but not push on in under it.
+        for (mb in overheadLoads) {
+            val before = overlapX(playerXBeforeMove, mb)
+            val after = overlapX(player.x, mb)
+            if (after > before) player.x += if (player.x > playerXBeforeMove) -(after - before) else after - before
+        }
         grippedCart?.let { followGrippedCart(it, playerXBeforeMove) }
+        // A jump or climb into an underside-only crusher (MovingPlatformDef.crushesOnlyFromBelow)
+        // is stopped by the move just made - flush, or knocked a few units back down - so it is
+        // caught here, within a short reach under it.
+        if (!isGameOver && !isLevelComplete && !player.isGrounded) {
+            for (mp in movingPlatforms) {
+                if (!mp.crushesOnContact || !mp.crushesOnlyFromBelow) continue
+                if (comesDownOn(crushParts(), mp.bounds, 4.0)) {
+                    isGameOver = true
+                    onGameOver?.invoke()
+                    onHangingCrateHit?.invoke()
+                    return
+                }
+            }
+        }
+        prisoner?.update(dt, currentPlatforms, exitZone)
+        updateBoardingFromFloorLevel(groundY)
+        observeBonusObjective(groundY)
+        checkStayOffTheGround()
+        captureRunSample()
 
         // Check Exit / Win condition
-        if (player.bounds.intersects(exitZone)) {
+        // With a prisoner to get out, the level ends only once he is in the exit as well.
+        if (player.bounds.intersects(exitZone) && prisoner?.hasEscaped != false) {
+            // The recording ends in the exit, not on the last whole sample short of it.
+            runRecorder?.let { rec -> rec.capture(rec.sampleCount * rec.step) { rec.lastSampleNow() } }
             isLevelComplete = true
             isPlayerInVision = false
             alertProgress = 0.0
@@ -1295,6 +2401,12 @@ data class GameWorld(
             for (pipe in steamPipes) {
                 pipe.update(totalElapsedSeconds)
             }
+            val pb = prisoner?.takeIf { it.isFree }?.bounds
+            if (pb != null && steamPipes.any { it.intersectsPlayer(pb) }) {
+                onSteamPipeHit?.invoke()
+                losePrisoner()
+                return
+            }
             if (laserGraceTimer <= 0.0) {
                 for (pipe in steamPipes) {
                     if (!activePowerups.isInvisibilityActive && pipe.intersectsPlayer(player.bounds)) {
@@ -1323,7 +2435,7 @@ data class GameWorld(
             for (g in allGuards) {
                 val distToGuard = player.center.distanceTo(g.center)
                 if (distToGuard <= effectiveNoiseRadius &&
-                    GeometryUtils.hasLineOfSight(player.center, g.center, occluders)
+                    GeometryUtils.hasLineOfSight(player.center, g.center, visionOccluders)
                 ) {
                     g.onNoiseHeard(player.x)
                 }
@@ -1369,6 +2481,37 @@ data class GameWorld(
          * feet plant correctly at any speed, but this is the speed the footage was shot at.
          */
         const val PUSH_MOVE_FACTOR = 0.4
+
+        /** How far a cell door has to be up before its prisoner gets up to leave (see Prisoner.free). */
+        const val PRISONER_FREED_AT = 0.5
+
+        /**
+         * How far above the ground a standing surface still counts as floor level for
+         * [isBoardingFromFloorLevel] - covers 48-tall barrels and carts, not a raised platform.
+         */
+        const val FLOOR_LEVEL_BAND = 60.0
+        /** How close counts as touching a hanging crate for [BonusObjective.NEVER_TOUCH_A_HANGING_CRATE]. */
+        const val TOUCH_MARGIN = 0.25
+
+        /**
+         * The braced push figure's height over its collision box, trailing end first, in six
+         * equal columns, as fractions of Player.visualHeight: the tallest point of each column
+         * over every frame of the push loop and the settled end of the lean-in (measured from
+         * resources/player/push and pushtransition's alpha at the drawn scale). See crushParts.
+         */
+        val PUSH_CRUSH_PROFILE = doubleArrayOf(0.45, 0.57, 0.65, 0.71, 0.78, 0.78)
+
+        /** Spin per second given to a cut load balanced on a handle post's top (updateLooseCrate). */
+        const val PERCH_TIP_SPIN = 12.0
+
+        /** Height of the invisible lid on a load that may not be boarded from floor level. */
+        const val BOARDING_LID_HEIGHT = 60.0
+
+        /**
+         * Height of the lid on a cut load stood on its end: its top is then well out of a jump even
+         * from the high platform beside the cart (296), so there is nothing to land on.
+         */
+        const val LOOSE_LOAD_LID_HEIGHT = 200.0
 
         // ---- exhaust fans (level 7) --------------------------------------------------------
         /**
@@ -1785,7 +2928,10 @@ data class GameWorld(
                     startsInactive = def.startsInactive,
                     activationDelaySeconds = def.activationDelaySeconds,
                     oneShot = def.oneShot,
-                    crushesOnContact = def.crushesOnContact
+                    crushesOnContact = def.crushesOnContact,
+                    noGroundBoarding = def.noGroundBoarding,
+                    squeezes = def.squeezes,
+                    crushesOnlyFromBelow = def.crushesOnlyFromBelow
                 )
             }
 
@@ -1857,6 +3003,8 @@ data class GameWorld(
                 tables = layout.tables,
                 tableParts = layout.tableParts,
                 tableDecorations = layout.tableDecorations,
+                passThroughLegs = layout.passThroughLegs,
+                seamlessTables = layout.seamlessTables,
                 floatingClimbTargets = layout.floatingClimbTargets,
                 unclimbableBoxes = layout.unclimbableBoxes,
                 movingPlatforms = movingPlatforms,
@@ -1893,6 +3041,11 @@ data class GameWorld(
             if (layout.playerStartCrouched) {
                 world.player.isCrouching = true
             }
+            world.doors = layout.doors.map { Door(it) }
+            world.doorSwitches = layout.doorSwitches
+            world.lifts = layout.lifts.map { Lift(it) }
+            world.prisoner = layout.prisoner?.let { Prisoner(it) }
+            world.refreshVisionOccluders()
             if (levelData.playerCrouchForwardSpeedMultiplier != 1.0) {
                 world.player.crouchForwardSpeed = world.player.crouchSpeed * levelData.playerCrouchForwardSpeedMultiplier
             }

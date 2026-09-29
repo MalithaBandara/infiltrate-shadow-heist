@@ -92,9 +92,10 @@ fun LevelSelectScreen(
     }
 
     // Temporarily hide the unbuilt levels for Google Play production approval.
-    // LevelData.DEFAULT_LEVELS has 12 levels; 1 to 8 are active and shipped (level 8 got its real
-    // layout on 2026-09-25), 9 to 12 are still name-and-description stubs with no layout.
-    val levels = LevelData.DEFAULT_LEVELS.take(8)
+    // LevelData.DEFAULT_LEVELS has 12 levels; 1 to 10 are active (level 9 got a layout on
+    // 2026-09-28 - for now a copy of level 8's, see LevelData.DEFAULT_LEVEL_9 - and level 10 on
+    // 2026-09-29), 11 and 12 are still name-and-description stubs with no layout.
+    val levels = LevelData.DEFAULT_LEVELS.take(11)
     val bebasFont = FontFamily(Font(Res.font.bebas_neue_regular))
 
     val completedCount = levels.count { allResults[it.id]?.completed == true }
@@ -233,7 +234,12 @@ fun LevelSelectScreen(
                     ) {
                         for ((index, levelData) in rowLevels) {
                             val result = allResults[levelData.id]
-                            val isUnlocked = index == 0 || (allResults[levels[index - 1].id]?.completed == true)
+                            // Routed through the profile rather than re-deriving the rule
+                            // here, so GameProfile.isLevelUnlocked's "unlock all for testing"
+                            // switch actually reaches the mission grid. This grid used to carry
+                            // its own copy of the star gate and stayed locked while that flag was
+                            // on, which is the whole reason the flag looked like it did nothing.
+                            val isUnlocked = profileStorage.isLevelUnlocked(levelData.id, levels, levelStorage)
                             val requiresPremium = levelData.id.contains("dlc")
                             val canPlay = isUnlocked && (!requiresPremium || profile.isPremium)
 

@@ -50,7 +50,26 @@ data class MovingPlatformDef(
     // gantry crate is the only one: it hangs 30 above the ledge it gates, so the climb that times
     // it wrong puts the player's head into the underside - "if he touches the bottom side of the
     // crate it should be mission failed".
-    val crushesOnContact: Boolean = false
+    val crushesOnContact: Boolean = false,
+    // With [crushesOnContact]: only the UNDERSIDE kills (LEVEL_8_LAYOUT, 2026-09-28: "make level
+    // fail only if the cart or person touch the bottom side of the crate") - a head or a cart top
+    // touching it from below (GameWorld.touchesUnderside). A side contact is an ordinary solid: it
+    // shoves the player and stops a pushed cart. Off, a crusher catches anything whose feet are
+    // under its underside, side-on included (LEVEL_6_LAYOUT's gantry crate, as it always was).
+    val crushesOnlyFromBelow: Boolean = false,
+    // When true, a player who took off from floor level (the ground, or anything standing on it
+    // within FLOOR_LEVEL_BAND - barrels, carts, a dropped crate) cannot get onto this platform:
+    // GameWorld caps it with an invisible lid for as long as that is where the player last stood,
+    // and leaves it out of the climb targets. From anywhere higher - another hanging crate, a
+    // platform - it is an ordinary surface. LEVEL_8_LAYOUT's loads: "dont let them jump onto them.
+    // if they are in jumpable height, artificially block getting onto them".
+    val noGroundBoarding: Boolean = false,
+    // Two platforms flagged with this crush whoever is caught BETWEEN them when they come
+    // together - closer than a body is wide, the body's centre between theirs, and level with
+    // both. GameWorld checks every pair. LEVEL_8_LAYOUT's sweep crate and crossing crate meet
+    // corner to corner over the landing: "if he is in between them at that point mission should
+    // fail".
+    val squeezes: Boolean = false
 )
 
 data class PlatformDisplacement(
@@ -81,7 +100,13 @@ class MovingPlatform(
     val activationDelaySeconds: Double = 0.0,
     val oneShot: Boolean = false,
     /** See [MovingPlatformDef.crushesOnContact]. */
-    val crushesOnContact: Boolean = false
+    val crushesOnContact: Boolean = false,
+    /** See [MovingPlatformDef.noGroundBoarding]. */
+    val noGroundBoarding: Boolean = false,
+    /** See [MovingPlatformDef.squeezes]. */
+    val squeezes: Boolean = false,
+    /** See [MovingPlatformDef.crushesOnlyFromBelow]. */
+    val crushesOnlyFromBelow: Boolean = false
 ) {
     constructor(
         id: String,
