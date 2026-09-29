@@ -11,9 +11,9 @@ data class GameProfile(
     // gate the level-exit interstitial (InterstitialAdLimiter.MIN_LEVELS_COMPLETED) so a brand
     // new player's first couple of levels stay ad-free.
     var totalLevelsCompleted: Int = 0,
-    // level_5 is the side-scrolling sample level; unlocked from the start so it can be
-    // played without first clearing the earlier single-screen levels.
-    val unlockedLevelIds: MutableSet<String> = mutableSetOf("level_1", "level_5"),
+    // Only level_1 is open on a fresh profile; each later level opens when the one before it
+    // is completed (isLevelUnlocked).
+    val unlockedLevelIds: MutableSet<String> = mutableSetOf("level_1"),
     val powerupInventory: MutableMap<String, Int> = mutableMapOf(
         "invisibility" to 1
     )
@@ -156,13 +156,6 @@ class InMemoryGameProfileStorage(
     }
 
     override fun isLevelUnlocked(levelId: String, levelRegistry: List<LevelData>, levelStorage: LevelStorage): Boolean {
-        // TEMPORARY (for now): every level unlocked regardless of progress, for easier testing
-        // of new/changed levels without replaying the ones before them. Set to false (or delete
-        // this block) to restore normal star-gated progression - the original logic is unchanged
-        // below.
-        val unlockAllForTesting = true
-        if (unlockAllForTesting) return true
-
         if (profile.isPremium) return true
         if (profile.unlockedLevelIds.contains(levelId)) return true
         val targetIndex = levelRegistry.indexOfFirst { it.id == levelId }
