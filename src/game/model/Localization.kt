@@ -90,7 +90,7 @@ object Localization {
                 "level_9" -> "Follow the Figure Without Touching the Ground"
                 "level_10" -> "Find the Prisoner in the Holding Cells"
                 "level_11" -> "Escort the Prisoner to the Exit"
-                "level_12" -> "Open Container 17"
+                "level_12" -> "Escort the Prisoner Out of the Shipyard"
                 else -> ""
             }
         }
@@ -106,7 +106,7 @@ object Localization {
             "level_9" -> "Suivez la silhouette sans toucher le sol"
             "level_10" -> "Trouvez le prisonnier dans les cellules"
             "level_11" -> "Escortez le prisonnier jusqu'à la sortie"
-            "level_12" -> "Ouvrez le conteneur 17"
+            "level_12" -> "Escortez le prisonnier hors du chantier naval"
             else -> ""
         }
     }

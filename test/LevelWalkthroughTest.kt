@@ -396,7 +396,7 @@ class LevelWalkthroughTest {
         val shipped = listOf(
             LevelData.DEFAULT_LEVEL_1, LevelData.DEFAULT_LEVEL_2, LevelData.DEFAULT_LEVEL_3, LevelData.DEFAULT_LEVEL_4,
             LevelData.SIDE_SCROLL_LEVEL, LevelData.DEFAULT_LEVEL_6, LevelData.DEFAULT_LEVEL_7, LevelData.DEFAULT_LEVEL_8,
-            LevelData.DEFAULT_LEVEL_9
+            LevelData.DEFAULT_LEVEL_9, LevelData.DEFAULT_LEVEL_10, LevelData.DEFAULT_LEVEL_11, LevelData.DEFAULT_LEVEL_12
         )
         for (level in shipped) {
             assertEquals(0.0f, level.timeTargetSeconds % 5.0f, 1e-4f, "${level.name}'s target reads as a round number on the win card")

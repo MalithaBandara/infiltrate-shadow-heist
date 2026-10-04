@@ -91,11 +91,9 @@ fun LevelSelectScreen(
         allResults = levelStorage.getAllResults()
     }
 
-    // Temporarily hide the unbuilt levels for Google Play production approval.
-    // LevelData.DEFAULT_LEVELS has 12 levels; 1 to 10 are active (level 9 got a layout on
-    // 2026-09-28 - for now a copy of level 8's, see LevelData.DEFAULT_LEVEL_9 - and level 10 on
-    // 2026-09-29), 11 and 12 are still name-and-description stubs with no layout.
-    val levels = LevelData.DEFAULT_LEVELS.take(11)
+    // Every level is built: level 12, the last, got its layout on 2026-10-03. The take() stays as
+    // the one place to hide an unfinished level again (it once kept 8-12 out of a Play review).
+    val levels = LevelData.DEFAULT_LEVELS.take(12)
     val bebasFont = FontFamily(Font(Res.font.bebas_neue_regular))
 
     val completedCount = levels.count { allResults[it.id]?.completed == true }

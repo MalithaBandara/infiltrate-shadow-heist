@@ -750,9 +750,11 @@ class GameplayScene(
                 }.xy(exitStructureRect.x, exitStructureRect.y),
                 exitStructureRect.x, exitStructureRect.width
             )
-        } else if (world.conveyors.isEmpty() && levelData.layout?.prisonCell == null && entranceBitmap != null) {
+        } else if (world.conveyors.none { it.bounds.right > world.exitZone.left - 200.0 && it.bounds.left < world.exitZone.right + 200.0 } &&
+            levelData.layout?.prisonCell == null && entranceBitmap != null
+        ) {
             // A level that ends at a conveyor belt (4, and 3 since it hands over to 4's belt) has
-            // no booth - the belt is the finish.
+            // no booth - the belt is the finish. A belt elsewhere in a level (12's) does not count.
             val entranceHeight = 135.0
             // Pinned to entrance.png's authored 531x612 rather than read off the loaded bitmap.
             // Same value, but the number no longer moves if the file is ever resampled - it used
@@ -1409,8 +1411,11 @@ class GameplayScene(
         val guardWalkProgress = DoubleArray(world.allGuards.size)
         val guardPrevX = DoubleArray(world.allGuards.size) { world.allGuards[it].x }
         val guardWalkCycleDistance = world.allGuards.map { g -> g.height * GuardAnimations.WALK_STRIDE_PER_HEIGHT }
+        // The fallback visor's two colours, parsed once rather than in the per-frame guard loop.
+        val guardVisorAlertColor = Colors["#e74c3c"]
+        val guardVisorAsleepColor = Colors["#34495e"]
         val guardVisors = world.allGuards.mapIndexed { i, g ->
-            if (guardAnimations == null) guardContainers[i].solidRect(6.0, 4.0, Colors["#e74c3c"]).xy(g.width - 6.0, 10.0) else null
+            if (guardAnimations == null) guardContainers[i].solidRect(6.0, 4.0, guardVisorAlertColor).xy(g.width - 6.0, 10.0) else null
         }
         val guardBadges = world.allGuards.mapIndexed { i, _ ->
             guardContainers[i].text("?", textSize = 16.0, color = COLOR_BORDER_GOLD).xy(8.0, -22.0)
@@ -1425,6 +1430,10 @@ class GameplayScene(
 
         // Cameras: vision cones first beneath bodies
         val cameraCones = world.cameras.map { worldView.graphics() }
+        // What each camera cone was last drawn from (eye x, eye y, facing, range, fov) - the
+        // updater only re-rasterises one whose inputs moved. NaN = not drawn / drawn empty.
+        val cameraConeKey = DoubleArray(world.cameras.size * 5) { Double.NaN }
+        val cameraConeOccluders = arrayOfNulls<List<Rect>>(world.cameras.size)
         val cameraContainers = world.cameras.map { c ->
             worldView.container().xy(c.x, c.y).also {
                 if (c in world.translucentCameras) it.alpha = translucentEffectAlpha
@@ -1692,11 +1701,13 @@ class GameplayScene(
         val switchVisuals = world.doorSwitches.map { sw ->
             val panelY = sw.surfaceY - DoorSwitchDef.MOUNT_HEIGHT - DoorSwitchDef.HEIGHT / 2.0
             val cx = sw.centerX
-            // Its conduit runs up to whatever is overhead - the room ceiling or the duct's slab.
+            // Its conduit runs up to whatever is overhead - the room ceiling or the duct's slab. Out
+            // in the open yard (level 12) there is nothing overhead, so it stands on a post instead.
             val ceiling = world.boxes.filter { it.bottom <= panelY + 0.5 && cx >= it.left && cx <= it.right }
-                .maxOfOrNull { it.bottom } ?: (panelY - 60.0)
+                .maxOfOrNull { it.bottom }
             val cont = worldView.container().xy(sw.x, panelY)
-            cont.solidRect(2.0, panelY - ceiling, Colors.BLACK).xy(5.0, -(panelY - ceiling))
+            if (ceiling != null) cont.solidRect(2.0, panelY - ceiling, Colors.BLACK).xy(5.0, -(panelY - ceiling))
+            else cont.solidRect(3.0, sw.surfaceY - panelY, Colors.BLACK).xy(4.5, 0.0)
             // Black like the rest of the solid geometry, with ONE light: in the colour of the door
             // it works (the lamp on that door's housing - amber for a lift), bright while that door
             // is open / the lift is up, dim while shut / down, blinking while a lift moves.
@@ -2665,8 +2676,11 @@ class GameplayScene(
         val tutorialLayer = container().xy(0.0, 0.0)
         tutorialLayer.mouseEnabled = false
         tutorialLayer.mouseChildren = false
-        val tutorialDarkOverlay = tutorialLayer.uiGraphics()
+        // A full-canvas scrim: one tinted quad whose colour is set per frame, not a Graphics
+        // re-tessellated every frame the tutorial is up. Hidden = nothing drawn.
+        val tutorialDarkOverlay = tutorialLayer.solidRect(canvasW, canvasH, Colors.BLACK)
         tutorialDarkOverlay.mouseEnabled = false
+        tutorialDarkOverlay.visible = false
 
         // Highlight container for rendering bright button textures above the dark scrim
         val tutorialHighlightContainer = tutorialLayer.container().xy(0.0, 0.0)
@@ -2705,6 +2719,14 @@ class GameplayScene(
 
         val tutorialHighlightGraphics = tutorialLayer.uiGraphics()
         tutorialHighlightGraphics.mouseEnabled = false
+        // Clearing re-tessellates the Graphics, and the no-tutorial branch of the updater asks for
+        // it every frame - so only clear what was actually drawn.
+        var tutorialHighlightDrawn = false
+        fun clearTutorialHighlight() {
+            if (!tutorialHighlightDrawn) return
+            tutorialHighlightDrawn = false
+            tutorialHighlightGraphics.updateShape { clear() }
+        }
         val tutorialHandwrittenText = tutorialLayer.text("", textSize = 28.0, font = handwrittenFont, color = Colors.WHITE)
         tutorialHandwrittenText.mouseEnabled = false
 
@@ -3031,11 +3053,10 @@ class GameplayScene(
             }
         )
 
-        // Temporarily restrict to the active levels for Google Play production approval, so
-        // clearing the last one shows ALL CLEAR / returns to menu instead of advancing into a
-        // level that is not built yet. Level 9 joined the list on 2026-09-28 and level 10 on
-        // 2026-09-29; 11 and 12 are still name-and-description stubs with no layout.
-        val allLevels = LevelData.DEFAULT_LEVELS.take(11)
+        // The shipped levels, so clearing the last one shows ALL CLEAR / returns to menu instead
+        // of advancing into a level that is not built yet. Level 9 joined the list on 2026-09-28,
+        // level 10 on 2026-09-29, 11 on 2026-09-30 and 12 - the last - on 2026-10-03.
+        val allLevels = LevelData.DEFAULT_LEVELS.take(12)
         val currentLevelIndex = allLevels.indexOfFirst { it.id == levelData.id }
         val nextLevel = if (currentLevelIndex >= 0 && currentLevelIndex + 1 < allLevels.size) allLevels[currentLevelIndex + 1] else null
 
@@ -3281,6 +3302,16 @@ class GameplayScene(
                 return@addUpdater
             }
 
+            // The scene left behind a QUIT / RETURN TO MENU is only ever covered by the host's menu
+            // on Android and iOS, and starting any level from that menu builds a fresh scene
+            // (MainActivity.startLevel / GameLevelStartBridge.startLevel) - so nothing it
+            // simulates is ever seen. On Android the KorGE view keeps running under the menu
+            // (bug #7), so without this the whole level - patrols, sweeps, cone raycasting - ran
+            // at the panel's refresh rate behind it. The continue grant above is still consumed
+            // here as before. Desktop has no menu to go back to: its dormant scene IS the one
+            // being played, so it runs on.
+            if (startDormant && (Platform.isAndroid || Platform.isIos)) return@addUpdater
+
             // Checkpoints powerup: the death's short beat, then straight back to the checkpoint.
             if (checkpointRespawnTimer > 0.0) {
                 checkpointRespawnTimer -= dtSec
@@ -3403,8 +3434,8 @@ class GameplayScene(
                 if (world.isLevelComplete || world.isGameOver) {
                     tutorialLayer.visible = false
                 }
-                tutorialDarkOverlay.updateShape { clear() }
-                tutorialHighlightGraphics.updateShape { clear() }
+                tutorialDarkOverlay.visible = false
+                clearTutorialHighlight()
                 return@addUpdater
             }
 
@@ -3586,14 +3617,8 @@ class GameplayScene(
                     // Render dark overlay dimming the rest of the screen (disabled for world-anchored objective)
                     val highlight = step.highlight
                     val darkAlpha = if (highlight == TutorialControlHighlight.NONE) 0.0 else (0.58 * tutorialAlpha).coerceIn(0.0, 0.70)
-                    tutorialDarkOverlay.updateShape {
-                        clear()
-                        if (darkAlpha > 0.001) {
-                            fill(Colors.BLACK.withAd(darkAlpha)) {
-                                rect(0.0, 0.0, canvasW, canvasH)
-                            }
-                        }
-                    }
+                    tutorialDarkOverlay.visible = darkAlpha > 0.001
+                    if (tutorialDarkOverlay.visible) tutorialDarkOverlay.color = Colors.BLACK.withAd(darkAlpha)
 
                     // Render highlighted active buttons with full brightness above dark scrim
                     val isBright = tutorialAlpha > 0.001 && !isTutorialFadingOut
@@ -3636,6 +3661,7 @@ class GameplayScene(
                     // Render hand-drawn curved arrow
                     if (tutorialAlpha > 0.001 && !isTutorialFadingOut) {
                         tutorialHighlightGraphics.visible = true
+                        tutorialHighlightDrawn = true
                         tutorialHighlightGraphics.updateShape {
                             clear()
 
@@ -3883,7 +3909,7 @@ class GameplayScene(
                             }
                         }
                     } else {
-                        tutorialHighlightGraphics.updateShape { clear() }
+                        clearTutorialHighlight()
                     }
                 }
                 if (Platform.isJvm && debugHideAllUi) {
@@ -3900,8 +3926,8 @@ class GameplayScene(
                 hlJumpImg?.visible = false
                 hlCrouchImg?.visible = false
                 hlInteractImg?.visible = false
-                tutorialDarkOverlay.updateShape { clear() }
-                tutorialHighlightGraphics.updateShape { clear() }
+                tutorialDarkOverlay.visible = false
+                clearTutorialHighlight()
             }
 
             // Update domain simulation (interact button activates mechanisms, jump button triggers jump/vault/climb/mantle)
@@ -5066,13 +5092,13 @@ class GameplayScene(
                     guardBadges[i].color = COLOR_BORDER_CYAN
                     guardBadges[i].visible = true
                     guardVisors[i]?.x = if (g.facing >= 0) g.width - 6.0 else 0.0
-                    guardVisors[i]?.color = Colors["#34495e"]
+                    guardVisors[i]?.color = guardVisorAsleepColor
                 } else {
                     // The investigating "?" is now carried by the guard's own detection pip.
                     guardBadges[i].visible = false
                     guardVisors[i]?.x = if (g.facing >= 0) g.width - 6.0 else 0.0
                     guardVisors[i]?.color =
-                        if (g.state == GuardState.INVESTIGATING) COLOR_BORDER_GOLD else Colors["#e74c3c"]
+                        if (g.state == GuardState.INVESTIGATING) COLOR_BORDER_GOLD else guardVisorAlertColor
                 }
 
                 val isInvestigatingNoise = g.state == GuardState.INVESTIGATING && g.investigatedFromNoise && !world.activePowerups.isNoiseSuppressed
@@ -5150,15 +5176,39 @@ class GameplayScene(
                 // (see cameraArtBaselineAngle above) - the lens visually sweeps with the cone
                 // instead of sitting fixed while the light beam swings independently of it.
                 cameraPivots[i].rotation = (c.currentAngle - cameraArtBaselineAngle).radians
+                val k = i * 5
                 if (world.activePowerups.isSmokeScreenActive) {
-                    cameraCones[i].updateShape { }
+                    if (!cameraConeKey[k].isNaN()) {
+                        cameraCones[i].updateShape { }
+                        cameraConeKey[k] = Double.NaN
+                    }
                 } else {
+                    // This cone is a software-rasterised Graphics, so it is only redrawn when
+                    // it could look different: never while it cannot reach the screen (the guard
+                    // beams' culling window), and not while the lens, facing, range and occluders
+                    // are what it was last drawn from - a camera dwelling at the end of its sweep
+                    // or held on the player keeps the shape it has.
+                    val eye = c.eyePosition
+                    val onScreen = eye.x + c.visionRange >= cullLeft && eye.x - c.visionRange <= cullRight
+                    cameraCones[i].visible = onScreen
+                    if (!onScreen) continue
+                    val facing = c.facingAngle
+                    if (eye.x == cameraConeKey[k] && eye.y == cameraConeKey[k + 1] && facing == cameraConeKey[k + 2] &&
+                        c.visionRange == cameraConeKey[k + 3] && c.visionFov == cameraConeKey[k + 4] &&
+                        world.visionOccluders === cameraConeOccluders[i]
+                    ) continue
+                    cameraConeKey[k] = eye.x
+                    cameraConeKey[k + 1] = eye.y
+                    cameraConeKey[k + 2] = facing
+                    cameraConeKey[k + 3] = c.visionRange
+                    cameraConeKey[k + 4] = c.visionFov
+                    cameraConeOccluders[i] = world.visionOccluders
                     // Camera cones stay a single steady color in every state (detection is indicated
                     // by the pip over the camera, matching the guard beam design) - no yellow/red alert ramp.
                     val coneColor = Colors.WHITE.withAd(0.32)
                     val visionPolygon = VisionSystem.computeVisionPolygon(
-                        origin = c.eyePosition,
-                        facingAngle = c.facingAngle,
+                        origin = eye,
+                        facingAngle = facing,
                         range = c.visionRange,
                         fov = c.visionFov,
                         occluders = world.visionOccluders

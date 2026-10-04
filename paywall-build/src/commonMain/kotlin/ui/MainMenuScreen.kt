@@ -106,11 +106,9 @@ fun MainMenuScreen(
     }
 
     val language = LocalAppLanguage.current
-    // Temporarily restrict to the active levels for Google Play production approval, so the
-    // mission briefing card never displays a level that is still a stub. Level 9 joined the list
-    // on 2026-09-28 when it got a layout of its own, level 10 on 2026-09-29; 11 and 12 are still
-    // hidden.
-    val levels = LevelData.DEFAULT_LEVELS.take(11)
+    // The levels the briefing card may show - all twelve since level 12 got its layout on
+    // 2026-10-03. The take() is the switch for hiding an unfinished level from the card again.
+    val levels = LevelData.DEFAULT_LEVELS.take(12)
     val currentMissionIndex = levels.indexOfFirst { allResults[it.id]?.completed != true }.let { if (it == -1) levels.lastIndex else it }
     val currentMission = levels[currentMissionIndex]
 
