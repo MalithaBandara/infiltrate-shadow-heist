@@ -24,16 +24,21 @@ object VisionSystem {
             angles.add(startAngle + t * fov)
         }
 
+        // Only what a ray of this length can reach - the same hits and the same corners as the
+        // whole list (anything dropped is out of range), without every ray testing every box in
+        // the level. See GeometryUtils.occludersInReach.
+        val nearby = GeometryUtils.occludersInReach(origin, range, occluders)
+
         // Ray samples aimed at occluder corners for crisp shadow silhouettes
         val epsilon = 0.0001
-        for (occluder in occluders) {
-            val corners = listOf(
-                occluder.topLeft,
-                occluder.topRight,
-                occluder.bottomLeft,
-                occluder.bottomRight
-            )
-            for (corner in corners) {
+        for (occluder in nearby) {
+            for (c in 0 until 4) {
+                val corner = when (c) {
+                    0 -> occluder.topLeft
+                    1 -> occluder.topRight
+                    2 -> occluder.bottomLeft
+                    else -> occluder.bottomRight
+                }
                 val dist = origin.distanceTo(corner)
                 if (dist <= range && dist > 1.0) {
                     val angle = atan2(corner.y - origin.y, corner.x - origin.x)
@@ -54,7 +59,7 @@ object VisionSystem {
 
         val hitPoints = mutableListOf<Vec2d>()
         for (angle in sortedAngles) {
-            hitPoints.add(GeometryUtils.castRay(origin, angle, range, occluders))
+            hitPoints.add(GeometryUtils.castRay(origin, angle, range, nearby))
         }
 
         return listOf(origin) + hitPoints

@@ -73,7 +73,10 @@ generated `Res` package unless pinned: `compose.resources { packageOfResClass =
 **TRAP - do not use the root build to check Android compilation.** `:korge-ldtk` fails there on
 unmodified checkouts and nothing on the Android path builds it. CI is
 `./gradlew :paywall-build:publishToMavenLocal` then `cd android-shell && ./gradlew bundleRelease`.
-**To check a `src/game/**` change compiles for Android, build `android-shell`.**
+**To check a `src/game/**` change compiles for Android, build `android-shell`.** It compiles only
+`src/game/scene` from source - `src/game/model` reaches it through `paywall-build`'s artifact in
+`mavenLocal()`, so after a MODEL change run `./gradlew :paywall-build:publishToMavenLocal` first, or
+`android-shell` silently compiles against the previous model (an up-to-date build in ~1s is the tell).
 
 ## Secrets and credentials - CRITICAL
 
@@ -496,8 +499,8 @@ always-visible KorGE view (hiding `KorgeAndroidView` tears down its surface for 
   (WIP), 04 Moving Target (conveyor, vignette), 05 The Crane Yard (swing move), 06 Stolen Manifest
   (lever-crate swing, pit, crane crossing), 07 Service Tunnel (vent gauntlet), 08 Relocation
   (suspended-load yard, pushable cart), 09 Deja Vu (level 8 along the loads), 10 Below the Yard
-  (level 7's mechanics recombined), 11 The Prisoner (escort, doors and lifts), 12 (no layout yet,
-  `GameWorld.createDefault` only).
+  (level 7's mechanics recombined), 11 The Prisoner (escort, doors and lifts), 12 Final Escape (the
+  escort out of the yard - the last level).
 
 ## The camera follow (`src/game/model/CameraFollow.kt`) - 2026-09-25
 
@@ -705,7 +708,8 @@ Main objectives (HUD row 1, `objectiveHint` + `Localization.levelObjectiveHint`,
 1 Find the Shipyard Entrance, 2 Find a Way Through the Yard, 3 Reach the Conveyor Belt, 4 Cross the
 Conveyor Line, 5 Cross the Crane Yard, 6 Reach the Security Building, 7 Reach the
 Security Desk, 8 Track Down Container 17, 9 Follow the Figure Without Touching the Ground, 10 Find the
-Prisoner in the Holding Cells, 11 Escort the Prisoner to the Exit.
+Prisoner in the Holding Cells, 11 Escort the Prisoner to the Exit, 12 Escort the Prisoner Out of
+the Shipyard (replaced the stub's "Open Container 17").
 
 **Star 2 is now the level's own optional objective** (`LevelData.bonusObjective`,
 `src/game/model/BonusObjective.kt`), shown as the HUD's second "(OPTIONAL)" row and as row 2 of the
@@ -729,8 +733,9 @@ happens, ticked at the exit).
 | 9 | `STAY_OUT_OF_THE_FIGURES_SIGHT` | Stay Out of the Figure's Sight | `isEchoDetecting` ever true (its cone fills the shared alert meter like a guard's) |
 | 10 | `USE_EACH_SWITCH_ONCE` | Use Each Switch Only Once | any switch thrown a second time this attempt (`GameWorld.hasReusedASwitch`; a restart clears it) |
 | 11 | `KEEP_THE_PRISONER_OUT_OF_SIGHT` | Keep the Prisoner Out of Sight | `isPrisonerSeen` ever true - even the start of noticing him, where the main objective fails only on a full meter |
+| 12 | `STAY_UNSEEN` | Stay Completely Unseen | as 3 and 6 - and since the meter is shared, any glimpse of the prisoner counts too |
 
-- Level 12 has none (star 2 stays "no alerts raised").
+- Every shipped level has one now; `bonusObjective = null` (star 2 = "no alerts raised") is still supported.
 - **Saves are unchanged**: `LevelResult.wasDetected` keeps its name and 5-field format but now means
   "star 2 missed" (`GameWorld.getLevelResult`). Old saves keep whatever star 2 they had.
 - **Proven reachable by a clean autopilot run**: 1, 2, 5, 6 (`LevelWalkthroughTest.
@@ -762,6 +767,8 @@ not match - the old targets (1 = 30, 3 = 25, 6 = 45, 7 = 85, 4 = 115) were under
 | 7 | 107.7s | 155 | `testLevel7SimulationPlayableWalkthrough` |
 | 8 | 130.2s | 180 | `testLevel8IsBeatableOnTheGroundRoad` |
 | 9 | 106.1s | 180 | `testLevel9IsBeatableWithoutTouchingTheGround` |
+| 11 | 132.8s | 195 | `Level11EscortTest.testLevel11IsBeatableAsAnEscort` |
+| 12 | 105.7s | 155 | `Level12EscapeTest.testLevel12IsBeatableAsAnEscape` |
 
 `test/LevelWalkthroughTest.kt` holds the walkthroughs for 1, 2, 3, 5, 6 (one general `Runner.runRight`
 policy - crouch under head-only ceilings, jump when blocked = the climb, jump a gap at its lip, hold
@@ -1297,8 +1304,7 @@ tests pin that nothing shipped sets it and that it stays reachable.
 ## Level 8 ("08: Relocation") - `LEVEL_8_LAYOUT`, the suspended-load yard (built + reworked 2026-09-25)
 
 Unhidden the same day it was built (`.take(7)` -> `.take(8)` in `LevelSelectScreen.kt`,
-`MainMenuScreen.kt`, `GameplayScene.kt`; now `.take(11)` since levels 9-11 exist - level 12
-remain hidden stubs). Shipped with no tutorial steps at first; the cart's two steps were added 2026-09-26
+`MainMenuScreen.kt`, `GameplayScene.kt`; now `.take(12)` - every level is built). Shipped with no tutorial steps at first; the cart's two steps were added 2026-09-26
 since nothing earlier teaches it.
 
 **The layout's doc comment in `LevelData.kt` is the source of truth**; this is the part a future
@@ -1531,16 +1537,38 @@ a half-screen culling window.
 
 Measured on JVM against real level data plus decompiled Android classes, not on device.
 1. **Vision cones drawn with the SOFTWARE rasterizer, rebuilt every frame** - up to several MB/frame
-   per cone at 1440p. **Guards: DONE via `LightConeView`. Camera cones still use this path** - the
-   remaining instance.
-2. Cone polygon build allocates hundreds of KB/cone/frame in raycasting - closed for guards (static
-   occluders, rebuild only on change); still open for cameras.
+   per cone at 1440p. **Guards: DONE via `LightConeView`. Camera cones still use this path**
+   (`worldView.graphics()` defaults to `GraphicsRenderer.SYSTEM` in KorGE 6.0.0), but since
+   2026-10-01 a camera cone is skipped off-screen (the guard beams' culling window) and redrawn only
+   when its lens/facing/range/fov or `visionOccluders` changed (`cameraConeKey`) - so a camera
+   dwelling or held on the player costs nothing; a sweeping one still re-rasterises. Moving them to
+   `LightConeView` was deliberately NOT done: it changes their look (flat white 0.32 fill vs a lit
+   falloff).
+2. Cone polygon build allocates in raycasting - reduced for everything 2026-10-01:
+   `GeometryUtils.castRay`/`hasLineOfSight` no longer allocate per edge (the `Segment2d.intersects`
+   arithmetic is written out in the same order), `computeVisionPolygon` drops occluders out of the
+   ray's reach once per cone (`occludersInReach`), and `hasLineOfSight` skips occluders clear of the
+   segment's box. **Bit-identical to the old code** - checked by a throwaway test comparing
+   240k rays, 240k sightlines and 6.4k polygons (every level's real eyes, full camera sweeps
+   including the exact end angles) against a verbatim copy of the old functions. Keep it that way:
+   level 3's cameras were tuned against exact angles. Rover cones (`CameraBotVisual`) now cache
+   like guard beams.
 3. **Nothing caps the frame rate** - runs at panel refresh (120Hz on this device).
    `Views.forceRenderEveryFrame = false` does NOT cap it - it switches to an infinite ~1000Hz update
-   loop instead, which backgrounding doesn't stop.
-4. Oversized textures (fixed, below) and always-rendering-under-the-menu (bug #7).
+   loop instead, which backgrounding doesn't stop. Left alone on purpose (2026-10-01): a 60fps cap
+   would visibly change smoothness on 120Hz phones.
+4. Oversized textures (fixed, below) and always-rendering-under-the-menu (bug #7). **The scene left
+   behind a QUIT is frozen on Android/iOS** (2026-10-01): `GameplayScene(startDormant = true)`'s
+   updater returns right after the continue-grant check when `Platform.isAndroid || Platform.isIos`
+   (confirmed from korlibs-platform-android's bytecode: `Os.ANDROID`). It used to simulate and
+   raycast the whole level under the menu. Desktop keeps running it - there the dormant scene is the
+   one being played (`JvmLevelExitBridge` is a no-op). The view tree itself still renders under the
+   menu on Android.
+5. The tutorial scrim is a `SolidRect` (was a Graphics re-tessellated every frame), and the tutorial
+   highlight Graphics is only cleared when something was drawn (`clearTutorialHighlight`) - the
+   no-tutorial branch used to re-tessellate two empty Graphics every frame of every level.
 
-Next: camera cones, then a real frame cap.
+None of the 2026-10-01 items were seen on a device; `jvmTest` + `android-shell` compile only.
 
 ## Runtime performance: where the frame budget goes (2026-09-08..10)
 
@@ -1554,10 +1582,18 @@ Reasoned from assets and the render path; on-device improvement unmeasured.
    art** (no error, no log) - FIXED 2026-09-10, see "Adding new art" below.
 3. Per-frame allocation in the updater (fixed): profile deep-copies, platform/box/occluder list
    rebuilds, powerup HUD shape/label rebuilds all now cache and only recompute on change.
+   `GameWorld.update`'s own per-tick lists (solids, boxes, occluders, climb/swing lists, who is
+   seeing the player) go into a per-world `TickScratch` since 2026-10-01 - same contents in the
+   same order (Player's collision is order-sensitive), verified by every one of the 371 tests'
+   stdout (all walkthrough times) being byte-identical before and after. Anything handed one of
+   these lists must not keep it past the call; copy out what is kept (`detectingGuards` does).
 4. KorGE renders continuously under the Compose menu on Android (bug #7) - first suspect for a menu
-   lag report.
+   lag report. Its simulation is frozen there since 2026-10-01 (see "Device heating" item 4); the
+   drawing is not.
 
 **Dead assets removed** (`resources/` 75MB -> ~39MB): a long list of unused backgrounds/UI images.
+2026-10-01: `camera.png`, `cameranew.png` (superseded by `cameranew2.png`) and `woodencratenew.png`
+(superseded by `woodcrate2.png`) too - named only in comments, no runtime-built path matches them.
 **Before deleting, grep the whole repo excluding `build/`** - packaging-evidence hits in
 `build/intermediates/.../merger.xml` are not use.
 
@@ -1718,7 +1754,7 @@ Source drop: `C:\Users\USER\Downloads\charAnimations\assets\`.
     can't be seen from CI's (US) simulator. Test UMP with `ConsentDebugSettings` geography EEA +
     a test device ID, or a VPN to an EU country.
 - **Temporary gating for Google Play production approval (2026-09-25)**: levels 8-12 were hidden via
-  `.take(7)` in three places (levels 8-11 since unhidden, `.take(11)`); "Coming Soon" chapter placeholders
+  `.take(7)` in three places (all since unhidden, `.take(12)`); "Coming Soon" chapter placeholders
   removed (replaced with layout-preserving spacers); Settings language list restricted to
   English/French (the only two fully localized); level 2 rain was briefly disabled then reverted.
   **If a Play review ever needs the rain gone again, `LevelData.DEFAULT_LEVEL_2.hasRain` is the whole
@@ -1990,8 +2026,8 @@ will move forward whenever possible. he cant climb or parkour. you can use doors
 (the request said "the guard will move forward" - read as the prisoner; confirm if that was wrong).
 **The layout's doc comment is the source of truth** for the seven beats; the mechanics:
 
-- **`Prisoner` (`Prisoner.kt`)**: a `Player` body driven by a rule, not input - walks right at 72
-  once freed (the cell gate `freedByDoorId` half open + 0.8s getting up) and stops only at a shut
+- **`Prisoner` (`Prisoner.kt`)**: a `Player` body driven by a rule, not input - walks right at 110
+  (`PrisonerDef.speed`; 72 until 2026-10-03, "the prisoner is moving very slow") once freed (the cell gate `freedByDoorId` half open + 0.8s getting up) and stops only at a shut
   door, a wall, or a lip deeper than `MAX_STEP_DOWN` (30). Never jumps/climbs/crouches. Seen by any
   guard/camera/bot = the shared alert meter (`GameWorld.isPrisonerSeen`, pip over him); steam kills
   him (`prisonerLost`). The level completes only when he AND the player are in `exitZone`. He is
@@ -2032,17 +2068,72 @@ will move forward whenever possible. he cant climb or parkour. you can use doors
   `LevelLayout.wallDecals` / `WallDecal` (new, generic: any back-wall picture, drawn behind
   everything, no collision).
 - **Design rule learned building it: the player can only get ahead of him by a bypass (shaft/hole) or
-  by overtaking while he walks and shutting a door behind (132 vs 72).** A door he is waiting at
-  cannot be passed without releasing him - the first draft's last beat deadlocked on exactly that.
+  by overtaking while he walks.** A door he is waiting at cannot be passed without releasing him -
+  the first draft's last beat deadlocked on exactly that. At 110 against 132 overtaking him to shut a
+  door in front of him no longer works, so **beat 5 is "clear the way first"**: drop into lift_2's
+  shaft, ride it up alone (`sw_lift_2_below`, the one switch added), switch the bot off, send the lift
+  back down, and only then bring him up. Its race door (`door_6` and both its switches) and the two
+  checkpoints that went with it are gone - a respawn while he waited on lift_2 would have switched the
+  bot back on with no way up to it.
 - **Checkpoints are his**: taken when HE is held (not moving, grounded, unseen) inside a zone; a
   respawn restores doors, lifts, guard positions and him from the snapshot. `Guard.resetToSpawn` /
   `placeAt` are new; a restart puts guards back at spawn on this level only.
-- Three-star target 215 = scripted clean run 148.7s x1.45 (`Level11EscortTest.testLevel11IsBeatableAsAnEscort`,
+- Three-star target 195 = scripted clean run 132.8s x1.47 (`Level11EscortTest.testLevel11IsBeatableAsAnEscort`,
   which also pins 1.25..2.0x). Optional objective `KEEP_THE_PRISONER_OUT_OF_SIGHT` (met by the clean run). **No tutorial at all**
   ("dont add any tutorial in level 11") - level 10's end teaches switches, doors and lifts
   (`testLevel10UsesLevel7sMechanicsAndNothingElse` pins both).
 - Verified: `jvmTest`, `android-shell:compileReleaseKotlin`. **Not seen on any screen** (door/switch/
   lift/prisoner art is procedural `solidRect`s, untuned), not on Android or iOS.
+
+## Level 12 ("12: Final Escape") - `LEVEL_12_LAYOUT`, the escort out of the yard (2026-10-03)
+
+Three rounds of direction, all the same day: "help the prisoner escape the shipyard ... on ground
+(not underground). make it interesting gameplay"; then **"dont use new mechanisms. use only the already
+existing mechanisms in levels 1 to 11"** (a first cut's crane cage, alarm with pursuing guards, and
+lasers/falling loads that killed him were all removed - the model has nothing level-12-specific);
+then **"laser emittors are too large ... use all the different things used in levels 1-11 ... there
+are too many button things"**. Don't reintroduce new mechanics, and keep switches few.
+
+**The layout's doc comment is the source of truth.** Two lanes: HIS is the road, held by only five
+switches (pump door, `lift_a`, `gate_1`, `gate_2`, `main_gate` - `testOnlyFiveSwitchesHoldHim`);
+YOURS is mostly overhead on level 8's seamless-table decks, where levels 1-11's player mechanics come
+back once each. Nothing of the overhead road reaches down to his (`testNothingOfThePlayersOverheadRoadReachesHisRoad`):
+decks, pallets and bobbing loads stay over his head, lasers end on the decks. Rain (`hasRain`).
+
+1. **Pump house** - pole yard light (cameras 3/8) parks on the yard and the air over the wall, swept the
+   long way round through the sky; it starts coming down onto the yard (`startAngle` past it,
+   `sweepDirection = -1`), so opening at once is caught.
+2. **Over the wall** - one lift up the near face to the wall's top, crate steps (30 each,
+   `MAX_STEP_DOWN`) down the far face. Up there he is in the light's air park.
+3. **Gantry** - gate_1 holds him; past it a steam jet (11's steam gate: close enough that he clears it
+   in one quiet spell) and a rover; the gate's only switch is past the jet. Player: hung pallet, crouch
+   under level 1's chained crate (58 over the deck), hop the barrels, timed laser gates (deck top to
+   off-screen, `emitterScale` 0.45), down the shaft behind the rover, switch it off, open the gate as
+   the jet goes quiet.
+4. **Gap** - level 5's swing (150 gap, grip 112 over the decks). A camera on a tall post on the far deck
+   parks on the road under the gap and up-and-back over it. **Its post is tall (lens above any head on
+   the deck) and stands past the swing's landing**: shorter or nearer, its upward park caught the
+   player landing. Wait out of its range on the near deck; open gate_2 and swing once it has swung up.
+5. **Far deck** - player only, he walks free below: level 8's bobbing loads as a wave at the player's
+   walk (crush from below, bottom 6 over the deck), a conveyor (-45) against you, a lever (level 6) on a
+   hanging crate killing an always-on curtain. **A level with a belt elsewhere still gets its exit
+   booth**: the scene's "no booth on a conveyor level" test now only counts a belt near the exit.
+6. **Gatehouse** - a guard room over the gate passage (10); the main gate's switch is in a corner out of
+   the room guard's sight and hearing (his beat 3940..4030). Up the floor shaft while he walks away,
+   open the gate once the gate light is off the road, leave **crouched** or he hears you, then
+   spam-tap through the passage fan's headwind (7/10) - it blows only on the player.
+
+- **Measured, not argued** (`Level12EscapeTest`): each timing beat has a wrong moment that fails as
+  well as the right one (pump door at once / lift into the air park / gate_1 late into the steam /
+  gate_2 with the camera down / main gate under the gate light). Re-run after touching any light,
+  jet, lift or guard.
+- Not used, and why: the push cart (it would be a box left on his road), level 5/8's hook crate drop
+  (the loose load lands on the world's flat floor, i.e. his road), the truck (level 1's is hardcoded
+  in `createDefault`, not a layout field), a crane machine (too tall for a deck under the screen's top).
+- Scene: a switch with nothing overhead stands on a post; the conveyor/booth rule above.
+- Clean run 105.7s, target 155. Verified: `jvmTest` (385, 1 skipped), `android-shell:compileReleaseKotlin`
+  clean. **Not seen on any screen, not run on Android or iOS** - light angles, decks, posts and the
+  fan are untuned.
 
 ## Unlocking every level for testing (2026-09-28)
 
@@ -2053,6 +2144,11 @@ but **the mission grid never went through it** - `LevelSelectScreen` re-derived 
 to restore star-gated progression. `LevelSelectScreen`'s premium gate (`id.contains("dlc")`) is
 separate and untouched. The corresponding assertions in `GameplayModelTest` are the ones already
 marked TEMPORARILY DISABLED for this flag.
+
+**Current state (2026-10-03): ON again** ("unlock all levels for now", while level 12 is tested) -
+the flag was deleted for build 21 (see below) and restored, with
+`testGameProfileStorageLevelUnlockingProgression` back under `@Ignore`. **Turn it off before any
+production build**: delete the block and remove the `@Ignore`.
 
 ## Release 1.0 (build 19) - App Store review readiness (2026-09-26)
 

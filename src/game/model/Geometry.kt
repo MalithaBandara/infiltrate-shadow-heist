@@ -99,39 +99,136 @@ object GeometryUtils {
         return normalizeAngle(angle1 - angle2)
     }
 
-    fun castRay(origin: Vec2d, angle: Double, range: Double, occluders: List<Rect>): Vec2d {
-        val dir = Vec2d(cos(angle), sin(angle))
-        val target = origin + dir * range
-        val raySegment = Segment2d(origin, target)
+    /**
+     * Slack around the broad-phase boxes below. A segment can only touch an edge inside both of
+     * their bounding boxes, so skipping an occluder whose box is clear of the segment's cannot
+     * change a result; the extra unit keeps floating-point rounding at a shared boundary on the
+     * side of testing the occluder.
+     */
+    private const val BROAD_PHASE_SLACK = 1.0
 
-        var closestPoint = target
+    /**
+     * The occluders [castRay] could possibly hit from [origin] within [range], in their original
+     * order (ties between equally close hits go to the earlier occluder, as before). Every ray of a
+     * vision polygon shares this, so the level's far-off boxes are dropped once per cone instead of
+     * being tested by every ray.
+     */
+    fun occludersInReach(origin: Vec2d, range: Double, occluders: List<Rect>): List<Rect> {
+        val reach = range + BROAD_PHASE_SLACK
+        var out: ArrayList<Rect>? = null
+        for (i in occluders.indices) {
+            val o = occluders[i]
+            val inReach = o.x + o.width >= origin.x - reach && o.x <= origin.x + reach &&
+                o.y + o.height >= origin.y - reach && o.y <= origin.y + reach
+            if (inReach) {
+                out?.add(o)
+            } else if (out == null) {
+                out = ArrayList(occluders.size)
+                for (j in 0 until i) out.add(occluders[j])
+            }
+        }
+        return out ?: occluders
+    }
+
+    // castRay and hasLineOfSight below are Segment2d.intersects run against Rect.edges() (top, right,
+    // bottom, left - in that order) with the same arithmetic in the same order, written out so a
+    // ray allocates nothing per edge. The results are the same to the last bit; vision cones
+    // were tuned against exact angles (LEVEL_3_LAYOUT's beam camera), so keep it that way.
+
+    fun castRay(origin: Vec2d, angle: Double, range: Double, occluders: List<Rect>): Vec2d {
+        val ox = origin.x
+        val oy = origin.y
+        val dirX = cos(angle)
+        val dirY = sin(angle)
+        val targetX = ox + dirX * range
+        val targetY = oy + dirY * range
+        val d1x = targetX - ox
+        val d1y = targetY - oy
+
+        var closestX = targetX
+        var closestY = targetY
         var closestDistanceSq = range * range
 
-        for (occluder in occluders) {
-            for (edge in occluder.edges()) {
-                val hit = raySegment.intersects(edge)
-                if (hit != null) {
-                    val distSq = origin.distanceSquaredTo(hit)
+        for (i in occluders.indices) {
+            val o = occluders[i]
+            val left = o.x
+            val top = o.y
+            val right = o.x + o.width
+            val bottom = o.y + o.height
+            for (e in 0 until 4) {
+                val qx1: Double; val qy1: Double; val qx2: Double; val qy2: Double
+                when (e) {
+                    0 -> { qx1 = left; qy1 = top; qx2 = right; qy2 = top }
+                    1 -> { qx1 = right; qy1 = top; qx2 = right; qy2 = bottom }
+                    2 -> { qx1 = right; qy1 = bottom; qx2 = left; qy2 = bottom }
+                    else -> { qx1 = left; qy1 = bottom; qx2 = left; qy2 = top }
+                }
+                val d2x = qx2 - qx1
+                val d2y = qy2 - qy1
+                val cross = d1x * d2y - d1y * d2x
+                if (abs(cross) < 1e-9) continue
+                val d3x = qx1 - ox
+                val d3y = qy1 - oy
+                val t = (d3x * d2y - d3y * d2x) / cross
+                val u = (d3x * d1y - d3y * d1x) / cross
+                if (t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0) {
+                    val hx = ox + t * d1x
+                    val hy = oy + t * d1y
+                    val dx = ox - hx
+                    val dy = oy - hy
+                    val distSq = dx * dx + dy * dy
                     if (distSq < closestDistanceSq) {
                         closestDistanceSq = distSq
-                        closestPoint = hit
+                        closestX = hx
+                        closestY = hy
                     }
                 }
             }
         }
 
-        return closestPoint
+        return Vec2d(closestX, closestY)
     }
 
     fun hasLineOfSight(from: Vec2d, to: Vec2d, occluders: List<Rect>): Boolean {
-        val segment = Segment2d(from, to)
-        for (occluder in occluders) {
-            for (edge in occluder.edges()) {
-                val hit = segment.intersects(edge)
-                if (hit != null) {
+        val fx = from.x
+        val fy = from.y
+        val d1x = to.x - fx
+        val d1y = to.y - fy
+        val tdx = fx - to.x
+        val tdy = fy - to.y
+        val distTotal = sqrt(tdx * tdx + tdy * tdy)
+        val segLeft = min(fx, to.x) - BROAD_PHASE_SLACK
+        val segRight = max(fx, to.x) + BROAD_PHASE_SLACK
+        val segTop = min(fy, to.y) - BROAD_PHASE_SLACK
+        val segBottom = max(fy, to.y) + BROAD_PHASE_SLACK
+        for (i in occluders.indices) {
+            val o = occluders[i]
+            val left = o.x
+            val top = o.y
+            val right = o.x + o.width
+            val bottom = o.y + o.height
+            if (right < segLeft || left > segRight || bottom < segTop || top > segBottom) continue
+            for (e in 0 until 4) {
+                val qx1: Double; val qy1: Double; val qx2: Double; val qy2: Double
+                when (e) {
+                    0 -> { qx1 = left; qy1 = top; qx2 = right; qy2 = top }
+                    1 -> { qx1 = right; qy1 = top; qx2 = right; qy2 = bottom }
+                    2 -> { qx1 = right; qy1 = bottom; qx2 = left; qy2 = bottom }
+                    else -> { qx1 = left; qy1 = bottom; qx2 = left; qy2 = top }
+                }
+                val d2x = qx2 - qx1
+                val d2y = qy2 - qy1
+                val cross = d1x * d2y - d1y * d2x
+                if (abs(cross) < 1e-9) continue
+                val d3x = qx1 - fx
+                val d3y = qy1 - fy
+                val t = (d3x * d2y - d3y * d2x) / cross
+                val u = (d3x * d1y - d3y * d1x) / cross
+                if (t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0) {
                     // Check if hit point is strictly between from and to (not just origin)
-                    val distFrom = from.distanceTo(hit)
-                    val distTotal = from.distanceTo(to)
+                    val dx = fx - (fx + t * d1x)
+                    val dy = fy - (fy + t * d1y)
+                    val distFrom = sqrt(dx * dx + dy * dy)
                     if (distFrom > 1e-4 && distFrom < distTotal - 1e-4) {
                         return false
                     }

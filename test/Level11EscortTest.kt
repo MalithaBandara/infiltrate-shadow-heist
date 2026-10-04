@@ -342,9 +342,29 @@ class Level11EscortTest {
         e.waitUntil("him at door_2", 30.0) { e.heldAt("door_2") }
         e.press("sw_door_2")
 
-        // 4. The control room.
+        // 4-5. The control room. First the way ahead: down lift_2's shaft onto the lift, up alone,
+        // switch the bot off from behind, back, send the lift down. Then the guard into the bay,
+        // and him onto the lift and up.
         e.climbShaft(catwalks[1])
         e.waitUntil("him at door_3", 30.0) { e.heldAt("door_3") }
+        val lift2 = e.lift("lift_2")
+        e.walkTo(lift2.def.x - 5.0)
+        assertEquals(440.0, e.p.y + e.p.height, 0.5, "down the shaft onto lift_2")
+        e.pressHere("sw_lift_2_below")
+        e.waitUntil("lift_2 up", 5.0) { lift2.topY == lift2.def.upperY }
+        e.walkTo(3690.0)
+        val bot = w.cameraBots.first { it.id == "lvl11_bot_1" }
+        e.waitUntil("the bot heading away", 30.0) { bot.facing > 0.0 && bot.x < 3960.0 }
+        var guard = 0
+        while (!bot.canDeactivate(e.p)) {
+            e.step(1.0)
+            assertTrue(++guard < 600, "caught up with the bot")
+        }
+        e.step(interact = true)
+        e.step()
+        assertTrue(bot.isDeactivated)
+        e.press("sw_lift_2")
+        e.waitUntil("lift_2 down", 5.0) { lift2.topY == lift2.def.lowerY }
         e.press("sw_door_4")
         val g = w.guard
         val door5 = e.door("door_5")
@@ -356,23 +376,7 @@ class Level11EscortTest {
         e.walkTo(e.switch("sw_lift_2").centerX - e.p.width / 2.0)
         e.waitUntil("him at door_5 on lift_2", 30.0) { e.heldAt("door_5") }
         e.press("sw_lift_2")
-        val lift2 = e.lift("lift_2")
         e.waitUntil("lift_2 up", 5.0) { lift2.topY == lift2.def.upperY }
-
-        // 5. Close it behind you, and the bot.
-        e.press("sw_door_6_far")
-        e.waitUntil("him at door_6", 15.0) { e.heldAt("door_6") }
-        val bot = w.cameraBots.first { it.id == "lvl11_bot_1" }
-        e.waitUntil("the bot heading away", 30.0) { bot.facing > 0.0 && bot.x < 3960.0 }
-        var guard = 0
-        while (!bot.canDeactivate(e.p)) {
-            e.step(1.0)
-            assertTrue(++guard < 600, "caught up with the bot")
-        }
-        e.step(interact = true)
-        e.step()
-        assertTrue(bot.isDeactivated)
-        e.press("sw_door_6_far")
         e.walkTo(4242.0)
         e.waitUntil("him on lift_3", 20.0) { e.pr.isHeld && e.pr.body.x > 4240.0 }
         e.pressHere("sw_lift_3")

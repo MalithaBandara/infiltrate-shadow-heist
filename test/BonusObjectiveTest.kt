@@ -141,7 +141,8 @@ class BonusObjectiveTest {
 
     @Test
     fun testALevelWithoutOneKeepsNoAlertsRaisedAsStar2() {
-        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_12)
+        // Every shipped level has one now; a level without one is still allowed.
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_12.copy(bonusObjective = null))
         assertNull(world.bonusTracker)
         assertFalse(world.getLevelResult().wasDetected)
     }

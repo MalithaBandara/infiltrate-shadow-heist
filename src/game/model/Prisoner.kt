@@ -15,7 +15,11 @@ data class PrisonerDef(
     val surfaceY: Double,
     val freedByDoorId: String,
     val facing: Double = 1.0,
-    val speed: Double = 72.0
+    /**
+     * 110, under the player's 132 so he can still be overtaken. It was 72 until 2026-10-03 ("in
+     * both level 11 and 12 the prisoner is moving very slow").
+     */
+    val speed: Double = 110.0
 )
 
 class Prisoner(val def: PrisonerDef) {

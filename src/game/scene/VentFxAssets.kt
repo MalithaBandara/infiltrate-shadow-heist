@@ -494,6 +494,16 @@ class CameraBotVisual(
     private var prevX: Double = bot.x
     private var rollAngle: Double = 0.0
 
+    // What the cone was last built from. A rover on its pause, holding still on the player, or
+    // parked off-screen keeps the beam it already has instead of re-raycasting the same polygon
+    // every frame - the same rule the guard beams follow in GameplayScene. NaN = nothing built.
+    private var coneEyeX: Double = Double.NaN
+    private var coneEyeY: Double = Double.NaN
+    private var coneFacing: Double = Double.NaN
+    private var coneRange: Double = Double.NaN
+    private var coneFov: Double = Double.NaN
+    private var coneOccluders: List<Rect>? = null
+
     fun update(
         dt: Double,
         totalElapsedSeconds: Double,
@@ -538,9 +548,10 @@ class CameraBotVisual(
         if (bot.isDeactivated) {
             // Permanent deactivated state
             lightCone.clear()
+            coneEyeX = Double.NaN
             alertLens.visible = false
             sparks.visible = (totalElapsedSeconds % 1.5 < 0.08)
-            sparks.color = Colors["#f59e0b"]
+            sparks.color = SPARK_COLOR
         } else {
             sparks.visible = false
             // No bulbs on robots (owner request: "remove any bulbs from the robots").
@@ -550,6 +561,15 @@ class CameraBotVisual(
             // Surveillance light cone
             val origin = bot.eyePosition
             val facing = bot.facingAngle
+            if (origin.x == coneEyeX && origin.y == coneEyeY && facing == coneFacing &&
+                bot.visionRange == coneRange && bot.visionFov == coneFov && occluders === coneOccluders
+            ) return
+            coneEyeX = origin.x
+            coneEyeY = origin.y
+            coneFacing = facing
+            coneRange = bot.visionRange
+            coneFov = bot.visionFov
+            coneOccluders = occluders
             val poly = VisionSystem.computeVisionPolygon(
                 origin = origin,
                 facingAngle = facing,
@@ -568,6 +588,9 @@ class CameraBotVisual(
     }
 
     companion object {
+        /** A switched-off rover's blinking sparks. Parsed once, not every frame. */
+        private val SPARK_COLOR: RGBA = Colors["#f59e0b"]
+
         // Measured by tools/art/prep_robot.py off art-source/robot/robot.png. Fractions of the
         // DRAWN body box: CY of its height, CX and R of its width.
         private const val BODY_ASPECT = 0.7940      // 1126 x 894
@@ -785,9 +808,9 @@ class SteamPipeVisual(
         //   warning -> yellow  0.5s of warning before steam erupts
         //   active  -> red     lethal right now
         val ledColor = when {
-            active -> Colors["#ef4444"]
-            warning -> Colors["#facc15"]
-            else -> Colors["#10b981"]
+            active -> LED_ACTIVE
+            warning -> LED_WARNING
+            else -> LED_DORMANT
         }
         topLed?.colorMul = ledColor
         botLed?.colorMul = ledColor
@@ -857,6 +880,11 @@ class SteamPipeVisual(
 
     companion object {
         private const val SINGLE_COUNT = 18
+
+        // Status LED colours (see update). Parsed once, not every frame.
+        private val LED_ACTIVE: RGBA = Colors["#ef4444"]
+        private val LED_WARNING: RGBA = Colors["#facc15"]
+        private val LED_DORMANT: RGBA = Colors["#10b981"]
 
         // Measured by tools/art/prep_steam.py off art-source/vent/steam.png. The fixture is drawn
         // NOZZLE_WIDTH wide at the plate's own aspect.

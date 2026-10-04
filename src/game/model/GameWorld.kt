@@ -404,6 +404,31 @@ data class GameWorld(
     private val playerPlatformsScratch = ArrayList<Rect>()
 
     /**
+     * The rest of [update]'s per-tick lists, same idea as [playerPlatformsScratch]: this world's
+     * solids, boxes, occluders and climb/swing lists are rebuilt into these each tick instead of
+     * through a dozen fresh `map`/`filter`/`+` lists. Per world, never shared, and nothing they are
+     * handed to (Player, Guard, Prisoner) keeps them past the call.
+     */
+    private class TickScratch {
+        val moving = ArrayList<Rect>()
+        val crates = ArrayList<Rect>()
+        val hookCrates = ArrayList<Rect>()
+        val carts = ArrayList<Rect>()
+        val dynamic = ArrayList<Rect>()
+        val platforms = ArrayList<Rect>()
+        val boxes = ArrayList<Rect>()
+        val occluders = ArrayList<Rect>()
+        val climbTargets = ArrayList<Rect>()
+        val climbRefused = ArrayList<Rect>()
+        val floatingTargets = ArrayList<Rect>()
+        val swingHooks = ArrayList<Rect>()
+        val seeingGuards = ArrayList<Guard>()
+        val seeingCameras = ArrayList<Camera>()
+        val seeingCameraBots = ArrayList<CameraBot>()
+    }
+    private val tickScratch = TickScratch()
+
+    /**
      * True while the player last stood at floor level - the ground, or anything standing on it
      * within [FLOOR_LEVEL_BAND] (barrels, carts, a dropped crate) - rather than on a hanging load or
      * a raised platform. While it holds, every [MovingPlatformDef.noGroundBoarding] surface is
@@ -1842,9 +1867,11 @@ data class GameWorld(
 
         // Check every guard, camera, and camera bot's vision cone; the closest one with eyes on the player fills the alert.
         val previousAlert = alertProgress
-        val seeingGuards = ArrayList<Guard>(allGuards.size)
-        val seeingCameras = ArrayList<Camera>(cameras.size)
-        val seeingCameraBots = ArrayList<CameraBot>(cameraBots.size)
+        // Scratch lists (see TickScratch): what is kept from them - detectingGuards etc. below,
+        // recentlySeeingGuards - is copied out, never the list itself.
+        val seeingGuards = tickScratch.seeingGuards.apply { clear() }
+        val seeingCameras = tickScratch.seeingCameras.apply { clear() }
+        val seeingCameraBots = tickScratch.seeingCameraBots.apply { clear() }
         var spottedDist: Double? = null
         var detectorRange: Double = guard.visionRange
 
@@ -1923,13 +1950,21 @@ data class GameWorld(
         var prisonerSeen = false
         val pr = prisoner
         if (pr != null && pr.isFree && !pr.hasEscaped && spawnGraceTimer <= 0.0) {
-            // Every eye that could see him, as (distance or null, its range).
-            val looks = ArrayList<Pair<Double?, Double>>()
+            // Every eye that could see him fills the same meter; the nearest one sets the pace.
+            // Taken eye by eye in the same order the old (distance, range) list was walked in, so
+            // the same eye wins a tie.
             if (!activePowerups.isPhantomCloakActive) {
                 for (g in allGuards) {
                     val d = VisionSystem.getPlayerSpottedDistance(g, pr.body, visionOccluders)
                     if (d != null && g !in seeingGuards) seeingGuards.add(g)
-                    looks.add(d to g.visionRange)
+                    if (d != null) {
+                        prisonerSeen = true
+                        val best = spottedDist
+                        if (best == null || d < best) {
+                            spottedDist = d
+                            detectorRange = g.visionRange
+                        }
+                    }
                 }
             }
             if (!activePowerups.isSmokeScreenActive) {
@@ -1939,22 +1974,27 @@ data class GameWorld(
                         c.onPlayerSpotted()
                         seeingCameras.add(c)
                     }
-                    looks.add(d to c.visionRange)
+                    if (d != null) {
+                        prisonerSeen = true
+                        val best = spottedDist
+                        if (best == null || d < best) {
+                            spottedDist = d
+                            detectorRange = c.visionRange
+                        }
+                    }
                 }
                 for (b in cameraBots) {
                     if (b.isDeactivated) continue
                     val d = VisionSystem.getPlayerSpottedDistance(b.eyePosition, b.facingAngle, b.visionRange, b.visionFov, pr.body, visionOccluders)
                     if (d != null && b !in seeingCameraBots) seeingCameraBots.add(b)
-                    looks.add(d to b.visionRange)
-                }
-            }
-            for ((d, range) in looks) {
-                if (d == null) continue
-                prisonerSeen = true
-                val best = spottedDist
-                if (best == null || d < best) {
-                    spottedDist = d
-                    detectorRange = range
+                    if (d != null) {
+                        prisonerSeen = true
+                        val best = spottedDist
+                        if (best == null || d < best) {
+                            spottedDist = d
+                            detectorRange = b.visionRange
+                        }
+                    }
                 }
             }
         }
@@ -2173,38 +2213,46 @@ data class GameWorld(
             }
         }
 
-        // A level with no moving platforms, conveyor crates, or hook crates reuses its own immutable lists
-        val hasMovingPlatforms = movingPlatforms.isNotEmpty()
-        val movingBounds = if (hasMovingPlatforms) movingPlatforms.map { it.bounds } else emptyList()
-        val hasConveyorCrates = conveyorCrates.isNotEmpty()
-        val crateBounds = if (hasConveyorCrates) conveyorCrates.map { it.bounds } else emptyList()
-        val floorCrateBounds = if (hasConveyorCrates) conveyorCrates.filter { !it.isHanging }.map { it.bounds } else emptyList()
+        // A level with no moving platforms, conveyor crates, or hook crates reuses its own immutable lists.
+        // Everything else below is built into this world's reusable scratch lists (see
+        // TickScratch) - the same contents in the same order as the old `map`/`filter`/`+` chains,
+        // which matters: Player's collision passes are order-sensitive. Nothing called with these
+        // keeps them past the call, and they are rebuilt from scratch every tick.
+        val s = tickScratch
+        val movingBounds = s.moving.apply { clear(); for (mp in movingPlatforms) add(mp.bounds) }
+        val crateBounds = s.crates.apply { clear(); for (c in conveyorCrates) add(c.bounds) }
         val hasHookCrates = hookCrates.isNotEmpty()
         // A crate riding in a cart is inside the loaded cart's own footprint - nothing to add.
-        val hookCrateBounds = if (hasHookCrates) hookCrates.filter { it.carriedByCartId == null }.map { it.bounds } else emptyList()
+        val hookCrateBounds = s.hookCrates.apply { clear(); for (hc in hookCrates) if (hc.carriedByCartId == null) add(hc.bounds) }
         // A cart is solid wherever it stands - EXCEPT the one in the player's hands, which is
         // left out of his own platform/climb lists (see followGrippedCart: he is pinned to it, so
         // it would be a wall travelling with him). It still blocks sight and still blocks guards.
         val hasPushCarts = pushCarts.isNotEmpty()
         // An empty cart is its deck and the lower half of its two handle posts (PushCart.playerSolids).
-        val freePushCartBounds = when {
-            !hasPushCarts -> emptyList()
-            grippedCart == null -> pushCarts.flatMap { it.playerSolids }
-            else -> pushCarts.filter { it !== grippedCart }.flatMap { it.playerSolids }
+        val freePushCartBounds = s.carts.apply { clear(); for (c in pushCarts) if (c !== grippedCart) addAll(c.playerSolids) }
+        val dynamicBounds = s.dynamic.apply {
+            clear(); addAll(movingBounds); addAll(crateBounds); addAll(hookCrateBounds); addAll(freePushCartBounds)
         }
-        val dynamicBounds = if (hasMovingPlatforms || hasConveyorCrates || hasHookCrates || hasPushCarts) {
-            movingBounds + crateBounds + hookCrateBounds + freePushCartBounds
-        } else emptyList()
         val doorSolids = dynamicDoorSolids()
-        val currentPlatforms = (if (dynamicBounds.isNotEmpty()) platforms + dynamicBounds else platforms)
-            .let { if (doorSolids.isEmpty()) it else it + doorSolids }
-        val currentBoxes = if (dynamicBounds.isNotEmpty()) {
-            val dynamicBoxes = movingBounds + floorCrateBounds + hookCrateBounds + freePushCartBounds
-            if (dynamicBoxes.isNotEmpty()) boxes + dynamicBoxes else boxes
-        } else boxes
+        val currentPlatforms: List<Rect> = if (dynamicBounds.isEmpty() && doorSolids.isEmpty()) platforms else
+            s.platforms.apply { clear(); addAll(platforms); addAll(dynamicBounds); addAll(doorSolids) }
+        // Moving platforms, floor-riding conveyor crates, hook crates and free carts - a hanging
+        // conveyor crate is solid but not a box to climb.
+        val currentBoxes: List<Rect> = s.boxes.run {
+            clear()
+            addAll(boxes)
+            addAll(movingBounds)
+            for (i in conveyorCrates.indices) if (!conveyorCrates[i].isHanging) add(crateBounds[i])
+            addAll(hookCrateBounds)
+            addAll(freePushCartBounds)
+            if (size == boxes.size) boxes else this
+        }
         // Sight is blocked by every cart, held or not - the body behind one is behind it either way.
-        val currentOccluders = if (dynamicBounds.isNotEmpty() || hasPushCarts) {
-            visionOccluders + dynamicBounds + (if (grippedCart != null) listOf(grippedCart!!.bounds) else emptyList())
+        val currentOccluders: List<Rect> = if (dynamicBounds.isNotEmpty() || hasPushCarts) {
+            s.occluders.apply {
+                clear(); addAll(visionOccluders); addAll(dynamicBounds)
+                grippedCart?.let { add(it.bounds) }
+            }
         } else visionOccluders
 
         // Guards without eyes on the player keep walking their route (unless asleep from Phantom Cloak)
@@ -2271,28 +2319,37 @@ data class GameWorld(
             val b = hc.bounds
             playerPlatformsScratch.add(Rect(b.x, b.top - LOOSE_LOAD_LID_HEIGHT, b.width, LOOSE_LOAD_LID_HEIGHT))
         }
-        val climbTargets = when {
+        val climbTargets: List<Rect> = when {
             !canClimb -> emptyList()
             boardingBlocked.isEmpty() -> currentBoxes
-            else -> currentBoxes.filter { it !in boardingBlocked }
+            else -> s.climbTargets.apply { clear(); for (b in currentBoxes) if (b !in boardingBlocked) add(b) }
         }
         // A cut load stood on its end (or still tumbling) is refused the mantle - HookCrate.isLooseAndNotFlat.
-        val climbRefused = if (hasHookCrates && hookCrates.any { it.isLooseAndNotFlat }) {
-            unclimbableBoxes + hookCrates.filter { it.isLooseAndNotFlat }.map { it.bounds }
+        val climbRefused: List<Rect> = if (hasHookCrates && hookCrates.any { it.isLooseAndNotFlat }) {
+            s.climbRefused.apply {
+                clear(); addAll(unclimbableBoxes)
+                for (hc in hookCrates) if (hc.isLooseAndNotFlat) add(hc.bounds)
+            }
         } else unclimbableBoxes
-        val climbFloatingTargets = when {
+        val climbFloatingTargets: List<Rect> = when {
             !canClimb -> emptyList()
-            boardingBlocked.isEmpty() -> floatingClimbTargets + hookCrateBounds
-            else -> (floatingClimbTargets + hookCrateBounds).filter { it !in boardingBlocked }
+            boardingBlocked.isEmpty() && hookCrateBounds.isEmpty() -> floatingClimbTargets
+            else -> s.floatingTargets.apply {
+                clear()
+                for (b in floatingClimbTargets) if (b !in boardingBlocked) add(b)
+                for (b in hookCrateBounds) if (b !in boardingBlocked) add(b)
+            }
         }
         // A hook still carrying its crate cannot be swung from. A travelling rig's hook is wherever
         // it has got to; a fixed one is exactly its declared rect, as before.
-        val activeSwingHooks = if (hookCrates.isEmpty()) swingHooks else swingHooks.mapNotNull { hook ->
-            val hc = hookCrates.firstOrNull { it.hook == hook }
-            when {
-                hc == null -> hook
-                hc.isDetached -> hc.currentHook
-                else -> null
+        val activeSwingHooks: List<Rect> = if (hookCrates.isEmpty()) swingHooks else s.swingHooks.apply {
+            clear()
+            for (hook in swingHooks) {
+                val hc = hookCrates.firstOrNull { it.hook == hook }
+                when {
+                    hc == null -> add(hook)
+                    hc.isDetached -> add(hc.currentHook)
+                }
             }
         }
         // A braced body cannot jump, duck or sprint. Suppressing the other two inputs outright
