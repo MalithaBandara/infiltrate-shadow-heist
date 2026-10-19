@@ -641,6 +641,14 @@ data class Player(
         isClimbing = true
         climbEndsCrouched = target.endsCrouched
         climbElapsed = 0.0
+        // The climb clip is drawn with the body flush against the face it grips, and its first
+        // frame is already hanging from the lip (CLIMB_GRIP_CURVE starts at 1.0, so y snaps up to
+        // the hang on this frame). A box stops the player flush on its own; a hanging ledge does
+        // not - it is grabbed from up to HANGING_GRAB_BEFORE short of its edge or
+        // HANGING_GRAB_UNDER beneath it - so the hands closed on air (level 11's catwalks,
+        // 2026-10-19: "he is not touching the thing while climbing"). The body is set flush in
+        // the same frame as the snap up to the hang, so the grab reads as one move.
+        if (box in hangingClimbTargets) x = if (direction > 0.0) box.left - width else box.right
         climbStartX = x
         climbStartY = y
         // Feet-based, so this is the same whether the climb ends standing or crouched - crouching
@@ -1089,7 +1097,7 @@ data class Player(
 
         /**
          * The braced push figure's head and torso, as fractions of visualHeight: forward of the
-         * box's centre (in the push direction) and up from the feet. Measured on resources/player/
+         * box's centre (in the push direction) and up from the feet. Measured on art/frames/player/
          * push + the settled end of pushtransition at the drawn scale: the head at (+15.5, 66) and
          * the waist at (-3.5, 45) are opaque in every one of those frames. See braceLean.
          */

@@ -1,7 +1,7 @@
 """
 Cut the push clips from the raw plates and print the constants PlayerAnimations needs.
 
-Usage:  python tools/art/prep_push.py            (writes resources/player/push{,transition})
+Usage:  python tools/art/prep_push.py            (writes art/frames/player/push{,transition})
         python tools/art/prep_push.py --measure  (print the measurements only, write nothing)
 
 Run from the repo root. Same recipe as prep_guard.py: everything below is measured off
@@ -77,7 +77,7 @@ import numpy as np
 from PIL import Image
 
 RAW = r"C:\Users\USER\Downloads\charAnimations"
-OUT = os.path.join("resources", "player")
+OUT = os.path.join("art", "frames", "player")
 
 # Measured on the plates - see the module docstring.
 STANDING_SILHOUETTE_RAW = 484.0   # pushtransition/0001.png, rows 61..544

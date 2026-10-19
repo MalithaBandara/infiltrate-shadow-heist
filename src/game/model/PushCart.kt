@@ -205,7 +205,7 @@ class PushCart(private val def: PushCartDef) {
          * How far forward of the body's centre the braced fist reaches, and how far off the
          * ground it sits, both as fractions of the character's height.
          *
-         * Measured on `resources/player/push/0001.png` - [PlayerAnimations.PUSH_REST_FRAME], the
+         * Measured on `art/frames/player/push/0001.png` - [PlayerAnimations.PUSH_REST_FRAME], the
          * pose a braced body holds - by taking the rightmost 14 columns of the silhouette (the
          * fist alone; the forearm runs back from there) and its centroid, at (169.2, 147.5) in a
          * 180x256 frame whose feet sit on row 255.76. The sprite is anchored at the frame's

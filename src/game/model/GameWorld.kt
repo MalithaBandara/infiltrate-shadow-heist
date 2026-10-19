@@ -328,6 +328,8 @@ data class GameWorld(
             if (!playerRides) blockers.add(player.bounds)
             if (p != null && !prisonerRides) blockers.add(p.bounds)
             val dy = l.update(dt, blockers, frozen = guardInShaft)
+            // Level 12 has no doors: he waits on a lift, and gets up once it moves.
+            if (p != null && !p.isFree && l.id == p.def.freedByDoorId && dy != 0.0) p.free()
             if (dy != 0.0) {
                 if (playerRides) player.y += dy
                 if (prisonerRides) p!!.body.y += dy
@@ -804,6 +806,10 @@ data class GameWorld(
         private set
     var timeTaken: Float = 0.0f
         private set
+
+    /** Whether [timeTaken] is running yet: from the first walk or jump of the attempt. */
+    var hasClockStarted: Boolean = false
+        private set
     var isLevelComplete: Boolean = false
         private set
     var isGameOver: Boolean = false
@@ -984,7 +990,7 @@ data class GameWorld(
     //
     // Same split as the push stance above and for the same reason: the model owns whether the
     // character is braced against the gale and how far into the brace he is, the scene owns
-    // which frame of resources/player/wind{transition,walk} that draws as.
+    // which frame of art/frames/player/wind{transition,walk} that draws as.
 
     /** True while the player's box overlaps any fan's wind zone. */
     var isInWindZone: Boolean = false
@@ -1048,7 +1054,7 @@ data class GameWorld(
     var continueCount: Int = 0
         private set
     val canContinue: Boolean
-        get() = activePowerups.isCheckpointsActive || continueCount < 1
+        get() = activePowerups.isCheckpointsActive || continueCount < MAX_CONTINUES_PER_RUN
 
     var currentManualCheckpointIndex: Int = -1
         private set
@@ -1131,6 +1137,7 @@ data class GameWorld(
         hasPlayerCrouchedOnce = false
         touchedGround = false
         timeTaken = 0.0f
+        hasClockStarted = false
         totalElapsedSeconds = 0.0
         runStartSeconds = null
         // A restart always resumes: whatever put the run on hold (pause overlay, backgrounded
@@ -1786,6 +1793,11 @@ data class GameWorld(
         forwardTap: Boolean = false
     ) {
         if (isSuspended || isLevelComplete || isGameOver) return
+        moveObserver?.let { observe ->
+            if (player.isSwinging) observe(this, PlayerMove.SWING)
+            if (!isPushStanceIdle) observe(this, PlayerMove.PUSH)
+            if (!isWindStanceIdle) observe(this, PlayerMove.WIND)
+        }
 
         if (noclipFlying) {
             val flySpeed = 420.0
@@ -1860,7 +1872,12 @@ data class GameWorld(
 
         if (crouchInput) hasPlayerCrouchedOnce = true
 
-        timeTaken += dt.toFloat()
+        // The level clock starts on the player's first move, not when the level loads: time spent
+        // reading the objectives, looking around or getting a grip on the phone is not part of the
+        // run ("level time should start only when he starts moving", 2026-10-19). Pauses, a
+        // backgrounded app and ads are kept off it by [isSuspended].
+        if (!hasClockStarted && (moveInput != 0.0 || jumpInput)) hasClockStarted = true
+        if (hasClockStarted) timeTaken += dt.toFloat()
 
         // Update active powerup timers
         activePowerups.update(dt)
@@ -2399,7 +2416,7 @@ data class GameWorld(
                 }
             }
         }
-        prisoner?.update(dt, currentPlatforms, exitZone)
+        prisoner?.update(dt, currentPlatforms, exitZone, lifts)
         updateBoardingFromFloorLevel(groundY)
         observeBonusObjective(groundY)
         checkStayOffTheGround()
@@ -2539,6 +2556,16 @@ data class GameWorld(
     }
 
     companion object {
+        /** Continues (each one a watched ad) a run gets; the Checkpoints gadget lifts the cap. */
+        const val MAX_CONTINUES_PER_RUN = 2
+
+        /**
+         * Test hook, null in the game: told on every tick a move with its own clips is under way
+         * (the scene loads those clips per level - PlayerClipGroupsTest checks every move a level
+         * really makes against what it loads).
+         */
+        var moveObserver: ((GameWorld, PlayerMove) -> Unit)? = null
+
         /**
          * How long the lean-in and the stand-up take. The raw footage runs ~1.45s at the plate's
          * own rate, which is a long time to be committed to a pose in a platformer, so it is
@@ -2572,7 +2599,7 @@ data class GameWorld(
          * The braced push figure's height over its collision box, trailing end first, in six
          * equal columns, as fractions of Player.visualHeight: the tallest point of each column
          * over every frame of the push loop and the settled end of the lean-in (measured from
-         * resources/player/push and pushtransition's alpha at the drawn scale). See crushParts.
+         * art/frames/player/push and pushtransition's alpha at the drawn scale). See crushParts.
          */
         val PUSH_CRUSH_PROFILE = doubleArrayOf(0.45, 0.57, 0.65, 0.71, 0.78, 0.78)
 
@@ -3131,3 +3158,6 @@ data class GameWorld(
         }
     }
 }
+
+/** Moves the player's clips are loaded for per level (see GameWorld.moveObserver). */
+enum class PlayerMove { SWING, PUSH, WIND }

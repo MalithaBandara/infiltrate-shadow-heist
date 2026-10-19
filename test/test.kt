@@ -606,7 +606,7 @@ class GameplaySceneTest : ViewsForTesting() {
         g.drawLine(width / 2, 20, width / 2, height - 20)
 
         // Load player idle frame
-        val playerFile = java.io.File("resources/player/idle/0001.png")
+        val playerFile = java.io.File("art/frames/player/idle/0001.png")
         val playerRaw = if (playerFile.exists()) javax.imageio.ImageIO.read(playerFile) else null
 
         // Scale player to game size (height = ~168px on screen at 1.75x zoom)

@@ -339,6 +339,27 @@ class GameplayModelTest {
     }
 
     @Test
+    fun testTheLevelClockStartsOnTheFirstMoveAndSkipsPauses() {
+        // "level time should start only when he starts moving and pause time should not be
+        // considered" - on every level.
+        for (level in LevelData.DEFAULT_LEVELS) {
+            val world = GameWorld.createDefault(level)
+            repeat(300) { world.update(1.0 / 60.0, 0.0, false, false, false) }
+            assertEquals(0.0f, world.timeTaken, "${level.id}: standing still is not on the clock")
+            if (world.isGameOver) continue
+            world.update(1.0 / 60.0, 1.0, false, false, false)
+            assertTrue(world.hasClockStarted, "${level.id}: the first step starts it")
+            repeat(59) { world.update(1.0 / 60.0, 0.0, false, false, false) }
+            if (world.isGameOver || world.isLevelComplete) continue
+            assertEquals(1.0f, world.timeTaken, 0.01f, "${level.id}: a second after the first step")
+            world.isSuspended = true
+            repeat(600) { world.update(1.0 / 60.0, 1.0, false, false, false) }
+            world.isSuspended = false
+            assertEquals(1.0f, world.timeTaken, 0.01f, "${level.id}: paused time is not on the clock")
+        }
+    }
+
+    @Test
     fun testStarRatingSystemLogic() {
         // Star 1: completed == true
         // Star 2: wasDetected == false
@@ -2455,12 +2476,18 @@ class GameplayModelTest {
         assertTrue(world.activePowerups.isInvisibilityActive, "Respawning should give grace invisibility")
         assertEquals(3.0, world.laserGraceTimer, 1e-4, "Respawning should give laser grace period")
         assertEquals(1, world.continueCount)
-        assertFalse(world.canContinue, "canContinue should be false after using 1 continue")
+        assertTrue(world.canContinue, "a run gets a second continue")
 
-        // Second continue attempt in same run should be rejected
+        // The second continue is allowed
         world.isGameOver = true
-        val secondRespawnOk = world.respawnAtCheckpoint()
-        assertFalse(secondRespawnOk, "Second continue in same run should be rejected")
+        assertTrue(world.respawnAtCheckpoint(), "Second continue in same run should be allowed")
+        assertEquals(2, world.continueCount)
+        assertFalse(world.canContinue, "canContinue should be false after using 2 continues")
+
+        // A third continue attempt in the same run should be rejected
+        world.isGameOver = true
+        val thirdRespawnOk = world.respawnAtCheckpoint()
+        assertFalse(thirdRespawnOk, "Third continue in same run should be rejected")
 
         // Restarting level resets continue cap
         world.restartLevel()

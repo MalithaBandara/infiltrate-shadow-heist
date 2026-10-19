@@ -96,7 +96,7 @@ data class Checkpoint(
 /**
  * A prison cell seen from the front, at the end of a level (LEVEL_10_LAYOUT's last room): a
  * barred front over [bars] (floor to ceiling, drawn over the cell and behind the player) and a
- * figure sitting on the cell floor at [prisonerX], facing [prisonerFacing]. Purely decorative -
+ * figure pacing the cell floor from [prisonerX], first facing [prisonerFacing]. Purely decorative -
  * the level's exitZone is what ends it, and a level with a cell draws no extraction booth.
  */
 data class PrisonCellDef(
@@ -393,7 +393,17 @@ data class LevelLayout(
     val prisoner: PrisonerDef? = null,
     /** Signs on the back wall - see [WallDecal]. */
     val wallDecals: List<WallDecal> = emptyList()
-)
+) {
+    companion object {
+        /**
+         * Level 1's chained crate: a box over 150 tall hung from the top of the sky - GameplayScene
+         * draws chainedcrate.png stretched over it. Level 1 hangs it from y 0; level 12 hangs the
+         * same 174x256 crate from y 30, to leave level 1's 58 over a platform on its lower ground.
+         * Nothing else in any level is that tall and starts that high.
+         */
+        fun isChainedCrate(box: Rect): Boolean = box.y <= 30.0 && box.height > 150.0
+    }
+}
 
 enum class TutorialAction {
     MOVE, JUMP_VAULT, CROUCH, CLIMB, REACH_OBJECTIVE, SWING, INTERACT
@@ -475,6 +485,13 @@ data class LevelData(
     val layout: LevelLayout? = null,
     val cameras: List<CameraSpawn> = emptyList(),
     val backgroundImage: String? = null,
+    /**
+     * How much brighter than painted the backdrop (the background texture and any room.png
+     * backdrops) is drawn: 0.2 is 1.2x. Black stays black - see GameplayScene.brightenedImage.
+     * Levels 10 and 11 share their art but not their lighting, so each sets its own (2026-10-19:
+     * 1.2x was right for level 10, level 11 "still seems too dark", and 1.4x "too bright").
+     */
+    val backdropExtraBrightness: Double = 0.0,
     val tutorialSteps: List<TutorialStep> = emptyList(),
     val hasDarknessVignette: Boolean = false,
     val playerCrouchForwardSpeedMultiplier: Double = 1.0,
@@ -4571,13 +4588,16 @@ data class LevelData(
             // Its own art: a concrete wall whose lower, lamp-lit corridor under a beam is the duct
             // (GameplayScene's LEVEL_10_BG_* constants pin it to 304..440).
             backgroundImage = "bglvl10.png",
+            backdropExtraBrightness = 0.2,
             hasDarknessVignette = false,
             // Its only tutorial: everything else here is level 7's, taught there. Switches are
             // new, and level 11 is built on them with no tutorial of its own.
             tutorialSteps = listOf(
                 TutorialStep(
                     id = "step_use_switches",
-                    triggerMinX = 7950.0,
+                    // Opens on the approach to the switch: at 7950 it needed the body all but
+                    // touching the shut door, so it mostly never showed.
+                    triggerMinX = 7840.0,
                     triggerMaxX = 8150.0,
                     title = "SWITCHES",
                     instructionTouch = "Use the switch to activate mechanisms.",
@@ -4587,7 +4607,10 @@ data class LevelData(
                     // learn is that the panel works the door ("make the text point at the switch").
                     highlight = TutorialControlHighlight.NONE,
                     handwrittenCallout = "Use the switch to activate mechanisms",
-                    worldTextX = 7620.0,
+                    // Over the player's head and running across to the switch: at 7620 it sat
+                    // ~330 left of a player at the switch, off the left edge of a phone screen
+                    // (~590 wide at zoom 1.35), arrow and all.
+                    worldTextX = 7720.0,
                     worldTextY = 245.0,
                     // lvl10_sw_door's panel (7956..7968, hung 58 over the floor).
                     worldAnchorX = 7960.0,
@@ -4849,11 +4872,16 @@ data class LevelData(
                 doorSwitches = switches,
                 lifts = lifts,
                 prisoner = PrisonerDef(x = 110.0, surfaceY = slabTopY, freedByDoorId = "cell_gate"),
-                // exit_sign.png (the asset drop's exit.png, cropped to its alpha, 2.54:1): on the
-                // duct wall past the last jet, over lift_4's near end, above head height (a
-                // standing head is at 344). Dimmed to the lamp-lit wall it hangs on - as painted,
-                // its white letters were the brightest thing in the tunnels.
-                wallDecals = listOf(WallDecal(Rect(5710.0, 310.0, 64.0, 64.0 / 2.54), "exit_sign.png", brightness = 0.5))
+                // exit_sign.png (the asset drop's exit.png, cropped to its alpha, 2.54:1): up in
+                // the hatch room, centred over lift_4's shaft (5780..5900) just under the room's
+                // ceiling (140) - where the lift goes, seen from the duct below it, not on the duct
+                // wall beside it ("the exit sign should be on the top part", 2026-10-19). 32 wide -
+                // a third of his 96 height, a real ~60cm sign next to a ~1.8m man (it was 64, two
+                // thirds of him: "exit sign is too large", 2026-10-19) - with the same centre
+                // (5840, ~168), inside the phone's view (top ~124). Dimmed to the wall it hangs on -
+                // as painted, its white letters were the brightest thing in the tunnels. 0.7 since
+                // the wall itself is drawn 1.3x (DEFAULT_LEVEL_11.backdropExtraBrightness).
+                wallDecals = listOf(WallDecal(Rect(5824.0, 162.0, 32.0, 32.0 / 2.54), "exit_sign.png", brightness = 0.7))
             )
         }
 
@@ -4868,300 +4896,355 @@ data class LevelData(
             objectiveHint = "Escort the Prisoner to the Exit",
             bonusObjective = BonusObjective.KEEP_THE_PRISONER_OUT_OF_SIGHT,
             layout = LEVEL_11_LAYOUT,
-            backgroundImage = "bglvl10.png"
+            backgroundImage = "bglvl10.png",
+            backdropExtraBrightness = 0.3
             // No tutorial: level 10's end teaches switches, doors and lifts, and the rest is
             // for the player to work out ("dont add any tutorial in level 11", 2026-09-30).
         )
 
         /**
-         * Level 12: "12: Final Escape" - getting level 11's prisoner out of the shipyard itself
-         * (2026-10-03: "it will be similar to level 11 you have to help the prisoner escape the
-         * shipyard and it will be the final level where they actually leave the shipyard and
-         * happen on ground (not underground). make it interesting gameplay"; then "dont use new
-         * mechanisms. use only the already existing mechanisms in levels 1 to 11"; then "use all
-         * the different things used in levels 1-11 in level 12. there are too many button things").
+         * Level 12: "12: Final Escape" - getting level 11's prisoner out of the shipyard itself, on
+         * the surface. Built only from the OUTDOOR levels' mechanisms (1, 2, 3, 5, 6, 8, 9) plus
+         * lifts (2026-10-07: "in level 12 dont use any indoor mechanisms. only use the outdoor
+         * mechanisms + lifts. make it long and hard since its the last level"): no doors, steam,
+         * fans, guard room, hung pallets or conveyor. With no doors, lifts are the only thing that
+         * holds him - he stops at a wall or a drop deeper than Prisoner.MAX_STEP_DOWN, and a lift is
+         * the only way past one.
          *
-         * Two lanes. HIS is the road: he walks right on it whenever he can (level 11's rule), and
-         * it is held by only five switches - the pump door, a lift, two gates and the main gate.
-         * YOURS is mostly overhead, on the yard's raised decks (level 8's tables) and the things
-         * on them, where everything levels 1-11 throw at the player comes back once: the hung
-         * pallet (11), the crouch under a chained crate (1), barrels (5), timed laser gates (4, 8),
-         * a rover switched off from behind (7), steam (7, 10, 11), a crane hook swing (5), level 8's
-         * bobbing loads, a conveyor (4), a lever on a hanging crate killing a laser curtain (2, 6),
-         * a guard room (10) left crouched and silent (1), a fan's headwind (7, 10), three cameras
-         * on poles (3, 8), a lift and crate steps (11), level 2's rain. Left to right:
+         * Every piece is drawn exactly as the level it comes from draws it (2026-10-08: "any visual
+         * element should be identical to previous levels. you cannot change sizes of crates. sizes
+         * of poles or anything"): 68x48 crates, level 1's chained crate, level 3's table at its
+         * height with its 30x130 leg, level 3's and 8's poles, level 3's pole camera, level 8/9's
+         * laser housings, level 5's 200x144 block. Level12EscapeTest checks every size against the
+         * other levels. Everything over a deck is where levels 3 and 5 put it, so on a phone it is
+         * on screen (2026-10-08: "the camera and hook and other things are out of screen") - the
+         * screen's top is about y 124 there (GameplayScene's fixed vertical framing).
          *
-         *   1. The pump house  he rests by its door until it opens. The yard light outside parks
-         *                      in turn on the yard and on the air over the wall, sweeping between
-         *                      them the long way round, through the sky (level 8's pole camera);
-         *                      it starts on the yard. Open the door once it has swung away.
-         *   2. Over the wall   he cannot climb the perimeter wall: a lift against it takes him up
-         *                      to its top, and he walks down the crate steps on the far side. Up
-         *                      there he is in the light's air park - send him as it settles on
-         *                      the yard.
-         *   3. The gantry      a gate holds him at a deck over the road. Past it are a steam jet
-         *                      and a rover, and the gate's only switch is on their side. Up the
-         *                      hung pallet, under the chained crate, over the barrels, through the
-         *                      laser gates, down the shaft behind the rover, switch it off from
-         *                      behind, and open the gate in the jet's quiet spell.
-         *   4. The gap         the deck ends at a gap; a camera on the next deck watches the road
-         *                      under it. From the deck's end open the gate once the camera has
-         *                      swung away, and swing across from the crane hook while it is up.
-         *   5. The far deck    his road is clear to the gatehouse; yours is the far deck - the
-         *                      bobbing loads, the conveyor against you, and a laser curtain
-         *                      whose lever is on a crate hung beside it.
-         *   6. The gatehouse   the main gate's switch is in the guard room over the gate passage,
-         *                      in a corner out of the room guard's sight and hearing. Up the floor
-         *                      shaft while he walks away, open the gate once the gate light is off
-         *                      the road, leave crouched so he does not hear you, push out through
-         *                      the passage fan's headwind, past the guard booth - the gate level 1
-         *                      came in by.
+         * The road splits into two lanes again and again: where he walks on the ground the player
+         * is overhead on the gantry decks (level 3's tables), and where he is lifted onto a deck the
+         * player is underneath it. Left to right:
          *
-         * Checkpoints are his, as on level 11: one where each beat holds him.
+         *   1. The gantry    he waits sitting on the pump house's lift, up on the gantry. The
+         *                    player gets up to it by level 1's opening (a crate, a platform, a crouch
+         *                    under the chained crate, a hop onto his lift) and crosses the gantry over him: barrels, a
+         *                    laser wave, level 5's hook swing, level 8's bobbing loads, level 2's
+         *                    hanging crates (one moving), level 6's lever crate ride, and a hop onto
+         *                    a hung crate for level 6's lever and its laser curtain. The lift's
+         *                    switch is at the far end: it lowers him to the ground and he walks out
+         *                    under the whole gantry.
+         *   2. The yard      two rovers (level 8's) patrol his road past the gantry. Drop off its
+         *                    end and switch both off from behind before he gets there.
+         *   3. The stack     a stack of three crates holds him on a lift; ride it up with him, and
+         *                    he crosses the stack to the gap before the next deck. Drop through the
+         *                    gap and send him over it on its own lift, from under the deck: a
+         *                    floodlight on the deck parks on each side of its pole in turn - he has to
+         *                    reach it as it leaves the far side. Then run the deck's underside: level
+         *                    8's bottom course, laser waves and three rovers.
+         *   4. The row       a lift at the deck's end holds him over level 3's overwatch row: two
+         *                    guards on hung crates looking down at the ground. Cross under them
+         *                    first, then lower him from the switch past the row as the first guard
+         *                    sets off away from the lift.
+         *   5. The wall      one switch works a lift up each face of the perimeter wall. He rides
+         *                    up, crosses and waits on the far lift; the gate light on the far side
+         *                    watches the far lift and the road out. Send him up, then down, each as
+         *                    the light leaves; then ride up and over yourself.
+         *
+         * Checkpoints are his, as on level 11: one where each of beats 3-5 holds him. Falling off
+         * the gantry is never a dead end: the ground under it runs back to the platform at the start.
          */
         val LEVEL_12_LAYOUT = run {
             val groundY = 440.0
-            val worldWidth = 4900.0
-            val ground = Rect(x = 0.0, y = groundY, width = worldWidth, height = 100.0)
-            // The yard's raised level - the wall's top, the decks, the gatehouse floor - and the
-            // underside his gates hang from.
-            val topY = 290.0
-            val gateTop = 330.0
-            val wallW = 40.0
-            val deckH = gateTop - topY
+            // Level 3's table: every deck is a table at its height (level 5's 144 terrain), 30 deep.
+            val deckY = groundY - 144.0
+            val deckH = 30.0
+            val deckBottom = deckY + deckH
+            // Level 5's 144-tall blocks: the perimeter wall.
+            val wallY = groundY - 144.0
+            val crateW = 68.0
+            val crateH = 48.0
 
-            fun gate(id: String, x: Double) = DoorDef(id = id, x = x, top = gateTop, bottom = groundY)
+            fun lift(id: String, x: Double, upperY: Double, startsUp: Boolean) =
+                LiftDef(id = id, x = x, width = 120.0, upperY = upperY, lowerY = groundY, startsUp = startsUp)
             fun groundSwitch(id: String, x: Double, vararg targets: String) = DoorSwitchDef(id, x, groundY, targets.toList())
-            fun topSwitch(id: String, x: Double, vararg targets: String) = DoorSwitchDef(id, x, topY, targets.toList())
-            fun leg(x: Double) = Rect(x, gateTop, 12.0, groundY - gateTop)
+            fun deck(left: Double, right: Double) = Rect(left, deckY, right - left, deckH)
+            // Level 3's leg (its rightLeg/cameraLeg): 30 wide, tucked 16 up under the slab's far
+            // corner, down to the ground. Drawn only - bodies pass it (both of their roads run under
+            // the decks).
+            fun leg(deck: Rect) = Rect(deck.right - 30.0, deckBottom - 16.0, 30.0, groundY - (deckBottom - 16.0))
 
-            /** A light on a pole parked in turn on [near] and [far], swept between the long way round (up through the sky). */
-            fun poleLight(pole: Rect, near: Vec2d, far: Vec2d, range: Double, pause: Double, speed: Double): CameraSpawn {
+            /**
+             * Level 3's pole camera (230 range, 50 degree cone) parked in turn on [near] and [far],
+             * swept between them the long way round (up through the sky).
+             */
+            fun poleLight(pole: Rect, near: Vec2d, far: Vec2d, pause: Double, speed: Double): CameraSpawn {
                 val camX = pole.x + pole.width / 2.0 - 10.0
                 val pivot = Vec2d(camX + 10.0, pole.y + Camera.NECK_LENGTH)
                 val nearAngle = atan2(near.y - pivot.y, near.x - pivot.x)
                 val farAngle = atan2(far.y - pivot.y, far.x - pivot.x).let { if (it < nearAngle) it + 2.0 * PI else it }
                 return CameraSpawn(
                     x = camX, y = pole.y, minAngle = nearAngle, maxAngle = farAngle,
-                    // It opens coming down onto [near] and holding there.
-                    startAngle = nearAngle + 0.8, sweepDirection = -1.0,
-                    sweepSpeed = speed, visionRange = range, visionFov = 26.0 * (PI / 180.0), sweepPauseDuration = pause
+                    startAngle = nearAngle, sweepDirection = 1.0,
+                    sweepSpeed = speed, visionRange = 230.0, visionFov = 50.0 * (PI / 180.0), sweepPauseDuration = pause
                 )
             }
-
-            // --- 1. The pump house: the tunnels' way up. He sits by the door; the player starts
-            // further in.
-            val pumpRoof = Rect(0.0, 200.0, 380.0, 30.0)
-            val pumpWall = Rect(0.0, pumpRoof.bottom, 30.0, groundY - pumpRoof.bottom)
-            val pumpDoor = DoorDef(id = "pump_door", x = 356.0, top = pumpRoof.bottom, bottom = groundY)
-            val yardPole = Rect(620.0, 150.0, 18.0, groundY - 150.0)
-            val yardLight = poleLight(yardPole, near = Vec2d(430.0, 420.0), far = Vec2d(1000.0, 250.0), range = 400.0, pause = 3.5, speed = 1.0)
-
-            // --- 2. The wall: a lift against its near face up to its top, crate steps down its far
-            // face - each 30, the deepest step he takes.
-            val wall = Rect(980.0, topY, wallW, groundY - topY)
-            val liftA = LiftDef(id = "lift_a", x = 860.0, width = 120.0, upperY = topY, lowerY = groundY, startsUp = false)
-            val steps = (1..4).map { i -> Rect(wall.right + (i - 1) * 50.0, topY + 30.0 * i, 50.0, groundY - topY - 30.0 * i) }
-
-            // --- 3. The gantry: a deck over the road with a shaft in it (a pallet hung in the shaft's
-            // far end, for coming back up), a gate under its start.
-            val pallet = Rect(1400.0, 326.0, 70.0, 6.0)
-            val deck1a = Rect(1480.0, topY, 600.0, deckH)
-            val shaftPallet = Rect(2150.0, 326.0, 70.0, 6.0)
-            val deck1b = Rect(2220.0, topY, 180.0, deckH)
-            val gate1 = gate("gate_1", 1496.0)
-            // Level 1's chained crate, 58 over the deck: a crouch under it.
-            val chainedCrate = Rect(1580.0, 0.0, 174.0, topY - 58.0)
-            val deckBarrels = listOf(Rect(1800.0, topY - 48.0, 32.0, 48.0), Rect(1832.0, topY - 48.0, 32.0, 48.0))
-            // Laser gates on cycles, from the deck's top up off the top of any screen (level 8's
-            // course): the player's alone - he walks underneath. Small housings ("laser emittors are
-            // too large").
-            fun gateBeam(i: Int, x: Double, phase: Double) = LaserDef(
-                id = "lvl12_gate_laser_$i", topX = x, topY = -300.0, bottomX = x, bottomY = topY,
-                activeDuration = 2.0, inactiveDuration = 1.6, phaseOffsetSeconds = phase, emitterScale = 0.45
+            // Level 8/9's laser housings (0.6) on every beam.
+            fun timedBeam(id: String, x: Double, top: Double, bottom: Double, on: Double, off: Double, phase: Double, slant: Double = 0.0) = LaserDef(
+                id = id, topX = x, topY = top, bottomX = x + slant, bottomY = bottom,
+                activeDuration = on, inactiveDuration = off, phaseOffsetSeconds = phase, emitterScale = 0.6
             )
-            val gateLasers = listOf(gateBeam(0, 1920.0, 0.0), gateBeam(1, 1980.0, 1.2), gateBeam(2, 2040.0, 2.4))
-            // Under the deck, on his road: a steam jet just past the gate (close enough that he
-            // clears it in one quiet spell, level 11's steam gate), then a rover. The rover's near
-            // end leaves the gate's switch out of its reach.
-            val jet = SteamPipeDef(
-                id = "lvl12_pipe_1", x = 1550.0, topY = gateTop, bottomY = groundY, mountType = PipeMountType.TOP,
-                activeDuration = 2.4, inactiveDuration = 1.8, phaseOffsetSeconds = 0.0
-            )
-            val rover = CameraBotDef(
-                id = "lvl12_bot_1", startX = 1900.0, surfaceY = groundY, patrolMinX = 1780.0, patrolMaxX = 2000.0,
-                speed = 40.0, facing = -1.0, visionRange = 120.0, pauseDuration = 0.8
-            )
-            val gate2 = gate("gate_2", 2380.0)
 
-            // --- 4. The gap: level 5's swing, 150 across with the hook's grip 112 over the decks,
-            // and a camera on a short post at the far deck's start watching the road under it.
-            val deck2 = Rect(2550.0, topY, 950.0, deckH)
+            // --- 1. The gantry. Level 1's opening up to the pump house lift at the far left (player
+            // only: he never goes left), then the gantry's decks and the gaps between.
+            val startCrate = Rect(120.0, groundY - crateH, crateW, crateH)
+            // Level 1's long 96 platform, right up to the pump house lift: a hop up from the crate, a
+            // climb from the ground on the way back, and a 48 hop from its far end onto the lift.
+            val startBlock = Rect(startCrate.right, groundY - 96.0, 550.0, 96.0)
+            // Level 1's chained crate, 174x256, 58 over the platform as level 1 hangs it - a crouch
+            // under it (LevelLayout.isChainedCrate).
+            val chainedCrate = Rect(startBlock.x + 160.0, startBlock.top - 58.0 - 256.0, 174.0, 256.0)
+            val pumpLift = lift("lift_pump", startBlock.right, deckY, startsUp = true)
+            val d1 = deck(pumpLift.x + pumpLift.width, pumpLift.x + pumpLift.width + 450.0)
+            val d1Barrels = listOf(0.0, 32.0).map { dx -> Rect(d1.x + 150.0 + dx, deckY - 48.0, 32.0, 48.0) }
+            // Laser gates on cycles, deck top to off the top of any screen (level 8/9's top course).
+            val d1Gates = listOf(
+                timedBeam("lvl12_gate_0", d1.x + 290.0, -300.0, deckY, 1.6, 1.2, 0.0),
+                timedBeam("lvl12_gate_1", d1.x + 340.0, -300.0, deckY, 1.6, 1.2, -0.4),
+                timedBeam("lvl12_gate_2", d1.x + 390.0, -300.0, deckY, 1.6, 1.2, -0.8)
+            )
+            // Level 5's swing: a 150 gap, the hook's grip 112 over the decks.
+            val d2 = deck(d1.right + 150.0, d1.right + 150.0 + 480.0)
             val hookWidth = 16.0
             val hookHeight = hookWidth * (2136.0 / 154.0)
-            val gripX = deck1b.right + (deck2.left - deck1b.right) / 2.0
-            val gripY = topY - 112.0
-            val swingHook = Rect(
+            fun swingHook(gripX: Double) = Rect(
                 x = gripX - hookWidth * Player.HOOK_GRIP_X_FRACTION,
-                y = gripY - hookHeight * Player.HOOK_GRIP_Y_FRACTION,
+                y = (deckY - 112.0) - hookHeight * Player.HOOK_GRIP_Y_FRACTION,
                 width = hookWidth,
                 height = hookHeight
             )
-            // Far enough along the deck that the swing's landing is out of its upward park, and
-            // tall enough that its lens is over the head of anyone walking past on the deck.
-            val gapPost = Rect(2640.0, 180.0, 18.0, topY - 180.0)
-            // Away is up and back over the gap (the near deck's end lies under its sweep), so the
-            // light never turns onto the far deck it stands on.
-            val gapLight = poleLight(gapPost, near = Vec2d(2470.0, 420.0), far = Vec2d(2400.0, -150.0), range = 300.0, pause = 3.0, speed = 1.2)
-
-            // --- 5. The far deck: level 8's bobbing loads (a wave at the player's walking pace,
-            // crushing from below, coming down to 6 over the deck - never down to his road), a
-            // conveyor running back at you, and a laser curtain whose lever is on a crate hung over
-            // the deck just short of it (mantled onto from the deck, or crouched under).
+            val hook = swingHook(d1.right + 75.0)
+            // Level 8's bobbing loads, a wave at the player's walk, coming down to 6 over the deck
+            // and never below it - his road is under the deck.
             val bobWidth = 76.0
-            val bobPitch = bobWidth + 80.0
+            val bobPitch = bobWidth + 70.0
             val bobPeriod = 8.0
             val bobLag = bobPitch / 132.0
+            val bobTop = deckY - 146.0
             val bobs = (0 until 3).map { i ->
                 MovingPlatformDef(
                     id = "lvl12_bob_$i",
-                    initialX = 2680.0 + i * bobPitch,
-                    y = 100.0,
+                    initialX = d2.x + 60.0 + i * bobPitch,
+                    y = bobTop,
                     width = bobWidth,
                     height = 38.0,
-                    minY = 100.0,
-                    maxY = topY - 6.0 - 38.0,
+                    minY = bobTop,
+                    maxY = deckY - 6.0 - 38.0,
                     periodSeconds = bobPeriod,
                     phaseOffsetSeconds = (bobPeriod - (i * bobLag) % bobPeriod) % bobPeriod,
                     crushesOnContact = true,
                     crushesOnlyFromBelow = true
                 )
             }
-            val beltRect = Rect(3110.0, topY - 26.0, 120.0, 26.0)
-            val belt = ConveyorDef(bounds = beltRect, speed = -45.0)
-            val leverCrate = Rect(3250.0, 236.0, 76.0, 38.0)
+            // Level 2's hanging crates across the second gap: a short one, one riding back and
+            // forth (it carries you to the long one), then the long one.
+            val hopGap = 52.0
+            val hangA = Rect(d2.right + hopGap, deckY, 76.0, 38.0)
+            val hangBMin = hangA.right + 42.0
+            val hangB = MovingPlatformDef(
+                id = "lvl12_hang_b", initialX = hangBMin, y = deckY, width = 76.0, height = 38.0,
+                minX = hangBMin, maxX = hangBMin + 100.0, periodSeconds = 4.0
+            )
+            val hangC = Rect(hangB.maxX + 76.0 + 10.0, deckY, 174.0, 38.0)
+            val d3a = deck(hangC.right + hopGap, hangC.right + hopGap + 300.0)
+            // Level 6's lever crate: the lever at this deck's end sends a long hung crate once across
+            // the third gap and back - ride it over and step off at the far end of its swing.
+            val rideRestX = d3a.right + 10.0
+            val rideSweep = 232.0
+            val ride = MovingPlatformDef(
+                id = "lvl12_ride", initialX = rideRestX, y = deckY, width = 174.0, height = 38.0,
+                minX = rideRestX, maxX = rideRestX + rideSweep, periodSeconds = 5.5, isVariant1 = true,
+                startsInactive = true, activationDelaySeconds = 0.6, oneShot = true
+            )
+            val rideLever = Lever(id = "lvl12_ride_lever", x = d3a.right - 41.0, y = deckY - 12.0, targetMechanismId = "lvl12_ride")
+            val d3bLeft = rideRestX + rideSweep + 174.0 + 10.0
+            val d3b = deck(d3bLeft, d3bLeft + 660.0)
+            // Level 6's lever on a hung crate (a hop up from the deck, nothing under it to crawl
+            // through) killing its laser curtain.
+            val leverCrate = Rect(d3b.x + 200.0, deckY - 48.0, 76.0, 38.0)
             val curtainLever = Lever(
                 id = "lvl12_lever", x = leverCrate.x + 27.0, y = leverCrate.top - 12.0, targetMechanismId = "lvl12_curtain"
             )
-            val curtain = listOf(3380.0, 3395.0, 3410.0).mapIndexed { i, x ->
+            val curtain = listOf(0.0, 15.0, 30.0).mapIndexed { i, dx ->
                 LaserDef(
-                    id = "lvl12_curtain_$i", topX = x, topY = -300.0, bottomX = x, bottomY = topY,
-                    isAlwaysActive = true, emitterScale = 0.4, mechanismId = "lvl12_curtain"
+                    id = "lvl12_curtain_$i", topX = leverCrate.right + 60.0 + dx, topY = -300.0,
+                    bottomX = leverCrate.right + 60.0 + dx, bottomY = deckY,
+                    isAlwaysActive = true, emitterScale = 0.6, mechanismId = "lvl12_curtain"
                 )
             }
+            // The pump lift's switch, at the gantry's far end.
+            val swPump = DoorSwitchDef("sw_pump", d3b.right - 60.0, deckY, listOf("lift_pump"))
+            val gantryEnd = d3b.right
 
-            // --- 6. The gatehouse: a guard room over the gate passage. Its floor has a corner left
-            // of the shaft (the main gate's switch is there, out of the room guard's sight and
-            // hearing) and the room proper right of it, where he walks. The main gate closes the
-            // passage; a fan by it blows back down the passage at the player (it is his alone).
-            val ghLeft = 3600.0
-            val ghRight = 4120.0
-            val ghShaftL = 3720.0
-            val ghPallet = Rect(ghShaftL, 326.0, 70.0, 6.0)
-            val ghFloors = listOf(
-                Rect(ghLeft, topY, ghShaftL - ghLeft, deckH),
-                Rect(ghShaftL + 140.0, topY, ghRight - (ghShaftL + 140.0), deckH)
+            // --- 2. The yard: two rovers on his road past the gantry.
+            val roverA = CameraBotDef(
+                id = "lvl12_bot_a", startX = gantryEnd + 320.0, surfaceY = groundY, patrolMinX = gantryEnd + 180.0,
+                patrolMaxX = gantryEnd + 320.0, speed = 40.0, facing = -1.0, visionRange = 120.0, pauseDuration = 0.8
             )
-            val roomCeilingY = 150.0
-            val ghRoof = Rect(ghLeft, roomCeilingY - 30.0, ghRight - ghLeft, 30.0)
-            val ghWalls = listOf(
-                Rect(ghLeft, roomCeilingY, wallW, topY - roomCeilingY),
-                Rect(ghRight - wallW, roomCeilingY, wallW, topY - roomCeilingY)
+            val roverB = CameraBotDef(
+                id = "lvl12_bot_b", startX = gantryEnd + 410.0, surfaceY = groundY, patrolMinX = gantryEnd + 410.0,
+                patrolMaxX = gantryEnd + 550.0, speed = 40.0, facing = 1.0, visionRange = 120.0, pauseDuration = 0.8
             )
-            val mainGate = gate("main_gate", ghRight - 30.0)
-            // His beat keeps him more than a footstep's hearing (180) from the corner, but not from
-            // the shaft: leaving, the player has to crouch.
-            val roomGuard = GuardSpawn(
-                startX = 4030.0, surfaceY = topY, patrolMinX = 3940.0, patrolMaxX = 4030.0,
-                speed = 55.0, facing = -1.0, visionRange = 150.0, width = 30.0, height = 96.0,
-                patrolPauseDuration = 1.0
-            )
-            val passageFan = VentFanDef(
-                id = "lvl12_fan", x = mainGate.x - 40.0, y = 355.0, width = 36.0, height = 68.0,
-                windRange = 180.0, windPushSpeed = 140.0, windDirection = -1.0, fanImpulse = 10.0
-            )
-            val gatePole = Rect(4240.0, 180.0, 18.0, groundY - 180.0)
-            val gateLight = poleLight(gatePole, near = Vec2d(4140.0, 420.0), far = Vec2d(4500.0, 300.0), range = 300.0, pause = 3.0, speed = 1.2)
 
-            val switches = listOf(
-                groundSwitch("sw_pump", 330.0, "pump_door"),
-                // Left of lift_a: thrown from on it, and from the road.
-                groundSwitch("sw_lift_a", 846.0, "lift_a"),
-                // Past the gate and its jet, on the rover's side.
-                groundSwitch("sw_gate_1", 1610.0, "gate_1"),
-                // At the deck's end, by the gap.
-                topSwitch("sw_gate_2", 2350.0, "gate_2"),
-                // The gatehouse corner.
-                topSwitch("sw_main", 3660.0, "main_gate")
+            // --- 3. The stack: a lift against three stacked crates (144, his wall); up top he crosses
+            // them to the gap before deck A and stops at its lip. The gap's own lift, worked from under
+            // the deck, takes him over - the player rides up with him and drops through the gap.
+            val stackLift = lift("lift_stack", gantryEnd + 650.0, deckY, startsUp = false)
+            val holdStack = Rect(stackLift.x + stackLift.width, deckY, crateW, 3.0 * crateH)
+            val gapLift = lift("lift_gap", holdStack.right, deckY, startsUp = false)
+            val deckA = deck(gapLift.x + gapLift.width, gapLift.x + gapLift.width + 150.0 + 1720.0)
+            val lowX = deckA.x + 150.0
+            val swStack = groundSwitch("sw_stack", stackLift.x - 14.0, "lift_stack")
+            // The gap's switch also throws the stack's lift - a player who went up alone and dropped
+            // through the gap can still fetch him from under the deck: the first throw brings the
+            // stack's lift down for him, the second takes him up to the gap (2026-10-19, "make sure
+            // the level has a solution"). In the run the stack's lift is empty by then.
+            val swGap = groundSwitch("sw_gap", deckA.x + 20.0, "lift_gap", "lift_stack")
+            // Level 8's bottom course: gates on cycles from the deck's underside to the ground, and
+            // rovers on the stretches between them.
+            val underGates = listOf(
+                timedBeam("lvl12_low_0", lowX + 120.0, deckBottom, groundY, 1.6, 1.2, 0.0),
+                timedBeam("lvl12_low_1", lowX + 170.0, deckBottom, groundY, 1.6, 1.2, -0.4),
+                timedBeam("lvl12_low_2", lowX + 220.0, deckBottom, groundY, 1.6, 1.2, -0.8),
+                timedBeam("lvl12_low_3", lowX + 620.0, deckBottom, groundY, 1.4, 1.4, -0.7, slant = 50.0),
+                timedBeam("lvl12_low_4", lowX + 780.0, deckBottom, groundY, 0.9, 0.9, 0.0),
+                timedBeam("lvl12_low_5", lowX + 830.0, deckBottom, groundY, 0.9, 0.9, -0.3),
+                timedBeam("lvl12_low_6", lowX + 1200.0, deckBottom, groundY, 0.8, 0.8, 0.0),
+                timedBeam("lvl12_low_7", lowX + 1250.0, deckBottom, groundY, 0.8, 0.8, -0.3),
+                timedBeam("lvl12_low_8", lowX + 1300.0, deckBottom, groundY, 0.8, 0.8, -0.6),
+                timedBeam("lvl12_low_9", lowX + 1660.0, deckBottom, groundY, 1.0, 1.0, 0.0, slant = 30.0)
             )
+            val underBots = listOf(
+                CameraBotDef(
+                    id = "lvl12_low_bot_0", startX = lowX + 500.0, surfaceY = groundY, patrolMinX = lowX + 430.0,
+                    patrolMaxX = lowX + 500.0, facing = -1.0
+                ),
+                CameraBotDef(
+                    id = "lvl12_low_bot_1", startX = lowX + 1030.0, surfaceY = groundY, patrolMinX = lowX + 1030.0,
+                    patrolMaxX = lowX + 1100.0, facing = 1.0
+                ),
+                CameraBotDef(
+                    id = "lvl12_low_bot_2", startX = lowX + 1600.0, surfaceY = groundY, patrolMinX = lowX + 1480.0,
+                    patrolMaxX = lowX + 1600.0, facing = -1.0, speed = 44.0, pauseDuration = 0.6
+                )
+            )
+            // Deck A's yard light: level 3's pole (130) and camera on the deck, parked in turn on the
+            // deck either side of the pole and whipped across between them through the sky. He has
+            // to reach the near side as the light leaves it for the far side and be past the pole as
+            // it comes back - a 2s window of its 13.3s cycle (Level12EscapeTest).
+            val deckPole = Rect(lowX + 630.0, deckY - 130.0, 18.0, 130.0)
+            val deckLight = poleLight(
+                deckPole, near = Vec2d(deckPole.x - 130.0, deckY), far = Vec2d(deckPole.x + 148.0, deckY),
+                pause = 5.0, speed = 2.8
+            )
+
+            // --- 4. The row: a lift parked up at deck A's end holds him over level 3's overwatch
+            // row (two guards on hung crates, looking down at the ground). Under its crates is out of
+            // their sight and their hearing; he cannot stop there, the player can.
+            val rowLift = lift("lift_row", deckA.right, deckY, startsUp = true)
+            val rowElevation = 300.0
+            val rowCrate1 = Rect(rowLift.x + rowLift.width + 310.0, rowElevation, 174.0, 38.0)
+            val rowCrate2 = Rect(rowCrate1.right + 150.0, rowElevation, 174.0, 38.0)
+            fun rowGuard(crate: Rect, startOffset: Double, facing: Double) = GuardSpawn(
+                startX = crate.x + 10.0 + startOffset, surfaceY = rowElevation,
+                patrolMinX = crate.x + 10.0, patrolMaxX = crate.right - 10.0 - 30.0,
+                speed = 35.0, facing = facing, visionRange = 220.0, width = 30.0, height = 96.0,
+                visionTilt = 25.0 * PI / 180.0, patrolPauseDuration = 3.0
+            )
+            // The second guard's place in his beat against the first's leaves him one way through:
+            // lowered as the first guard sets off away from the lift, a 2.1s window of their 13.1s.
+            val rowGuards = listOf(rowGuard(rowCrate1, 124.0, 1.0), rowGuard(rowCrate2, 80.0, 1.0))
+            val swRow = groundSwitch("sw_row", rowCrate2.right + 222.0, "lift_row")
+
+            // --- 5. The wall: level 5's 200x144 block with a lift up each face, both on one switch.
+            val wallLift = lift("lift_wall", swRow.x + 120.0, wallY, startsUp = false)
+            val wall = Rect(wallLift.x + wallLift.width, wallY, 200.0, groundY - wallY)
+            val outLift = lift("lift_out", wall.right, wallY, startsUp = false)
+            val swWall = groundSwitch("sw_wall", wallLift.x - 14.0, "lift_wall", "lift_out")
+            // Level 8's pole (178, on the ground) and level 3's camera, between the far lift and the
+            // booth: parked in turn on the far lift's top and on the road at its foot, swept between
+            // them over the booth. He has to be on the far lift after it leaves the top and off it
+            // before it comes back - sent up in a 3s window - and lowered as it leaves the road, a
+            // 2.5s window of its 11.1s cycle; the player then goes over the same way.
+            val gatePole = Rect(outLift.x + outLift.width + 110.0, groundY - 178.0, 18.0, 178.0)
+            val gateLight = poleLight(
+                gatePole, near = Vec2d(outLift.x + 40.0, wallY - 40.0), far = Vec2d(outLift.x + outLift.width + 40.0, groundY),
+                pause = 3.0, speed = 2.0
+            )
+            val exitZone = Rect(outLift.x + outLift.width + 220.0, 300.0, 140.0, groundY - 300.0)
+            val worldWidth = exitZone.right + 300.0
+            val ground = Rect(0.0, groundY, worldWidth, 100.0)
 
             // Where each beat holds him, on his side of what holds him.
-            fun cp(id: String, holdAt: Double, spawnX: Double) = Checkpoint(
-                x = spawnX, y = groundY - 96.0,
-                triggerZone = Rect(holdAt - 60.0, gateTop, 60.0, groundY - gateTop), id = id
-            )
             val checkpoints = listOf(
-                cp("lvl12_cp1_wall", wall.x, spawnX = 800.0),
-                cp("lvl12_cp2_gantry", gate1.x, spawnX = 1430.0),
-                cp("lvl12_cp3_gap", gate2.x, spawnX = 2300.0),
-                cp("lvl12_cp4_main_gate", mainGate.x, spawnX = 3620.0)
+                // He waits on the stack's top at the gap; the player is under the deck by then.
+                Checkpoint(
+                    id = "lvl12_cp1_stack", x = deckA.x + 40.0, y = groundY - 96.0,
+                    triggerZone = Rect(holdStack.x, deckY - 96.0, holdStack.width, 96.0)
+                ),
+                Checkpoint(
+                    id = "lvl12_cp2_row", x = rowLift.x + 20.0, y = groundY - 96.0,
+                    triggerZone = Rect(rowLift.x + rowLift.width - 60.0, deckY - 96.0, 60.0, 96.0)
+                ),
+                Checkpoint(
+                    id = "lvl12_cp3_wall", x = wallLift.x - 60.0, y = groundY - 96.0,
+                    triggerZone = Rect(wall.x - 60.0, groundY - 96.0, 60.0, 96.0)
+                )
             )
 
-            val catwalks = listOf(pallet, shaftPallet, ghPallet)
-            val decks = listOf(deck1a, deck1b, deck2)
-            val boxes = listOf(pumpRoof, pumpWall, wall, ghRoof, chainedCrate, leverCrate, beltRect) +
-                steps + deckBarrels + decks + ghFloors + ghWalls + catwalks
+            val decks = listOf(d1, d2, d3a, d3b, deckA)
+            val hangingStatics = listOf(hangA, hangC)
+            val boxes = listOf(startCrate, startBlock, chainedCrate, leverCrate, holdStack, wall, rowCrate1, rowCrate2) +
+                d1Barrels + decks + hangingStatics
 
             LevelLayout(
                 worldWidth = worldWidth,
-                playerStartX = 120.0,
+                playerStartX = 40.0,
                 playerStartY = groundY - 96.0,
-                // Out past the main gate, at the guard booth.
-                exitZone = Rect(x = 4300.0, y = 300.0, width = 140.0, height = groundY - 300.0),
+                // Out past the wall, at the guard booth.
+                exitZone = exitZone,
                 platforms = listOf(ground) + boxes,
                 boxes = boxes,
-                guards = listOf(roomGuard),
-                cameras = listOf(yardLight, gapLight, gateLight),
-                poles = listOf(yardPole, gapPost, gatePole),
-                barrels = deckBarrels,
+                guards = rowGuards,
+                cameras = listOf(deckLight, gateLight),
+                poles = listOf(deckPole, gatePole),
+                barrels = d1Barrels,
+                woodCrates = listOf(startCrate),
                 tables = decks,
                 seamlessTables = decks,
-                passThroughLegs = listOf(1482.0, 2066.0, 2224.0, 2386.0, 2552.0, 3020.0, 3486.0, ghLeft + 2.0).map { leg(it) },
-                swingHooks = listOf(swingHook),
-                levers = listOf(curtainLever),
-                hangingCrateVariant2 = listOf(leverCrate),
-                movingPlatforms = bobs,
-                conveyors = listOf(belt),
-                cameraBots = listOf(rover),
-                steamPipes = listOf(jet),
-                fans = listOf(passageFan),
-                lasers = gateLasers + curtain,
+                tableDecorations = decks.map { leg(it) },
+                hangingCrateVariant1 = listOf(hangC, rowCrate1, rowCrate2),
+                hangingCrateVariant2 = listOf(hangA, leverCrate),
+                swingHooks = listOf(hook),
+                levers = listOf(rideLever, curtainLever),
+                movingPlatforms = bobs + hangB + ride,
+                cameraBots = listOf(roverA, roverB) + underBots,
+                lasers = d1Gates + curtain + underGates,
                 hasStartFences = false,
                 canClimb = true,
-                // Each pallet is mounted from the road; the decks and the gatehouse corner are hops
-                // up from them.
-                floatingClimbTargets = catwalks,
-                hangingClimbTargets = catwalks,
-                plainPlatforms = listOf(pumpRoof, ghRoof) + catwalks,
                 manualCheckpoints = checkpoints,
-                roomBackdrops = listOf(
-                    Rect(pumpWall.right, pumpRoof.bottom, pumpDoor.x - pumpWall.right, groundY - pumpRoof.bottom),
-                    Rect(ghLeft + wallW, roomCeilingY, ghRight - ghLeft - 2.0 * wallW, topY - roomCeilingY)
-                ),
-                doors = listOf(pumpDoor, gate1, gate2, mainGate),
-                doorSwitches = switches,
-                lifts = listOf(liftA),
-                prisoner = PrisonerDef(x = 300.0, surfaceY = groundY, freedByDoorId = "pump_door")
+                doorSwitches = listOf(swPump, swStack, swGap, swRow, swWall),
+                lifts = listOf(pumpLift, stackLift, gapLift, rowLift, wallLift, outLift),
+                prisoner = PrisonerDef(x = pumpLift.x + 40.0, surfaceY = deckY, freedByDoorId = "lift_pump")
             )
         }
 
         val DEFAULT_LEVEL_12 = LevelData(
             id = "level_12",
             name = "12: Final Escape",
-            // Level12EscapeTest's scripted clean run takes 105.7s, much of it the deck runs and
-            // waiting on the lights, the rover and the room guard; x1.47, rounded to 5, as level 11 -
-            // a person also has to read each beat, which the script knows.
-            timeTargetSeconds = 155.0f,
+            // Level12EscapeTest's scripted clean run takes 187.2s, much of it the gantry and the
+            // deck's underside, and waiting on the deck light, the row's guards and the gate light;
+            // x1.45, rounded to 5, as level 11 - a person also has to read each beat, which the
+            // script knows.
+            timeTargetSeconds = 270.0f,
             description = "Guards are closing in. Get the prisoner out of the shipyard before it’s too late.",
             objectiveHint = "Escort the Prisoner Out of the Shipyard",
             bonusObjective = BonusObjective.STAY_UNSEEN,

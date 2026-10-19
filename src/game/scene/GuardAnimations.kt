@@ -5,6 +5,7 @@ import korlibs.image.format.*
 import korlibs.io.file.std.*
 import korlibs.korge.view.*
 import korlibs.time.*
+import kotlinx.coroutines.CompletableDeferred
 import kotlin.concurrent.Volatile
 
 class GuardAnimationSet(
@@ -15,7 +16,7 @@ class GuardAnimationSet(
 /**
  * The guard's sprite frames - the same recipe as [PlayerAnimations], with the same rules.
  *
- * `resources/guard/idle` and `resources/guard/walk` are cut from the raw 360x640 plates by
+ * `art/frames/guard/idle` and `art/frames/guard/walk` are cut from the raw 360x640 plates by
  * `tools/art/prep_guard.py`: one shared crop box per clip, symmetric about the character's BODY
  * (not the union of body and outstretched torch arm) so a scaleX flip does not shift him, feet
  * pinned to the bottom row, scaled so the standing silhouette is ~244 frame pixels - the same
@@ -102,32 +103,49 @@ object GuardAnimations {
     // reload must not allocate a second atlas.
     @Volatile
     private var cached: GuardAnimationSet? = null
+    /** What [GamePreload] is building behind the menu - [preload]. */
+    @Volatile
+    private var preloading: CompletableDeferred<GuardAnimationSet?>? = null
+
+    /**
+     * Reserves the guard atlas for [GamePreload] and returns the work that builds it (any thread;
+     * see PlayerAnimations.preloadCore). [load] waits for it, or loads its own if it failed.
+     */
+    internal fun preload(): suspend () -> Unit {
+        if (cached != null || preloading != null) return {}
+        val result = CompletableDeferred<GuardAnimationSet?>()
+        preloading = result
+        return { result.complete(try { build() } catch (_: Throwable) { null }) }
+    }
 
     suspend fun load(): GuardAnimationSet {
         cached?.let { return it }
+        preloading?.let { pending ->
+            // Cleared only once it lands, so a second load() meanwhile waits for the same atlas.
+            val preloaded = pending.await()
+            preloading = null
+            cached?.let { return it }
+            preloaded?.let { cached = it; return it }
+        }
+        return build().also { cached = it }
+    }
 
+    private suspend fun build(): GuardAnimationSet {
         // Own atlas rather than the player's: idle's 48 frames at 149x246 plus walk's 38 at
         // 153x245 are 3.18M pixels, which one 2048x2048 page holds (13 idle frames per row
         // over 4 rows, then 13 walk frames per row over 3), and it keeps the player's pages
-        // from tipping over into another 16.8MB one. Grows if it must.
-        val atlas = MutableAtlas<Unit>(2048, 2048, growMethod = MutableAtlas.GrowMethod.NEW_IMAGES)
+        // from tipping over into another 16.8MB one. Packed ahead of time, like the player's
+        // (tools/art/pack_sprite_atlases.py; see PackedAtlas).
+        val atlas = PackedAtlas.load("guard")
 
-        val idleFrames = loadFrames(atlas, "idle", IDLE_FRAMES)
+        val idleFrames = atlas.frames("idle", IDLE_FRAMES)
         // Out and back, without repeating the turnaround frames, so every step is an adjacent
         // pair and the loop has no seam.
         val pingPong = idleFrames + idleFrames.asReversed().drop(1).dropLast(1)
 
-        val set = GuardAnimationSet(
+        return GuardAnimationSet(
             idle = SpriteAnimation(sprites = pingPong, defaultTimePerFrame = IDLE_FRAME_TIME_MS.milliseconds),
-            walk = SpriteAnimation(sprites = loadFrames(atlas, "walk", WALK_FRAMES), defaultTimePerFrame = 33.milliseconds)
+            walk = SpriteAnimation(sprites = atlas.frames("walk", WALK_FRAMES), defaultTimePerFrame = 33.milliseconds)
         )
-        cached = set
-        return set
     }
-
-    private suspend fun loadFrames(atlas: MutableAtlas<Unit>, folder: String, frameCount: Int) =
-        (1..frameCount).map { index ->
-            val name = index.toString().padStart(4, '0')
-            resourcesVfs["guard/$folder/$name.png"].readBitmapSlice(atlas = atlas)
-        }
 }

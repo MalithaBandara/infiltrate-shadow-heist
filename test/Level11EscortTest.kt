@@ -140,6 +140,14 @@ class Level11EscortTest {
             val e = Escort()
             val x = c.left + lead - e.p.width
             e.p.resetTo(x, 440.0 - 96.0)
+            // "he is not touching the thing while climbing": the clip's hands are on the lip only
+            // with the body flush against it, wherever in the window the grab was made.
+            e.walkTo(x)
+            e.step(1.0, jump = true)
+            assertTrue(e.p.isClimbing, "grabbed from lead $lead")
+            assertEquals(c.left, e.p.x + e.p.width, 0.5, "hanging flush against the catwalk (lead $lead)")
+            while (e.p.isClimbing) e.step(0.0)
+            e.p.resetTo(x, 440.0 - 96.0)
             e.climbShaft(c, grabFrom = x)
         }
     }

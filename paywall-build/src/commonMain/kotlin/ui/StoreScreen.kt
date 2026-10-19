@@ -249,7 +249,7 @@ fun StoreScreen(
             CoinPackItem(
                 id = "coins_ad",
                 title = Localization.coinPackName("coins_loose", language),
-                amount = 250,
+                amount = 500,
                 price = Localization.watchAd(language),
                 imageRes = Res.drawable.store_ad,
                 imageSizeDp = 78,

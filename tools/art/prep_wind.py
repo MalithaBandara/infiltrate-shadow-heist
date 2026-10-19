@@ -1,7 +1,7 @@
 """
 Cut the wind-stance clips from the raw plates and print the constants PlayerAnimations needs.
 
-Usage:  python tools/art/prep_wind.py            (writes resources/player/wind{transition,walk})
+Usage:  python tools/art/prep_wind.py            (writes art/frames/player/wind{transition,walk})
         python tools/art/prep_wind.py --measure  (print the measurements only, write nothing)
 
 Run from the repo root. Same recipe as prep_guard.py / prep_push.py: everything below is
@@ -89,7 +89,7 @@ import numpy as np
 from PIL import Image
 
 RAW = r"C:\Users\USER\Downloads\charAnimations"
-OUT = os.path.join("resources", "player")
+OUT = os.path.join("art", "frames", "player")
 
 # Measured on the plates - see the module docstring. Identical to prep_push.py's pair.
 STANDING_SILHOUETTE_RAW = 484.0   # windtransition/0001.png, rows 61..544

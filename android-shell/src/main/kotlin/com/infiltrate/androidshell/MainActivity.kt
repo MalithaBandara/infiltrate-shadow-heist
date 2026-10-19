@@ -1,10 +1,12 @@
 package com.infiltrate.androidshell
 
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
@@ -38,8 +40,10 @@ import game.model.GameProfileStorage
 import game.model.LevelData
 import game.model.MapBackedGameProfileStorage
 import game.scene.DeviceViewport
+import game.scene.GamePreload
 import game.scene.GameplayScene
 import korlibs.image.color.Colors
+import korlibs.io.android.AndroidCoroutineContext
 import korlibs.io.async.launchImmediately
 // KorgeConfig, not Korge: Korge.kt defines both a `data class Korge(...)` (what loadModule
 // actually needs) AND several top-level `suspend fun Korge(...)` overloads sharing the exact
@@ -53,6 +57,7 @@ import korlibs.korge.scene.sceneContainer
 import korlibs.math.geom.Size
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 // Duplicated from src/main.kt (the desktop/JVM entry point), not imported: main.kt has no
 // package declaration, and Kotlin cannot import unnamed-package symbols from a file that does
@@ -63,6 +68,9 @@ import kotlinx.coroutines.launch
 // screen below in publishScreenMetrics() - a fixed 1040x480 was letterboxed on every phone that
 // isn't the reference Galaxy S25 Ultra, and lost 38% of the screen to black bars on a 4:3 iPad.
 private val windowSize = Size(1560, 720)
+
+/** The display refresh asked for while gameplay is showing - see MainActivity.applyGameplayFrameRate. */
+private const val GAMEPLAY_REFRESH_HZ = 60f
 
 /**
  * Real Android host - the Android equivalent of ios-shell/Sources/AppDelegate.swift. Single
@@ -107,6 +115,11 @@ class MainActivity : ComponentActivity() {
         // for a static holder to pin an Activity when the application Context does everything
         // SoundPool's asset loading needs.
         AndroidGameSfxOutputState.context = applicationContext
+        // The player's atlas, the fonts and every level's shared art, decoded on a background
+        // thread while the menu is up, so the first level's loading screen has only that level's
+        // own art left to load - see GamePreload. Its resourcesVfs reads need the Context from the
+        // coroutine (the KorGE view's own coroutines carry it; this one would not otherwise).
+        GamePreload.start(AndroidCoroutineContext(applicationContext))
         StoreBilling.setApplication(application)
         StoreBilling.initialize(BuildConfig.REVENUECAT_GOOGLE_KEY)
         InAppReview.init(this)
@@ -159,6 +172,8 @@ class MainActivity : ComponentActivity() {
             }
 
             val gameplayVisible by showingGameplay
+            // The one place every switch between menu and gameplay passes through.
+            LaunchedEffect(gameplayVisible) { applyGameplayFrameRate(gameplayVisible) }
             Box(Modifier.fillMaxSize()) {
                 // Always attached and rendering - see the class doc comment above for why this
                 // is never set to View.GONE. The Compose menu below draws opaquely over it
@@ -268,6 +283,43 @@ class MainActivity : ComponentActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemBars()
+    }
+
+    /**
+     * Gameplay at 60Hz; the menu at whatever the system picks.
+     *
+     * KorGE's view is a continuously rendering GLSurfaceView, so it draws once per display refresh
+     * - 120 times a second on a 120Hz panel, twice the work of 60 for the same game (the world is
+     * dt-based and Player sub-steps at 1/60, so nothing plays differently; every simulation test
+     * already runs at 1/60). KorGE has no frame cap of its own on Android (GameWindow.fps is
+     * ignored there, and Views.forceRenderEveryFrame = false makes it worse - see
+     * .junie/guidelines.md "Device heating"), so the lever is the display itself: while gameplay is
+     * showing, the window asks for the 60Hz mode at the CURRENT resolution, and lets it go again
+     * when the menu comes back so the menus keep their own refresh rate.
+     *
+     * A request, not a guarantee - the system can override it (e.g. a power-saving mode that is
+     * already lower). A device with no 60Hz mode at this resolution is left alone. iOS needs
+     * nothing: KorGE's GLKit controller already asks for 60 frames a second there.
+     */
+    private fun applyGameplayFrameRate(gameplay: Boolean) {
+        val modeId = if (gameplay) sixtyHzModeId() else 0
+        val attrs = window.attributes
+        if (attrs.preferredDisplayModeId == modeId) return
+        attrs.preferredDisplayModeId = modeId
+        window.attributes = attrs
+    }
+
+    /** The display mode closest to 60Hz at the current resolution, or 0 (no preference) if none is within 1Hz. */
+    private fun sixtyHzModeId(): Int {
+        val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display else {
+            @Suppress("DEPRECATION") windowManager.defaultDisplay
+        } ?: return 0
+        val current = display.mode
+        val best = display.supportedModes
+            .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
+            .minByOrNull { abs(it.refreshRate - GAMEPLAY_REFRESH_HZ) }
+            ?: return 0
+        return if (abs(best.refreshRate - GAMEPLAY_REFRESH_HZ) < 1f) best.modeId else 0
     }
 
     /**

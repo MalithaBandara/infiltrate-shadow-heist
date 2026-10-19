@@ -16,7 +16,8 @@ import kotlin.coroutines.coroutineContext
 private val gameSfxOutput: GameSfxOutput? by lazy { getGameSfxOutput() }
 
 /**
- * The movement foley, loaded once per gameplay scene.
+ * The movement foley, handed to every gameplay scene (the clips are decoded once per process -
+ * see GameAudio.clipCache - and the music once per scene).
  *
  * Every movement clip here was cut from the audio track of the animation plate it belongs to
  * (`walk_new.mp4`, `jump_new.mp4`, `climb.mp4`), so the sound and the pose it plays under come
@@ -251,7 +252,7 @@ object GameAudio {
 
     /**
      * The same thing for the braced push gait, measured on the shipped 20-frame loop rather than
-     * reused from [STEP_PHASES]: a contact-band scan of every frame under `resources/player/push`
+     * reused from [STEP_PHASES]: a contact-band scan of every frame under `art/frames/player/push`
      * (columns within 3px of each frame's lowest row) puts the two touchdowns at 13 and 36 of 40.
      * The push cycle is not the walk cycle rotated - its stance/swing split is different - so
      * borrowing walk's phases here would fire both steps visibly off the feet.
@@ -273,6 +274,17 @@ object GameAudio {
     // redundant work, not just occasionally risky work.
     @Volatile
     private var audioPrimed = false
+
+    /**
+     * Every `sfx/` clip decoded so far, by name - kept for the process, like SceneAssets' bitmaps.
+     * [load] runs on every RESTART, RETRY, next level and continue, and used to read and decode all
+     * seventeen WAVs from disk each time for the same unchanging PCM. A Sound is only data plus
+     * the process-wide audio provider (each play() opens its own channel; nothing ever closes
+     * one), so every scene can share the same objects. Only successful loads are kept, so a
+     * missing clip is retried next time exactly as before. The music is NOT cached: readMusic()
+     * streams from its file and is rebuilt per scene, as it always was.
+     */
+    private val clipCache = HashMap<String, Sound>()
 
     /** `resourcesVfs`-relative path korlibs' own `music("bgmusic")` loader reads - see [load]. */
     const val MUSIC_FILE = "music/bgmusic.mp3"
@@ -303,9 +315,27 @@ object GameAudio {
         nativeMusicActive = false
     }
 
+    /**
+     * Test switch: [load] hands back no sounds at all - the path a missing clip already takes
+     * everywhere (silent no-op). GameplaySceneArtTest builds every level in quick succession in
+     * one JVM, and on desktop korlibs plays through a native backend (waveOut on Windows) that is
+     * not meant to have scenes torn down under it every few frames.
+     */
+    internal var silentForTesting = false
+
     suspend fun load(): GameSounds {
-        suspend fun clip(name: String): Sound? =
-            try { resourcesVfs["sfx/$name.wav"].readSound() } catch (_: Throwable) { null }
+        if (silentForTesting) {
+            return GameSounds(
+                stepA = null, stepB = null, impact = null, climb = null, uiClick = null,
+                guardInvestigate = null, toastSuccess = null, cameraDetect = null, bgMusic = null
+            )
+        }
+        suspend fun clip(name: String): Sound? {
+            clipCache[name]?.let { return it }
+            val loaded = try { resourcesVfs["sfx/$name.wav"].readSound() } catch (_: Throwable) { null }
+            if (loaded != null) clipCache[name] = loaded
+            return loaded
+        }
         suspend fun music(name: String): Sound? =
             try { resourcesVfs["music/$name.mp3"].readMusic() } catch (_: Throwable) { null }
         val sounds = GameSounds(
