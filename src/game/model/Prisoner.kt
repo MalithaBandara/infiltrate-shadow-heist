@@ -2,13 +2,19 @@ package game.model
 
 /**
  * The prisoner level 10 found behind bars, as level 11 starts him: sitting in his cell at [x] on
- * the floor at [surfaceY], until the door [freedByDoorId] opens.
+ * the floor at [surfaceY], until the door [freedByDoorId] opens - or, on level 12 (no doors), until
+ * the lift of that id he is sitting on first moves.
  *
  * "the [prisoner] will move forward whenever possible. he cant climb or parkour" (2026-09-30):
  * once free he walks towards [facing] at [speed] on his own and never stops to be told - he stops
  * only where he cannot go on: a closed door, a wall, or the lip of any drop deeper than
  * [Prisoner.MAX_STEP_DOWN]. He never jumps, climbs, crouches or swings. Doors are therefore the
  * only way to hold him, and the whole level is about where and when to hold him.
+ *
+ * He also waits at the foot of a lift's shaft while the lift is up off his floor, as anyone waits
+ * for a lift, rather than walking in under it: a lift never comes down on a body, so one sent up
+ * before he got there could otherwise never come back down to fetch him (level 12, 2026-10-19:
+ * "make sure the level has a solution").
  */
 data class PrisonerDef(
     val x: Double,
@@ -60,16 +66,16 @@ class Prisoner(val def: PrisonerDef) {
 
     /**
      * One tick. [platforms] is everything solid to him this tick (floors, walls, closed door
-     * panels, lifts); [exitZone] is where he is going.
+     * panels, lifts); [exitZone] is where he is going; [lifts] are the ones he waits for.
      */
-    fun update(dt: Double, platforms: List<Rect>, exitZone: Rect) {
+    fun update(dt: Double, platforms: List<Rect>, exitZone: Rect, lifts: List<Lift> = emptyList()) {
         isWalking = false
         isHeld = false
         if (isFree) freedFor += dt
         if (!hasEscaped && bounds.intersects(exitZone)) hasEscaped = true
         val arrived = hasEscaped && body.centerX * def.facing >= exitZone.centerX * def.facing
         val ready = isFree && freedFor >= STAND_UP_SECONDS && !arrived
-        val atLip = ready && body.isGrounded && isAtLip(platforms)
+        val atLip = ready && body.isGrounded && (isAtLip(platforms) || isAtRaisedLift(lifts))
         val move = if (ready && !atLip) def.facing else 0.0
         val before = body.x
         body.update(dt, move, jumpInput = false, crouchInput = false, platforms = platforms)
@@ -91,6 +97,22 @@ class Prisoner(val def: PrisonerDef) {
         val px = body.centerX + def.facing * LIP_PROBE_AHEAD
         return platforms.none { p ->
             px >= p.left && px <= p.right && p.top >= feet - 1.0 && p.top <= feet + MAX_STEP_DOWN
+        }
+    }
+
+    /**
+     * The shaft of a lift that comes down to the floor he stands on, but is not down, starts just
+     * ahead of him - he stops short of it, clear of the platform's way down.
+     */
+    private fun isAtRaisedLift(lifts: List<Lift>): Boolean {
+        val feet = body.y + body.height
+        return lifts.any { l ->
+            kotlin.math.abs(l.def.lowerY - feet) < 1.0 && l.topY < feet - 1.0 &&
+                if (def.facing > 0.0) {
+                    body.centerX < l.def.x && body.x + body.width + LIFT_WAIT_GAP >= l.def.x
+                } else {
+                    body.centerX > l.def.x + l.def.width && body.x - LIFT_WAIT_GAP <= l.def.x + l.def.width
+                }
         }
     }
 
@@ -121,5 +143,7 @@ class Prisoner(val def: PrisonerDef) {
         const val MAX_STEP_DOWN = 30.0
         /** How far ahead of his feet' centre the lip is looked for. */
         const val LIP_PROBE_AHEAD = 10.0
+        /** How far short of a raised lift's shaft he stops. */
+        const val LIFT_WAIT_GAP = 2.0
     }
 }

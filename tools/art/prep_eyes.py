@@ -91,7 +91,7 @@ def main():
     tiles = []
     for folder, first, count in CLIPS:
         for n in range(first, first + count):
-            path = os.path.join(ROOT, 'resources', 'player', folder, f'{n:04d}.png')
+            path = os.path.join(ROOT, 'art', 'frames', 'player', folder, f'{n:04d}.png')
             im = Image.open(path).convert('RGBA')
             solid = np.array(im)[:, :, 3] > 128
             x, y, cx, cy = eye_of(solid)

@@ -59,11 +59,11 @@ private class ConveyorAnimator(
 
 class GameplayScene(
     val levelData: LevelData = LevelData.DEFAULT_LEVEL_1,
-    // True only for the fresh instance QUIT/RETURN TO MENU reloads in the background so a later
-    // "start level" gets a clean state - see the class doc comment on KorGE never being hidden
-    // behind the Compose menu. That instance sits idle forever behind the menu (nothing ever
-    // reactivates it; the next real play creates yet another GameplayScene), so it must never
-    // start bgmusic - real bug, reported as "menu music" playing after quitting to the main menu.
+    // True only for the fresh instance QUIT/RETURN TO MENU reloads in its own place on a platform
+    // with no host menu (desktop, browser previews - see changeToMenuBackdrop; Android and iOS get
+    // a MenuBackdropScene instead). There it is the scene the player sees and plays, but it must
+    // never start bgmusic - real bug, reported as "menu music" playing after quitting to the main
+    // menu.
     private val startDormant: Boolean = false
 ) : Scene() {
 
@@ -241,6 +241,56 @@ class GameplayScene(
         stopBgMusic()
     }
 
+    /**
+     * Set once KorGE has destroyed the scene this one replaced - its sceneAfterInit runs only
+     * after the old scene's sceneDestroy (SceneContainer.changeTo), so from then on nothing on
+     * screen can still be drawing the previous level's art.
+     */
+    private var previousSceneGone = false
+
+    /** sceneMain has built the whole level (tests wait on this before inspecting the view tree). */
+    internal var setupComplete = false
+        private set
+
+    override suspend fun sceneAfterInit() {
+        super.sceneAfterInit()
+        previousSceneGone = true
+    }
+
+    /**
+     * Frees the art the previous level loaded and this one does not use (SceneAssets.levelArt
+     * loads props per level; this is the other half - without it every level's props would stay
+     * decoded, and uploaded, for the rest of the session). Called at the end of sceneMain's setup,
+     * by which point everything this level draws has been requested; anything it asks for later
+     * is simply loaded then. Waits, if it ever has to, for the replaced scene to be gone - and if
+     * that somehow never comes (a scene change that threw part-way), keeps everything rather than
+     * hold the level up: freeing is an optimisation, starting the level is not.
+     */
+    private suspend fun releaseArtOfOtherLevels() {
+        var waited = 0
+        while (!previousSceneGone) {
+            if (++waited > RELEASE_WAIT_FRAMES) return
+            sceneView.delayFrame()
+        }
+        SceneAssets.releaseOtherLevelsArt(
+            views.renderContext.agBitmapTextureManager,
+            also = PlayerAnimations.takeReleasedPages()
+        )
+    }
+
+    /**
+     * What replaces this scene when gameplay hands the screen back to the menu (QUIT, RETURN TO
+     * MENU, MAIN MENU, ALL CLEAR): an empty [MenuBackdropScene] where a host menu covers KorGE, or -
+     * with no menu to go back to - this level again, dormant, as before.
+     */
+    private suspend fun changeToMenuBackdrop() {
+        if (MenuBackdropScene.hostShowsMenu) {
+            sceneContainer.changeTo { MenuBackdropScene() }
+        } else {
+            sceneContainer.changeTo { GameplayScene(levelData, startDormant = true) }
+        }
+    }
+
     override suspend fun SContainer.sceneMain() {
         canvasW = if (Platform.isJvm) sceneWidth.toDouble() else sceneWidth.toDouble().coerceAtLeast(800.0)
         canvasH = sceneHeight.toDouble().coerceAtLeast(480.0)
@@ -260,6 +310,9 @@ class GameplayScene(
         val currentLanguage = (try { views.storage["user_language"] } catch (_: Throwable) { null }) ?: "en"
 
         // --- Loading screen -------------------------------------------------------------
+        // From here on, what this scene asks SceneAssets for is what it keeps - see
+        // releaseArtOfOtherLevels.
+        SceneAssets.beginLevel()
         val loadingBgBitmap = SceneAssets.bitmap("loadingbg.png", minified = false)
         val loadingLogoBitmap = SceneAssets.bitmap("logo_main.png", minified = false)
         val loadingBarTextureBitmap = SceneAssets.bitmap("button1.png", minified = false)
@@ -274,10 +327,20 @@ class GameplayScene(
 
         val totalLoadSteps = 36
         var loadStepsDone = 0
+        // A frame between steps only once LOADING_REPAINT_MS has passed since the last one. Every
+        // step used to wait out a whole frame of its own, even one that took no time at all (art
+        // already cached - most of it from the second level on, or GamePreload's): over forty
+        // steps, ~0.7s of every load at 60fps spent waiting on nothing. A slow step still gets
+        // its frame straight after it, so the bar moves exactly when there is time to show. On
+        // KorGE's clock (the wall clock in the game) so a test harness's own clock decides it there.
+        fun nowMs() = views.timeProvider.now().unixMillisDouble
+        var lastRepaintMs = nowMs()
         suspend fun markLoadProgress() {
             loadStepsDone++
+            if (nowMs() - lastRepaintMs < LOADING_REPAINT_MS) return
             loadingScreen.setProgress(loadStepsDone.toDouble() / totalLoadSteps)
             delayFrame()
+            lastRepaintMs = nowMs()
         }
 
         // Every reported "grey screen, nothing loads" bug this session has turned out to be an
@@ -298,7 +361,8 @@ class GameplayScene(
             // Level 9 follows the operative's own level 8 run - see LevelData.replaysRunOf.
             levelData.replaysRunOf?.let { src -> loadRecordedRun(src)?.let { loadedWorld.attachEcho(it) } }
             markLoadProgress()
-            val loadedAnimations = PlayerAnimations.load()
+            // Only the clip groups this level can play (PlayerAnimations.groupsFor).
+            val loadedAnimations = PlayerAnimations.load(PlayerAnimations.groupsFor(levelData, loadedWorld))
             markLoadProgress()
             val loadedSounds = GameAudio.load()
             markLoadProgress()
@@ -344,7 +408,7 @@ class GameplayScene(
         isPaused = false
 
         val bgFileName = levelData.resolvedBackgroundImage
-        val bitmaps = loadGameplayBitmaps(bgFileName, ::markLoadProgress)
+        val bitmaps = loadGameplayBitmaps(bgFileName, world, ::markLoadProgress)
         val bgmgBitmap = bitmaps.bgmgBitmap
         val crateBitmap = bitmaps.crateBitmap
         val chainedCrateBitmap = bitmaps.chainedCrateBitmap
@@ -357,7 +421,8 @@ class GameplayScene(
         val poleBitmap = bitmaps.poleBitmap
         val craneBitmap = bitmaps.craneBitmap
         val tableBitmap = bitmaps.tableBitmap
-        val cameraBitmap = bitmaps.cameraBitmap
+        val cameraMountBitmap = bitmaps.cameraMountBitmap
+        val cameraLensBitmap = bitmaps.cameraLensBitmap
         val laserEmitterBitmap = bitmaps.laserEmitterBitmap
         val conveyorTopBitmap = bitmaps.conveyorTopBitmap
         val conveyorMidBitmap = bitmaps.conveyorMidBitmap
@@ -367,7 +432,6 @@ class GameplayScene(
         val entranceBitmap = bitmaps.entranceBitmap
         val exitFenceBitmap = bitmaps.exitFenceBitmap
         val l4endBitmap = bitmaps.l4endBitmap
-        val exitLvl7Bitmap = bitmaps.exitLvl7Bitmap
         val leftBtnBitmap = bitmaps.leftBtnBitmap
         val rightBtnBitmap = bitmaps.rightBtnBitmap
         val crouchBtnBitmap = bitmaps.crouchBtnBitmap
@@ -386,7 +450,6 @@ class GameplayScene(
         val gadgetBitmaps = bitmaps.gadgetBitmaps
         val gadgetBoltBitmap = bitmaps.gadgetBoltBitmap
         val successBgBitmap = bitmaps.successBgBitmap
-        val starsBitmap = bitmaps.starsBitmap
         val starSlices = bitmaps.starSlices
 
         loadingScreen.dismiss()
@@ -480,9 +543,11 @@ class GameplayScene(
                             // Each piece but the last runs 1 unit under the next so fractional
                             // edges can't open a hairline seam between them.
                             val overlap = if (index < bgBands.lastIndex) 1.0 else 0.0
-                            image(bgmgBitmap.slice(RectangleInt(0, fromRow, bgmgBitmap.width, toRow - fromRow))) {
-                                size(tileW + 1.0, drawH + overlap)
-                            }.xy(0.0, y)
+                            brightenedImage(
+                                bgmgBitmap.slice(RectangleInt(0, fromRow, bgmgBitmap.width, toRow - fromRow)),
+                                0.0, y, tileW + 1.0, drawH + overlap,
+                                levelData.backdropExtraBrightness
+                            )
                             y += drawH
                         }
                         // Level 10: the beam the ceiling jets hang from is black, as level 7's duct
@@ -637,9 +702,11 @@ class GameplayScene(
                     while (x < room.width - 0.5) {
                         val w = min(tileW, room.width - x)
                         val srcW = (roomBitmap.width * (w / tileW)).toInt().coerceIn(1, roomBitmap.width)
-                        roomCont.image(roomBitmap.slice(RectangleInt(0, 0, srcW, roomBitmap.height))) {
-                            size(w + if (x + w < room.width - 0.5) 1.0 else 0.0, room.height)
-                        }.xy(x, 0.0)
+                        roomCont.brightenedImage(
+                            roomBitmap.slice(RectangleInt(0, 0, srcW, roomBitmap.height)),
+                            x, 0.0, w + if (x + w < room.width - 0.5) 1.0 else 0.0, room.height,
+                            levelData.backdropExtraBrightness
+                        )
                         x += tileW
                     }
                     // A gap in the room's floor (a shaft up or a hole down) shows the room's wall
@@ -664,11 +731,11 @@ class GameplayScene(
                             val segR = min(gapR, tileStart + tileW)
                             val u0 = (roomBitmap.width * (segL - tileStart) / tileW).toInt().coerceIn(0, roomBitmap.width - 1)
                             val u1 = (roomBitmap.width * (segR - tileStart) / tileW).toInt().coerceIn(u0 + 1, roomBitmap.width)
-                            roomCont.image(
-                                roomBitmap.slice(RectangleInt(u0, roomBitmap.height - srcRows, u1 - u0, srcRows))
-                            ) {
-                                size(segR - segL, gapH)
-                            }.xy(segL - room.x, room.height)
+                            roomCont.brightenedImage(
+                                roomBitmap.slice(RectangleInt(u0, roomBitmap.height - srcRows, u1 - u0, srcRows)),
+                                segL - room.x, room.height, segR - segL, gapH,
+                                levelData.backdropExtraBrightness
+                            )
                             segL = segR
                         }
                     }
@@ -736,13 +803,9 @@ class GameplayScene(
         // because this one is placed against the level's own geometry: it stands on the ground and
         // its balcony deck meets the hanging platform's far tip. See LEVEL_6_LAYOUT, section 5.
         val exitStructureRect = levelData.layout?.exitStructure
-        // LevelLayout.exitStructureImage picks the art: level 6's shed, or level 8/9's Container 17.
-        val exitStructureBitmap = when (levelData.layout?.exitStructureImage) {
-            "container17.png" -> bitmaps.container17Bitmap
-            // Level 7's security desk - only level 7 draws it, so it is loaded here, not preloaded.
-            "desk.png" -> SceneAssets.bitmap("desk.png")
-            else -> exitLvl7Bitmap
-        }
+        // LevelLayout.exitStructureImage picks the art (level 6's shed, 7's desk, 8/9's Container
+        // 17) - see loadGameplayBitmaps.
+        val exitStructureBitmap = bitmaps.exitStructureBitmap
         if (exitStructureRect != null && exitStructureBitmap != null) {
             cullable(
                 worldView.image(exitStructureBitmap) {
@@ -750,9 +813,7 @@ class GameplayScene(
                 }.xy(exitStructureRect.x, exitStructureRect.y),
                 exitStructureRect.x, exitStructureRect.width
             )
-        } else if (world.conveyors.none { it.bounds.right > world.exitZone.left - 200.0 && it.bounds.left < world.exitZone.right + 200.0 } &&
-            levelData.layout?.prisonCell == null && entranceBitmap != null
-        ) {
+        } else if (drawsExitBooth(world, hasExitStructure = false) && entranceBitmap != null) {
             // A level that ends at a conveyor belt (4, and 3 since it hands over to 4's belt) has
             // no booth - the belt is the finish. A belt elsewhere in a level (12's) does not count.
             val entranceHeight = 135.0
@@ -835,13 +896,11 @@ class GameplayScene(
             renderChainAbove(parent, sourceBmp, cropX, cropY, cropW, width, crateY, maxTopY)
         }
 
-        // woodcrate2.png (1536x1024, replacing the earlier woodencratenew.png on request) carries a
-        // transparent margin around the actual crate silhouette too (strict alpha bbox, threshold
-        // >10, same measuring method as table.png's own crop and the previous woodcrate.png crop -
-        // PowerShell + System.Drawing.Bitmap.GetPixel, no Python/ImageMagick in this environment).
-        // Cropped to content once, same as table.png's legSlice/plankSlice, so it sits flush on the
-        // ground instead of leaving visible empty space below the art.
-        val woodCrateSlice = woodCrateBitmap?.slice(RectangleInt(165, 144, 1206, 721))
+        // woodcrate2.png is the crate silhouette alone - cut by tools/art/prep_level_props.py from the
+        // 1536x1024 plate in art-source/props at the alpha bbox this used to crop at runtime
+        // (165,144 1206x721), and resampled to 512x256 - so it is drawn whole and sits flush on the
+        // ground, the same as table.png's legSlice/plankSlice crops.
+        val woodCrateSlice = woodCrateBitmap?.slice()
 
         // Tactical boxes, step crates, hanging chained crates, and perimeter fences
         for (box in world.boxes) {
@@ -956,7 +1015,7 @@ class GameplayScene(
                 }
             }
             // 5. Hanging Chained Crate (ceiling obstacle in level 1)
-            else if (box.y <= 0.0 && box.height > 150.0 && chainedCrateBitmap != null) {
+            else if (LevelLayout.isChainedCrate(box) && chainedCrateBitmap != null) {
                 boxContainer.image(chainedCrateBitmap) {
                     size(box.width, box.height)
                 }.xy(0.0, 0.0)
@@ -1078,12 +1137,10 @@ class GameplayScene(
         // ("remove the chain from the camera pole") - the helper is still there and still used by
         // renderHangingCrate, only the pole's own call to it was removed.
         if (poleBitmap != null) {
-            // pole.png (1024x1536) carries a wide transparent margin around the actual pole
-            // silhouette (strict alpha bbox, threshold >10, same measuring method as every other
-            // asset crop in this file) - stretching the raw image into a pole's exact bounds would
-            // leave visible empty space around the art. Cropped to content once, same pattern as
-            // woodCrateSlice/tableBitmap's own crops.
-            val poleSlice = poleBitmap.slice(RectangleInt(426, 9, 170, 1496))
+            // pole.png is the pole alone - cut by tools/art/prep_level_props.py from the 1024x1536
+            // plate in art-source/props at the alpha bbox this used to crop at runtime
+            // (426,9 170x1496), resampled to 128x2048 - so it is stretched into the pole's bounds whole.
+            val poleSlice = poleBitmap.slice()
             for (pole in world.poles) {
                 val poleContainer = worldView.container().xy(pole.x, 0.0)
                 cullable(poleContainer, pole.x, pole.width)
@@ -1428,8 +1485,10 @@ class GameplayScene(
         // a false trigger.
         val guardWasInvestigating = BooleanArray(world.allGuards.size)
 
-        // Cameras: vision cones first beneath bodies
-        val cameraCones = world.cameras.map { worldView.graphics() }
+        // Cameras: vision cones first beneath bodies. Drawn on the GPU (FlatConeView) - the same
+        // flat fill and soft edge the software-rasterised Graphics they replace had, without a
+        // bitmap re-rasterised and re-uploaded on every frame of a sweep.
+        val cameraCones = world.cameras.map { FlatConeView().addTo(worldView) }
         // What each camera cone was last drawn from (eye x, eye y, facing, range, fov) - the
         // updater only re-rasterises one whose inputs moved. NaN = not drawn / drawn empty.
         val cameraConeKey = DoubleArray(world.cameras.size * 5) { Double.NaN }
@@ -1439,6 +1498,9 @@ class GameplayScene(
                 if (c in world.translucentCameras) it.alpha = translucentEffectAlpha
             }
         }
+        // Every number below is in the pixels of the full 1536x1024 plate, cameranew2.png - now kept
+        // in art-source/props; the game loads its two crops as camera_mount.png / camera_lens.png
+        // (tools/art/prep_level_props.py), each drawn whole into the box its crop rect gives here.
         // cameranew2.png: same recipe as cameranew.png (ceiling-mount plate + drop neck +
         // ball-swivel joint + camera body, one silhouette, transparent background, 1536x1024) but a
         // cleaner redraw - rounded corners, no stray corner artifacts, and a small separate end-cap
@@ -1486,8 +1548,8 @@ class GameplayScene(
             // Local (width/2, 0): the plate's top-centre, flush against the beam - container origin
             // xy(c.x, c.y) already sits at the beam's own underside (see cameraContainers above).
             val attachLocal = Vec2d(c.width / 2.0, 0.0)
-            if (cameraBitmap != null) {
-                cameraContainers[i].image(cameraBitmap.slice(cameraMountCrop)) {
+            if (cameraMountBitmap != null && cameraLensBitmap != null) {
+                cameraContainers[i].image(cameraMountBitmap) {
                     size(cameraMountCrop.width * cameraArtScale, cameraMountCrop.height * cameraArtScale)
                 }.xy(
                     attachLocal.x - cameraAttachInMount.x * cameraArtScale,
@@ -1505,8 +1567,8 @@ class GameplayScene(
                 attachLocal.y + (cameraPivotRaw.y - cameraMountAttachRaw.y) * cameraArtScale
             )
             val pivot = cameraContainers[i].container().xy(pivotLocal.x, pivotLocal.y)
-            if (cameraBitmap != null) {
-                pivot.image(cameraBitmap.slice(cameraLensCrop)) {
+            if (cameraMountBitmap != null && cameraLensBitmap != null) {
+                pivot.image(cameraLensBitmap) {
                     size(cameraLensCrop.width * cameraArtScale, cameraLensCrop.height * cameraArtScale)
                 }.xy(-cameraPivotInLens.x * cameraArtScale, -cameraPivotInLens.y * cameraArtScale)
             }
@@ -1616,24 +1678,30 @@ class GameplayScene(
         }
 
         // A prison cell seen from the front (LevelLayout.prisonCell - level 10's end): gloom over
-        // the room's wall, the figure sitting huddled on its floor, then the bars over both.
-        // Built before the player so he walks up in front of it. There is no seated clip, so
-        // the figure is the player's own settled crouch (the last crouch frame) - it is his
-        // double, the one level 11 is about.
+        // the room's wall, the figure pacing its floor, then the bars over both. Built before
+        // the player so he walks up in front of it. The figure is the player's own frames - it
+        // is his double, the one level 11 is about - walked back and forth by the updater
+        // ("make the prisoner walk left and right inside the prison cell").
+        var cellFigure: Image? = null
+        var cellFigX = 0.0
+        var cellFigFacing = 1.0
+        var cellFigWalked = 0.0
+        var cellFigPause = 0.0
         levelData.layout?.prisonCell?.let { cell ->
             val b = cell.bars
             val cellCont = worldView.container().xy(b.x, b.y)
             cellCont.solidRect(b.width, b.height, RGBA(0, 0, 0, 120))
             val figScale = world.player.visualHeight / PlayerAnimations.SOURCE_SILHOUETTE_HEIGHT
-            val figFeetOffset = (PlayerAnimations.SOURCE_FEET_Y - PlayerAnimations.CROUCH_FEET_Y) * figScale
+            cellFigX = cell.prisonerX
+            cellFigFacing = if (cell.prisonerFacing < 0.0) -1.0 else 1.0
             // Level 11's cell holds the live prisoner instead (drawn above), not a figure of its own.
-            if (cell.drawsFigure) cellCont.image(
-                playerAnimations.crouch.getSprite(PlayerAnimations.CROUCH_LAST),
+            if (cell.drawsFigure) cellFigure = cellCont.image(
+                playerAnimations.walk.getSprite(PlayerAnimations.WALK_LOOP_START),
                 Anchor2D(0.5, PlayerAnimations.SOURCE_FEET_Y / PlayerAnimations.SOURCE_FRAME_HEIGHT)
             ) {
-                scaleX = figScale * (if (cell.prisonerFacing < 0.0) -1.0 else 1.0)
+                scaleX = figScale * cellFigFacing
                 scaleY = figScale
-            }.xy(cell.prisonerX - b.x, b.height + figFeetOffset)
+            }.xy(cell.prisonerX - b.x, b.height)
             // Bars: a frame (head rail, foot rail, a post at each side) and uprights between.
             val barColor = Colors["#050608"]
             val rail = 6.0
@@ -3049,7 +3117,7 @@ class GameplayScene(
             onQuit = {
                 stopBgMusic()
                 getLevelExitBridge().requestReturnToMenu()
-                sceneContainer.changeTo { GameplayScene(levelData, startDormant = true) }
+                changeToMenuBackdrop()
             }
         )
 
@@ -3088,7 +3156,7 @@ class GameplayScene(
             onReturnToMenu = {
                 stopBgMusic()
                 getLevelExitBridge().requestReturnToMenu()
-                sceneContainer.changeTo { GameplayScene(levelData, startDormant = true) }
+                changeToMenuBackdrop()
             }
         )
 
@@ -3114,7 +3182,7 @@ class GameplayScene(
             onReturnToMenu = {
                 stopBgMusic()
                 getLevelExitBridge().requestReturnToMenu()
-                sceneContainer.changeTo { GameplayScene(levelData, startDormant = true) }
+                changeToMenuBackdrop()
             },
             onNextMission = {
                 stopBgMusic()
@@ -3122,7 +3190,7 @@ class GameplayScene(
                     sceneContainer.changeTo { GameplayScene(nextLevel) }
                 } else {
                     getLevelExitBridge().requestReturnToMenu()
-                    sceneContainer.changeTo { GameplayScene(levelData, startDormant = true) }
+                    changeToMenuBackdrop()
                 }
             }
         )
@@ -3270,6 +3338,11 @@ class GameplayScene(
         prevRightPressed = false
         var debugLevelCheckTimer = 0.0
 
+        // Every asset this level draws has been asked for by now; let go of the ones only the
+        // previous level used. See releaseArtOfOtherLevels.
+        releaseArtOfOtherLevels()
+        setupComplete = true
+
         // Main game update loop
         addUpdater { dt ->
             // Hoisted above every early-return in this block (including the pause/game-over one)
@@ -3301,16 +3374,6 @@ class GameplayScene(
                 shieldFlareImage.visible = false
                 return@addUpdater
             }
-
-            // The scene left behind a QUIT / RETURN TO MENU is only ever covered by the host's menu
-            // on Android and iOS, and starting any level from that menu builds a fresh scene
-            // (MainActivity.startLevel / GameLevelStartBridge.startLevel) - so nothing it
-            // simulates is ever seen. On Android the KorGE view keeps running under the menu
-            // (bug #7), so without this the whole level - patrols, sweeps, cone raycasting - ran
-            // at the panel's refresh rate behind it. The continue grant above is still consumed
-            // here as before. Desktop has no menu to go back to: its dormant scene IS the one
-            // being played, so it runs on.
-            if (startDormant && (Platform.isAndroid || Platform.isIos)) return@addUpdater
 
             // Checkpoints powerup: the death's short beat, then straight back to the checkpoint.
             if (checkpointRespawnTimer > 0.0) {
@@ -4935,6 +4998,39 @@ class GameplayScene(
                 prisonerImage.scaleX = echoBaseScale * (if (prisoner.body.facing < 0.0) -1.0 else 1.0)
             }
 
+            // Level 10's cell figure paces: walks to one side of the cell, stands a moment, turns
+            // and walks back. Pure decoration - nothing in the model knows about him.
+            val cellFig = cellFigure
+            val cellDef = levelData.layout?.prisonCell
+            if (cellFig != null && cellDef != null) {
+                val lo = cellDef.bars.x + CELL_FIGURE_MARGIN
+                val hi = cellDef.bars.right - CELL_FIGURE_MARGIN
+                if (cellFigPause > 0.0) {
+                    cellFigPause -= dtSec
+                    if (cellFigPause <= 0.0) cellFigFacing = -cellFigFacing
+                } else {
+                    val step = CELL_FIGURE_SPEED * dtSec
+                    cellFigX += cellFigFacing * step
+                    cellFigWalked += step
+                    if ((cellFigFacing > 0.0 && cellFigX >= hi) || (cellFigFacing < 0.0 && cellFigX <= lo)) {
+                        cellFigX = cellFigX.coerceIn(lo, hi)
+                        cellFigPause = CELL_FIGURE_PAUSE_SECONDS
+                    }
+                }
+                if (cellFigPause > 0.0) {
+                    cellFig.bitmap = playerAnimations.idle.getSprite((totalElapsedSeconds * 1000.0 / PlayerAnimations.IDLE_FRAME_TIME_MS).toInt())
+                    cellFig.y = cellDef.bars.height + idleFeetOffset
+                } else {
+                    cellFig.bitmap = playerAnimations.walk.getSprite(
+                        PlayerAnimations.WALK_LOOP_START +
+                            ((cellFigWalked / walkCycleDistance) * PlayerAnimations.WALK_LOOP_LENGTH).toInt().mod(PlayerAnimations.WALK_LOOP_LENGTH)
+                    )
+                    cellFig.y = cellDef.bars.height
+                }
+                cellFig.x = cellFigX - cellDef.bars.x
+                cellFig.scaleX = echoBaseScale * cellFigFacing
+            }
+
             // Level 9: the echo, as recorded. At the end of its run it stands in the idle pose. A
             // run recorded without a scene (the bundled one) has no frames, so they are picked
             // from its stance - the same clips, driven the same way the player's are (distance
@@ -5179,15 +5275,14 @@ class GameplayScene(
                 val k = i * 5
                 if (world.activePowerups.isSmokeScreenActive) {
                     if (!cameraConeKey[k].isNaN()) {
-                        cameraCones[i].updateShape { }
+                        cameraCones[i].clear()
                         cameraConeKey[k] = Double.NaN
                     }
                 } else {
-                    // This cone is a software-rasterised Graphics, so it is only redrawn when
-                    // it could look different: never while it cannot reach the screen (the guard
-                    // beams' culling window), and not while the lens, facing, range and occluders
-                    // are what it was last drawn from - a camera dwelling at the end of its sweep
-                    // or held on the player keeps the shape it has.
+                    // Only rebuilt when it could look different: never while it cannot reach
+                    // the screen (the guard beams' culling window), and not while the lens,
+                    // facing, range and occluders are what it was last drawn from - a camera
+                    // dwelling at the end of its sweep or held on the player keeps the shape it has.
                     val eye = c.eyePosition
                     val onScreen = eye.x + c.visionRange >= cullLeft && eye.x - c.visionRange <= cullRight
                     cameraCones[i].visible = onScreen
@@ -5204,28 +5299,17 @@ class GameplayScene(
                     cameraConeKey[k + 4] = c.visionFov
                     cameraConeOccluders[i] = world.visionOccluders
                     // Camera cones stay a single steady color in every state (detection is indicated
-                    // by the pip over the camera, matching the guard beam design) - no yellow/red alert ramp.
-                    val coneColor = Colors.WHITE.withAd(0.32)
-                    val visionPolygon = VisionSystem.computeVisionPolygon(
-                        origin = eye,
-                        facingAngle = facing,
-                        range = c.visionRange,
-                        fov = c.visionFov,
-                        occluders = world.visionOccluders
+                    // by the pip over the camera, matching the guard beam design) - no yellow/red
+                    // alert ramp: FlatConeView's white at 0.32.
+                    cameraCones[i].setPolygon(
+                        VisionSystem.computeVisionPolygon(
+                            origin = eye,
+                            facingAngle = facing,
+                            range = c.visionRange,
+                            fov = c.visionFov,
+                            occluders = world.visionOccluders
+                        )
                     )
-                    cameraCones[i].updateShape {
-                        if (visionPolygon.isNotEmpty()) {
-                            fill(coneColor) {
-                                val first = visionPolygon.first()
-                                moveTo(Point(first.x, first.y))
-                                for (p in 1 until visionPolygon.size) {
-                                    val pt = visionPolygon[p]
-                                    lineTo(Point(pt.x, pt.y))
-                                }
-                                close()
-                            }
-                        }
-                    }
                 }
             }
 
@@ -5669,6 +5753,12 @@ class GameplayScene(
     companion object {
         var debugHideAllUi: Boolean = false
 
+        /** How long releaseArtOfOtherLevels waits for the replaced scene to be destroyed (~2s). */
+        private const val RELEASE_WAIT_FRAMES = 120
+
+        /** The longest the loading screen goes without a repaint between load steps - see markLoadProgress. */
+        private const val LOADING_REPAINT_MS = 100.0
+
         /** Seconds between a death and the automatic checkpoint reload - see checkpointRespawnTimer. */
         const val CHECKPOINT_RESPAWN_DELAY = 0.9
 
@@ -5708,6 +5798,12 @@ class GameplayScene(
         /** Rows off the bottom of room.png stretched through a gap in a room's floor (of 512). */
         internal const val ROOM_GAP_SOURCE_ROWS = 8
 
+        /** Level 10's cell figure: pacing speed (a slow walk), its stop at each end, and how far
+         *  short of the side posts it turns. */
+        internal const val CELL_FIGURE_SPEED = 38.0
+        internal const val CELL_FIGURE_PAUSE_SECONDS = 1.4
+        internal const val CELL_FIGURE_MARGIN = 26.0
+
         /** The objectives block's top-left, from the screen's corner - see objPanel. */
         internal const val OBJECTIVES_CORNER_X = 8.0
         internal const val OBJECTIVES_CORNER_Y = 6.0
@@ -5727,6 +5823,23 @@ class GameplayScene(
         /** The left end cap (its post) ends here; the first bay's mesh runs from here to [ELEVATOR_BAY_RIGHT]. */
         internal const val ELEVATOR_LEFT_CAP_RIGHT = 70.0
         internal const val ELEVATOR_BAY_RIGHT = 606.0
+
+        /**
+         * Draws [slice] at ([x], [y]) sized [w]x[h], then - when [extra] > 0 - the same again on top
+         * with additive blending at [extra] of itself, so it comes out (1 + [extra]) times as bright.
+         * colorMul cannot go above 1, and lifting with a flat overlay would grey the blacks and
+         * flatten the art; a multiply keeps black black and every panel line where it was.
+         */
+        private fun Container.brightenedImage(slice: BmpSlice, x: Double, y: Double, w: Double, h: Double, extra: Double) {
+            image(slice) { size(w, h) }.xy(x, y)
+            if (extra <= 0.0) return
+            val k = (extra.coerceAtMost(1.0) * 255.0).toInt()
+            image(slice) {
+                size(w, h)
+                blendMode = BlendMode.ADD
+                colorMul = RGBA(k, k, k, 255)
+            }.xy(x, y)
+        }
 
         /** room.png's authored aspect (2172x724) - the file on disk is resampled to 2048x512. */
         internal const val ROOM_ART_ASPECT = 2172.0 / 724.0
@@ -5869,6 +5982,17 @@ class GameplayScene(
         private const val LABEL_COLUMN = 0.42
         private const val CENTERED_ICON_WIDTH = 18.0
         private const val CENTERED_ICON_GAP = 10.0
+
+        /**
+         * Where star1-3.png were cut from the stars.png sheet (now in art-source/props), in its
+         * pixels - tools/art/prep_level_props.py cuts at exactly these. Each star is drawn at its
+         * crop's aspect, not its file's (all three files are 512x512).
+         */
+        private val STAR_CROPS = listOf(
+            RectangleInt(69, 33, 636, 611),
+            RectangleInt(760, 33, 647, 611),
+            RectangleInt(1464, 33, 641, 611)
+        )
     }
 
     private class LoadingScreenHandle(
@@ -6429,9 +6553,8 @@ class GameplayScene(
         val winStarStep = winStarH * 1.42
         val winStarsCy = winTop + 52.0 * WS
         fun starSlotSize(i: Int): Pair<Double, Double> {
-            val slice = starSlices?.get(i)
-            val w = if (slice != null) {
-                winStarH * (slice.width.toDouble() / slice.height.toDouble())
+            val w = if (starSlices != null) {
+                winStarH * (STAR_CROPS[i].width.toDouble() / STAR_CROPS[i].height.toDouble())
             } else {
                 winStarH
             }
@@ -6681,10 +6804,42 @@ class GameplayScene(
         return animators
     }
 
+    /**
+     * The exit booth (entrance.png + exitfence.png) stands at the exit unless something else
+     * marks it: the level's own exit structure ([hasExitStructure] - its rect and its art), a
+     * conveyor belt running into the exit (levels 3 and 4 end at the belt; a belt elsewhere, like
+     * 12's, does not count), or a prison cell (level 10). One rule for the loader and the scene, so
+     * the booth's art is loaded exactly when it is drawn.
+     */
+    private fun drawsExitBooth(world: GameWorld, hasExitStructure: Boolean): Boolean =
+        !hasExitStructure &&
+            world.conveyors.none { it.bounds.right > world.exitZone.left - 200.0 && it.bounds.left < world.exitZone.right + 200.0 } &&
+            levelData.layout?.prisonCell == null
+
+    /**
+     * Every bitmap the scene draws with. The large level props go through [SceneAssets.levelArt]:
+     * each one is loaded only when this level has something that draws it - the condition next to
+     * it is the condition its draw site in sceneMain runs under, widened where that is simpler
+     * (loading one the level then does not draw only costs memory; NOT loading one it draws would
+     * silently fall back to a plain shape). GameplaySceneArtTest builds every level both ways and
+     * checks the view trees are identical. Small assets, the touch controls and the end-of-run
+     * screens are loaded for every level.
+     */
     private suspend fun loadGameplayBitmaps(
         bgFileName: String,
+        world: GameWorld,
         markLoadProgress: suspend () -> Unit
     ): GameplayBitmaps {
+        val layout = levelData.layout
+        // renderHangingCrate picks chainedcrate.png for variant-1 loads and chainedcrate2.png for
+        // the rest; the box pass also draws a tall ceiling box (y <= 0, over 150 tall) as variant 1.
+        val hangingVariant1 = world.hangingCrateVariant1.isNotEmpty() ||
+            world.movingPlatforms.any { it.isVariant1 } ||
+            world.conveyorCrates.any { it.isHanging && it.isVariant1 } ||
+            world.boxes.any { LevelLayout.isChainedCrate(it) }
+        val hangingVariant2 = world.hangingCrateVariant2.isNotEmpty() ||
+            world.movingPlatforms.any { !it.isVariant1 } ||
+            world.conveyorCrates.any { it.isHanging && !it.isVariant1 }
         val bgmgBitmap = SceneAssets.bitmap(bgFileName, minified = false)
         markLoadProgress()
         val wallMarkerBitmaps: Map<String, Bitmap?> = when (bgFileName) {
@@ -6703,9 +6858,9 @@ class GameplayScene(
         }
         val crateBitmap = SceneAssets.bitmap("crate.png")
         markLoadProgress()
-        val chainedCrateBitmap = SceneAssets.bitmap("chainedcrate.png", minified = false)
+        val chainedCrateBitmap = SceneAssets.levelArt("chainedcrate.png", hangingVariant1, minified = false)
         markLoadProgress()
-        val chainedCrate2Bitmap = SceneAssets.bitmap("chainedcrate2.png", minified = false)
+        val chainedCrate2Bitmap = SceneAssets.levelArt("chainedcrate2.png", hangingVariant2, minified = false)
         markLoadProgress()
         val fenceBitmap = SceneAssets.bitmap("fence.png")
         markLoadProgress()
@@ -6716,15 +6871,32 @@ class GameplayScene(
         // "Adding new art". POT, so it gets mipmaps and costs no new warning line.
         val cartBitmap = SceneAssets.bitmap("cart.png")
         markLoadProgress()
-        val woodCrateBitmap = SceneAssets.bitmap("woodcrate2.png")
+        // Wood-crate boxes, every hook crate's load, and a loaded cart's crate.
+        val woodCrateBitmap = SceneAssets.levelArt(
+            "woodcrate2.png",
+            world.woodCrates.isNotEmpty() || world.hookCrates.isNotEmpty() || world.pushCarts.any { !it.startsEmpty },
+            minified = false
+        )
         markLoadProgress()
-        val poleBitmap = SceneAssets.bitmap("pole.png")
+        val poleBitmap = SceneAssets.levelArt("pole.png", world.poles.isNotEmpty(), minified = false)
         markLoadProgress()
-        val craneBitmap = SceneAssets.bitmap("crane.png", minified = false)
+        val craneBitmap = SceneAssets.levelArt("crane.png", world.cranes.isNotEmpty(), minified = false)
         markLoadProgress()
-        val tableBitmap = SceneAssets.bitmap("table.png")
+        val tableBitmap = SceneAssets.levelArt(
+            "table.png",
+            world.tables.isNotEmpty() || world.tableParts.isNotEmpty() || world.tableDecorations.isNotEmpty() ||
+                world.seamlessTables.isNotEmpty() || world.passThroughLegs.isNotEmpty()
+        )
         markLoadProgress()
-        val cameraBitmap = SceneAssets.bitmap("cameranew2.png", minified = false)
+        // cameranew2.png's two pieces, each cut out at its crop rect below (cameraMountCrop,
+        // cameraLensCrop) by tools/art/prep_level_props.py.
+        //
+        // NO MIPMAPS for anything that tool sizes (here: woodcrate2, pole, the camera, hook, the
+        // levers, the rope; the stars and win/fail buttons further down). Each is under 2x its
+        // largest draw box, where bilinear is already clean and trilinear mipmapping measured
+        // 30-40% softer than the full-size art - the tool's header has the numbers.
+        val cameraMountBitmap = SceneAssets.levelArt("camera_mount.png", world.cameras.isNotEmpty(), minified = false)
+        val cameraLensBitmap = SceneAssets.levelArt("camera_lens.png", world.cameras.isNotEmpty(), minified = false)
         markLoadProgress()
         val laserEmitterBitmap = SceneAssets.bitmap("laseremittor.png", minified = false)
         markLoadProgress()
@@ -6735,20 +6907,33 @@ class GameplayScene(
         val conveyorBotBitmap = SceneAssets.bitmap("conveyor_bot.png", minified = false)
         markLoadProgress()
         val conveyorEndBitmap = SceneAssets.bitmap("conveyor_end.png")
-        val hookBitmap = SceneAssets.bitmap("hook.png")
+        // Static hooks (hanging + swing) and a travelling rig's hook.
+        val hookBitmap = SceneAssets.levelArt(
+            "hook.png",
+            layout?.let { it.hangingHooks.isNotEmpty() || it.swingHooks.isNotEmpty() } == true ||
+                world.hookCrates.any { it.sweepX != 0.0 },
+            minified = false
+        )
         markLoadProgress()
-        val truckBitmap = SceneAssets.bitmap("truck.png")
+        val truckBitmap = SceneAssets.levelArt("truck.png", world.truckParts.isNotEmpty())
         markLoadProgress()
-        val entranceBitmap = SceneAssets.bitmap("entrance.png", minified = false)
+        // The level's own exit structure, by LevelLayout.exitStructureImage: Container 17 (8/9),
+        // the security desk (7), else the shed (6). Only when there is an exit structure to draw.
+        val exitStructureBitmap = if (layout?.exitStructure == null) null else when (layout.exitStructureImage) {
+            "container17.png" -> SceneAssets.bitmap("container17.png")
+            "desk.png" -> SceneAssets.bitmap("desk.png")
+            else -> SceneAssets.bitmap("exitlvl7.png")
+        }
+        val exitBooth = drawsExitBooth(world, hasExitStructure = exitStructureBitmap != null)
+        val entranceBitmap = SceneAssets.levelArt("entrance.png", exitBooth, minified = false)
         markLoadProgress()
-        val exitFenceBitmap = SceneAssets.bitmap("exitfence.png", minified = false)
+        val exitFenceBitmap = SceneAssets.levelArt("exitfence.png", exitBooth, minified = false)
         markLoadProgress()
-        val l4endBitmap = SceneAssets.bitmap("l4end.png", minified = false)
+        val l4endBitmap = SceneAssets.levelArt("l4end.png", levelData.id == "level_4", minified = false)
         markLoadProgress()
-        val exitLvl7Bitmap = SceneAssets.bitmap("exitlvl7.png")
-        val container17Bitmap = SceneAssets.bitmap("container17.png")
-        val fanBladeBitmap = SceneAssets.bitmap("fan2_blade.png") ?: SceneAssets.bitmap("fan_blade.png") ?: SceneAssets.bitmap("fan2.png") ?: SceneAssets.bitmap("fan.png")
-        val fanCoverBitmap = SceneAssets.bitmap("fan2_cover.png") ?: SceneAssets.bitmap("fan_cover.png") ?: SceneAssets.bitmap("fan2.png") ?: SceneAssets.bitmap("fan.png")
+        val hasFans = world.fans.isNotEmpty()
+        val fanBladeBitmap = SceneAssets.levelArt("fan2_blade.png", hasFans) ?: SceneAssets.levelArt("fan_blade.png", hasFans) ?: SceneAssets.levelArt("fan2.png", hasFans) ?: SceneAssets.levelArt("fan.png", hasFans)
+        val fanCoverBitmap = SceneAssets.levelArt("fan2_cover.png", hasFans) ?: SceneAssets.levelArt("fan_cover.png", hasFans) ?: SceneAssets.levelArt("fan2.png", hasFans) ?: SceneAssets.levelArt("fan.png", hasFans)
         val robotBodyBitmap = SceneAssets.bitmap("robot_body.png")
         val robotWheelBitmap = SceneAssets.bitmap("robot_wheel.png")
         val steamNozzleUpBitmap = SceneAssets.bitmap("steam_nozzle_up.png")
@@ -6764,19 +6949,26 @@ class GameplayScene(
         markLoadProgress()
         val interactBtnBitmap = SceneAssets.bitmap("interact.png")
         markLoadProgress()
-        val leverBottomBitmap = SceneAssets.bitmap("lever_bottom.png")
+        val hasLevers = world.levers.isNotEmpty()
+        val leverBottomBitmap = SceneAssets.levelArt("lever_bottom.png", hasLevers, minified = false)
         markLoadProgress()
-        val leverTopBitmap = SceneAssets.bitmap("lever_top.png")
+        val leverTopBitmap = SceneAssets.levelArt("lever_top.png", hasLevers, minified = false)
         markLoadProgress()
-        val ropeBitmap = SceneAssets.bitmap("newrope.png") ?: SceneAssets.bitmap("rope.png")
+        // A hook crate's rope, and the frames it dissolves through when the load is cut (the
+        // updater swaps them in - only ever on a hook crate's rope).
+        val hasHookCrates = world.hookCrates.isNotEmpty()
+        val ropeBitmap = SceneAssets.levelArt("newrope.png", hasHookCrates, minified = false)
+            ?: SceneAssets.levelArt("rope.png", hasHookCrates)
         markLoadProgress()
         val ropeDissolveBitmaps = (0..8).map {
-            SceneAssets.bitmap("rope_dissolve_$it.png") ?: (if (it == 0) ropeBitmap else null)
+            SceneAssets.levelArt("rope_dissolve_$it.png", hasHookCrates, minified = false) ?: (if (it == 0) ropeBitmap else null)
         }.filterNotNull()
         markLoadProgress()
         val paperBtnBitmaps = listOf("button1.png", "button2.png", "button3.png", "button4.png")
             .map { name -> SceneAssets.bitmap(name, minified = false) }
         markLoadProgress()
+        // The win/fail buttons are 1024x256, resampled for their 175x56/62 box by
+        // tools/art/prep_level_props.py; drawn whole, so only the box sets their shape.
         val victoryBtnBitmaps = listOf("victorybutton1.png", "victorybutton2.png", "victorybutton3.png")
             .map { name -> SceneAssets.bitmap(name, minified = false) }
         markLoadProgress()
@@ -6796,14 +6988,13 @@ class GameplayScene(
         markLoadProgress()
         val successBgBitmap = SceneAssets.bitmap("success3.png", minified = false)
         markLoadProgress()
-        val starsBitmap = SceneAssets.bitmap("stars.png", minified = false)
-        val starSlices = starsBitmap?.let {
-            listOf(
-                it.sliceWithSize(69, 33, 636, 611),
-                it.sliceWithSize(760, 33, 647, 611),
-                it.sliceWithSize(1464, 33, 641, 611)
-            )
-        }
+        // The three stars of the old stars.png sheet, each cut out at its STAR_CROPS rect and
+        // resampled to 512x512 by tools/art/prep_level_props.py - drawn whole, sized by the crop's
+        // aspect. No mipmaps: bilinear is closer to the full-size art at this size (see the tool).
+        val starSlices = listOf("star1.png", "star2.png", "star3.png")
+            .map { SceneAssets.bitmap(it, minified = false)?.slice() }
+            .takeIf { stars -> stars.all { it != null } }
+            ?.filterNotNull()
         markLoadProgress()
 
         return GameplayBitmaps(
@@ -6819,7 +7010,8 @@ class GameplayScene(
             poleBitmap = poleBitmap,
             craneBitmap = craneBitmap,
             tableBitmap = tableBitmap,
-            cameraBitmap = cameraBitmap,
+            cameraMountBitmap = cameraMountBitmap,
+            cameraLensBitmap = cameraLensBitmap,
             laserEmitterBitmap = laserEmitterBitmap,
             conveyorTopBitmap = conveyorTopBitmap,
             conveyorMidBitmap = conveyorMidBitmap,
@@ -6830,8 +7022,7 @@ class GameplayScene(
             entranceBitmap = entranceBitmap,
             exitFenceBitmap = exitFenceBitmap,
             l4endBitmap = l4endBitmap,
-            exitLvl7Bitmap = exitLvl7Bitmap,
-            container17Bitmap = container17Bitmap,
+            exitStructureBitmap = exitStructureBitmap,
             fanBladeBitmap = fanBladeBitmap,
             fanCoverBitmap = fanCoverBitmap,
             robotBodyBitmap = robotBodyBitmap,
@@ -6855,7 +7046,6 @@ class GameplayScene(
             gadgetBitmaps = gadgetBitmaps,
             gadgetBoltBitmap = gadgetBoltBitmap,
             successBgBitmap = successBgBitmap,
-            starsBitmap = starsBitmap,
             starSlices = starSlices,
             wallMarkerBitmaps = wallMarkerBitmaps
         )
@@ -6874,7 +7064,8 @@ class GameplayScene(
         val poleBitmap: Bitmap?,
         val craneBitmap: Bitmap?,
         val tableBitmap: Bitmap?,
-        val cameraBitmap: Bitmap?,
+        val cameraMountBitmap: Bitmap?,
+        val cameraLensBitmap: Bitmap?,
         val laserEmitterBitmap: Bitmap?,
         val conveyorTopBitmap: Bitmap?,
         val conveyorMidBitmap: Bitmap?,
@@ -6885,8 +7076,8 @@ class GameplayScene(
         val entranceBitmap: Bitmap?,
         val exitFenceBitmap: Bitmap?,
         val l4endBitmap: Bitmap?,
-        val exitLvl7Bitmap: Bitmap?,
-        val container17Bitmap: Bitmap? = null,
+        /** LevelLayout.exitStructure's art, null when the level has none. */
+        val exitStructureBitmap: Bitmap? = null,
         val fanBladeBitmap: Bitmap? = null,
         val fanCoverBitmap: Bitmap? = null,
         val robotBodyBitmap: Bitmap? = null,
@@ -6910,7 +7101,6 @@ class GameplayScene(
         val gadgetBitmaps: List<Bitmap?>,
         val gadgetBoltBitmap: Bitmap?,
         val successBgBitmap: Bitmap?,
-        val starsBitmap: Bitmap?,
         val starSlices: List<BmpSlice>?,
         val wallMarkerBitmaps: Map<String, Bitmap?> = emptyMap()
     )

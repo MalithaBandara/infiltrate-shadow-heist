@@ -1,10 +1,14 @@
 package game.scene
 
+import game.model.GameWorld
+import game.model.LevelData
 import korlibs.image.atlas.*
+import korlibs.image.bitmap.*
 import korlibs.image.format.*
 import korlibs.io.file.std.*
 import korlibs.korge.view.*
 import korlibs.time.*
+import kotlinx.coroutines.CompletableDeferred
 import kotlin.concurrent.Volatile
 
 class PlayerAnimationSet(
@@ -24,7 +28,7 @@ class PlayerAnimationSet(
 /**
  * Loads the player sprite sheets and describes what each stretch of frames means.
  *
- * The files under `resources/player/<clip>` are a processed version of the raw 720x1280 plates
+ * The files under `art/frames/player/<clip>` are a processed version of the raw 720x1280 plates
  * kept in `art-source/player`: cropped to a shared 592x1080 box (symmetric about the character
  * centre so horizontal flipping does not shift them), the feet pinned to the bottom edge, and
  * scaled to 140x256. The frame indices below were measured off the silhouettes rather than
@@ -362,7 +366,7 @@ object PlayerAnimations {
      * same units as WALK_STRIDE_PER_HEIGHT, and used the same way (GameplayScene drives the
      * loop from distance travelled so the planted foot does not slide).
      *
-     * Measured on the PROCESSED frames under `resources/player/push`, not on the raw plates,
+     * Measured on the PROCESSED frames under `art/frames/player/push`, not on the raw plates,
      * by sub-pixel phase correlation of the ground-contact alpha profile between consecutive
      * frames, pooled over both feet's stances (27 frame pairs): 3.629 +/- 0.039 sprite px per
      * frame, so one 40-frame cycle advances the body 57.0 world units against a 96-unit
@@ -455,7 +459,7 @@ object PlayerAnimations {
 
     /**
      * Where the higher (back) leg rests in idle stance, so both feet connect with the ground.
-     * A per-column alpha scan across all 45 idle frames (`resources/player/idle/0001..0045.png`,
+     * A per-column alpha scan across all 45 idle frames (`art/frames/player/idle/0001..0045.png`,
      * identical in every one - this is a static two-footed stance, not something that shifts
      * during the breathing loop) puts the front foot's sole at row 255 (on `SOURCE_FEET_Y`) and
      * the back foot's at row 248, a stable 7px short of it. The value here is set a further few
@@ -476,7 +480,7 @@ object PlayerAnimations {
 
     /**
      * Where the higher (back) leg rests in the held crouch pose - a per-column scan of
-     * `resources/player/crouch/0034.png` (the held frame, `CROUCH_LAST`) puts the front foot's
+     * `art/frames/player/crouch/0034.png` (the held frame, `CROUCH_LAST`) puts the front foot's
      * lowest row at 255 (on `SOURCE_FEET_Y`, same as every other clip) and the back foot's at
      * ~250, a stable ~5-6px short of it - the settling crouch plants weight forward with the back
      * heel raised, not a flat two-footed squat. Same fix as `IDLE_FEET_Y`: shift the whole sprite
@@ -488,7 +492,7 @@ object PlayerAnimations {
 
     /**
      * Same phenomenon as `IDLE_FEET_Y`, measured across the jump clip's landing-absorb frames
-     * (`resources/player/jump/0028.png` through `0044.png`, i.e. `JUMP_LAND_START`..`JUMP_LAND_END`):
+     * (`art/frames/player/jump/0028.png` through `0044.png`, i.e. `JUMP_LAND_START`..`JUMP_LAND_END`):
      * the back foot's lowest row sits at a strikingly consistent ~247-248 across all seventeen
      * frames (a per-column scan of several of them, not just one, confirms it isn't a one-frame
      * fluke) while the front foot reaches the true `SOURCE_FEET_Y` line - the exact same
@@ -514,78 +518,201 @@ object PlayerAnimations {
     //
     // The frames themselves are static content with no per-instance state - the same character,
     // drawn the same way, in every level and every replay - so there is no reason a second
-    // GameplayScene needs its own copy at all. Caching the loaded set here and returning it on
-    // every call after the first removes the repeated allocation at its root, the same fix
+    // GameplayScene needs its own copy at all. Caching the loaded atlases here and handing them
+    // back on every call after the first removes the repeated allocation at its root, the same fix
     // already applied to GameAudio's one-time audio priming for the same class of bug.
+    //
+    // PER-LEVEL CLIPS (2026-10-07). The cache is split in two:
+    //  - the CORE atlas - idle, walk, jump, crouch, crouchwalk and climb - loaded once and kept for
+    //    the process (6 pages of 2048x2048; climb is in nearly every level, and packed with the
+    //    rest it costs 6 pages where the two apart cost 7);
+    //  - one small atlas per [PlayerClipGroup] - swing, push, wind - each a single page, loaded
+    //    only for a level that can use it ([groupsFor]) and let go when the next level cannot.
+    // All eleven in one atlas was 9 pages (~151MB of heap plus the same again uploaded); a level
+    // now carries 6-8 of them, 9 only for level 9, whose echo can show any frame.
     @Volatile
-    private var cached: PlayerAnimationSet? = null
+    private var core: CoreClips? = null
+    /** The core atlas [GamePreload] is building behind the menu - [preloadCore]. */
+    @Volatile
+    private var corePreload: CompletableDeferred<CoreClips?>? = null
+    private val groups = HashMap<PlayerClipGroup, GroupClips>()
+    /** Pages of groups dropped by [load], waiting for GameplayScene to free them - [takeReleasedPages]. */
+    private val releasedPages = ArrayList<Bitmap>()
 
-    suspend fun load(): PlayerAnimationSet {
-        cached?.let { return it }
+    private class CoreClips(
+        val idle: SpriteAnimation,
+        val walk: SpriteAnimation,
+        val jump: SpriteAnimation,
+        val crouch: SpriteAnimation,
+        val crouchwalk: SpriteAnimation,
+        val climb: SpriteAnimation
+    )
 
-        // Pack every frame into a shared atlas. Read individually they become one GPU texture
+    private class GroupClips(val clips: List<SpriteAnimation>, val pages: List<Bitmap>)
+
+    /**
+     * The optional clip groups a level can play - read off the same fields its GameWorld gates
+     * each move on, so a group is loaded exactly when the move is possible:
+     *  - SWING: Player only swings from GameWorld.swingHooks (the update hands it a subset).
+     *  - PUSH: GameWorld.updatePushStance returns at once without a cart or the push demo.
+     *  - WIND: the wind stance only rises inside a fan's airflow (GameWorld.updateFans).
+     * A level replaying another's run (level 9's echo) gets every group: the figure can show any
+     * frame the recorded run drew.
+     */
+    fun groupsFor(levelData: LevelData, world: GameWorld): Set<PlayerClipGroup> {
+        if (levelData.replaysRunOf != null) return PlayerClipGroup.entries.toSet()
+        val out = HashSet<PlayerClipGroup>()
+        if (world.swingHooks.isNotEmpty()) out += PlayerClipGroup.SWING
+        if (world.pushStanceDemo || world.pushCarts.isNotEmpty()) out += PlayerClipGroup.PUSH
+        if (world.fans.isNotEmpty()) out += PlayerClipGroup.WIND
+        return out
+    }
+
+    /**
+     * The player's clips with [needed] groups loaded. Groups not needed are let go (their pages
+     * go to [takeReleasedPages]); a clip whose group is not loaded keeps its exact frame count,
+     * filled with a core frame (swing: the jump's apex; push and wind: idle) - so every clip's
+     * frames still sit at the same indices in GameplayScene.playerFrames (PlayerEyePoints, the
+     * level 9 echo's recorded frames), and a move this level was wrongly thought unable to make
+     * would show a wrong pose rather than an invisible character.
+     */
+    suspend fun load(needed: Set<PlayerClipGroup> = PlayerClipGroup.entries.toSet()): PlayerAnimationSet {
+        val core = this.core ?: (takeCorePreload() ?: loadCore()).also { this.core = it }
+        for (group in groups.keys.filter { it !in needed }) {
+            groups.remove(group)?.let { releasedPages += it.pages }
+        }
+        for (group in needed) {
+            if (group !in groups) groups[group] = loadGroup(group)
+        }
+        val apex = core.jump.getSprite(JUMP_APEX)
+        val stand = core.idle.getSprite(0)
+        fun clip(group: PlayerClipGroup, index: Int, frames: Int, stand: BmpSlice): SpriteAnimation =
+            groups[group]?.clips?.get(index) ?: SpriteAnimation(sprites = List(frames) { stand }, defaultTimePerFrame = 33.milliseconds)
+        return PlayerAnimationSet(
+            idle = core.idle,
+            walk = core.walk,
+            jump = core.jump,
+            crouch = core.crouch,
+            crouchwalk = core.crouchwalk,
+            climb = core.climb,
+            swing = clip(PlayerClipGroup.SWING, 0, SWING_FRAMES, apex),
+            pushTransition = clip(PlayerClipGroup.PUSH, 0, PUSH_TRANSITION_FRAMES, stand),
+            push = clip(PlayerClipGroup.PUSH, 1, PUSH_FRAMES, stand),
+            windTransition = clip(PlayerClipGroup.WIND, 0, WIND_TRANSITION_FRAMES, stand),
+            windWalk = clip(PlayerClipGroup.WIND, 1, WIND_WALK_FRAMES, stand)
+        )
+    }
+
+    /**
+     * Reserves the core atlas for [GamePreload] and returns the work that builds it - the same
+     * [loadCore], safe on any thread (it decodes and packs into heap bitmaps; the GPU upload
+     * happens when a frame is first drawn). Until it finishes, [load] waits for it rather than
+     * building a second atlas; if it fails, [load] builds its own as before - and throws there,
+     * where GameplayScene shows the error. Nothing to do when the core is loaded or reserved.
+     */
+    internal fun preloadCore(): suspend () -> Unit {
+        if (core != null || corePreload != null) return {}
+        val result = CompletableDeferred<CoreClips?>()
+        corePreload = result
+        return {
+            result.complete(
+                try {
+                    loadCore()
+                } catch (e: Throwable) {
+                    println("[PlayerAnimations] preload failed, the level will load it itself: $e")
+                    null
+                }
+            )
+        }
+    }
+
+    private suspend fun takeCorePreload(): CoreClips? {
+        val pending = corePreload ?: return null
+        // Cleared only once it lands, so a second load() meanwhile waits for the same atlas.
+        val preloaded = pending.await()
+        corePreload = null
+        return core ?: preloaded
+    }
+
+    /** True when [group]'s own frames are loaded (not stand-ins). */
+    fun isLoaded(group: PlayerClipGroup): Boolean = group in groups
+
+    /**
+     * Atlas pages of the groups [load] has let go since the last call. GameplayScene frees them
+     * from the texture manager once the scene that drew them is gone (SceneAssets.releaseOtherLevelsArt).
+     */
+    fun takeReleasedPages(): List<Bitmap> {
+        val out = ArrayList(releasedPages)
+        releasedPages.clear()
+        return out
+    }
+
+    private suspend fun loadCore(): CoreClips {
+        // Every frame comes from a shared atlas. Read individually they become one GPU texture
         // each, which forces a rebind on every animation frame and shows up as stutter; packed,
-        // an animation sits on one page.
+        // an animation sits on one page. The pages are packed ahead of time
+        // (tools/art/pack_sprite_atlases.py -> resources/atlas/; see PackedAtlas) - packing ~600
+        // frame files here at run time was most of a first level's load.
         //
         // ATLAS BUDGET - this is the single biggest memory consumer in the game, so keep an eye
-        // on it. GrowMethod.NEW_IMAGES adds a whole 2048x2048 page (16.8MB as a Bitmap32 on the
-        // heap, and again as a GPU texture) each time the current one fills, so cost goes up in
-        // 16.8MB steps, not smoothly. The clips below total 26.4M pixels - at least 7 pages, more
-        // with packing waste. Before the unreachable climb run-up (raw 1-69) and crouchwalk tail
-        // (raw 145-192) were dropped it was 26.2M for a strictly smaller set of clips, i.e. ~34MB
-        // of heap and ~34MB of texture memory spent on frames nothing could ever display.
+        // on it. Every 2048x2048 page is 16.8MB as a Bitmap32 on the heap, and again as a GPU
+        // texture, so cost goes up in 16.8MB steps, not smoothly - and frames are packed in whole
+        // rows, so a page holds fewer than its area suggests (98 of the 140x256 clips). These six
+        // clips take 6 pages; the swing, push and wind groups one page each on their own (the
+        // packer prints the counts).
         //
         // Adding frames here is not free. Climb is 155 frames at 200x300 (9.3M px, over two pages
-        // on its own); the two push clips are 84 frames at 180x256 (3.9M px), and they are what
-        // took the total from 22.6M to 26.4M - roughly one more page of heap and one more of
-        // texture. Both push clips are already cut to the minimum that reads correctly and the
-        // reasoning for every cut is in tools/art/prep_push.py, so a future saving has to come
-        // from somewhere else rather than from trimming them again.
-        //
-        // The two wind clips (54 frames at 192x256 - wider than push's 180 because the wind
-        // walk's leading fist would otherwise sit on the frame edge; see prep_wind.py) add
-        // 2.65M px on top, taking the total to 29.1M. They are already the tightest cut the
-        // footage allows: the transition is sampled at step 3 and the gait loop is halved,
-        // both justified frame by frame in prep_wind.py.
-        val atlas = MutableAtlas<Unit>(2048, 2048, growMethod = MutableAtlas.GrowMethod.NEW_IMAGES)
+        // on its own); the two push clips are 72 frames at 180x256 and the two wind clips 54 at
+        // 192x256 (wider than push's 180 because the wind walk's leading fist would otherwise sit
+        // on the frame edge; see prep_wind.py). They are already the tightest cut the footage
+        // allows - the reasoning for every cut is in tools/art/prep_push.py and prep_wind.py - so a
+        // future saving has to come from somewhere else rather than from trimming them again.
+        val atlas = PackedAtlas.load("player_core")
 
         // Only idle runs on its own timer. GameplayScene drives walk frame-by-frame from distance
         // travelled, jump from the physics arc, crouch from the stance transition, and climb from
         // the climb move's own timer, so those frame times are inert fallbacks.
-        val set = PlayerAnimationSet(
-            idle = loadAnimation(atlas, "idle", IDLE_FRAMES, frameTimeMs = IDLE_FRAME_TIME_MS),
-            walk = loadAnimation(atlas, "walk", WALK_FRAMES, frameTimeMs = 40),
-            jump = loadAnimation(atlas, "jump", JUMP_FRAMES, frameTimeMs = 33),
-            crouch = loadAnimation(atlas, "crouch", CROUCH_FRAMES, frameTimeMs = 33),
-            crouchwalk = loadAnimation(atlas, "crouchwalk", CROUCHWALK_FRAMES, frameTimeMs = 40),
-            climb = loadAnimation(atlas, "climb", CLIMB_FRAMES, frameTimeMs = 33, firstFile = CLIMB_FILE_START),
-            swing = loadAnimation(atlas, "swing", SWING_FRAMES, frameTimeMs = 33),
-            pushTransition = loadAnimation(atlas, "pushtransition", PUSH_TRANSITION_FRAMES, frameTimeMs = 33),
-            push = loadAnimation(atlas, "push", PUSH_FRAMES, frameTimeMs = 40),
-            windTransition = loadAnimation(atlas, "windtransition", WIND_TRANSITION_FRAMES, frameTimeMs = 33),
-            windWalk = loadAnimation(atlas, "windwalk", WIND_WALK_FRAMES, frameTimeMs = 40)
+        return CoreClips(
+            idle = animation(atlas, "idle", IDLE_FRAMES, frameTimeMs = IDLE_FRAME_TIME_MS),
+            walk = animation(atlas, "walk", WALK_FRAMES, frameTimeMs = 40),
+            jump = animation(atlas, "jump", JUMP_FRAMES, frameTimeMs = 33),
+            crouch = animation(atlas, "crouch", CROUCH_FRAMES, frameTimeMs = 33),
+            crouchwalk = animation(atlas, "crouchwalk", CROUCHWALK_FRAMES, frameTimeMs = 40),
+            // Packed from file CLIMB_FILE_START: the run-up before it is never displayed. The
+            // clip is indexed from 0 either way, so its START/END constants are in loaded-index
+            // space, not raw file numbering.
+            climb = animation(atlas, "climb", CLIMB_FRAMES, frameTimeMs = 33)
         )
-        cached = set
-        return set
     }
 
-    /**
-     * Loads [frameCount] frames starting at file `<firstFile>.png`. [firstFile] exists so a clip
-     * whose opening frames are never displayed (climb's run-up) can skip them entirely rather
-     * than pack them into the atlas - the returned animation is indexed from 0 either way, so
-     * the clip's own START/END constants are in loaded-index space, not raw file numbering.
-     */
-    private suspend fun loadAnimation(
-        atlas: MutableAtlas<Unit>,
-        folder: String,
-        frameCount: Int,
-        frameTimeMs: Int,
-        firstFile: Int = 1
-    ): SpriteAnimation {
-        val frames = (firstFile until firstFile + frameCount).map { index ->
-            val name = index.toString().padStart(4, '0')
-            resourcesVfs["player/$folder/$name.png"].readBitmapSlice(atlas = atlas)
+    private suspend fun loadGroup(group: PlayerClipGroup): GroupClips {
+        val atlas = PackedAtlas.load(
+            when (group) {
+                PlayerClipGroup.SWING -> "player_swing"
+                PlayerClipGroup.PUSH -> "player_push"
+                PlayerClipGroup.WIND -> "player_wind"
+            }
+        )
+        val clips = when (group) {
+            PlayerClipGroup.SWING -> listOf(
+                animation(atlas, "swing", SWING_FRAMES, frameTimeMs = 33)
+            )
+            PlayerClipGroup.PUSH -> listOf(
+                animation(atlas, "pushtransition", PUSH_TRANSITION_FRAMES, frameTimeMs = 33),
+                animation(atlas, "push", PUSH_FRAMES, frameTimeMs = 40)
+            )
+            PlayerClipGroup.WIND -> listOf(
+                animation(atlas, "windtransition", WIND_TRANSITION_FRAMES, frameTimeMs = 33),
+                animation(atlas, "windwalk", WIND_WALK_FRAMES, frameTimeMs = 40)
+            )
         }
-        return SpriteAnimation(sprites = frames, defaultTimePerFrame = frameTimeMs.milliseconds)
+        return GroupClips(clips, atlas.pages)
     }
+
+    /** [clip]'s [frameCount] frames from [atlas], as an animation. */
+    private fun animation(atlas: PackedAtlas, clip: String, frameCount: Int, frameTimeMs: Int): SpriteAnimation =
+        SpriteAnimation(sprites = atlas.frames(clip, frameCount), defaultTimePerFrame = frameTimeMs.milliseconds)
 }
+
+/** The player clips a level loads only when it can use them - see [PlayerAnimations.groupsFor]. */
+enum class PlayerClipGroup { SWING, PUSH, WIND }

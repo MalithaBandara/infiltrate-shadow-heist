@@ -11,9 +11,12 @@ package com.infiltrate.ads
  * separate launch-grace constant (see .junie/guidelines.md).
  */
 object InterstitialAdLimiter {
-    const val MIN_LEVELS_COMPLETED = 2
-    const val COOLDOWN_SECONDS = 180L
-    const val MAX_PER_SESSION = 5
+    // Tuned from vendor guidance (Meta Instant Games, Unity, ironSource): natural breaks only, a
+    // 60-90s floor for casual games with 1-3 min between ads as the usual target, and 3-8 per
+    // session. These are starting points - tune against D1 retention and ARPDAU once live.
+    const val MIN_LEVELS_COMPLETED = 1
+    const val COOLDOWN_SECONDS = 120L
+    const val MAX_PER_SESSION = 8
 
     private var lastShownAtEpochSeconds: Long = currentEpochSeconds()
     private var sessionShowCount: Int = 0

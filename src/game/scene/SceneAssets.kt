@@ -7,7 +7,10 @@ import korlibs.image.font.TtfFont
 import korlibs.image.font.readTtfFont
 import korlibs.image.format.readBitmap
 import korlibs.io.file.std.resourcesVfs
+import korlibs.korge.internal.KorgeInternal
+import korlibs.korge.render.AgBitmapTextureManager
 import korlibs.math.isPowerOfTwo
+import kotlinx.coroutines.CompletableDeferred
 
 /**
  * Process-wide cache for the static art and fonts `GameplayScene` draws with.
@@ -42,6 +45,120 @@ object SceneAssets {
     private val bitmaps = HashMap<String, Bitmap>()
     private val fonts = HashMap<String, TtfFont>()
 
+    /** Every name [bitmap] was asked for since the last [beginLevel] - the art the level being built uses. */
+    private val requestedThisLevel = HashSet<String>()
+
+    /**
+     * What [GamePreload] is decoding behind the menu, not yet taken. Filled on a background thread,
+     * but only through the deferreds: the maps themselves are written by [preloadBitmap] /
+     * [preloadFont] before that thread starts and after it only by [bitmap] / [font], on the game's
+     * own coroutine. An entry is removed once taken, so a preload never pins a bitmap the cache has
+     * since let go of.
+     */
+    private val bitmapPreloads = HashMap<String, CompletableDeferred<Bitmap?>>()
+    private val fontPreloads = HashMap<String, CompletableDeferred<TtfFont?>>()
+
+    /**
+     * Test switch: [levelArt] loads everything, the way every level did before level-scoped
+     * loading - the reference GameplaySceneArtTest compares each level's view tree against.
+     */
+    var loadAllLevelArt: Boolean = false
+
+    /** The cached bitmaps by name, for tests. */
+    internal fun cachedForTesting(): Map<String, Bitmap> = bitmaps.toMap()
+
+    /** What the level being built has asked [bitmap] for so far, for tests. */
+    internal fun requestedForTesting(): Set<String> = requestedThisLevel.toSet()
+
+    /** Preloads not yet taken by [bitmap] / [font], for tests. */
+    internal fun pendingPreloadsForTesting(): Set<String> = bitmapPreloads.keys + fontPreloads.keys
+
+    /**
+     * Reserves [name] for [GamePreload] and returns the work that decodes it - exactly as [bitmap]
+     * would, [minified] included - safe to run on any thread. Until that work finishes, a [bitmap]
+     * call for [name] waits for it instead of decoding a second copy. Nothing to do (an empty
+     * step) for a name already cached or reserved.
+     */
+    internal fun preloadBitmap(name: String, minified: Boolean): suspend () -> Unit {
+        if (name in bitmaps || name in bitmapPreloads) return {}
+        val result = CompletableDeferred<Bitmap?>()
+        bitmapPreloads[name] = result
+        return { result.complete(try { decode(name, minified) } catch (_: Throwable) { null }) }
+    }
+
+    /** [preloadBitmap] for a font: [font] waits for this decode instead of starting its own. */
+    internal fun preloadFont(name: String): suspend () -> Unit {
+        if (name in fonts || name in fontPreloads) return {}
+        val result = CompletableDeferred<TtfFont?>()
+        fontPreloads[name] = result
+        return { result.complete(try { resourcesVfs[name].readTtfFont() } catch (_: Throwable) { null }) }
+    }
+
+    /** A level is starting to load: what it asks for from here on is what [releaseOtherLevelsArt] keeps. */
+    fun beginLevel() {
+        requestedThisLevel.clear()
+    }
+
+    /**
+     * [bitmap], for a level prop - but only when [needed] (the level has something that draws it),
+     * else `null` without touching the disk. A `null` here takes exactly the path a missing file
+     * always took at every call site, which is why [needed] must be true wherever the scene would
+     * draw the asset; GameplaySceneArtTest checks that for every level.
+     */
+    suspend fun levelArt(name: String, needed: Boolean, minified: Boolean = true): Bitmap? =
+        if (needed || loadAllLevelArt) bitmap(name, minified) else null
+
+    /**
+     * Forgets every cached bitmap the level being built did not ask for, and frees its GPU texture
+     * - and the same for [also] (atlas pages the level let go of, PlayerAnimations.takeReleasedPages).
+     * Call only once nothing on screen can draw them any more - GameplayScene does it after its
+     * own setup, once the scene it replaced has been destroyed.
+     *
+     * Dropping our reference is not enough on its own. KorGE's texture manager keeps a strong
+     * reference to every bitmap it has uploaded while it is under its `maxCachedMemory` budget
+     * (384MB here - TextureResidency), and a plain `removeBitmap` does not stick: the manager's
+     * next GC walks a list `removeBitmap` does not clear and re-adds the bitmap to its cache set,
+     * where it then stays for good. What does stick is the manager's own GC deciding to drop it,
+     * which it does for a bitmap not drawn since the previous GC while over budget. So: mark every
+     * other uploaded texture as used, run the GC with a budget nothing fits in, twice (the first
+     * pass can only catch what was not drawn since the GC before it; the second catches what the
+     * old scene drew since then), and put the budget back. Everything kept stays uploaded - the
+     * player's atlas pages and this level's art are not re-sent. Written against KorGE 6.0.0's
+     * AgBitmapTextureManager (locked - see .junie/guidelines.md); re-check it before any upgrade.
+     *
+     * @return how many bitmaps were released.
+     */
+    @OptIn(KorgeInternal::class)
+    fun releaseOtherLevelsArt(textures: AgBitmapTextureManager, also: List<Bitmap> = emptyList()): Int {
+        val released = ArrayList<Bitmap>(also)
+        val entries = bitmaps.entries.iterator()
+        while (entries.hasNext()) {
+            val entry = entries.next()
+            if (entry.key !in requestedThisLevel) {
+                released.add(entry.value)
+                entries.remove()
+            }
+        }
+        if (released.isEmpty()) return 0
+        repeat(2) {
+            // Clears the manager's two-entry fast path, which returns a texture without marking it
+            // used - a kept bitmap sitting in it would otherwise be dropped below. (It may also run
+            // the manager's own regular GC, which is harmless here.)
+            textures.afterRender()
+            for (bmp in textures.getBitmapsWithTextureInfoCopy().keys) {
+                if (released.none { it === bmp }) textures.getTextureBase(bmp)
+            }
+            val budget = textures.maxCachedMemory
+            textures.maxCachedMemory = -1L
+            try {
+                textures.gc()
+            } finally {
+                textures.maxCachedMemory = budget
+            }
+        }
+        return released.size
+    }
+
     /**
      * Cached [readBitmap], `null` on failure exactly like the inline try/catch it replaces.
      *
@@ -52,11 +169,35 @@ object SceneAssets {
      * not a power of two in both dimensions it says so once, loudly, because in that case the
      * request is silently ignored - see [warnIfNotPowerOfTwo].
      *
-     * Pass `minified = false` for anything sub-sliced too (`chainedcrate`, `stars`): mip levels
-     * average across the slice boundaries and bleed neighbouring cutouts into each other.
+     * Pass `minified = false` for anything sub-sliced too (`chainedcrate`): mip levels
+     * average across the slice boundaries and bleed neighbouring cutouts into each other. And for
+     * art already sized to under 2x its draw box (everything tools/art/prep_level_props.py makes):
+     * there bilinear is clean on its own, and trilinear - which picks its level off the
+     * most-minified axis - measured 30-40% softer than the full-size art.
+     *
+     * A name [GamePreload] already decoded behind the menu is taken from there (waiting for it if
+     * it is still being decoded); a preload that failed is retried here, like any first load.
      */
     suspend fun bitmap(name: String, minified: Boolean = true): Bitmap? {
+        requestedThisLevel.add(name)
         bitmaps[name]?.let { return it }
+        bitmapPreloads[name]?.let { pending ->
+            // Left in the map until it lands, so a second caller meanwhile waits for the same one.
+            val preloaded = pending.await()
+            bitmapPreloads.remove(name)
+            bitmaps[name]?.let { return it }
+            if (preloaded != null) {
+                bitmaps[name] = preloaded
+                return preloaded
+            }
+        }
+        val loaded = decode(name, minified) ?: return null
+        bitmaps[name] = loaded
+        return loaded
+    }
+
+    /** One uncached load: [bitmap]'s decode, on whatever thread calls it. `null` on failure. */
+    private suspend fun decode(name: String, minified: Boolean): Bitmap? {
         val loaded = try {
             resourcesVfs[name].readBitmap()
         } catch (_: Throwable) {
@@ -66,7 +207,6 @@ object SceneAssets {
             loaded.mipmaps(true)
             warnIfNotPowerOfTwo(name, loaded.width, loaded.height)
         }
-        bitmaps[name] = loaded
         return loaded
     }
 
@@ -94,6 +234,15 @@ object SceneAssets {
     /** Cached [readTtfFont], falling back to [fallback] (default [DefaultTtfFont]) on failure. */
     suspend fun font(name: String, fallback: TtfFont = DefaultTtfFont): TtfFont {
         fonts[name]?.let { return it }
+        fontPreloads[name]?.let { pending ->
+            val preloaded = pending.await()
+            fontPreloads.remove(name)
+            fonts[name]?.let { return it }
+            if (preloaded != null) {
+                fonts[name] = preloaded
+                return preloaded
+            }
+        }
         val loaded = try {
             resourcesVfs[name].readTtfFont()
         } catch (_: Throwable) {

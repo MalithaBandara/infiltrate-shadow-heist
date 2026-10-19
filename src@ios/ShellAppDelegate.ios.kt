@@ -1,4 +1,5 @@
 import kotlin.native.ObjCName
+import game.scene.GamePreload
 import korlibs.render.KorgwBaseNewAppDelegate
 import platform.UIKit.UIApplication
 
@@ -20,6 +21,11 @@ import platform.UIKit.UIApplication
 @ObjCName(name = "ShellAppDelegate", exact = true)
 object ShellAppDelegate : KorgwBaseNewAppDelegate() {
     override fun applicationDidFinishLaunching(app: UIApplication) {
+        // The player's atlas, the fonts and every level's shared art, decoded on a background
+        // thread while the menu is up - KorGE's own loop does not run while the menu is in the
+        // window instead of its view, so this is the only way that work happens before a level
+        // is tapped. See GamePreload.
+        GamePreload.start()
         // Points at gameMain() (GameEntry.ios.kt), the real entry point - same shape as
         // commonMain's main() but with dynamic level-switching wired in (see
         // GameLevelStartBridge's own doc comment for why that's needed on iOS specifically).

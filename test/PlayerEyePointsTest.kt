@@ -27,7 +27,7 @@ class PlayerEyePointsTest {
         var handAtFace = 0
         for ((folder, first, count) in clips) {
             for (n in first until first + count) {
-                val img = ImageIO.read(File("resources/player/$folder/${n.toString().padStart(4, '0')}.png"))
+                val img = ImageIO.read(File("art/frames/player/$folder/${n.toString().padStart(4, '0')}.png"))
                 val x = PlayerEyePoints.x(i)
                 val y = PlayerEyePoints.y(i)
                 fun alpha(px: Int, py: Int) = if (px in 0 until img.width && py in 0 until img.height) (img.getRGB(px, py) ushr 24) and 0xFF else 0

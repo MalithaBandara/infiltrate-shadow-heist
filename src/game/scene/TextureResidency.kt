@@ -61,7 +61,7 @@ class TextureResidency(animations: List<SpriteAnimation>) : View() {
          * Budget for textures nothing drew this second (level props scrolled off screen, a
          * background layer behind a cutscene) to stay uploaded instead of being re-sent when they
          * come back. Above it KorGE drops them as before. The resident atlas pages count towards
-         * it, so it is sized above them (~9 player + ~1 guard pages, ~170MB) plus a level's art.
+         * it, so it is sized above them (6-9 player + ~1 guard pages, up to ~170MB) plus a level's art.
          */
         const val CACHED_TEXTURE_BUDGET_BYTES = 384L * 1024L * 1024L
     }

@@ -5,7 +5,7 @@ Usage:  python tools/art/prep_guard.py [<art-source-guard-dir>]
 
 Default source is art-source/guard (gitignored, like the player's plates), holding the owner's
 drops: idle/ (Downloads/charAnimations/guardidle, 144 frames) and walk/ (.../guardwalk, 144
-frames), all 360x640. Writes resources/guard/idle and resources/guard/walk and prints the
+frames), all 360x640. Writes art/frames/guard/idle and art/frames/guard/walk and prints the
 constants GuardAnimations.kt and Guard.kt need - MEASURED off the output, not derived, so re-run
 this and paste the numbers whenever the plates change rather than editing the constants by hand.
 
@@ -172,8 +172,8 @@ def prep_walk(src, dst):
 
 def main(argv):
     src = argv[0] if argv else os.path.join("art-source", "guard")
-    ia, ib = prep_idle(os.path.join(src, "idle"), os.path.join("resources", "guard", "idle"))
-    wa, wb = prep_walk(os.path.join(src, "walk"), os.path.join("resources", "guard", "walk"))
+    ia, ib = prep_idle(os.path.join(src, "idle"), os.path.join("art", "frames", "guard", "idle"))
+    wa, wb = prep_walk(os.path.join(src, "walk"), os.path.join("art", "frames", "guard", "walk"))
     print("Guard.kt (mean of both clips):")
     print("  TORCH_AHEAD_PER_HEIGHT = %.2f" % ((ia + wa) / 2.0))
     print("  TORCH_ABOVE_FEET_PER_HEIGHT = %.2f" % ((ib + wb) / 2.0))
