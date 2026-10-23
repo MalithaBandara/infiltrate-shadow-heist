@@ -121,6 +121,35 @@ object VisionSystem {
         occluders = occluders
     )
 
+    fun getPlayerSpottedDistance(
+        bot: CameraBot,
+        player: Player,
+        occluders: List<Rect>
+    ): Double? {
+        val eye = bot.eyePosition
+        val halfFov = bot.visionFov / 2.0
+        val maxDistSq = bot.visionRange * bot.visionRange
+        var closestDist: Double? = null
+
+        val points = getBotDetectionPoints(bot, player)
+        for (targetPoint in points) {
+            val distSq = eye.distanceSquaredTo(targetPoint)
+            if (distSq > maxDistSq) continue
+
+            val angleToTarget = atan2(targetPoint.y - eye.y, targetPoint.x - eye.x)
+            val angleDiff = abs(GeometryUtils.angleDifference(angleToTarget, bot.facingAngle))
+            if (angleDiff > halfFov) continue
+
+            if (GeometryUtils.hasLineOfSight(eye, targetPoint, occluders)) {
+                val dist = sqrt(distSq)
+                if (closestDist == null || dist < closestDist) {
+                    closestDist = dist
+                }
+            }
+        }
+        return closestDist
+    }
+
     fun isPlayerSpotted(
         guard: Guard,
         player: Player,
@@ -132,4 +161,57 @@ object VisionSystem {
         player: Player,
         occluders: List<Rect>
     ): Boolean = getPlayerSpottedDistance(camera, player, occluders) != null
+
+    fun isPlayerSpotted(
+        bot: CameraBot,
+        player: Player,
+        occluders: List<Rect>
+    ): Boolean = getPlayerSpottedDistance(bot, player, occluders) != null
+
+    private fun getBotDetectionPoints(bot: CameraBot, player: Player): List<Vec2d> {
+        val top = player.currentTopY
+        val bottom = player.y + player.height
+        val h = player.currentHeight
+        val cx = player.centerX
+
+        val xs = if (player.braceLean != 0.0) {
+            val leanHeadX = cx + player.braceLean * Player.PUSH_HEAD_POINT_X * player.visualHeight
+            val leanTorsoX = cx + player.braceLean * Player.PUSH_TORSO_POINT_X * player.visualHeight
+            listOf(
+                player.x + 1.0,
+                player.x + player.width * 0.25,
+                cx,
+                player.x + player.width * 0.75,
+                player.x + player.width - 1.0,
+                leanHeadX,
+                leanTorsoX
+            )
+        } else {
+            listOf(
+                player.x + 1.0,
+                player.x + player.width * 0.25,
+                cx,
+                player.x + player.width * 0.75,
+                player.x + player.width - 1.0
+            )
+        }
+
+        val clampedEyeY = bot.eyePosition.y.coerceIn(top + 4.0, bottom - 4.0)
+        val ys = listOf(
+            top + 10.0,
+            top + h * 0.25,
+            top + h * 0.50,
+            top + h * 0.75,
+            clampedEyeY,
+            bottom - 8.0
+        )
+
+        val points = ArrayList<Vec2d>(xs.size * ys.size)
+        for (x in xs) {
+            for (y in ys) {
+                points.add(Vec2d(x, y))
+            }
+        }
+        return points
+    }
 }

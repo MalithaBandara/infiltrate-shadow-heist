@@ -64,6 +64,13 @@ data class Player(
     var isClimbing: Boolean = false
         private set
 
+    /** The box currently being climbed, if any. */
+    var currentClimbBox: Rect? = null
+        private set
+
+    /** Where the feet stood when the climb began - the drawn figure never hangs below it. */
+    val climbStartFeetY: Double get() = climbStartY + height
+
     /**
      * Set by [findClimbTarget] when the ledge being climbed has crouching room but not standing
      * room. The stance is applied the moment the climb finishes (either ending), and the existing
@@ -334,6 +341,7 @@ data class Player(
         crouchSuppressedByJump = false
         crouchedAtTakeoff = false
         isClimbing = false
+        currentClimbBox = null
         climbEndsCrouched = false
         climbElapsed = 0.0
         isSwinging = false
@@ -638,17 +646,15 @@ data class Player(
 
     private fun startClimb(target: ClimbTarget, direction: Double) {
         val box = target.box
+        currentClimbBox = box
         isClimbing = true
         climbEndsCrouched = target.endsCrouched
         climbElapsed = 0.0
         // The climb clip is drawn with the body flush against the face it grips, and its first
         // frame is already hanging from the lip (CLIMB_GRIP_CURVE starts at 1.0, so y snaps up to
-        // the hang on this frame). A box stops the player flush on its own; a hanging ledge does
-        // not - it is grabbed from up to HANGING_GRAB_BEFORE short of its edge or
-        // HANGING_GRAB_UNDER beneath it - so the hands closed on air (level 11's catwalks,
-        // 2026-10-19: "he is not touching the thing while climbing"). The body is set flush in
-        // the same frame as the snap up to the hang, so the grab reads as one move.
-        if (box in hangingClimbTargets) x = if (direction > 0.0) box.left - width else box.right
+        // the hang on this frame). Whether grabbed from up to reach/HANGING_GRAB_BEFORE short of
+        // its edge or beneath it, snap flush against the climbed face so hands grip the edge.
+        x = if (direction > 0.0) box.left - width else box.right
         climbStartX = x
         climbStartY = y
         // Feet-based, so this is the same whether the climb ends standing or crouched - crouching
@@ -684,6 +690,7 @@ data class Player(
         y = climbStartY - maxOf(gripRise, pullRise)
         if (t >= climbEndPhase) {
             isClimbing = false
+            currentClimbBox = null
             isGrounded = true
             isJumping = false
             isDropping = false
@@ -721,6 +728,7 @@ data class Player(
             advanceClimb(dt)
             if (isClimbing && climbProgress >= 0.85 && (moveInput != 0.0 || (jumpInput && !jumpConsumedAfterClimb))) {
                 isClimbing = false
+                currentClimbBox = null
                 isGrounded = true
                 isJumping = false
                 isDropping = false

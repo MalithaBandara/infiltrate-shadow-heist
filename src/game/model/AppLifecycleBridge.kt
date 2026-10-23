@@ -31,13 +31,22 @@ object GameAppLifecycle {
     var isForeground: Boolean = true
         private set
 
+    /**
+     * Told on every change, so audio can be silenced at once: on iOS the KorGE view leaves the window
+     * for a full-screen ad and its update loop stops, so nothing polling [isForeground] ever runs to
+     * quieten the music. One listener - the live gameplay scene sets it and clears it on teardown.
+     */
+    var onForegroundChanged: ((Boolean) -> Unit)? = null
+
     /** Backgrounded, or covered by a full-screen ad. The level clock stops here. */
     fun markBackground() {
         isForeground = false
+        onForegroundChanged?.invoke(false)
     }
 
     /** Back in front of the player. The level clock resumes from where it stopped. */
     fun markForeground() {
         isForeground = true
+        onForegroundChanged?.invoke(true)
     }
 }

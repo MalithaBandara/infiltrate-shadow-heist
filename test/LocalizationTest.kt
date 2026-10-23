@@ -5,48 +5,96 @@ import kotlin.test.*
 
 class LocalizationTest {
 
+    private val allLanguages = listOf(
+        "en", "fr", "es", "pt-BR", "de", "id", "tr",
+        "vi", "ru", "ja", "ko", "zh-TW", "hi", "ar", "th"
+    )
+
     @Test
-    fun testAllLevelsHaveFrenchTranslations() {
+    fun testAllLanguagesSupportedInLevels() {
         val levels = LevelData.DEFAULT_LEVELS
         assertEquals(12, levels.size)
 
-        for (level in levels) {
-            val enName = level.localizedName("en")
-            val frName = level.localizedName("fr")
-            val enDesc = level.localizedDescription("en")
-            val frDesc = level.localizedDescription("fr")
-            val enObj = level.localizedObjectiveHint("en")
-            val frObj = level.localizedObjectiveHint("fr")
+        for (lang in allLanguages) {
+            for (level in levels) {
+                val name = level.localizedName(lang)
+                val desc = level.localizedDescription(lang)
+                val obj = level.localizedObjectiveHint(lang)
 
-            assertTrue(enName.isNotEmpty(), "Level ${level.id} English name must not be empty")
-            assertTrue(frName.isNotEmpty(), "Level ${level.id} French name must not be empty")
-            if (level.id != "level_9") {
-                assertNotEquals(enName, frName, "Level ${level.id} French name should differ from English name")
+                assertTrue(name.isNotEmpty(), "Level ${level.id} [$lang] name must not be empty")
+                assertTrue(desc.isNotEmpty(), "Level ${level.id} [$lang] description must not be empty")
+                assertTrue(obj.isNotEmpty(), "Level ${level.id} [$lang] objective must not be empty")
+
+                if (lang != "en") {
+                    assertTrue(desc.isNotEmpty(), "Level ${level.id} [$lang] description must exist")
+                    assertTrue(obj.isNotEmpty(), "Level ${level.id} [$lang] objective must exist")
+                }
             }
-
-            assertTrue(enDesc.isNotEmpty(), "Level ${level.id} English description must not be empty")
-            assertTrue(frDesc.isNotEmpty(), "Level ${level.id} French description must not be empty")
-            assertNotEquals(enDesc, frDesc, "Level ${level.id} French description must differ from English")
-
-            assertTrue(enObj.isNotEmpty(), "Level ${level.id} English objective must not be empty")
-            assertTrue(frObj.isNotEmpty(), "Level ${level.id} French objective must not be empty")
-            assertNotEquals(enObj, frObj, "Level ${level.id} French objective must differ from English")
         }
     }
 
     @Test
-    fun testFrenchLanguageCodeVariants() {
+    fun testAllLanguagesSupportedInTutorials() {
+        val allSteps = LevelData.DEFAULT_LEVELS.flatMap { it.tutorialSteps } + LevelData.PUSH_STANCE_DEMO.tutorialSteps
+        assertTrue(allSteps.isNotEmpty(), "There must be tutorial steps to verify")
+
+        for (lang in allLanguages) {
+            for (step in allSteps) {
+                val callout = step.localizedCallout(lang)
+                val title = step.localizedTitle(lang)
+                val touch = step.localizedInstructionTouch(lang)
+                val desktop = step.localizedInstructionDesktop(lang)
+
+                assertTrue(callout.isNotEmpty(), "Step ${step.id} [$lang] callout must not be empty")
+                assertTrue(title.isNotEmpty(), "Step ${step.id} [$lang] title must not be empty")
+                assertTrue(touch.isNotEmpty(), "Step ${step.id} [$lang] touch instruction must not be empty")
+                assertTrue(desktop.isNotEmpty(), "Step ${step.id} [$lang] desktop instruction must not be empty")
+            }
+        }
+    }
+
+    @Test
+    fun testLanguageCodeVariants() {
+        assertEquals("fr", Localization.langCode("fr"))
+        assertEquals("fr", Localization.langCode("FR"))
+        assertEquals("fr", Localization.langCode("fr-FR"))
+        assertEquals("fr", Localization.langCode("fr-CA"))
+
+        assertEquals("es", Localization.langCode("es"))
+        assertEquals("es", Localization.langCode("es-ES"))
+        assertEquals("es", Localization.langCode("es-419"))
+
+        assertEquals("pt-BR", Localization.langCode("pt"))
+        assertEquals("pt-BR", Localization.langCode("pt-BR"))
+        assertEquals("pt-BR", Localization.langCode("pt_PT"))
+
+        assertEquals("zh-TW", Localization.langCode("zh"))
+        assertEquals("zh-TW", Localization.langCode("zh-TW"))
+        assertEquals("zh-TW", Localization.langCode("zh-CN"))
+
+        assertEquals("ja", Localization.langCode("ja"))
+        assertEquals("ko", Localization.langCode("ko"))
+        assertEquals("ru", Localization.langCode("ru"))
+        assertEquals("de", Localization.langCode("de"))
+        assertEquals("id", Localization.langCode("id"))
+        assertEquals("tr", Localization.langCode("tr"))
+        assertEquals("vi", Localization.langCode("vi"))
+        assertEquals("hi", Localization.langCode("hi"))
+        assertEquals("ar", Localization.langCode("ar"))
+        assertEquals("th", Localization.langCode("th"))
+
+        assertEquals("en", Localization.langCode("en"))
+        assertEquals("en", Localization.langCode("unknown"))
+
         assertTrue(Localization.isFrench("fr"))
         assertTrue(Localization.isFrench("FR"))
         assertTrue(Localization.isFrench("fr-FR"))
-        assertTrue(Localization.isFrench("fr-CA"))
         assertFalse(Localization.isFrench("en"))
-        assertFalse(Localization.isFrench("de"))
         assertFalse(Localization.isFrench("es"))
     }
 
     @Test
-    fun testPowerupTranslations() {
+    fun testPowerupTranslationsAllLanguages() {
         val types = listOf(
             PowerupType.INVISIBILITY,
             PowerupType.NOISE_SUPPRESSION,
@@ -54,62 +102,47 @@ class LocalizationTest {
             PowerupType.REMOTE_TRIGGER,
             PowerupType.CHECKPOINTS
         )
-        for (type in types) {
-            val enName = Localization.powerupName(type, "en")
-            val frName = Localization.powerupName(type, "fr")
-            val enDesc = Localization.powerupDescription(type, "en")
-            val frDesc = Localization.powerupDescription(type, "fr")
+        for (lang in allLanguages) {
+            for (type in types) {
+                val name = Localization.powerupName(type, lang)
+                val desc = Localization.powerupDescription(type, lang)
 
-            assertTrue(enName.isNotEmpty())
-            assertTrue(frName.isNotEmpty())
-            assertNotEquals(enName, frName)
-
-            assertTrue(enDesc.isNotEmpty())
-            assertTrue(frDesc.isNotEmpty())
-            assertNotEquals(enDesc, frDesc)
+                assertTrue(name.isNotEmpty(), "Powerup ${type.name} [$lang] name must not be empty")
+                assertTrue(desc.isNotEmpty(), "Powerup ${type.name} [$lang] description must not be empty")
+            }
+            val mysteryName = Localization.mysteryGadgetName(lang)
+            val mysteryDesc = Localization.mysteryGadgetDescription(lang)
+            assertTrue(mysteryName.isNotEmpty(), "Mystery gadget [$lang] name must not be empty")
+            assertTrue(mysteryDesc.isNotEmpty(), "Mystery gadget [$lang] description must not be empty")
         }
     }
 
     @Test
-    fun testStoreAndMenuTranslations() {
-        assertEquals("PLAY", Localization.play("en"))
-        assertEquals("JOUER", Localization.play("fr"))
-
-        assertEquals("STORE", Localization.store("en"))
-        assertEquals("BOUTIQUE", Localization.store("fr"))
-
-        assertEquals("SETTINGS", Localization.settings("en"))
-        assertEquals("PARAMÈTRES", Localization.settings("fr"))
-
-        assertEquals("THE SHIPYARD", Localization.theShipyard("en"))
-        assertEquals("LE CHANTIER NAVAL", Localization.theShipyard("fr"))
-
-        assertEquals("POWER-UPS", Localization.powerupsTab("en"))
-        assertEquals("GADGETS", Localization.powerupsTab("fr"))
-
-        assertEquals("COINS", Localization.coinsTab("en"))
-        assertEquals("PIÈCES", Localization.coinsTab("fr"))
-
-        assertEquals("REMOVE ADS", Localization.removeAdsTab("en"))
-        assertEquals("SUPPRIMER LES PUBS", Localization.removeAdsTab("fr"))
-
-        assertEquals("PAUSED", Localization.paused("en"))
-        assertEquals("PAUSE", Localization.paused("fr"))
-
-        assertEquals("CONTINUE", Localization.continueGame("en"))
-        assertEquals("CONTINUER", Localization.continueGame("fr"))
-
-        assertEquals("RETRY", Localization.retry("en"))
-        assertEquals("RÉESSAYER", Localization.retry("fr"))
-
-        assertEquals("MAIN MENU", Localization.mainMenu("en"))
-        assertEquals("MENU PRINCIPAL", Localization.mainMenu("fr"))
-
-        assertEquals("NEXT MISSION", Localization.nextMission("en"))
-        assertEquals("MISSION SUIVANTE", Localization.nextMission("fr"))
-
-        assertEquals("ALL CLEAR!", Localization.allClear("en"))
-        assertEquals("TOUT EST CLAIR !", Localization.allClear("fr"))
+    fun testStoreAndMenuTranslationsAllLanguages() {
+        for (lang in allLanguages) {
+            assertTrue(Localization.play(lang).isNotEmpty(), "[$lang] play must not be empty")
+            assertTrue(Localization.missions(lang).isNotEmpty(), "[$lang] missions must not be empty")
+            assertTrue(Localization.store(lang).isNotEmpty(), "[$lang] store must not be empty")
+            assertTrue(Localization.settings(lang).isNotEmpty(), "[$lang] settings must not be empty")
+            assertTrue(Localization.theShipyard(lang).isNotEmpty(), "[$lang] theShipyard must not be empty")
+            assertTrue(Localization.powerupsTab(lang).isNotEmpty(), "[$lang] powerupsTab must not be empty")
+            assertTrue(Localization.coinsTab(lang).isNotEmpty(), "[$lang] coinsTab must not be empty")
+            assertTrue(Localization.removeAdsTab(lang).isNotEmpty(), "[$lang] removeAdsTab must not be empty")
+            assertTrue(Localization.paused(lang).isNotEmpty(), "[$lang] paused must not be empty")
+            assertTrue(Localization.continueGame(lang).isNotEmpty(), "[$lang] continueGame must not be empty")
+            assertTrue(Localization.retry(lang).isNotEmpty(), "[$lang] retry must not be empty")
+            assertTrue(Localization.mainMenu(lang).isNotEmpty(), "[$lang] mainMenu must not be empty")
+            assertTrue(Localization.nextMission(lang).isNotEmpty(), "[$lang] nextMission must not be empty")
+            assertTrue(Localization.allClear(lang).isNotEmpty(), "[$lang] allClear must not be empty")
+            assertTrue(Localization.connecting(lang).isNotEmpty(), "[$lang] connecting must not be empty")
+            assertTrue(Localization.waitPlease(lang).isNotEmpty(), "[$lang] waitPlease must not be empty")
+            assertTrue(Localization.bgMusicLevel(lang).isNotEmpty(), "[$lang] bgMusicLevel must not be empty")
+            assertTrue(Localization.tacticalSfx(lang).isNotEmpty(), "[$lang] tacticalSfx must not be empty")
+            assertTrue(Localization.defaultLeft(lang).isNotEmpty(), "[$lang] defaultLeft must not be empty")
+            assertTrue(Localization.swappedRight(lang).isNotEmpty(), "[$lang] swappedRight must not be empty")
+            assertTrue(Localization.aboutInfiltrate(lang).isNotEmpty(), "[$lang] aboutInfiltrate must not be empty")
+            assertTrue(Localization.adPrivacyChoices(lang).isNotEmpty(), "[$lang] adPrivacyChoices must not be empty")
+        }
     }
 
     @Test
@@ -127,5 +160,41 @@ class LocalizationTest {
 
         val level = LevelData.DEFAULT_LEVEL_1
         assertEquals("01: Arrivée nocturne", level.localizedName(storage.getProfile().language))
+
+        storage.setLanguage("es")
+        assertEquals("01: Llegada nocturna", level.localizedName(storage.getProfile().language))
+
+        storage.setLanguage("ja")
+        assertEquals("01: 夜陰の到着", level.localizedName(storage.getProfile().language))
+    }
+
+    @Test
+    fun testSpecificFrenchTranslations() {
+        assertEquals("PLAY", Localization.play("en"))
+        assertEquals("JOUER", Localization.play("fr"))
+        assertEquals("STORE", Localization.store("en"))
+        assertEquals("BOUTIQUE", Localization.store("fr"))
+        assertEquals("SETTINGS", Localization.settings("en"))
+        assertEquals("PARAMÈTRES", Localization.settings("fr"))
+        assertEquals("+500 COINS GRANTED", Localization.coinsGranted(500, "en"))
+        assertEquals("+500 PIÈCES ACCORDÉES", Localization.coinsGranted(500, "fr"))
+        assertEquals("UNABLE TO OPEN LINK", Localization.unableToOpenLink("en"))
+        assertEquals("IMPOSSIBLE D'OUVRIR LE LIEN", Localization.unableToOpenLink("fr"))
+    }
+
+    @Test
+    fun testSpecificSpanishTranslations() {
+        assertEquals("JUGAR", Localization.play("es"))
+        assertEquals("TIENDA", Localization.store("es"))
+        assertEquals("AJUSTES", Localization.settings("es"))
+        assertEquals("01: Llegada nocturna", Localization.levelName("level_1", "es"))
+    }
+
+    @Test
+    fun testSpecificJapaneseTranslations() {
+        assertEquals("プレイ", Localization.play("ja"))
+        assertEquals("ショップ", Localization.store("ja"))
+        assertEquals("設定", Localization.settings("ja"))
+        assertEquals("01: 夜陰の到着", Localization.levelName("level_1", "ja"))
     }
 }

@@ -7,6 +7,7 @@ import com.infiltrate.ui.MISSION_CARD_BRIEFING_LINES
 import com.infiltrate.ui.MenuMetrics
 import com.infiltrate.ui.TOP_BAR_BACK_DP
 import com.infiltrate.ui.TOP_BAR_MIN_BACK_DP
+import com.infiltrate.ui.VOLUME_SLIDER_PERCENT_MIN_WIDTH
 import com.infiltrate.ui.dossierCardWidthFor
 import com.infiltrate.ui.menuAppliesSafeAreaInsets
 import com.infiltrate.ui.missionCardBriefingColumnsFor
@@ -314,5 +315,16 @@ class ResponsiveTest {
         } finally {
             DeviceScreen.metrics = previous
         }
+    }
+
+    @Test
+    fun testVolumeSliderPercentWidthPreventsWrappingAtHundredPercent() {
+        // "100%" at 14sp bold measures ~43-44dp on wider system fonts like SF Pro on iPad.
+        // The old 42dp reservation caused the '%' sign to wrap to a second line.
+        // VOLUME_SLIDER_PERCENT_MIN_WIDTH must be at least 48dp to comfortably fit on one line.
+        assertTrue(
+            VOLUME_SLIDER_PERCENT_MIN_WIDTH >= 48.dp,
+            "VOLUME_SLIDER_PERCENT_MIN_WIDTH ($VOLUME_SLIDER_PERCENT_MIN_WIDTH) must be at least 48dp to prevent 100% wrapping"
+        )
     }
 }

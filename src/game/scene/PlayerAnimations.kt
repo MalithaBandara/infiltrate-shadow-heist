@@ -458,48 +458,33 @@ object PlayerAnimations {
     const val SOURCE_FEET_Y = 255.76
 
     /**
-     * Where the higher (back) leg rests in idle stance, so both feet connect with the ground.
-     * A per-column alpha scan across all 45 idle frames (`art/frames/player/idle/0001..0045.png`,
-     * identical in every one - this is a static two-footed stance, not something that shifts
-     * during the breathing loop) puts the front foot's sole at row 255 (on `SOURCE_FEET_Y`) and
-     * the back foot's at row 248, a stable 7px short of it. The value here is set a further few
-     * rows below that measured 248, not exactly on it: on a real device report the back foot still
-     * read as floating at the exact measured value, so this is deliberately over-corrected the
-     * same direction as the fix rather than tuned to the pixel - preferred over leaving either
-     * foot visibly short of the ground, per this file's own standing rule (see `CROUCH_FEET_Y`).
+     * Where the higher leg rests in idle stance (measured at raw row 248 across all idle frames),
+     * so that applying the stance offset grounds the higher leg flush against the supporting surface.
      */
-    const val IDLE_FEET_Y = 245.0
+    const val IDLE_FEET_Y = 248.0
 
     /**
-     * Where the planted foot rests during walk strides on elevated/contoured surfaces like the
-     * truck so the soles connect firmly with the surface without floating above it. Matches
-     * IDLE_FEET_Y. On flat floors and platforms, GameplayScene grounds the sprite flush with the
-     * surface (offset 0.0) so shoes do not sink underground.
+     * Where the planted feet rest during walk strides, matching IDLE_FEET_Y to ensure seamless
+     * transitions between rest and walking with continuous surface contact.
      */
-    const val WALK_FEET_Y = 245.0
+    const val WALK_FEET_Y = 248.0
 
     /**
-     * Where the higher (back) leg rests in the held crouch pose - a per-column scan of
-     * `art/frames/player/crouch/0034.png` (the held frame, `CROUCH_LAST`) puts the front foot's
-     * lowest row at 255 (on `SOURCE_FEET_Y`, same as every other clip) and the back foot's at
-     * ~250, a stable ~5-6px short of it - the settling crouch plants weight forward with the back
-     * heel raised, not a flat two-footed squat. Same fix as `IDLE_FEET_Y`: shift the whole sprite
-     * down by (SOURCE_FEET_Y - CROUCH_FEET_Y) so the back foot reaches the ground line too, which
-     * necessarily pushes the front foot a few pixels *below* it - preferred over leaving the back
-     * foot visibly floating.
+     * Where the higher (back) leg rests in the held crouch pose (raw row 250 in crouch/0034.png),
+     * ensuring the back foot connects flush with the supporting surface while crouching.
      */
     const val CROUCH_FEET_Y = 250.0
 
     /**
-     * Same phenomenon as `IDLE_FEET_Y`, measured across the jump clip's landing-absorb frames
-     * (`art/frames/player/jump/0028.png` through `0044.png`, i.e. `JUMP_LAND_START`..`JUMP_LAND_END`):
-     * the back foot's lowest row sits at a strikingly consistent ~247-248 across all seventeen
-     * frames (a per-column scan of several of them, not just one, confirms it isn't a one-frame
-     * fluke) while the front foot reaches the true `SOURCE_FEET_Y` line - the exact same
-     * back-heel-raised stance as idle and crouch, just held throughout the whole absorb-to-
-     * standing recovery instead of one frame.
+     * Where the planted feet rest during crouchwalk strides (raw row 253 across gait frames),
+     * ensuring both feet connect firmly with supporting surfaces without floating or sinking.
      */
-    const val JUMP_LAND_FEET_Y = 247.0
+    const val CROUCHWALK_FEET_Y = 253.0
+
+    /**
+     * Ground contact line across the jump landing absorb frames (raw row 248 in jump/0028..0044.png).
+     */
+    const val JUMP_LAND_FEET_Y = 248.0
 
     /** Height of the standing silhouette in frame pixels, used to scale to the hitbox. */
     const val SOURCE_SILHOUETTE_HEIGHT = 244.36

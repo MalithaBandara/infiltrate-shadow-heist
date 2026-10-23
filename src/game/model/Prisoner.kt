@@ -90,14 +90,17 @@ class Prisoner(val def: PrisonerDef) {
     /**
      * Nothing to step down onto just ahead of the foot that is about to leave the edge. A body
      * walks off an edge once the centre of its feet is past it (Player's walk-off), so the probe
-     * is a little ahead of that centre.
+     * is a little ahead of that centre. A crack narrower than 2 x [CRACK] with footing on both
+     * sides is no drop - his feet span it, as the player's do (level 12's dropped crate sits half
+     * a unit off each face of its slot: flush, it never touches the crates under it).
      */
     private fun isAtLip(platforms: List<Rect>): Boolean {
         val feet = body.y + body.height
         val px = body.centerX + def.facing * LIP_PROBE_AHEAD
-        return platforms.none { p ->
-            px >= p.left && px <= p.right && p.top >= feet - 1.0 && p.top <= feet + MAX_STEP_DOWN
+        fun footing(x: Double) = platforms.any { p ->
+            x >= p.left && x <= p.right && p.top >= feet - 1.0 && p.top <= feet + MAX_STEP_DOWN
         }
+        return !footing(px) && !(footing(px - CRACK) && footing(px + CRACK))
     }
 
     /**
@@ -145,5 +148,7 @@ class Prisoner(val def: PrisonerDef) {
         const val LIP_PROBE_AHEAD = 10.0
         /** How far short of a raised lift's shaft he stops. */
         const val LIFT_WAIT_GAP = 2.0
+        /** Half the widest crack he walks over - see [isAtLip]. */
+        const val CRACK = 2.0
     }
 }

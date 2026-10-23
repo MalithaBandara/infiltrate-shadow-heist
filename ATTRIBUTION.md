@@ -40,6 +40,9 @@ tell at a glance which sounds are ours and which are not.
 | `resources/sfx/loop_robot.wav` | Patrol rover motor (level 7, 8) - 16.0-25.5 s of the source | [Sound effect](https://pixabay.com/sound-effects/id-70923/) via Pixabay | freesound_community | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
 | `resources/sfx/loop_camera.wav` | Security camera turning - 0.8-7.2 s of the same source | [Sound effect](https://pixabay.com/sound-effects/id-70923/) via Pixabay | freesound_community | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
 | `resources/sfx/loop_cart.wav` | Push cart rolling | [Sound effect](https://pixabay.com/sound-effects/id-86702/) via Pixabay | freesound_community | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
+| `resources/sfx/loop_elevator.wav` | Freight lift hum (levels 10-12) - 0.9-3.1 s and 4.4-7.1 s of the source, crossfaded loop | [Sound effect](https://pixabay.com/sound-effects/id-29654/) via Pixabay | freesound_community | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
+| `resources/sfx/switch_press.wav` | Wall switch click (door / lift switches) - 0.08-0.40 s of the source | [Sound effect](https://pixabay.com/sound-effects/id-81967/) via Pixabay | freesound_community | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
+| `resources/sfx/lever_throw.wav` | Lever clack - 0.05-0.62 s of the source | [Sound effect](https://pixabay.com/sound-effects/id-45684/) via Pixabay | freesound_community | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
 | `resources/missionmusic.mp3` | In-mission background music | [Track](https://pixabay.com/music/) via Pixabay | DELOSound | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
 
 ### Notes on the plate cuts
