@@ -131,8 +131,8 @@ after adding setup code; move another block into a local `fun` (or a file, as `M
 
 - **Build number lives in THREE places - bump together**: `ios-shell/project.yml`
   `CFBundleVersion`, `ios-testflight.yml`'s `build_number` default, `android-shell` `versionCode`.
-- **Currently**: Android `versionCode` 22 / `versionName` "1.0.0" (Android-only builds 20-22 were
-  deliberately not mirrored to iOS); iOS still 19 / "1.0". Re-align them at the next iOS release.
+- **Currently**: Android `versionCode` 23 / `versionName` "1.0.1", iOS `CFBundleVersion` 23 /
+  "1.0.1" - aligned again at 23 (Android-only builds 20-22 were never mirrored to iOS).
 - **`unlockAllForTesting` is ON** (`GameProfile.isLevelUnlocked`; restored 2026-10-03, "unlock all
   levels for now" while level 12 is tested; `GameplayModelTest`'s
   `testGameProfileStorageLevelUnlockingProgression` is `@Ignore`d). **Turn it off before any production build**: delete the block and remove the
@@ -731,7 +731,7 @@ timed with a person.
 | 9 | 106.1s | 180 | `testLevel9IsBeatableWithoutTouchingTheGround` |
 | 10 | 151.7s | 190 | `testLevel10SimulationPlayableWalkthrough` |
 | 11 | 132.8s | 195 | `Level11EscortTest.testLevel11IsBeatableAsAnEscort` |
-| 12 | 100.5s | 145 | `Level12EscapeTest.testLevel12IsBeatableAsAnEscape` |
+| 12 | 89.1s | 130 | `Level12EscapeTest.testLevel12IsBeatableAsAnEscape` |
 
 - `test/LevelWalkthroughTest.kt` holds the walkthroughs for 1, 2, 3, 5, 6 - one general
   `Runner.runRight` policy (crouch under head-only ceilings, jump when blocked = the climb, jump a gap
@@ -943,7 +943,7 @@ Mostly reasoned and measured on JVM/decompiled classes; on-device improvement un
   once) plus a one-page atlas per `PlayerClipGroup` (SWING, PUSH, WIND), loaded only when
   `PlayerAnimations.groupsFor(levelData, world)` says the level can play it, let go when the next
   can't (pages freed with the level art: `releaseOtherLevelsArt(also = takeReleasedPages())`).
-  Pages: levels 1-4/11 carry 6, 5/6/7/10 carry 7, 8/12 carry 8, 9 carries 9 - never more than before
+  Pages: levels 1-4/11 carry 6, 5/6/7/10/12 carry 7, 8 carries 8, 9 carries 9 - never more than before
   (one atlas per group incl. base was measured too: a page MORE on level 9). Groups come off the
   model's own gates: swing = `world.swingHooks`, push = `pushCarts`/`pushStanceDemo`, wind = `fans`,
   all on a `replaysRunOf` level (the echo can show any frame).
@@ -953,8 +953,8 @@ Mostly reasoned and measured on JVM/decompiled classes; on-device improvement un
   - **`PlayerClipGroupsTest`**: frame indices for all 8 group combinations; every move the
     walkthroughs (levels 1-12) and 2 min x 3 seeds of random input per level make, seen through
     `GameWorld.moveObserver` (test hook, null in the game), against the level's groups. Seen: swing
-    5/6/9/12, push 8/12/demo, wind 7/10 (level 12 since its 2026-10-22 rebuild: swing + push, 8 pages).
-    Mutation (before that rebuild): dropping WIND from `groupsFor` failed 7/10/12.
+    5/6/9/12, push 8/demo, wind 7/10 (level 12 since its 2026-10-23 rebuild: swing only, 7 pages).
+    Mutation (before the 2026-10-22 rebuild): dropping WIND from `groupsFor` failed 7/10/12.
     **A new clip, or a new way to start an existing move, must update `groupsFor` and this test.**
     Not seen on a device.
 - **`SceneAssets.kt` caches bitmaps/fonts process-wide** (only successful loads).
@@ -1573,12 +1573,14 @@ wrong). **No tutorial at all** - level 10's end teaches switches, doors and lift
 (`testLevel10UsesLevel7sMechanicsAndNothingElse`).
 - **`Prisoner` (`Prisoner.kt`)**: a `Player` body driven by a rule - walks right at 110
   (`PrisonerDef.speed`) once freed (cell gate `freedByDoorId` half open; the id may also be a lift
-  that first moves, a hook crate that drops or a lever-started load - level 12's is its slot crate -
+  that first moves, a hook crate that drops or a lever-started load - level 12's is the lift he sits on -
   + 0.8s getting up), stops only
   at a shut door, a wall, or a lip deeper than `MAX_STEP_DOWN` (30) - a crack under 4 with footing on
-  both sides is not a lip (`Prisoner.CRACK`, level 12's dropped crate); never jumps/climbs/crouches.
+  both sides is not a lip (`Prisoner.CRACK`, made for an earlier level 12's dropped crate); never
+  jumps/climbs/crouches.
   Since 2026-10-22 a moving load carries him as it does the player, and a crushing load
-  (`crushesOnContact`) that would crush the player loses him (GameWorld; level 12's ferries and gate).
+  (`crushesOnContact`) that would crush the player loses him (GameWorld; made for an earlier level
+  12's ferries and gate - no current level uses either).
   He also stops short of a lift's shaft while that lift is up off his floor (`isAtRaisedLift`): a
   lift never comes down on a body, so one sent up before he arrived used to strand him under it for
   good (level 12, 2026-10-19 "make sure the level has a solution").
@@ -1625,58 +1627,67 @@ wrong). **No tutorial at all** - level 10's end teaches switches, doors and lift
   at spawn on this level only.
 - Door/switch art is procedural `solidRect`s, untuned.
 
-### Level 12 ("12: Final Escape") - `LEVEL_12_LAYOUT`, the escort along the dock walkway
+### Level 12 ("12: Final Escape") - `LEVEL_12_LAYOUT`, the escort along the container row
 
-**Rebuilt fresh 2026-10-22**, twice: first "clear level 12 completely ... start with the two fences
-... helping a prisoner escape the shipyard ... use as many game mechanics as from previous levels",
-then (against a screenshot of the hung-crate course) **"you have just reused stuff from previous
-version. completely remove the stuff from previous version and make it a fresh level"**. So nothing
-from the earlier level 12s: **no lifts or switch panels, no course of hung crates over his head, no
-chained crate, no bobbing loads, lasers, rovers, cameras or overwatch guards**
-(`testNothingFromTheEarlierLevel12s`). The layout's doc comment is the source of truth. Still in force:
-outdoor mechanisms only (2026-10-07), every drawn size one an earlier level draws (now also carts,
-hook crates and the exit structure), nothing to watch above y ~149, he goes nowhere the player cannot.
+**Rebuilt from scratch 2026-10-23** without looking at the version before ("clear level 12. dont
+even look at its current version ... start with the usual two fences and end with a exit from the
+shipyard ... above ground unlike levels 10 and 11 ... use as many mechanisms from other levels as
+possible ... interesting and somewhat hard"). The layout's doc comment is the source of truth.
+Standing rules still in force: outdoor mechanisms plus lifts only (2026-10-07), every drawn size one
+an earlier level draws (`testEverythingIsDrawnAtASizeAnEarlierLevelDrawsIt` now also takes level 1's
+code-built boxes, for the chained crate, and checks lifts, bots and laser emitters), nothing to watch
+above y ~149, he goes nowhere the player cannot, switches by their lifts, no soft-locks.
 
-**He never comes down**: his road is the walkway, 144 up - a container, quays, the dropped crate, and
-hung crates that carry him over the pits between quays. What holds him is a gap or the gate crate; the
-pits under the walkway are the player's.
-1. **The hideout** - he sits on a 144 container (x 600) past the start fences; level 8's cart pushed
-   flush is the way up. Past it a slot (69 wide, two crates at its foot) with level 5's physical hook
-   crate hung 60 over the walkway (out of a hop: a wall to both) and 12 into the slot. Its lever on the
-   container drops it flush - half a unit off each face, so BoxPhysics' strictly-inside corner test
-   lands it on the crates (flush, it fell through) and `Prisoner.CRACK` walks him over - and the drop
-   frees him (`freedByDoorId` = the crate's id).
-2. **The ferry** - level 6's lever crate (oneShot) parked at Q1's end; he waits on its far lip. Its
-   lever is on pit 1's floor, out of the guard's reach. **Pit guards' torches tilt 20 UP** (negative
-   `visionTilt`): a 60 cone 220 long reaches a body on the walkway only where the rise to its feet is
-   under 50 degrees, ~76 out, so he is safe where he waits (patrol 56..106 short of it); a body
-   standing on a hung load is hidden from below by the load's own slab (so the ride is safe, and a
-   "send it while the guard looks away" beat has no teeth - tried and dropped). A guard on a pit
-   floor is solid to the player, so he walks the dead end under the parked ferry. Walking is heard
-   180 away (crouching is silent): crouch off the ferry's end as the guard sets off left from his
-   right end and crouch out of hearing; pull the lever; climb out up the crates at Q2's face once the
-   ferry has gone back.
-3. **The gate** - a 76x38 crate hung 6 over Q2 (his wall); its lever sends it once to 150 and back
-   (6s, crushes from below on the way down - him too). Past it level 2's moving crate shuttles across
-   pit 2 on the level clock (12s) under the second guard: pull the lever **4.0-6.5s into the shuttle's
-   cycle** (clean run 5.0, `GATE_AT`) so he reaches the dock as it arrives; otherwise he waits at the
-   lip and the guard sees him. Hop over the gate after it is down and take the shuttle at its leading end.
-4. **The cart pit** - the second ferry parked at Q3's end, its lever on Q4; level 8's second cart
-   (clear of the parked ferry - under it there is no headroom to get onto the cart) is the only way up
-   Q4's face. No guard: the cart's whole road is the pit floor.
-5. **The exit** - Container 17 (level 8's, 105 tall) on Q4; the trigger starts 70 short of it.
+**His road is the top of a container row, 144 up; a freight lift's shaft is what holds him** (down,
+a 144 drop; up, the road). Every shaft's lift rests on the ground and its ONE switch hangs inside the
+shaft on the far container's face, reached from the lift standing at the bottom: drop in, throw it,
+ride up with him. So a shaft never traps the player (a raised lift closes it; the yard under the
+bridge is the one shaft open at the bottom, and from under its raised lift the switch still lowers it
+onto nobody - `testTheYardIsNeverATrap`). Four lifts, four panels.
+1. **The pickup** - start fences, a wood crate and barrel to hop, then an overwatch guard on a hung
+   crate (level 3/6 numbers: tilt 25, range 220, 35 u/s, 3s dwell). His crate hides whoever is under
+   it and footsteps carry 180 (crouch is silent): creep under behind his back, out once he turns,
+   climb the 96 quay, crawl under level 1's chained crate (174x256 hung from y 30, 58 over the quay)
+   and drop into lift_1's shaft, where he sits on the lift (freed when it moves). Ride up together.
+2. **The rover** - lift_2 down, level 8's rover on the next container. Swing over the shaft on level
+   5's hook (grip 120 over the road, 86 out) while the rover is up the far end - at its near end it
+   sees just past the landing - wait at the lip (164 off), switch it off from behind, drop back in
+   and bring him up. Raised early, he walks into the rover.
+3. **The curtain** - his road crosses the yard on three of level 2's hung crates to lift_3; level
+   6's lever curtain (3 beams, emitter 0.6) stands on the container past it. The lever is at the
+   yard's far end under the bridge (106 headroom), behind level 8's bottom course: three timed gates
+   (crate underside to floor) and a bot on a 70 beat, whose near end is 120+ short of where a body
+   waits for gate 3. Raised before the cut, he dies in the curtain.
+4. **The descent** - lift_4 starts up; he waits on its far lip. On the road below: a laser fence (3
+   beams from off-screen to the floor, 60 apart, 1.4 on / 1.2 off, each opening 60/110 s after the
+   last - a wave at his walking pace), then a second overwatch over the road. **The fence is the
+   lock**: lowered with gate 1's phase in ~1.6-2.3 of its 2.6s cycle he walks every gap as it opens,
+   otherwise a beam kills him. **The guard is only stealth**: an overwatch on a hung crate can never
+   fill the alert on a walker passing under it (exposure ~1s in a ~100-wide band; max alert measured
+   0.87), so he only glimpses him (star 2) unless he comes in while the guard looks ahead and leaves
+   after he turns. The clean run lowers the lift with the turn 2.7-5.0s away and follows 30 behind
+   through the same wave.
+5. **The gate** - level 1's booth and exit fence; the level ends with both in the trigger.
 
-- **Checkpoints are his**: on each parked ferry's far lip and at the gate.
-- **Measured** (`Level12EscapeTest`, 18 tests, run in an isolated copy - see below): the clean run
-  (100.5s, target 145), the wrong moves that must fail (walking in pit 1, the gate at +3 / -2, the
-  gate coming down on him), his road against every box, hook,
-  load and cart, and the dead ends (every pit floor has a way up on each side of its guard; a lever
-  pulled early re-arms).
+- **Checkpoints are his** (held at lift_2's lip, at lift_3's, on lift_4); spawns are on the row,
+  out of the rovers' reach (a respawn switches rovers back on and puts the lever and curtain back).
+- **Measured** (`Level12EscapeTest`, 20 tests, run in an isolated copy): the clean run (89.1s,
+  target 130, star 2 met), his road against every box/hook/load (the check counts a box across his
+  middle - stepping down onto a lift still rising sinks a body's edge past the container's corner,
+  as it does the player's), each beat done wrong (lift_2 early: seen; lift_3 early: curtain; lift_4
+  off the fence's beat: killed; off the guard's: glimpsed only), every hold out of every eye for 30s,
+  lifts lowered early or twice, a respawn, both-out exit.
 - **Other sessions build this repo too**: concurrent Gradle runs in the same tree clobber each other's
   outputs (2026-10-22: "Unresolved reference 'game'" in untouched tests). Test in a copy of the tree
-  (sources, tests, resources, art, paywall-build; no `build`/`.gradle`) with `--no-daemon`.
-- Scene: never seen on a screen. Worth a look: the upturned pit-guard torches, the ferries carrying
-  him, the gate crate, the cart under the walkway, Container 17 on the quay.
+  (sources, tests, resources, art, paywall-build; no `build`/`.gradle`). robocopy needs `/R:0 /W:0`
+  and `null.socket` excluded, or it retries that file forever.
+- Not used, by choice: cameras (a sweeping cone over a walker's road always catches him unless it can
+  look away from the road, and no pole fits off his road), carts (as his ferry the pusher's body is
+  where the cart has to go), the crane, bobbing loads (hung-crate courses over his head read as the
+  pre-2026-10-22 versions).
+- Scene: never seen on a screen. Worth a look: the lifts outdoors between containers, the switch
+  panels on container faces inside the shafts, the yard under the bridge, the fence beams coming
+  down onto the road, the quay crawl.
 
 ## Extracted library: `kmp-stealth-game-toolkit` (2026-09-29)
 
