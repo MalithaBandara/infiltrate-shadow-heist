@@ -1,4 +1,5 @@
 import game.scene.*
+import game.model.*
 import korlibs.event.*
 import korlibs.image.color.*
 import korlibs.image.vector.*
@@ -568,6 +569,299 @@ class GameplaySceneTest : ViewsForTesting() {
     }
 
     @Test
+    fun testClimbBoxFlushSnapAndGripContact() {
+        val ground = Rect(0.0, 400.0, 500.0, 50.0)
+        val box = Rect(200.0, 400.0 - 95.0, 60.0, 95.0)
+        val player = Player(x = 160.0, y = 400.0 - 96.0, startX = 160.0, startY = 400.0 - 96.0)
+        player.isGrounded = true
+        // Player is at x=160, width=36 -> right edge=196. Box left is 200 (distance = 4.0 <= reach 6.0)
+        player.update(
+            dt = 1.0 / 60.0,
+            moveInput = 1.0,
+            jumpInput = true,
+            crouchInput = false,
+            platforms = listOf(ground, box),
+            climbTargets = listOf(box)
+        )
+        assertTrue(player.isClimbing, "Player should begin climb on box")
+        assertEquals(box, player.currentClimbBox, "currentClimbBox should track the box being climbed")
+        // Horizontal flush snap: player's right edge (x + width) should snap flush against box.left (200.0)
+        assertEquals(box.left - player.width, player.x, 0.001, "Player should snap flush against climbed box face")
+
+        // Advance through climb and verify upward progress
+        var maxObservedY = player.y
+        var minObservedY = player.y
+        while (player.isClimbing) {
+            player.update(
+                dt = 1.0 / 60.0,
+                moveInput = 1.0,
+                jumpInput = false,
+                crouchInput = false,
+                platforms = listOf(ground, box),
+                climbTargets = listOf(box)
+            )
+            if (player.y > maxObservedY) maxObservedY = player.y
+            if (player.y < minObservedY) minObservedY = player.y
+            if (player.isClimbing) {
+                // Ensure player does not sink into floor during climb
+                assertTrue(player.y <= 400.0 - 96.0 + 1.0, "Player body should not sink into floor during climb")
+            }
+        }
+        assertTrue(player.isGrounded, "Player should be grounded on top of box after climb")
+        assertEquals(box.top - player.height, player.y, 0.001, "Player should land on top of box")
+        assertNull(player.currentClimbBox, "currentClimbBox should reset to null when climb ends")
+    }
+
+    @Test
+    fun testTruckCanopyGroundingOffset() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1)
+        val truckBack = world.truckParts.last()
+        // Player standing on truck bed canopy in Level 1 (0.75px canvas sag)
+        val footCenterX = truckBack.left + 20.0
+        val footY = truckBack.top
+        val offset = GameplayScene.computeSupportingSurfaceOffset(
+            world = world,
+            footCenterX = footCenterX,
+            footY = footY,
+            isGrounded = true,
+            woodCrateOffset = 4.125,
+            tacticalCrateOffset = 1.5
+        )
+        assertEquals(0.75, offset, 0.001, "Supporting surface offset on truck canopy must match 0.75px canvas sag")
+
+        // Also verify truck hood (truckFront) is flush sheet metal (0.0px)
+        val truckFront = world.truckParts.first()
+        val hoodOffset = GameplayScene.computeSupportingSurfaceOffset(
+            world = world,
+            footCenterX = truckFront.left + 10.0,
+            footY = truckFront.top,
+            isGrounded = true,
+            woodCrateOffset = 4.125,
+            tacticalCrateOffset = 1.5
+        )
+        assertEquals(0.0, hoodOffset, 0.001, "Supporting surface offset on truck hood must be flush 0.0px")
+
+        // Verify flat floor returns 0.0
+        val groundY = world.platforms.first { it.width > 500.0 }.top
+        val floorOffset = GameplayScene.computeSupportingSurfaceOffset(
+            world = world,
+            footCenterX = 100.0,
+            footY = groundY,
+            isGrounded = true,
+            woodCrateOffset = 4.125,
+            tacticalCrateOffset = 1.5
+        )
+        assertEquals(0.0, floorOffset, 0.001, "Supporting surface offset on flat floor must be flush 0.0")
+
+        // Verify tactical crate (smallCrate in Level 1 at x=550) returns tacticalCrateOffset 1.5
+        val smallCrate = world.boxes.first { it.x == 550.0 }
+        val crateOffset = GameplayScene.computeSupportingSurfaceOffset(
+            world = world,
+            footCenterX = smallCrate.left + 20.0,
+            footY = smallCrate.top,
+            isGrounded = true,
+            woodCrateOffset = 4.125,
+            tacticalCrateOffset = 1.5
+        )
+        assertEquals(1.5, crateOffset, 0.001, "Tactical crate surface sink must be 1.5")
+    }
+
+    @Test
+    fun testSurfaceVisualTopsAndStanceGrounding() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1)
+        val player = world.player
+        val scale = player.visualHeight / PlayerAnimations.SOURCE_SILHOUETTE_HEIGHT
+        val idleStanceOffset = (PlayerAnimations.SOURCE_FEET_Y - PlayerAnimations.IDLE_FEET_Y) * scale
+        val crouchStanceOffset = (PlayerAnimations.SOURCE_FEET_Y - PlayerAnimations.CROUCH_FEET_Y) * scale
+
+        // Distance between frame bottom anchor (row 255.76) and higher leg in idle (row 248.0)
+        val higherLegAnchorDist = (PlayerAnimations.SOURCE_FEET_Y - 248.0) * scale
+
+        // On tactical crate: surface sink is 1.5
+        val crateSink = 1.5
+        val crateIdleGrounding = crateSink + idleStanceOffset
+        val higherLegCratePos = crateIdleGrounding - higherLegAnchorDist
+        assertTrue(higherLegCratePos >= crateSink - 0.5 && higherLegCratePos <= crateSink + 0.5,
+            "Higher leg in idle must touch the tactical crate visual surface")
+
+        // On flat floor: surface sink is 0.0
+        val floorSink = 0.0
+        val floorIdleGrounding = floorSink + idleStanceOffset
+        val higherLegFloorPos = floorIdleGrounding - higherLegAnchorDist
+        assertTrue(higherLegFloorPos >= floorSink - 0.5 && higherLegFloorPos <= floorSink + 0.5,
+            "Higher leg in idle must touch the floor surface")
+
+        // On truck hood: surface sink is 0.0
+        val hoodSink = 0.0
+        val hoodIdleGrounding = hoodSink + idleStanceOffset
+        val higherLegHoodPos = hoodIdleGrounding - higherLegAnchorDist
+        assertTrue(higherLegHoodPos >= hoodSink - 0.5 && higherLegHoodPos <= hoodSink + 0.5,
+            "Higher leg in idle must touch the truck hood surface")
+
+        // On truck canopy: surface sink is 0.75
+        val canopySink = 0.75
+        val canopyIdleGrounding = canopySink + idleStanceOffset
+        val higherLegCanopyPos = canopyIdleGrounding - higherLegAnchorDist
+        assertTrue(higherLegCanopyPos >= canopySink - 0.5 && higherLegCanopyPos <= canopySink + 0.5,
+            "Higher leg in idle must touch the truck canopy surface")
+
+        // On wood crate: surface sink is 4.125
+        val woodCrateSink = 4.125
+        val woodCrateIdleGrounding = woodCrateSink + idleStanceOffset
+        val higherLegWoodPos = woodCrateIdleGrounding - higherLegAnchorDist
+        assertTrue(higherLegWoodPos >= woodCrateSink - 0.5 && higherLegWoodPos <= woodCrateSink + 0.5,
+            "Higher leg in idle must touch the wood crate surface")
+    }
+
+    @Test
+    fun testWalkingSurfaceGroundingOffset() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1)
+        // Verify that while walking on flat floor, target grounding offset is flush 0.0 (legs not submerged)
+        val floorSink = GameplayScene.computeSupportingSurfaceOffset(
+            world = world,
+            footCenterX = 100.0,
+            footY = world.platforms.first { it.width > 500.0 }.top,
+            isGrounded = true,
+            woodCrateOffset = 4.125,
+            tacticalCrateOffset = 1.5
+        )
+        val walkStanceOffset = 0.0
+        val walkFloorGrounding = floorSink + walkStanceOffset
+        assertEquals(0.0, walkFloorGrounding, 1e-4, "Walking on flat floor must be flush 0.0 so legs are fully above surface")
+
+        // Walking on truck hood is also flush 0.0
+        val truckFront = world.truckParts.first()
+        val truckHoodSink = GameplayScene.computeSupportingSurfaceOffset(
+            world = world,
+            footCenterX = truckFront.left + 10.0,
+            footY = truckFront.top,
+            isGrounded = true,
+            woodCrateOffset = 4.125,
+            tacticalCrateOffset = 1.5
+        )
+        val walkTruckHoodGrounding = truckHoodSink + walkStanceOffset
+        assertEquals(0.0, walkTruckHoodGrounding, 1e-4, "Walking on truck hood must be flush 0.0")
+
+        // Walking on tactical crate deck matches tactical crate sink 1.5
+        val smallCrate = world.boxes.first { it.x == 550.0 }
+        val crateSink = GameplayScene.computeSupportingSurfaceOffset(
+            world = world,
+            footCenterX = smallCrate.left + 20.0,
+            footY = smallCrate.top,
+            isGrounded = true,
+            woodCrateOffset = 4.125,
+            tacticalCrateOffset = 1.5
+        )
+        val walkCrateGrounding = crateSink + walkStanceOffset
+        assertEquals(1.5, walkCrateGrounding, 1e-4, "Walking on tactical crate must be 1.5 (deck height)")
+    }
+
+    @Test
+    fun testCrouchWalkingSurfaceGroundingOffset() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1)
+        val scale = world.player.visualHeight / PlayerAnimations.SOURCE_SILHOUETTE_HEIGHT
+        val crouchwalkStanceOffset = (PlayerAnimations.SOURCE_FEET_Y - PlayerAnimations.CROUCHWALK_FEET_Y) * scale
+
+        // Floor crouchwalk grounding
+        val floorSink = GameplayScene.computeSupportingSurfaceOffset(
+            world = world,
+            footCenterX = 100.0,
+            footY = world.platforms.first { it.width > 500.0 }.top,
+            isGrounded = true,
+            woodCrateOffset = 4.125,
+            tacticalCrateOffset = 1.5
+        )
+        val crouchwalkFloorGrounding = floorSink + crouchwalkStanceOffset
+        assertEquals(crouchwalkStanceOffset, crouchwalkFloorGrounding, 1e-4, "Crouch walking on flat floor grounds both feet firmly without hovering")
+
+        // Truck hood crouchwalk grounding
+        val truckFront = world.truckParts.first()
+        val truckHoodSink = GameplayScene.computeSupportingSurfaceOffset(
+            world = world,
+            footCenterX = truckFront.left + 10.0,
+            footY = truckFront.top,
+            isGrounded = true,
+            woodCrateOffset = 4.125,
+            tacticalCrateOffset = 1.5
+        )
+        val crouchwalkTruckHoodGrounding = truckHoodSink + crouchwalkStanceOffset
+        assertEquals(crouchwalkStanceOffset, crouchwalkTruckHoodGrounding, 1e-4, "Crouch walking on truck hood connects flush with hood surface")
+
+        // Tactical crate crouchwalk grounding
+        val smallCrate = world.boxes.first { it.x == 550.0 }
+        val crateSink = GameplayScene.computeSupportingSurfaceOffset(
+            world = world,
+            footCenterX = smallCrate.left + 20.0,
+            footY = smallCrate.top,
+            isGrounded = true,
+            woodCrateOffset = 4.125,
+            tacticalCrateOffset = 1.5
+        )
+        val crouchwalkCrateGrounding = crateSink + crouchwalkStanceOffset
+        assertEquals(1.5 + crouchwalkStanceOffset, crouchwalkCrateGrounding, 1e-4, "Crouch walking on tactical crate accounts for crate deck + crouch stance offset")
+    }
+
+    @Test
+    fun testClimbHandGripContactAndOverlap() {
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1)
+        val climbGripHandOffset = 7.0
+        val climbGripAmount = 5.0
+
+        // Verify vertical climb grip offset on flat surface / ledge
+        val floorBox = Rect(200.0, 300.0, 60.0, 100.0)
+        val flatSurfaceSink = GameplayScene.computeSupportingSurfaceOffset(
+            world = world,
+            footCenterX = floorBox.left + 10.0,
+            footY = floorBox.top,
+            isGrounded = true,
+            woodCrateOffset = 4.125,
+            tacticalCrateOffset = 1.5
+        )
+        val flatClimbOffset = flatSurfaceSink + climbGripHandOffset
+        assertEquals(7.0, flatClimbOffset, 1e-4, "Climb grip hand offset on flat ledge brings hands into firm contact with surface")
+
+        // Verify vertical climb grip offset on wood crate (incorporates 4.125px crate sink)
+        val woodCrateBox = Rect(300.0, 300.0, 60.0, 48.0)
+        val woodWorld = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_3)
+        val woodCrate = woodWorld.woodCrates.first()
+        val woodCrateSurfaceSink = GameplayScene.computeSupportingSurfaceOffset(
+            world = woodWorld,
+            footCenterX = woodCrate.left + 10.0,
+            footY = woodCrate.top,
+            isGrounded = true,
+            woodCrateOffset = 4.125,
+            tacticalCrateOffset = 1.5
+        )
+        val woodClimbOffset = woodCrateSurfaceSink + climbGripHandOffset
+        assertEquals(4.125 + 7.0, woodClimbOffset, 1e-4, "Climb grip on wood crate accounts for crate sink + hand contact")
+
+        // Verify horizontal overlap curve values across climb phases
+        fun gripOverlap(phase: Double, facingLeft: Boolean): Double {
+            val dir = if (facingLeft) -1.0 else 1.0
+            return if (phase < 0.40) {
+                climbGripAmount * dir
+            } else if (phase < 0.60) {
+                val t = (phase - 0.40) / 0.20
+                climbGripAmount * (1.0 - t) * dir
+            } else {
+                0.0
+            }
+        }
+
+        // Hanging / pull-up phase (< 0.40) provides full 5.0 unit grip overlap onto ledge deck
+        assertEquals(5.0, gripOverlap(0.0, facingLeft = false), 1e-4)
+        assertEquals(-5.0, gripOverlap(0.0, facingLeft = true), 1e-4)
+        assertEquals(5.0, gripOverlap(0.20, facingLeft = false), 1e-4)
+
+        // Mantle transition (0.40..0.60) smoothly blends overlap to 0.0
+        assertEquals(2.5, gripOverlap(0.50, facingLeft = false), 1e-4)
+
+        // Top standing / crouched phase (>= 0.60) returns 0.0
+        assertEquals(0.0, gripOverlap(0.60, facingLeft = false), 1e-4)
+        assertEquals(0.0, gripOverlap(0.85, facingLeft = false), 1e-4)
+    }
+
+    @Test
     fun testGenerateShieldGlowPreviewArtifact() {
         val width = 760
         val height = 400
@@ -973,5 +1267,63 @@ class GameplaySceneTest : ViewsForTesting() {
         val outDir = java.io.File("C:\\Users\\USER\\.gemini\\antigravity\\brain\\c2e16e03-8c52-4bfa-a592-66373946835e")
         if (!outDir.exists()) outDir.mkdirs()
         javax.imageio.ImageIO.write(img, "PNG", java.io.File(outDir, "level4_finale_l4end_preview.png"))
+    }
+
+    @Test
+    fun testGuardInvestigateSoundTriggersOnNoiseAndVisualDetection() {
+        var guardInvestigatePlays = 0
+        var guardWasInvestigating = false
+        var guardWasDetecting = false
+
+        fun evaluateGuardSound(isCloaked: Boolean, heardNoise: Boolean, isDetecting: Boolean) {
+            if (isCloaked) {
+                guardWasDetecting = false
+                guardWasInvestigating = false
+            } else {
+                val hearingEdge = heardNoise && !guardWasInvestigating && !isDetecting
+                val seeingEdge = isDetecting && !guardWasDetecting
+                if (hearingEdge || seeingEdge) {
+                    guardInvestigatePlays++
+                }
+                guardWasDetecting = isDetecting
+                guardWasInvestigating = heardNoise
+            }
+        }
+
+        // 1. Initially, guard is on patrol, hears nothing, sees nothing
+        evaluateGuardSound(isCloaked = false, heardNoise = false, isDetecting = false)
+        assertEquals(0, guardInvestigatePlays, "No sound when silent and unseen")
+
+        // 2. Guard hears noise -> rising edge triggers sound
+        evaluateGuardSound(isCloaked = false, heardNoise = true, isDetecting = false)
+        assertEquals(1, guardInvestigatePlays, "Sound triggers on noise heard")
+
+        // 3. Noise continues next frame -> does not spam
+        evaluateGuardSound(isCloaked = false, heardNoise = true, isDetecting = false)
+        assertEquals(1, guardInvestigatePlays, "Sound does not repeat while noise continues")
+
+        // 4. Guard turns and starts to visually detect the player -> rising edge of visual detection triggers sound
+        evaluateGuardSound(isCloaked = false, heardNoise = false, isDetecting = true)
+        assertEquals(2, guardInvestigatePlays, "Sound triggers when guard starts to see the player")
+
+        // 5. Visual detection continues next frame -> does not spam
+        evaluateGuardSound(isCloaked = false, heardNoise = false, isDetecting = true)
+        assertEquals(2, guardInvestigatePlays, "Sound does not repeat while visual detection continues")
+
+        // 6. Player takes a step while already in sight -> does not re-trigger investigate noise sound
+        evaluateGuardSound(isCloaked = false, heardNoise = true, isDetecting = true)
+        assertEquals(2, guardInvestigatePlays, "Noise does not re-trigger investigate sound when guard already sees player")
+
+        // 7. Visual contact lost (player hides behind crate)
+        evaluateGuardSound(isCloaked = false, heardNoise = false, isDetecting = false)
+        assertEquals(2, guardInvestigatePlays, "No sound when visual contact is lost")
+
+        // 8. Player spotted again -> rising edge triggers sound again
+        evaluateGuardSound(isCloaked = false, heardNoise = false, isDetecting = true)
+        assertEquals(3, guardInvestigatePlays, "Sound triggers again upon re-acquiring visual detection")
+
+        // 9. Phantom cloak activated -> puts guards to sleep and suppresses detection sound
+        evaluateGuardSound(isCloaked = true, heardNoise = true, isDetecting = true)
+        assertEquals(3, guardInvestigatePlays, "Sound suppressed when Phantom Cloak is active")
     }
 }

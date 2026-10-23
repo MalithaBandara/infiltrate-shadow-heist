@@ -36,7 +36,7 @@ object GamePreload {
         "loadingbg.png" to false, "logo_main.png" to false, "button1.png" to false
     )
     internal val BITMAPS: List<Pair<String, Boolean>> = LOADING_SCREEN_BITMAPS + listOf(
-        "crate.png" to true, "fence.png" to true, "fence2.png" to true, "barrel.png" to true, "cart.png" to true,
+        "crate.png" to true, "barrel.png" to true, "cart.png" to true,
         "laseremittor.png" to false,
         "conveyor_top.png" to false, "conveyor_mid.png" to false, "conveyor_bot.png" to false, "conveyor_end.png" to true,
         "robot_body.png" to true, "robot_wheel.png" to true, "steam_nozzle_up.png" to true, "steam_nozzle_down.png" to true,
@@ -44,7 +44,7 @@ object GamePreload {
         "button2.png" to false, "button3.png" to false, "button4.png" to false,
         "victorybutton1.png" to false, "victorybutton2.png" to false, "victorybutton3.png" to false,
         "failedbutton1.png" to false, "failedbutton2.png" to false, "failedbutton3.png" to false,
-        "dossier_paper.png" to false, "failedscreen.png" to false, "success3.png" to false,
+        "failedscreen.png" to false, "success3.png" to false,
         "gadget_checkpoints.png" to true, "gadget_checkpoint.png" to true, "gadget_lasershield.png" to true,
         "gadget_invis.png" to true, "gadget_boots.png" to true, "gadget_prototype.png" to true, "gadget_bolt.png" to true,
         "star1.png" to false, "star2.png" to false, "star3.png" to false

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Slider
@@ -408,6 +409,14 @@ fun TexturedSidebarTab(
 
 // --- Volume Slider ---
 
+/**
+ * Width reserved for the volume slider's percentage readout ("100%").
+ * At 14sp bold, "100%" measures up to ~43-44dp on wider platform fonts (such as SF Pro on iPad);
+ * a minimum width of 50dp ensures the number and percentage sign fit comfortably on a single line
+ * without wrapping across rows or shifting the slider track while dragging.
+ */
+val VOLUME_SLIDER_PERCENT_MIN_WIDTH: Dp = 50.dp
+
 @Composable
 fun VolumeSlider(
     value: Float,
@@ -437,7 +446,9 @@ fun VolumeSlider(
             color = Color(0xFFC9C9CC),
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.width(42.dp)
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.widthIn(min = VOLUME_SLIDER_PERCENT_MIN_WIDTH)
         )
     }
 }

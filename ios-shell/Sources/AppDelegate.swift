@@ -1,6 +1,7 @@
 import UIKit
 import Darwin
 import StoreKit
+import AVFoundation
 import AppTrackingTransparency
 import GameMain
 import PaywallModule
@@ -28,6 +29,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // No window exists yet, so only the size can be measured here - the safe area follows
         // below, once the window is laid out. See GameScreenMetricsBridge / game.model.ScreenLayout.
         publishScreenMetrics()
+        configureAudioSession()
 
         ShellAppDelegate.shared.applicationDidFinishLaunching(app: application)
         let window = ShellAppDelegate.shared.window
@@ -55,6 +57,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Island / notch on one side and the home indicator along the bottom, which the HUD's
         // D-pad and jump cluster used to sit partly underneath.
         publishSafeArea()
+        lockLandscape()
 
         // Automated verification sequence for CI:
         // MainMenu renders -> Switch to KorGE gameplay -> Dwell -> Return to MainMenu.
@@ -84,6 +87,33 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         supportedInterfaceOrientationsFor window: UIWindow?
     ) -> UIInterfaceOrientationMask {
         return .landscape
+    }
+
+    // The delegate mask above is only read when UIKit re-evaluates orientation, and swapping the
+    // window's rootViewController (Compose <-> KorGE) does not always trigger that - the game could
+    // stay in, or return to, portrait. Asking the scene explicitly after launch and after every
+    // swap pins it to landscape.
+    private func lockLandscape() {
+        DispatchQueue.main.async {
+            if #available(iOS 16.0, *) {
+                for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+                    scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscape)) { _ in }
+                    scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+                }
+            } else {
+                UIViewController.attemptRotationToDeviceOrientation()
+            }
+        }
+    }
+
+    // Without a session category iOS uses SoloAmbient, which the ringer/silent switch mutes - a
+    // phone left on silent hears no music or effects at all. Playback ignores the switch, the
+    // normal behaviour for games. Mixing with others is not requested: the game's own music owns
+    // the output, and ads (AdAudioCoordinator) pause it explicitly.
+    private func configureAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .default, options: [])
+        try? session.setActive(true)
     }
 
     func applicationWillResignActive(_ application: UIApplication) {
@@ -243,6 +273,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         writeTextFile("korge_visible.txt", "\(Date())")
         window.rootViewController = korge
         window.makeKeyAndVisible()
+        lockLandscape()
+        // An ad may have taken the session; gameplay audio needs it back.
+        try? AVAudioSession.sharedInstance().setActive(true)
         startObservingLevelEnd()
     }
 
@@ -251,6 +284,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         print("SHELL: Swapping to Compose (MainMenu)")
         window.rootViewController = compose
         window.makeKeyAndVisible()
+        lockLandscape()
         stopObservingLevelEnd()
     }
 

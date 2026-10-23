@@ -101,10 +101,7 @@ val ALL_SUPPORTED_LANGUAGES = listOf(
  * Temporarily restricted to English and French for Google Play production approval,
  * as only these two have full localization strings implemented.
  */
-val SUPPORTED_LANGUAGES = listOf(
-    LanguageOption("en", "English"),
-    LanguageOption("fr", "Français"),
-)
+val SUPPORTED_LANGUAGES = ALL_SUPPORTED_LANGUAGES
 
 @Composable
 fun SettingsScreen(
@@ -664,7 +661,7 @@ private fun GeneralSettingsPanel(
                     letterSpacing = 1.sp
                 )
                 Text(
-                    text = if (Localization.isFrench(selectedLanguage)) "Niveau de la musique de fond" else "Background music level",
+                    text = Localization.bgMusicLevel(selectedLanguage),
                     color = Color(0xFF9A9A9E),
                     fontSize = (12 * scale).sp
                 )
@@ -696,7 +693,7 @@ private fun GeneralSettingsPanel(
                     letterSpacing = 1.sp
                 )
                 Text(
-                    text = if (Localization.isFrench(selectedLanguage)) "Effets sonores tactiques" else "Tactical sound effects",
+                    text = Localization.tacticalSfx(selectedLanguage),
                     color = Color(0xFF9A9A9E),
                     fontSize = (12 * scale).sp
                 )
@@ -757,7 +754,7 @@ private fun GeneralSettingsPanel(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (Localization.isFrench(selectedLanguage)) "PAR DÉFAUT (GAUCHE)" else "DEFAULT (LEFT)",
+                        text = Localization.defaultLeft(selectedLanguage),
                         color = if (!controlsSwapped) Color.White else Color.White.copy(alpha = 0.7f),
                         fontSize = (12 * scale).sp,
                         fontFamily = font,
@@ -788,7 +785,7 @@ private fun GeneralSettingsPanel(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (Localization.isFrench(selectedLanguage)) "INVERSÉ (DROITE)" else "SWAPPED (RIGHT)",
+                        text = Localization.swappedRight(selectedLanguage),
                         color = if (controlsSwapped) Color.White else Color.White.copy(alpha = 0.7f),
                         fontSize = (12 * scale).sp,
                         fontFamily = font,
@@ -884,7 +881,7 @@ private fun AboutSettingsPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (Localization.isFrench(selectedLanguage)) "À PROPOS D'INFILTRATE" else "ABOUT INFILTRATE",
+                    text = Localization.aboutInfiltrate(selectedLanguage),
                     color = Color.White,
                     fontSize = (18 * scale).sp,
                     fontFamily = font,
@@ -910,8 +907,7 @@ private fun AboutSettingsPanel(
             }
             fun linkDisplay(link: String): String = when (link) {
                 "PRIVACY POLICY" -> Localization.privacyPolicy(selectedLanguage)
-                "AD PRIVACY CHOICES" ->
-                    if (Localization.isFrench(selectedLanguage)) "CHOIX DE CONFIDENTIALITÉ PUBLICITAIRE" else "AD PRIVACY CHOICES"
+                "AD PRIVACY CHOICES" -> Localization.adPrivacyChoices(selectedLanguage)
                 "CONTACT US" -> Localization.contactUs(selectedLanguage)
                 "CREDITS & LICENSES" -> Localization.creditsLicenses(selectedLanguage)
                 "RATE US" -> Localization.rateUs(selectedLanguage)
@@ -949,14 +945,14 @@ private fun AboutSettingsPanel(
                                         try {
                                             uriHandler.openUri("https://infiltrate.saysplit.app/privacy/")
                                         } catch (_: Exception) {
-                                            onActionToast("UNABLE TO OPEN LINK")
+                                            onActionToast(Localization.unableToOpenLink(selectedLanguage))
                                         }
                                     }
                                     "CONTACT US" -> {
                                         try {
                                             uriHandler.openUri("https://infiltrate.saysplit.app/support/")
                                         } catch (_: Exception) {
-                                            onActionToast("UNABLE TO OPEN LINK")
+                                            onActionToast(Localization.unableToOpenLink(selectedLanguage))
                                         }
                                     }
                                 }
@@ -1031,6 +1027,9 @@ private val SOUND_CREDITS = listOf(
     SoundCredit("Crate drop", "InspectorJ, via Freesound, Creative Commons Attribution 4.0"),
     SoundCredit("Rover and camera motors", "freesound_community, via Pixabay"),
     SoundCredit("Push cart", "freesound_community, via Pixabay"),
+    SoundCredit("Lift hum", "freesound_community, via Pixabay"),
+    SoundCredit("Wall switch", "freesound_community, via Pixabay"),
+    SoundCredit("Lever", "freesound_community, via Pixabay"),
 )
 
 @Composable

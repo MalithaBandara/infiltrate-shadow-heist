@@ -450,7 +450,7 @@ fun StoreScreen(
                                     if (item.isAd) {
                                         if (gadgetAdLimiter.canWatch()) {
                                             pendingGadgetType = mysteryGadgetPool.random()
-                                            showToast(if (Localization.isFrench(language)) "CHARGEMENT DE LA PUB..." else "LOADING AD...", true)
+                                            showToast(Localization.loadingAd(language), true)
                                             showGadgetRewardAd = true
                                         } else {
                                             showToast(Localization.dailyLimitReached(language), false)
@@ -476,7 +476,7 @@ fun StoreScreen(
                                     if (pack.isAd) {
                                         if (coinsAdLimiter.canWatch()) {
                                             pendingCoinsAdAmount = pack.amount
-                                            showToast(if (Localization.isFrench(language)) "CHARGEMENT DE LA PUB..." else "LOADING AD...", true)
+                                            showToast(Localization.loadingAd(language), true)
                                             showCoinsRewardAd = true
                                         } else {
                                             showToast(Localization.dailyLimitReached(language), false)
@@ -491,7 +491,7 @@ fun StoreScreen(
                                                 refreshProfile()
                                                 showToast(Localization.adWatchedCoins(pack.amount, language), true)
                                             } else {
-                                                showToast(errorMsg ?: (if (Localization.isFrench(language)) "ACHAT ANNULÉ" else "PURCHASE CANCELLED"), false)
+                                                showToast(errorMsg ?: Localization.purchaseCancelled(language), false)
                                             }
                                         }
                                     }
@@ -505,7 +505,7 @@ fun StoreScreen(
                                             refreshProfile()
                                             showToast(Localization.purchasesRestored(language), true)
                                         } else {
-                                            showToast(errorMsg ?: (if (Localization.isFrench(language)) "ÉCHEC DE LA RESTAURATION" else "RESTORE FAILED"), false)
+                                            showToast(errorMsg ?: Localization.restoreFailed(language), false)
                                         }
                                     }
                                 }
@@ -525,9 +525,9 @@ fun StoreScreen(
                                         if (success) {
                                             profileStorage.activatePremium()
                                             refreshProfile()
-                                            showToast(if (Localization.isFrench(language)) "PUBS SUPPRIMÉES DÉFINITIVEMENT" else "ADS REMOVED PERMANENTLY", true)
+                                            showToast(Localization.adsRemovedPermanently(language), true)
                                         } else {
-                                            showToast(errorMsg ?: (if (Localization.isFrench(language)) "ACHAT ANNULÉ" else "PURCHASE CANCELLED"), false)
+                                            showToast(errorMsg ?: Localization.purchaseCancelled(language), false)
                                         }
                                     }
                                 },
@@ -541,14 +541,14 @@ fun StoreScreen(
                                             refreshProfile()
                                             showToast(Localization.purchasesRestored(language), true)
                                         } else {
-                                            showToast(errorMsg ?: (if (Localization.isFrench(language)) "ÉCHEC DE LA RESTAURATION" else "RESTORE FAILED"), false)
+                                            showToast(errorMsg ?: Localization.restoreFailed(language), false)
                                         }
                                     }
                                 },
                                 onDeactivate = {
                                     profileStorage.deactivatePremium()
                                     refreshProfile()
-                                    showToast(if (Localization.isFrench(language)) "SUPPRESSION DES PUBS DÉSACTIVÉE" else "REMOVE ADS DEACTIVATED", true)
+                                    showToast(Localization.removeAdsDeactivated(language), true)
                                 }
                             )
                         }
@@ -599,7 +599,7 @@ fun StoreScreen(
                     coinsAdLimiter.recordWatch()
                     coinsAdWatchesRemaining = coinsAdLimiter.watchesRemainingToday()
                     refreshProfile()
-                    showToast("+$pendingCoinsAdAmount COINS GRANTED", true)
+                    showToast(Localization.coinsGranted(pendingCoinsAdAmount, language), true)
                 },
                 onDismissed = { showCoinsRewardAd = false },
                 onFailure = {
@@ -917,7 +917,7 @@ private fun CoinsGrid(
             val restoreInteraction = remember { MutableInteractionSource() }
             val click = LocalUiClick.current
             Text(
-                text = if (isPurchasing) (if (Localization.isFrench(language)) "CONNEXION..." else "CONNECTING...") else Localization.restorePurchases(language),
+                text = if (isPurchasing) Localization.connecting(language) else Localization.restorePurchases(language),
                 color = if (isPurchasing) Color(0xFF6E6E72) else Color(0xFFB7B7BC),
                 fontSize = (11 * scale).sp,
                 fontFamily = font,
@@ -1078,7 +1078,7 @@ private fun CoinPackCard(
                     )
                 } else if (isPurchasing && !pack.isAd) {
                     Text(
-                        text = if (Localization.isFrench(language)) "VEUILLEZ PATIENTER..." else "WAIT...",
+                        text = Localization.waitPlease(language),
                         color = Color(0xFF6E6E72),
                         fontSize = (13 * scale).sp,
                         fontFamily = font,
@@ -1228,7 +1228,7 @@ private fun RemoveAdsSection(
             val restoreInteraction = remember { MutableInteractionSource() }
             val click = LocalUiClick.current
             Text(
-                text = if (isPurchasing) (if (Localization.isFrench(language)) "CONNEXION..." else "CONNECTING...") else Localization.restorePurchases(language),
+                text = if (isPurchasing) Localization.connecting(language) else Localization.restorePurchases(language),
                 color = if (isPurchasing) Color(0xFF6E6E72) else Color(0xFFB7B7BC),
                 fontSize = (11 * scale).sp,
                 fontFamily = font,
@@ -1412,7 +1412,7 @@ private fun RemoveAdsSection(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (isPurchasing) (if (Localization.isFrench(language)) "CONNEXION..." else "CONNECTING...") else Localization.purchaseLifetimePass(language),
+                            text = if (isPurchasing) Localization.connecting(language) else Localization.purchaseLifetimePass(language),
                             color = if (isPurchasing) Color(0xFF6E6E72) else Color(0xFF0A0A0C),
                             fontSize = (14 * scale).sp,
                             fontFamily = font,

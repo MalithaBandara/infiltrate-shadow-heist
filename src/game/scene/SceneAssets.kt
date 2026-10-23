@@ -131,13 +131,16 @@ object SceneAssets {
     @OptIn(KorgeInternal::class)
     fun releaseOtherLevelsArt(textures: AgBitmapTextureManager, also: List<Bitmap> = emptyList()): Int {
         val released = ArrayList<Bitmap>(also)
-        val entries = bitmaps.entries.iterator()
-        while (entries.hasNext()) {
-            val entry = entries.next()
+        val keysToRemove = ArrayList<String>()
+        val snapshot = ArrayList(bitmaps.entries)
+        for (entry in snapshot) {
             if (entry.key !in requestedThisLevel) {
                 released.add(entry.value)
-                entries.remove()
+                keysToRemove.add(entry.key)
             }
+        }
+        for (k in keysToRemove) {
+            bitmaps.remove(k)
         }
         if (released.isEmpty()) return 0
         repeat(2) {
@@ -180,7 +183,12 @@ object SceneAssets {
      */
     suspend fun bitmap(name: String, minified: Boolean = true): Bitmap? {
         requestedThisLevel.add(name)
-        bitmaps[name]?.let { return it }
+        bitmaps[name]?.let {
+            // A load already under way when the preload reserved the name can land first; the
+            // reservation then has nothing left to hand over (and must not pin its copy).
+            bitmapPreloads.remove(name)
+            return it
+        }
         bitmapPreloads[name]?.let { pending ->
             // Left in the map until it lands, so a second caller meanwhile waits for the same one.
             val preloaded = pending.await()
@@ -233,7 +241,10 @@ object SceneAssets {
 
     /** Cached [readTtfFont], falling back to [fallback] (default [DefaultTtfFont]) on failure. */
     suspend fun font(name: String, fallback: TtfFont = DefaultTtfFont): TtfFont {
-        fonts[name]?.let { return it }
+        fonts[name]?.let {
+            fontPreloads.remove(name) // as in [bitmap]
+            return it
+        }
         fontPreloads[name]?.let { pending ->
             val preloaded = pending.await()
             fontPreloads.remove(name)

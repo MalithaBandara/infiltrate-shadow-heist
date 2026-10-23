@@ -95,6 +95,16 @@ compiles against the previous model (an up-to-date build in ~1s is the tell). A 
 `bundleRelease` fails at `signReleaseBundle` with a bare NullPointerException - `local.properties`
 has no keystore passwords; the signed AAB comes from CI (`gradle.yml` decodes the keystore secrets).
 
+**`GameplayScene.sceneMain` lives against the JVM's 64KB method limit, and android-shell hits it
+first**: its newer Kotlin compiles the same suspend function ~19% bigger than the root build's 2.0.20,
+so `jvmTest` passing proves nothing here (2026-10-22: android-shell failed with `Method too large`
+while jvmTest was green). Setup code that is not in a lambda counts; a local `fun` is its own method.
+Static set dressing went out that day (`buildWallStencils`, `buildFloorsAndExit`, `buildStaticDecor`):
+android 59,180 / 65,535, JVM 49,583. Measure with `javap -c -p` on
+`android-shell/build/intermediates/built_in_kotlinc/release/compileReleaseKotlin/classes/game/scene/GameplayScene.class`
+after adding setup code; move another block into a local `fun` (or a file, as `MechanismSounds`,
+`VentFxAssets`) well before it nears the limit.
+
 ### CI (`.github/workflows/`) - every push to `main`, no path filters
 
 - `gradle.yml` - `./gradlew jvmTest`, `ubuntu-latest`, JDK 21.
@@ -373,8 +383,8 @@ MainMenu, LevelSelect, Store and Settings are Compose screens in `paywall-build`
 `rootViewController` swap; on Android the Compose menu draws opaquely over an always-visible KorGE
 view (bug #7).
 
-- **Settings**: language list (see Release state) - French fully localized across menus and in-game
-  overlays, in-game tutorials English by design, `Localization.kt` pure Kotlin. Volume sliders are
+- **Settings**: language list (see Release state) - French fully localized across menus, in-game
+  overlays, and in-game tutorials (`step_*` in `Localization.kt`), `Localization.kt` pure Kotlin. Volume sliders are
   lifted into `NavigationRoot` as `mutableStateOf` (they had no live effect). Reset Progress has a
   confirmation and resets coins/inventory/unlocks/results, keeping `isPremium`.
 - **In-App Review**: automatic StoreKit/Play prompt after completing level 4. iOS's manual RATE US
@@ -499,11 +509,28 @@ the ground has nothing below it, so filling a squarer screen means magnifying.)
 
 ## The player
 
-- **Foot planting** (per-column alpha scan of the PNG frames, biased past the measured value):
-  `IDLE_FEET_Y` 245.0, `CROUCH_FEET_Y` 250.0, `JUMP_LAND_FEET_Y` 247.0, `WALK_FEET_Y` 245.0
-  (`walkFeetOffset` on contoured surfaces like the truck bed, 0.0 on flat ground, interpolated
-  between idle/walk). `truckFront.width = 29` (hood-to-windshield step at ~11.2% of `truck.png`).
-  `interactAngle` 60 degrees down-right.
+- **Foot planting and surface grounding** (`GameplayScene.computeSupportingSurfaceOffset`):
+  `IDLE_FEET_Y` 248.0, `CROUCH_FEET_Y` 250.0, `CROUCHWALK_FEET_Y` 253.0, `JUMP_LAND_FEET_Y` 248.0, `WALK_FEET_Y` 255.76.
+  Wood crates (`woodcrate2.png`, push cart crate, hook crates) have their walkable planks ~4.125px below
+  collision top (`woodCrateOffset` = 4.125px); tactical crates (`crate.png`, conveyor crates) sit ~1.5px below
+  (`tacticalCrateOffset` = 1.5px). The truck (`truck.png`) hood (`truckFront`) and cab (`truckMiddle`) are flush
+  sheet metal at 0.0px (`surfaceSink` = 0.0px), while the bed canopy (`truckBack`) has a slight ~0.75px canvas sag
+  (`surfaceSink` = 0.75px). Flat surfaces (floors, tables, barrels, conveyors, lifts, catwalks) have visual tops
+  flush at 0.0px (`surfaceSink` = 0.0px). Total visual grounding offset is `targetGroundingOffset = surfaceSink + stanceOffset`,
+  where `stanceOffset` grounds the higher leg in idle (`idleFeetOffset` ~3.2px), crouch (`crouchFeetOffset` ~2.38px),
+  crouch walk (`crouchwalkFeetOffset` ~1.17px, accounting for tilted soles during gait), or landing absorb (`jumpLandFeetOffset`)
+  flush against the surface (leaving the lower leg to rest slightly into the surface), eliminating floating while preventing submersion.
+  In walking and pushing strides, `stanceOffset` is flush 0.0px since the alternating planted foot contacts directly at `SOURCE_FEET_Y`
+  (255.76), preventing shoe and leg submersion across all surfaces. The climb is placed against its box, not by an
+  offset - see Climb below.
+- **Animation and scene movement smoothing**:
+  Player turning responds immediately with clean facing flip and a smooth turnaround plant transition
+  (starting at pivot frame 1 over ~140ms into stride) rather than freezing or distorting silhouette proportions.
+  Walk and crouchwalk cycle progress smoothly decelerates into a foot plant during the 0.08s stopping window
+  before handing off to idle/held crouch rather than freezing mid-stride.
+  Camera follow snaps when the clamped target hits level boundaries (0.0 or `minWorldViewX`) to prevent
+  spring overshoot deadzones, and background parallax tiles wrap with Euclidean modulo to prevent seams.
+  `truckFront.width = 29` (hood-to-windshield step at ~11.2% of `truck.png`). `interactAngle` 60 degrees down-right.
 - **Drawn 5% larger than he collides** (`VISUAL_HEIGHT_SCALE = 1.05`) so the push pose's fist
   reaches the cart handle; collision, jumps, climbs and crouch gaps are untouched. Its ceiling is the
   tightest crouch gap left - level 4's descending hanging crate over its 2-stack (68) vs a crouched
@@ -537,9 +564,25 @@ the ground has nothing below it, so filling a squarer screen means magnifying.)
 - **Climb**: `ClimbTarget.endsCrouched` ends a climb crouched where there's crouch room but not
   standing room; the headroom check runs at the direction-aware `climbLandingX`. The crouched climb
   stops the clip at raw frame 182 (`CLIMB_CROUCH_END_PHASE`, picked by silhouette overlap) and plays
-  its settled footage at 3.0x. **The climb clip is drawn 12-22% smaller than life deliberately**
-  (reverted once on request) - it makes the reach exactly one body height so the hand lands flush on
-  a 96 ledge. Don't "fix" it unasked.
+  its settled footage at 3.0x. **The drawn figure is placed off the box, not the collision body**
+  (2026-10-23, "going inside the platform and not touching the top part"): `PlayerClimbContact`
+  (generated by `tools/art/prep_climb_contact.py`, whose header is the source of truth) gives each
+  climb frame the pixel where the box's top corner belongs; `GameplayScene.placeClimbFigure` puts it on
+  the real corner (deck at the crate's drawn top), never with the feet below where they stood, and
+  hands back to Player's placement over raw 156..166. Solved per frame (overlap, gap under what rests
+  on the deck, fingertips over the lip, distance from Player's corner) with a squared-step smoothness
+  path - an absolute step cost never spreads a move and popped the body onto the deck in one frame;
+  the hand is tracked frame to frame (from raw ~123 the knee and shoulder reach as far forward and
+  sit higher). Result: fingers hooked over the corner and the body against the face on the hang,
+  palms on the deck through the push-up, one frame (raw 149) with a toe on the lip
+  (`PlayerClimbContactTest`). **Re-run the script after re-cutting the climb clip or changing
+  Player's `CLIMB_*` curves.** A ledge under 96 still shows the hands over the top until the pull-up
+  (the reach is one body height, the feet stay on the floor). A previous attempt - a 7-unit drop, a
+  5-unit push into the box, retimed curves and grip scaled by `min(height, totalRise)` - buried the
+  hang 10-16 units in the face; Player's curves are back to their measured values (`startClimb` now
+  snaps the body flush on every climb target - the drawn figure is placed off the box either way). **The climb clip is drawn 12-22% smaller than life deliberately** (reverted
+  once on request) - it makes the reach exactly one body height so the hand lands flush on a 96
+  ledge. Don't "fix" it unasked. Not seen on a screen - only the script's contact sheets.
 - **A single tap forward**: tap grace 0.12s, and a tap released mid lean-in (0.28s) finishes the
   lean-in at 3x - the body moved instantly, the animation was the delay. Holding is unchanged.
 - **Eyes look for a braced body where it is drawn**: braced (`Player.braceLean`, set from
@@ -624,7 +667,8 @@ own standing silhouette** - clips can be framed at different sizes at the same f
   `detectingCameraBots`, as a seeing guard isn't walked on; `testACameraBotThatSpotsThePlayerHoldsWhereItIs`).
 - **Detection pip**: "!" (no circle) for a heard noise, a filling clock for a sighting (seeing wins).
   Stealth Boots suppresses the noise pip; losing line-of-sight and losing the sound cue are tracked
-  separately.
+  separately. Guards play `sfx/guard_investigate.wav` on the rising edge of hearing noise and on the
+  rising edge of visual detection (`guardWasInvestigating` and `guardWasDetecting`).
 - **Vision-testing lessons**: a point-sampled probe can't tell "occluded" from "out of range" -
   verify against `VisionSystem.computeVisionPolygon`. Check exactly at `minAngle`/`maxAngle`
   (cameras dwell there; a float-drift sweep skips them) plus a fine sweep for a RADIAL JUMP between
@@ -687,7 +731,7 @@ timed with a person.
 | 9 | 106.1s | 180 | `testLevel9IsBeatableWithoutTouchingTheGround` |
 | 10 | 151.7s | 190 | `testLevel10SimulationPlayableWalkthrough` |
 | 11 | 132.8s | 195 | `Level11EscortTest.testLevel11IsBeatableAsAnEscort` |
-| 12 | 187.2s | 270 | `Level12EscapeTest.testLevel12IsBeatableAsAnEscape` |
+| 12 | 100.5s | 145 | `Level12EscapeTest.testLevel12IsBeatableAsAnEscape` |
 
 - `test/LevelWalkthroughTest.kt` holds the walkthroughs for 1, 2, 3, 5, 6 - one general
   `Runner.runRight` policy (crouch under head-only ceilings, jump when blocked = the climb, jump a gap
@@ -757,6 +801,12 @@ kept in sync with `ATTRIBUTION.md` by hand.
   in earshot adds `LASER_LOOP_EXTRA_PER_BEAM`, capped at `LASER_LOOP_MAX_GAIN`. Rovers/cameras/carts
   loop only while they moved that frame. Android's native mixer only loops bgmusic, so these use
   korlibs' own channel there - watch for the per-session crackle. Never heard on any platform.
+- **Lifts, switches, levers** (Pixabay, `tools/sfx/scripts/cut_mechanisms.py`): `loop_elevator.wav` is an ambience bed
+  (nearest *travelling* lift, `ELEVATOR_HEARING_RANGE` 300), `lever_throw.wav` plays on a lever's
+  `isActivated` rising edge (hand or REMOTE_TRIGGER), `switch_press.wav` on `onSwitchThrown` (replaced the
+  generic UI click). The logic is `MechanismSounds` in `GameAudio.kt`, not inline in `sceneMain` (64KB limit).
+  The lift bed is cut from the two mid-range stretches (0.9-3.1 s, 4.4-7.1 s), not the 10-25 s rumble (all below 300Hz, inaudible on a phone); one-shots are tanh-soft-clipped for body. Gains set so each lands near -19 dB (loudest 200ms RMS + gain) beside fan/steam (-22) and the climb (-16).
+  Not verified on a device: levels, balance against the music, Android `GameSfxOutput` playback.
 - **Any new ambience bed needs energy above ~300Hz**: `loop_laser.wav` had 99% of its energy at
   20-100Hz (phone speakers played only distortion) and was re-voiced two octaves up, saturated and
   circularly band-passed (`tools/sfx/scripts/revoice_laser.py`, same RMS, gains unchanged).
@@ -857,12 +907,18 @@ Mostly reasoned and measured on JVM/decompiled classes; on-device improvement un
   and recompute on change. `GameWorld.update`'s per-tick lists live in a per-world `TickScratch`,
   same contents in the same order (collision is order-sensitive; verified by every test's stdout
   being byte-identical). **Anything handed one of these lists must not keep it past the call** -
-  copy out (`detectingGuards` does).
+  copy out (`detectingGuards` does). `GameWorld.allGuards` is built once (the guards never change),
+  rope dissolve frames are sliced once (`ropeDissolveSlices`), the level 9 echo's cone is rebuilt
+  only when its lens, facing or occluders change (like the guards'), and the scene's `cachedProfile`
+  is re-read only after the scene itself mutates the profile (`refreshProfile()` after every
+  `profileStorage` mutation - the scene's storage instance is its own, so nothing else changes it).
 - The tutorial scrim is a `SolidRect`, and the tutorial highlight Graphics is cleared only when
   something was drawn (`clearTutorialHighlight`).
 - **Off-screen culling**: static decor registers its world span via `cullable(...)`, toggled
   `visible` off camera with a half-screen margin. **Never register moving entities** in the static
-  `cullTargets` (spawn bounds go stale) - dynamic crates are culled per frame against the camera.
+  `cullTargets` (spawn bounds go stale) - dynamic crates, guards, cameras and moving platforms are
+  culled per frame against the camera (plus `DYNAMIC_CULL_PAD` for what they draw past their box).
+  Hidden views keep running their updaters, so animations keep their phase.
 - **Atlas pages stay resident** (`TextureResidency`, added once per `GameplayScene`): KorGE's
   `AgBitmapTextureManager` deletes a texture after 60 undrawn frames, so a player clip on its own
   2048x2048 page (push, climb, swing, wind, jump) was re-uploaded in the frame it restarted - a hitch
@@ -897,7 +953,8 @@ Mostly reasoned and measured on JVM/decompiled classes; on-device improvement un
   - **`PlayerClipGroupsTest`**: frame indices for all 8 group combinations; every move the
     walkthroughs (levels 1-12) and 2 min x 3 seeds of random input per level make, seen through
     `GameWorld.moveObserver` (test hook, null in the game), against the level's groups. Seen: swing
-    5/6/9/12, push 8/demo, wind 7/10/12. Mutation: dropping WIND from `groupsFor` fails 7/10/12.
+    5/6/9/12, push 8/12/demo, wind 7/10 (level 12 since its 2026-10-22 rebuild: swing + push, 8 pages).
+    Mutation (before that rebuild): dropping WIND from `groupsFor` failed 7/10/12.
     **A new clip, or a new way to start an existing move, must update `groupsFor` and this test.**
     Not seen on a device.
 - **`SceneAssets.kt` caches bitmaps/fonts process-wide** (only successful loads).
@@ -909,8 +966,9 @@ Every level used to decode every prop (~66 bitmaps, ~230MB decoded) and keep the
 - **Loading**: `loadGameplayBitmaps` loads large props through `SceneAssets.levelArt(name, needed)`,
   each condition taken from its draw site (hanging crates by variant, wood crate, pole, crane, table,
   camera, hook, truck, exit booth / exit structure, level 4's end machine, fan, lever, rope +
-  dissolve frames). Small assets, touch controls and end-of-run screens load for every level. The
-  exit booth's rule is one function (`drawsExitBooth`) shared by loader and scene.
+  dissolve frames, start fences, lift). Small assets, touch controls and end-of-run screens load for
+  every level. The exit booth's rule is one function (`drawsExitBooth`) shared by loader and scene,
+  and so are the fences' (`isFence1Box` / `isFence2Box`).
 - **Releasing**: `SceneAssets.beginLevel()` at the top of `sceneMain` records what this level asks
   for; `releaseArtOfOtherLevels()` at the end of setup (after `sceneAfterInit`, ~2s cap) drops the
   rest - 18-66MB per level on JVM. It happens behind the level's first frame, not during play.
@@ -964,7 +1022,7 @@ Every level used to decode every prop (~66 bitmaps, ~230MB decoded) and keep the
   `loadingbg.png`/`logo_main.png`, `success3.png`/`failedscreen.png` (the result cards - drawn larger
   than their pixels on a phone), `button1-4.png` (pause menu), `crane.png` (its cab is drawn LARGER
   than its pixels), `chainedcrate*.png` (stretched up to 2240x600 world units). `dossier_paper.png`
-  is loaded but never drawn (GameplayBitmaps carries it, nothing reads it).
+  is not loaded by the game at all (nothing in the scene drew it; the menu has its own copy).
 - **Still hardcoded to file dimensions** (pin as literals/fractions first, or don't resample):
   `chainedcrate.png`/`chainedcrate2.png` slices. `hook.png`'s aspect is a literal (2136/154) in
   LevelData and Player's grip is a fraction of the rect, so resampling it is safe; RE-CROPPING isn't.
@@ -987,8 +1045,16 @@ Every level used to decode every prop (~66 bitmaps, ~230MB decoded) and keep the
   clamp, premultiplied) against an ideal LANCZOS at a 1440p phone, a 2732-px iPad Pro, 1080p and 720p:
   every new file is closer to the ideal than the old oversized one was (old non-POT files never got
   mips and alias). A plain LANCZOS-vs-LANCZOS diff - the 2026-10-07 check - can't see this; it is how
-  the first cut of this pass shipped those four props mipmapped. **Unmeasured**: the 2026-09-10 POT
-  pass's ten assets are still mipmapped; check them with the same emulation before assuming either way.
+  the first cut of this pass shipped those four props mipmapped. **Measured 2026-10-19** (same emulation
+  plus trilinear, vs a LANCZOS of the pre-pass originals at `77a65b9`): the 2026-09-10 POT pass's
+  ten assets, still mipmapped. Touch buttons (`left/right/jump/crouch/interact.png`, 512 drawn at
+  288-324px): mipmapped ~70% of the ideal's sharpness on every device; without mips 92-108%, error
+  ~40% lower at 1440p/iPad, even at 1080p, ~25% higher at 720p. **`fence.png`/`fence2.png` are drawn
+  LARGER than their 512px at 1440p (612x583, 697x583) and on iPads** - upscaled, ~60% / ~45-50% sharp,
+  mips irrelevant there; a 1024 re-export without mips is near the ideal on 1440p/iPad/1080p but
+  shimmers at 720p (3.3x minification). `barrel/crate/truck.png` are near-black silhouettes: every
+  option is within ~1/255 - leave them. `container17.png` (2020x565, non-POT so never mipmapped) is
+  92-95% sharp, <0.8/255 off - fine.
 - **DECIDED NO: never atlas the static world art.** The POT stretch-to-box textures are under half an
   atlas page; atlasing more than doubles their memory for a sub-noise bind-count win and bleeds
   mipmaps across slices. Atlasing pays for hundreds of small sprites, not a dozen large props.
@@ -1484,7 +1550,7 @@ the first only while the second is on its long leg) -> two jets in a gale (the f
   against the end wall with its switch on the wall (8130, reached from the lift) and rises into the
   last room (7960..8600). At its far end a `PrisonCellDef` (`LevelLayout.prisonCell`): bars over
   8380..8560, black gloom, the figure starting at 8490 facing the door and PACING the cell - the
-  player's walk/idle frames, walked by the scene's updater (`CELL_FIGURE_SPEED` 38, a 1.4s stand
+  player's walk/idle frames, walked by the scene's updater (`CELL_FIGURE_SPEED` 110, the escorted prisoner's pace, a 1.4s stand
   at each end, turning 26 short of the side posts; pure decoration, not in the model), bars
   procedural - swap in real art if it arrives. Its switch tutorial opens at x 7840 with the
   callout at 7720 (at 7950/7620 it rarely triggered and sat off the left of a phone screen). Exit on the room floor 70 short of the bars; a level with a cell draws no booth. World
@@ -1506,14 +1572,18 @@ climb or parkour. you can use doors" (the request said "the guard" - read as the
 wrong). **No tutorial at all** - level 10's end teaches switches, doors and lifts
 (`testLevel10UsesLevel7sMechanicsAndNothingElse`).
 - **`Prisoner` (`Prisoner.kt`)**: a `Player` body driven by a rule - walks right at 110
-  (`PrisonerDef.speed`) once freed (cell gate `freedByDoorId` half open - on level 12 that id is a
-  lift, freed as it first moves - + 0.8s getting up), stops only
-  at a shut door, a wall, or a lip deeper than `MAX_STEP_DOWN` (30); never jumps/climbs/crouches.
+  (`PrisonerDef.speed`) once freed (cell gate `freedByDoorId` half open; the id may also be a lift
+  that first moves, a hook crate that drops or a lever-started load - level 12's is its slot crate -
+  + 0.8s getting up), stops only
+  at a shut door, a wall, or a lip deeper than `MAX_STEP_DOWN` (30) - a crack under 4 with footing on
+  both sides is not a lip (`Prisoner.CRACK`, level 12's dropped crate); never jumps/climbs/crouches.
+  Since 2026-10-22 a moving load carries him as it does the player, and a crushing load
+  (`crushesOnContact`) that would crush the player loses him (GameWorld; level 12's ferries and gate).
   He also stops short of a lift's shaft while that lift is up off his floor (`isAtRaisedLift`): a
   lift never comes down on a body, so one sent up before he arrived used to strand him under it for
   good (level 12, 2026-10-19 "make sure the level has a solution").
-  Seen by anything = the shared alert meter (`GameWorld.isPrisonerSeen`, pip over him); steam kills
-  him (`prisonerLost`). The level completes only when he AND the player are in `exitZone`. Drawn fully
+  Seen by anything = the shared alert meter (`GameWorld.isPrisonerSeen`, pip over him); steam and an active
+  laser kill him (`prisonerLost`; lasers since 2026-10-21 - he goes nowhere the player cannot). The level completes only when he AND the player are in `exitZone`. Drawn fully
   black with the player's frames (grey tint rejected), created before the cell so its bars cover him
   (`PrisonCellDef.drawsFigure` = false).
 - **Doors (`Doors.kt`)**: `DoorDef` floor-to-ceiling, the panel rolls up (`openness`; only the
@@ -1555,86 +1625,58 @@ wrong). **No tutorial at all** - level 10's end teaches switches, doors and lift
   at spawn on this level only.
 - Door/switch art is procedural `solidRect`s, untuned.
 
-### Level 12 ("12: Final Escape") - `LEVEL_12_LAYOUT`, the escort out of the yard
+### Level 12 ("12: Final Escape") - `LEVEL_12_LAYOUT`, the escort along the dock walkway
 
-Six rounds of direction. "dont use new mechanisms" and "too many button things" (2026-10-03) still
-hold; the 2026-10-07 rebuild is **"in level 12 dont use any indoor mechanisms. only use the outdoor
-mechanisms + lifts. make it long and hard since its the last level"**, and 2026-10-08 added **"any
-visual element should be identical to previous levels. you cannot change sizes of crates. sizes of
-poles or anything ... laser emittors should be same size in every level"** and then **"the camera and
-hook and other things are out of screen"**.
-- **Outdoor = levels 1, 2, 3, 5, 6, 8, 9** (`bgmg*` backgrounds); indoor = 4 (conveyor run), 7, 10, 11.
-  So no doors, steam, fans, guard room, hung pallets (11's catwalks), conveyor or cell
-  (`testOnlyOutdoorMechanismsAndLifts`). Lasers and rovers count as outdoor (levels 6/8/9 use them).
-- **Every drawn size is one an earlier level draws** (`testEverythingIsDrawnAtASizeAnEarlierLevelDrawsIt`
-  collects every "what:size" levels 1-11 draw - crate tiles, barrels, blocks by height, hung crates,
-  level 1's chained crate, tables, legs, poles, hooks, levers, laser housings, camera cones, guards,
-  rovers, lifts - and level 12's must be a subset). So: 68x48 crates (stacks in 48 tiles); level 1's
-  chained crate exactly (174x256, hung from y 30 so it is 58 over the 96 platform as on level 1 -
-  `LevelLayout.isChainedCrate` is the scene's test for it, y <= 30 and over 150 tall); level 3's table
-  at its own height (top 296, 30 deep) with its 30x130 leg (`tableDecorations`, drawn only - both
-  roads run under the decks); level 3's 18x130 pole on a deck, level 8's 18x178 on the ground; level
-  3's pole camera cone (230, 50 degrees); laser housings 0.6 (8/9's); blocks 96 or 144 tall. No
-  `plainPlatforms` slab - a floating rough block is a shape no level has.
-- **Nothing to watch above a phone screen's top** (`testNothingToWatchIsAboveThePhoneScreensTop`): the
-  scene frames the world at a fixed height, its top edge at world y ~124 on a phone (480-high canvas,
-  zoom 1.35, bottom edge at 410 + 70). Level 8's lifted-line tables (top 242) were tried for their
-  52.4x168 leg and pushed the deck camera, the hook and the bobbing loads off the top - keep decks at
-  296 and everything over them where levels 3 and 5 put it (hook grip 184, loads up to 150).
-- **Lifts are the only thing that holds him** (he stops at a wall or a drop > 30, and a lift is the only
-  way past one): six lifts, five switches - `sw_wall` works a lift up each face of the wall.
-- **He starts sitting on a lift** (`PrisonerDef.freedByDoorId = "lift_pump"`): `GameWorld` frees him
-  the first tick that lift moves - the one model change (doors were the only way to free him). A
-  moving platform does not carry him (only the player), so nothing here asks him to ride one.
-- **Every crate lies flat** (`testEveryCrateLiesFlat`): crate art on a box taller than wide reads as a
-  crate on its end. Steps for him cannot be crates at all - 48 is past his 30 step - hence the far lift.
+**Rebuilt fresh 2026-10-22**, twice: first "clear level 12 completely ... start with the two fences
+... helping a prisoner escape the shipyard ... use as many game mechanics as from previous levels",
+then (against a screenshot of the hung-crate course) **"you have just reused stuff from previous
+version. completely remove the stuff from previous version and make it a fresh level"**. So nothing
+from the earlier level 12s: **no lifts or switch panels, no course of hung crates over his head, no
+chained crate, no bobbing loads, lasers, rovers, cameras or overwatch guards**
+(`testNothingFromTheEarlierLevel12s`). The layout's doc comment is the source of truth. Still in force:
+outdoor mechanisms only (2026-10-07), every drawn size one an earlier level draws (now also carts,
+hook crates and the exit structure), nothing to watch above y ~149, he goes nowhere the player cannot.
 
-The road splits into two lanes again and again - where he walks the ground the player is on the gantry
-decks over him, where a lift puts him on a deck the player is under it. Left to right (world ~9100):
-1. **The gantry** - he waits on `lift_pump`, at the far end of the start's platform. The player takes
-   level 1's opening: a wood crate, a 96 platform (550 long, right up to the lift - no table there:
-   2026-10-19 "replace this part with a platform"), a crouch under the chained crate, then a 48 hop
-   onto the lift. The walk back under the gantry ends at the platform's far face, a 96 climb
-   (`testFallingOffTheGantryIsNeverADeadEnd`). Then: barrels, a 3-beam laser wave, level 5's swing
-   (150 gap, grip 112 over the deck), level 8's bobbing loads (crushers from below, the walk under them
-   timed), level 2's hanging crates (static 76, one riding 100 on a 4s period, long 174, 52 hops),
-   level 6's lever crate ride (one-shot, 232 sweep, 0.6s wind-up), and level 6's lever on a hung crate
-   killing an always-on curtain. `sw_pump` is at the far end: lowering him there makes the gantry's
-   whole course mandatory.
-2. **The yard** - two rovers on his road past the gantry; drop off its end and switch both off from
-   behind before he arrives.
-3. **The stack** - `lift_stack` against three stacked crates (144: his wall, and not a climb). Ride it up
-   with him (press `sw_stack` standing on the lift's end); he crosses the crates and stops at the gap
-   before deck A. Drop through the gap and work `lift_gap` from under the deck (`sw_gap`, which also
-   throws `lift_stack`: a player who went up alone and dropped through can bring the stack's lift
-   down for him and then up again from there - `testGoingUpTheStackAloneIsNotADeadEnd`). **Deck A's
-   light** (pole on the deck, parks 5s each side of it, whips across through the sky at 2.8 rad/s):
-   send him **2.6s after it settles back on the near side** (2.0s window of 13.3s). Then run the
-   underside (level 8's bottom course, 326 to the ground: three laser waves, a slanted gate, three
-   rovers).
-4. **The row** - `lift_row` parked up at deck A's end holds him over level 3's overwatch pair (174
-   crates at 300, tilt 25, 13.1s beat). Under a crate is out of sight AND hearing (noise needs line of
-   sight) - **the crates must be in `boxes`**. The player crosses first (under crate 1 as guard 1 sets
-   off away, across the gap as he turns back, out as guard 2 turns back), then **lowers him 1s after
-   guard 1 sets off away from the lift** (2.1s window).
-5. **The wall** - level 5's 200x144 block, `lift_wall` up its near face and `lift_out` down its far
-   face, both on `sw_wall`. The gate light (on the far side) parks 3s on `lift_out`'s top and 3s on the
-   road at its foot, sweeping between them over the booth. Press 1 **1s after it settles on the far
-   lift** (he is over the wall and on `lift_out` once it has gone; 3s window); press 2 **2.9s after it
-   settles on the road** (down as it leaves, out while it is on the lift's top; 2.5s window of 11.1s).
-   Press 2 also brings `lift_wall` down for the player: press 3 rides up, then wait on the wall top
-   (out of the cone) and cross as the light leaves the road.
+**He never comes down**: his road is the walkway, 144 up - a container, quays, the dropped crate, and
+hung crates that carry him over the pits between quays. What holds him is a gap or the gate crate; the
+pits under the walkway are the player's.
+1. **The hideout** - he sits on a 144 container (x 600) past the start fences; level 8's cart pushed
+   flush is the way up. Past it a slot (69 wide, two crates at its foot) with level 5's physical hook
+   crate hung 60 over the walkway (out of a hop: a wall to both) and 12 into the slot. Its lever on the
+   container drops it flush - half a unit off each face, so BoxPhysics' strictly-inside corner test
+   lands it on the crates (flush, it fell through) and `Prisoner.CRACK` walks him over - and the drop
+   frees him (`freedByDoorId` = the crate's id).
+2. **The ferry** - level 6's lever crate (oneShot) parked at Q1's end; he waits on its far lip. Its
+   lever is on pit 1's floor, out of the guard's reach. **Pit guards' torches tilt 20 UP** (negative
+   `visionTilt`): a 60 cone 220 long reaches a body on the walkway only where the rise to its feet is
+   under 50 degrees, ~76 out, so he is safe where he waits (patrol 56..106 short of it); a body
+   standing on a hung load is hidden from below by the load's own slab (so the ride is safe, and a
+   "send it while the guard looks away" beat has no teeth - tried and dropped). A guard on a pit
+   floor is solid to the player, so he walks the dead end under the parked ferry. Walking is heard
+   180 away (crouching is silent): crouch off the ferry's end as the guard sets off left from his
+   right end and crouch out of hearing; pull the lever; climb out up the crates at Q2's face once the
+   ferry has gone back.
+3. **The gate** - a 76x38 crate hung 6 over Q2 (his wall); its lever sends it once to 150 and back
+   (6s, crushes from below on the way down - him too). Past it level 2's moving crate shuttles across
+   pit 2 on the level clock (12s) under the second guard: pull the lever **4.0-6.5s into the shuttle's
+   cycle** (clean run 5.0, `GATE_AT`) so he reaches the dock as it arrives; otherwise he waits at the
+   lip and the guard sees him. Hop over the gate after it is down and take the shuttle at its leading end.
+4. **The cart pit** - the second ferry parked at Q3's end, its lever on Q4; level 8's second cart
+   (clear of the parked ferry - under it there is no headroom to get onto the cart) is the only way up
+   Q4's face. No guard: the cart's whole road is the pit floor.
+5. **The exit** - Container 17 (level 8's, 105 tall) on Q4; the trigger starts 70 short of it.
 
-- **Measured, not argued** (`Level12EscapeTest`): the clean run (187.2s, target 270) plus a wrong
-  moment for each beat that must fail (dawdling 30s before the yard / gap at +0.5 and +5.5 / row at
-  +3 and +7 / wall up at +6, down at +0.5 and +5.5). Windows were found by sweeping the release moment
-  over each watcher's cycle with a throwaway probe - re-derive the same way after touching a light,
-  guard or deck length. The script's `switchOff` waits for a rover to set off away from its near end,
-  not just to face away - one already turning back catches you.
-- **Not used, and why**: the push cart and hook-crate drop (a box left on his road), the truck
-  (hardcoded in `createDefault`), a crane (too tall), level 3's beam camera (under a deck its lens is
-  just above a standing head, so nothing can pass or hide under it).
-- Scene: lights, stack and lifts are untuned on screen.
+- **Checkpoints are his**: on each parked ferry's far lip and at the gate.
+- **Measured** (`Level12EscapeTest`, 18 tests, run in an isolated copy - see below): the clean run
+  (100.5s, target 145), the wrong moves that must fail (walking in pit 1, the gate at +3 / -2, the
+  gate coming down on him), his road against every box, hook,
+  load and cart, and the dead ends (every pit floor has a way up on each side of its guard; a lever
+  pulled early re-arms).
+- **Other sessions build this repo too**: concurrent Gradle runs in the same tree clobber each other's
+  outputs (2026-10-22: "Unresolved reference 'game'" in untouched tests). Test in a copy of the tree
+  (sources, tests, resources, art, paywall-build; no `build`/`.gradle`) with `--no-daemon`.
+- Scene: never seen on a screen. Worth a look: the upturned pit-guard torches, the ferries carrying
+  him, the gate crate, the cart under the walkway, Container 17 on the quay.
 
 ## Extracted library: `kmp-stealth-game-toolkit` (2026-09-29)
 

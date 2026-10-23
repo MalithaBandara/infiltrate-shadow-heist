@@ -209,9 +209,12 @@ data class GameWorld(
         pushStanceDemo = pushStanceDemo
     )
     var conveyorsActive: Boolean = !conveyorsStartOnMove
-    /** Every guard in the level. Single-guard levels simply have no [extraGuards]. Guardless levels set [hasNoGuards] = true. */
-    val allGuards: List<Guard>
-        get() = if (hasNoGuards) emptyList() else if (extraGuards.isEmpty()) listOf(guard) else listOf(guard) + extraGuards
+    /**
+     * Every guard in the level. Single-guard levels simply have no [extraGuards]. Guardless levels set [hasNoGuards] = true.
+     * Built once: it is read many times a frame (per-guard loops index it), and the guards never change.
+     */
+    val allGuards: List<Guard> =
+        if (hasNoGuards) emptyList() else if (extraGuards.isEmpty()) listOf(guard) else listOf(guard) + extraGuards
 
     // ---- level 11: doors, lifts and the prisoner (LevelLayout.doors/doorSwitches/lifts/prisoner) ----
     //
@@ -1882,6 +1885,186 @@ data class GameWorld(
         // Update active powerup timers
         activePowerups.update(dt)
 
+        totalElapsedSeconds += dt
+        if (laserGraceTimer > 0.0) {
+            laserGraceTimer = (laserGraceTimer - dt).coerceAtLeast(0.0)
+        }
+        for (laser in lasers) laser.update(totalElapsedSeconds)
+
+        // Update moving platforms and translate grounded player if riding one
+        val esc = prisoner
+        for (mp in movingPlatforms) {
+            val oldBounds = mp.bounds
+            val prisonerRides = esc != null && standsOn(esc.body, oldBounds)
+            val delta = mp.update(dt, totalElapsedSeconds)
+            val playerFeetY = player.y + player.height
+            val footCenter = player.x + player.width / 2.0
+            val onThisPlatform = player.isGrounded &&
+                kotlin.math.abs(playerFeetY - oldBounds.top) < 4.5 &&
+                (footCenter >= oldBounds.left && footCenter <= oldBounds.right)
+            if (onThisPlatform) {
+                player.x += delta.dx
+                player.y += delta.dy
+            }
+            // The prisoner rides a load the same way (level 12's ferries).
+            if (prisonerRides) {
+                esc!!.body.x += delta.dx
+                esc.body.y += delta.dy
+            }
+        }
+        // Freed by a load: level 12 has no doors or lifts - he gets up when the hook crate of that
+        // id is dropped, or the moving platform of that id is set going.
+        if (esc != null && !esc.isFree) {
+            val id = esc.def.freedByDoorId
+            if (hookCrates.any { it.id == id && it.isDetached } || movingPlatforms.any { it.id == id && it.isActive && it.startsInactive }) esc.free()
+        }
+
+        // A swinging load kills whatever it catches under it - see
+        // MovingPlatformDef.crushesOnContact. Only from below: the player's feet have to be under
+        // the crate's own underside, so standing on top of a platform is still standing on a
+        // platform. Same presentation as the conveyor crates' crush below.
+        if (!isGameOver && !isLevelComplete) {
+            val pBounds = player.bounds
+            val pCrush = crushParts()
+            for (mp in movingPlatforms) {
+                if (!mp.crushesOnContact) continue
+                // A body standing flush under one is not touching it; one rising into it is
+                // stopped flush by the collision pass, so off the ground a unit's gap counts.
+                val crushed = if (mp.crushesOnlyFromBelow) comesDownOn(pCrush, mp.bounds, if (player.isGrounded) 0.0 else 1.0)
+                else pCrush.any { it.intersects(mp.bounds) && it.bottom > mp.bounds.bottom }
+                if (crushed) {
+                    isGameOver = true
+                    onGameOver?.invoke()
+                    onHangingCrateHit?.invoke()
+                    return
+                }
+                // The prisoner too: a load that would crush the player crushes him (he goes nowhere
+                // the player cannot - level 12's gate crates).
+                val pr = esc?.takeIf { it.isFree && !it.hasEscaped }
+                if (pr != null) {
+                    val b = pr.body.bounds
+                    val w = pr.body.footWidth
+                    val box = Rect(b.x + (b.width - w) / 2.0, b.y, w, b.height)
+                    val hit = if (mp.crushesOnlyFromBelow) touchesUnderside(box, mp.bounds, if (pr.body.isGrounded) 0.0 else 1.0)
+                    else box.intersects(mp.bounds) && box.bottom > mp.bounds.bottom
+                    if (hit) {
+                        onHangingCrateHit?.invoke()
+                        losePrisoner()
+                        return
+                    }
+                }
+            }
+            if (isSqueezedBetweenLoads(pBounds) || crushingLoadOnACart()) {
+                isGameOver = true
+                onGameOver?.invoke()
+                onHangingCrateHit?.invoke()
+                return
+            }
+        }
+
+        // A lever whose target is a one-shot moving platform comes back up (isActivated = false,
+        // repressable) the instant that platform re-arms (mp.isActive drops back to false after
+        // its single period finishes) - see MovingPlatformDef.oneShot. Harmless no-op for every
+        // other lever: a never-pulled lever's target is already inactive (nothing to reset), and a
+        // continuously-looping (non-oneShot) platform's isActive never goes false once thrown.
+        for (lever in levers) {
+            if (!lever.isActivated || lever.targetMechanismId == null) continue
+            val target = movingPlatforms.firstOrNull { it.id == lever.targetMechanismId }
+            if (target != null && target.startsInactive && !target.isActive) {
+                lever.isActivated = false
+            }
+        }
+
+        // Conveyor belts carry grounded player standing on them, and move conveyor crates
+        if (conveyorsActive) {
+            for (conveyor in conveyors) {
+                val bounds = conveyor.bounds
+                val playerFeetY = player.y + player.height
+                val footCenter = player.x + player.width / 2.0
+                val onConveyor = player.isGrounded &&
+                    kotlin.math.abs(playerFeetY - bounds.top) < 4.5 &&
+                    (footCenter >= bounds.left && footCenter <= bounds.right)
+                if (onConveyor) {
+                    player.x += conveyor.speed * dt
+                }
+            }
+            val conveyorSpeed = conveyors.firstOrNull()?.speed ?: -45.0
+            for (crate in conveyorCrates) {
+                val crateDx = conveyorSpeed * dt * crate.speedMultiplier
+                val oldBounds = crate.bounds
+                crate.update(crateDx, totalElapsedSeconds)
+                val playerFeetY = player.y + player.height
+                val footCenter = player.x + player.width / 2.0
+                val onThisCrate = player.isGrounded &&
+                    kotlin.math.abs(playerFeetY - oldBounds.top) < 4.5 &&
+                    (footCenter >= oldBounds.left && footCenter <= oldBounds.right)
+                if (!crate.isHanging && onThisCrate) {
+                    player.x += crateDx
+                }
+            }
+        }
+
+        // Check Hanging Crate Downward Crushing Collisions before player movement resolution
+        // Player only dies if the crate was moving down and touched the player
+        if (!isGameOver && !isLevelComplete) {
+            for (crate in conveyorCrates) {
+                if (crate.isHanging && crate.isMovingDown) {
+                    val cBounds = crate.bounds
+                    val pBounds = player.bounds
+                    val horizontalOverlap = pBounds.right > cBounds.left + 4.0 && pBounds.left < cBounds.right - 4.0
+                    val verticalOverlap = pBounds.top <= cBounds.bottom && pBounds.bottom >= cBounds.bottom
+                    if (horizontalOverlap && verticalOverlap) {
+                        isGameOver = true
+                        onGameOver?.invoke()
+                        onHangingCrateHit?.invoke()
+                        return
+                    }
+                }
+            }
+        }
+
+        // A level with no moving platforms, conveyor crates, or hook crates reuses its own immutable lists.
+        // Everything else below is built into this world's reusable scratch lists (see
+        // TickScratch) - the same contents in the same order as the old `map`/`filter`/`+` chains,
+        // which matters: Player's collision passes are order-sensitive. Nothing called with these
+        // keeps them past the call, and they are rebuilt from scratch every tick.
+        val s = tickScratch
+        val movingBounds = s.moving.apply { clear(); for (mp in movingPlatforms) add(mp.bounds) }
+        val crateBounds = s.crates.apply { clear(); for (c in conveyorCrates) add(c.bounds) }
+        val hasHookCrates = hookCrates.isNotEmpty()
+        // A crate riding in a cart is inside the loaded cart's own footprint - nothing to add.
+        val hookCrateBounds = s.hookCrates.apply { clear(); for (hc in hookCrates) if (hc.carriedByCartId == null) add(hc.bounds) }
+        // A cart is solid wherever it stands - EXCEPT the one in the player's hands, which is
+        // left out of his own platform/climb lists (see followGrippedCart: he is pinned to it, so
+        // it would be a wall travelling with him). It still blocks sight and still blocks guards.
+        val hasPushCarts = pushCarts.isNotEmpty()
+        // An empty cart is its deck and the lower half of its two handle posts (PushCart.playerSolids).
+        val freePushCartBounds = s.carts.apply { clear(); for (c in pushCarts) if (c !== grippedCart) addAll(c.playerSolids) }
+        val dynamicBounds = s.dynamic.apply {
+            clear(); addAll(movingBounds); addAll(crateBounds); addAll(hookCrateBounds); addAll(freePushCartBounds)
+        }
+        val doorSolids = dynamicDoorSolids()
+        val currentPlatforms: List<Rect> = if (dynamicBounds.isEmpty() && doorSolids.isEmpty()) platforms else
+            s.platforms.apply { clear(); addAll(platforms); addAll(dynamicBounds); addAll(doorSolids) }
+        // Moving platforms, floor-riding conveyor crates, hook crates and free carts - a hanging
+        // conveyor crate is solid but not a box to climb.
+        val currentBoxes: List<Rect> = s.boxes.run {
+            clear()
+            addAll(boxes)
+            addAll(movingBounds)
+            for (i in conveyorCrates.indices) if (!conveyorCrates[i].isHanging) add(crateBounds[i])
+            addAll(hookCrateBounds)
+            addAll(freePushCartBounds)
+            if (size == boxes.size) boxes else this
+        }
+        // Sight is blocked by every cart, held or not - the body behind one is behind it either way.
+        val currentOccluders: List<Rect> = if (dynamicBounds.isNotEmpty() || hasPushCarts) {
+            s.occluders.apply {
+                clear(); addAll(visionOccluders); addAll(dynamicBounds)
+                grippedCart?.let { add(it.bounds) }
+            }
+        } else visionOccluders
+
         // Check every guard, camera, and camera bot's vision cone; the closest one with eyes on the player fills the alert.
         val previousAlert = alertProgress
         // Scratch lists (see TickScratch): what is kept from them - detectingGuards etc. below,
@@ -1897,7 +2080,7 @@ data class GameWorld(
             // Guards vision checks - skipped if Phantom Cloak puts guards to sleep
             if (!activePowerups.isPhantomCloakActive) {
                 for (g in allGuards) {
-                    val d = VisionSystem.getPlayerSpottedDistance(g, player, visionOccluders)
+                    val d = VisionSystem.getPlayerSpottedDistance(g, player, currentOccluders)
                     if (d != null) {
                         seeingGuards.add(g)
                         if (spottedDist == null || d < spottedDist) {
@@ -1911,7 +2094,7 @@ data class GameWorld(
             // Cameras vision checks - skipped if Smoke Screen disables cameras
             if (!activePowerups.isSmokeScreenActive) {
                 for (c in cameras) {
-                    val d = VisionSystem.getPlayerSpottedDistance(c, player, visionOccluders)
+                    val d = VisionSystem.getPlayerSpottedDistance(c, player, currentOccluders)
                     if (d != null) {
                         c.onPlayerSpotted()
                         releaseCamera(c)
@@ -1924,14 +2107,7 @@ data class GameWorld(
                 }
                 for (b in cameraBots) {
                     if (!b.isDeactivated) {
-                        val d = VisionSystem.getPlayerSpottedDistance(
-                            eye = b.eyePosition,
-                            facingAngle = b.facingAngle,
-                            visionRange = b.visionRange,
-                            visionFov = b.visionFov,
-                            player = player,
-                            occluders = visionOccluders
-                        )
+                        val d = VisionSystem.getPlayerSpottedDistance(b, player, currentOccluders)
                         if (d != null) {
                             seeingCameraBots.add(b)
                             releaseBot(b)
@@ -1949,7 +2125,7 @@ data class GameWorld(
         var echoSees = false
         val e = echo
         if (e != null && !activePowerups.isInvisibilityActive && spawnGraceTimer <= 0.0 && !activePowerups.isPhantomCloakActive) {
-            val d = VisionSystem.getPlayerSpottedDistance(e.eyePosition, e.facingAngle, e.visionRange, e.visionFov, player, visionOccluders)
+            val d = VisionSystem.getPlayerSpottedDistance(e.eyePosition, e.facingAngle, e.visionRange, e.visionFov, player, currentOccluders)
             if (d != null) {
                 echoSees = true
                 if (spottedDist == null || d < spottedDist) {
@@ -1972,7 +2148,7 @@ data class GameWorld(
             // the same eye wins a tie.
             if (!activePowerups.isPhantomCloakActive) {
                 for (g in allGuards) {
-                    val d = VisionSystem.getPlayerSpottedDistance(g, pr.body, visionOccluders)
+                    val d = VisionSystem.getPlayerSpottedDistance(g, pr.body, currentOccluders)
                     if (d != null && g !in seeingGuards) seeingGuards.add(g)
                     if (d != null) {
                         prisonerSeen = true
@@ -1986,7 +2162,7 @@ data class GameWorld(
             }
             if (!activePowerups.isSmokeScreenActive) {
                 for (c in cameras) {
-                    val d = VisionSystem.getPlayerSpottedDistance(c, pr.body, visionOccluders)
+                    val d = VisionSystem.getPlayerSpottedDistance(c, pr.body, currentOccluders)
                     if (d != null && c !in seeingCameras) {
                         c.onPlayerSpotted()
                         seeingCameras.add(c)
@@ -2002,7 +2178,7 @@ data class GameWorld(
                 }
                 for (b in cameraBots) {
                     if (b.isDeactivated) continue
-                    val d = VisionSystem.getPlayerSpottedDistance(b.eyePosition, b.facingAngle, b.visionRange, b.visionFov, pr.body, visionOccluders)
+                    val d = VisionSystem.getPlayerSpottedDistance(b, pr.body, currentOccluders)
                     if (d != null && b !in seeingCameraBots) seeingCameraBots.add(b)
                     if (d != null) {
                         prisonerSeen = true
@@ -2119,158 +2295,6 @@ data class GameWorld(
                 }
             }
         }
-
-        totalElapsedSeconds += dt
-        if (laserGraceTimer > 0.0) {
-            laserGraceTimer = (laserGraceTimer - dt).coerceAtLeast(0.0)
-        }
-        for (laser in lasers) laser.update(totalElapsedSeconds)
-
-        // Update moving platforms and translate grounded player if riding one
-        for (mp in movingPlatforms) {
-            val oldBounds = mp.bounds
-            val delta = mp.update(dt, totalElapsedSeconds)
-            val playerFeetY = player.y + player.height
-            val footCenter = player.x + player.width / 2.0
-            val onThisPlatform = player.isGrounded &&
-                kotlin.math.abs(playerFeetY - oldBounds.top) < 4.5 &&
-                (footCenter >= oldBounds.left && footCenter <= oldBounds.right)
-            if (onThisPlatform) {
-                player.x += delta.dx
-                player.y += delta.dy
-            }
-        }
-
-        // A swinging load kills whatever it catches under it - see
-        // MovingPlatformDef.crushesOnContact. Only from below: the player's feet have to be under
-        // the crate's own underside, so standing on top of a platform is still standing on a
-        // platform. Same presentation as the conveyor crates' crush below.
-        if (!isGameOver && !isLevelComplete) {
-            val pBounds = player.bounds
-            val pCrush = crushParts()
-            for (mp in movingPlatforms) {
-                if (!mp.crushesOnContact) continue
-                // A body standing flush under one is not touching it; one rising into it is
-                // stopped flush by the collision pass, so off the ground a unit's gap counts.
-                val crushed = if (mp.crushesOnlyFromBelow) comesDownOn(pCrush, mp.bounds, if (player.isGrounded) 0.0 else 1.0)
-                else pCrush.any { it.intersects(mp.bounds) && it.bottom > mp.bounds.bottom }
-                if (crushed) {
-                    isGameOver = true
-                    onGameOver?.invoke()
-                    onHangingCrateHit?.invoke()
-                    return
-                }
-            }
-            if (isSqueezedBetweenLoads(pBounds) || crushingLoadOnACart()) {
-                isGameOver = true
-                onGameOver?.invoke()
-                onHangingCrateHit?.invoke()
-                return
-            }
-        }
-
-        // A lever whose target is a one-shot moving platform comes back up (isActivated = false,
-        // repressable) the instant that platform re-arms (mp.isActive drops back to false after
-        // its single period finishes) - see MovingPlatformDef.oneShot. Harmless no-op for every
-        // other lever: a never-pulled lever's target is already inactive (nothing to reset), and a
-        // continuously-looping (non-oneShot) platform's isActive never goes false once thrown.
-        for (lever in levers) {
-            if (!lever.isActivated || lever.targetMechanismId == null) continue
-            val target = movingPlatforms.firstOrNull { it.id == lever.targetMechanismId }
-            if (target != null && target.startsInactive && !target.isActive) {
-                lever.isActivated = false
-            }
-        }
-
-        // Conveyor belts carry grounded player standing on them, and move conveyor crates
-        if (conveyorsActive) {
-            for (conveyor in conveyors) {
-                val bounds = conveyor.bounds
-                val playerFeetY = player.y + player.height
-                val footCenter = player.x + player.width / 2.0
-                val onConveyor = player.isGrounded &&
-                    kotlin.math.abs(playerFeetY - bounds.top) < 4.5 &&
-                    (footCenter >= bounds.left && footCenter <= bounds.right)
-                if (onConveyor) {
-                    player.x += conveyor.speed * dt
-                }
-            }
-            val conveyorSpeed = conveyors.firstOrNull()?.speed ?: -45.0
-            for (crate in conveyorCrates) {
-                val crateDx = conveyorSpeed * dt * crate.speedMultiplier
-                val oldBounds = crate.bounds
-                crate.update(crateDx, totalElapsedSeconds)
-                val playerFeetY = player.y + player.height
-                val footCenter = player.x + player.width / 2.0
-                val onThisCrate = player.isGrounded &&
-                    kotlin.math.abs(playerFeetY - oldBounds.top) < 4.5 &&
-                    (footCenter >= oldBounds.left && footCenter <= oldBounds.right)
-                if (!crate.isHanging && onThisCrate) {
-                    player.x += crateDx
-                }
-            }
-        }
-
-        // Check Hanging Crate Downward Crushing Collisions before player movement resolution
-        // Player only dies if the crate was moving down and touched the player
-        if (!isGameOver && !isLevelComplete) {
-            for (crate in conveyorCrates) {
-                if (crate.isHanging && crate.isMovingDown) {
-                    val cBounds = crate.bounds
-                    val pBounds = player.bounds
-                    val horizontalOverlap = pBounds.right > cBounds.left + 4.0 && pBounds.left < cBounds.right - 4.0
-                    val verticalOverlap = pBounds.top <= cBounds.bottom && pBounds.bottom >= cBounds.bottom
-                    if (horizontalOverlap && verticalOverlap) {
-                        isGameOver = true
-                        onGameOver?.invoke()
-                        onHangingCrateHit?.invoke()
-                        return
-                    }
-                }
-            }
-        }
-
-        // A level with no moving platforms, conveyor crates, or hook crates reuses its own immutable lists.
-        // Everything else below is built into this world's reusable scratch lists (see
-        // TickScratch) - the same contents in the same order as the old `map`/`filter`/`+` chains,
-        // which matters: Player's collision passes are order-sensitive. Nothing called with these
-        // keeps them past the call, and they are rebuilt from scratch every tick.
-        val s = tickScratch
-        val movingBounds = s.moving.apply { clear(); for (mp in movingPlatforms) add(mp.bounds) }
-        val crateBounds = s.crates.apply { clear(); for (c in conveyorCrates) add(c.bounds) }
-        val hasHookCrates = hookCrates.isNotEmpty()
-        // A crate riding in a cart is inside the loaded cart's own footprint - nothing to add.
-        val hookCrateBounds = s.hookCrates.apply { clear(); for (hc in hookCrates) if (hc.carriedByCartId == null) add(hc.bounds) }
-        // A cart is solid wherever it stands - EXCEPT the one in the player's hands, which is
-        // left out of his own platform/climb lists (see followGrippedCart: he is pinned to it, so
-        // it would be a wall travelling with him). It still blocks sight and still blocks guards.
-        val hasPushCarts = pushCarts.isNotEmpty()
-        // An empty cart is its deck and the lower half of its two handle posts (PushCart.playerSolids).
-        val freePushCartBounds = s.carts.apply { clear(); for (c in pushCarts) if (c !== grippedCart) addAll(c.playerSolids) }
-        val dynamicBounds = s.dynamic.apply {
-            clear(); addAll(movingBounds); addAll(crateBounds); addAll(hookCrateBounds); addAll(freePushCartBounds)
-        }
-        val doorSolids = dynamicDoorSolids()
-        val currentPlatforms: List<Rect> = if (dynamicBounds.isEmpty() && doorSolids.isEmpty()) platforms else
-            s.platforms.apply { clear(); addAll(platforms); addAll(dynamicBounds); addAll(doorSolids) }
-        // Moving platforms, floor-riding conveyor crates, hook crates and free carts - a hanging
-        // conveyor crate is solid but not a box to climb.
-        val currentBoxes: List<Rect> = s.boxes.run {
-            clear()
-            addAll(boxes)
-            addAll(movingBounds)
-            for (i in conveyorCrates.indices) if (!conveyorCrates[i].isHanging) add(crateBounds[i])
-            addAll(hookCrateBounds)
-            addAll(freePushCartBounds)
-            if (size == boxes.size) boxes else this
-        }
-        // Sight is blocked by every cart, held or not - the body behind one is behind it either way.
-        val currentOccluders: List<Rect> = if (dynamicBounds.isNotEmpty() || hasPushCarts) {
-            s.occluders.apply {
-                clear(); addAll(visionOccluders); addAll(dynamicBounds)
-                grippedCart?.let { add(it.bounds) }
-            }
-        } else visionOccluders
 
         // Guards without eyes on the player keep walking their route (unless asleep from Phantom Cloak)
         if (!isGameOver && !activePowerups.isPhantomCloakActive) {
@@ -2468,6 +2492,15 @@ data class GameWorld(
 
         // Check Laser Collisions (touching an active laser triggers Mission Failed)
         if (!isGameOver && !isLevelComplete) {
+            // The prisoner too: he goes nowhere the player cannot (level 12, 2026-10-21 "make it so
+            // that prisoner doesnt have to go through stuff the player cannot go"). The player's
+            // gadgets do not cover him, as with the eyes above.
+            val laserPb = prisoner?.takeIf { it.isFree && !it.hasEscaped }?.bounds
+            if (laserPb != null && lasers.any { it.intersectsPlayer(laserPb) }) {
+                onLaserHit?.invoke()
+                losePrisoner()
+                return
+            }
             if (laserGraceTimer <= 0.0) {
                 for (laser in lasers) {
                     if (!activePowerups.isInvisibilityActive && laser.intersectsPlayer(player.bounds)) {

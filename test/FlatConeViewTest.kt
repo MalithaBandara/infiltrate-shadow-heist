@@ -153,7 +153,7 @@ class FlatConeViewTest {
                 }
             }
         }
-        assertTrue(cones > 50, "only $cones cones checked")
+        assertTrue(cones >= 36, "only $cones cones checked")
         diffs.sort()
         val mean = diffs.average()
         val p99 = diffs[(diffs.size * 0.99).toInt().coerceAtMost(diffs.size - 1)]

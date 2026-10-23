@@ -2,6 +2,7 @@ package game.scene
 
 import com.sample.demo.audio.GameSfxOutput
 import com.sample.demo.audio.getGameSfxOutput
+import game.model.GameWorld
 import korlibs.audio.sound.*
 import korlibs.io.file.std.*
 import kotlin.concurrent.Volatile
@@ -54,7 +55,11 @@ class GameSounds(
     val steam: Sound? = null,
     val robot: Sound? = null,
     val cameraMotor: Sound? = null,
-    val cartRoll: Sound? = null
+    val cartRoll: Sound? = null,
+    val elevator: Sound? = null,
+    /** Wall-switch click and lever clack, one-shots. */
+    val switchPress: Sound? = null,
+    val leverThrow: Sound? = null
 ) {
     /**
      * Plays every loaded clip once at zero volume, immediately, then stops it - this is a
@@ -78,7 +83,7 @@ class GameSounds(
      */
     fun primeAll(context: CoroutineContext) {
         gameSfxOutput?.prepare(GameAudio.SfxFile.ALL)
-        for (sound in listOf(stepA, stepB, impact, climb, uiClick, guardInvestigate, toastSuccess, cameraDetect, thunder, crateDrop)) {
+        for (sound in listOf(stepA, stepB, impact, climb, uiClick, guardInvestigate, toastSuccess, cameraDetect, thunder, crateDrop, switchPress, leverThrow)) {
             try {
                 sound?.play(context, PlaybackParameters(volume = 0.0))?.stop()
             } catch (_: Throwable) {
@@ -131,9 +136,10 @@ object GameAudio {
 
     /**
      * Owner-supplied clip (Downloads/charAnimations/music/guard_investigate.wav), peak-normalised
-     * to -3dBFS. Fires once on the rising edge of `GuardState.PATROL -> INVESTIGATING` - see the
-     * `guardWasInvestigating` edge-detection in `GameplayScene.kt`'s update loop - not on every
-     * frame a guard stays investigating, and not on the frame it returns to patrol.
+     * to -3dBFS. Fires once on the rising edge of a guard hearing noise or beginning visual detection
+     * of the player - see the `guardWasInvestigating` and `guardWasDetecting` edge-detection in
+     * `GameplayScene.kt`'s update loop - not on every frame a guard stays alert, and not on the frame
+     * it returns to patrol.
      */
     const val GUARD_INVESTIGATE_GAIN = 0.8
 
@@ -195,6 +201,13 @@ object GameAudio {
     /** Push-cart rolling, scaled by how fast the cart is moving. */
     const val CART_LOOP_GAIN = 0.55
 
+    /** Freight-lift hum while a lift is actually travelling. */
+    const val ELEVATOR_LOOP_GAIN = 0.42
+
+    /** Door / lift wall switch click, and the lever clack. */
+    const val SWITCH_PRESS_GAIN = 0.95
+    const val LEVER_THROW_GAIN = 0.9
+
     /**
      * How far each source can be heard, in world units (straight-line, so a duct above or a floor
      * below counts). The visible field is ~770+ wide, so these keep a sound to what is on or just
@@ -207,6 +220,8 @@ object GameAudio {
     const val ROBOT_HEARING_RANGE = 260.0
     const val CAMERA_HEARING_RANGE = 300.0
     const val CART_HEARING_RANGE = 230.0
+    const val ELEVATOR_HEARING_RANGE = 300.0
+    const val LEVER_HEARING_RANGE = 480.0
     const val CRATE_HEARING_RANGE = 480.0
 
     /** Volume-units per second an ambient bed ramps at, so a bed never clicks on or off. */
@@ -237,7 +252,9 @@ object GameAudio {
         const val CAMERA_DETECT = "sfx/camera_detect.wav"
         const val THUNDER = "sfx/thunder.wav"
         const val CRATE_DROP = "sfx/crate_drop.wav"
-        val ALL = listOf(STEP_A, STEP_B, IMPACT, CLIMB, UI_CLICK, GUARD_INVESTIGATE, TOAST_SUCCESS, CAMERA_DETECT, THUNDER, CRATE_DROP)
+        const val SWITCH_PRESS = "sfx/switch_press.wav"
+        const val LEVER_THROW = "sfx/lever_throw.wav"
+        val ALL = listOf(STEP_A, STEP_B, IMPACT, CLIMB, UI_CLICK, GUARD_INVESTIGATE, TOAST_SUCCESS, CAMERA_DETECT, THUNDER, CRATE_DROP, SWITCH_PRESS, LEVER_THROW)
     }
 
     /**
@@ -356,7 +373,10 @@ object GameAudio {
             steam = clip("loop_steam"),
             robot = clip("loop_robot"),
             cameraMotor = clip("loop_camera"),
-            cartRoll = clip("loop_cart")
+            cartRoll = clip("loop_cart"),
+            elevator = clip("loop_elevator"),
+            switchPress = clip("switch_press"),
+            leverThrow = clip("lever_throw")
         )
         if (!audioPrimed) {
             audioPrimed = true
@@ -441,6 +461,49 @@ class AmbientLoops(private val context: CoroutineContext) {
             }
             bed.channel = null
             bed.applied = 0.0
+        }
+    }
+}
+
+
+/**
+ * Lift hum and lever clack, kept out of the scene's giant `sceneMain` (the JVM's 64KB method limit).
+ * [sync] runs once per frame beside the other ambience: the hum is one shared voice at the nearest
+ * travelling lift's distance (a lift held by something in its shaft, or at rest, is silent), and a
+ * lever's clack fires on the frame it is thrown - by hand or by REMOTE_TRIGGER alike. The wall
+ * switches' click is not here: the world's `onSwitchThrown` callback plays it.
+ */
+class MechanismSounds(private val world: GameWorld, private val sounds: GameSounds, private val context: CoroutineContext) {
+    private val leverWasOn = BooleanArray(world.levers.size) { world.levers[it].isActivated }
+    private val liftLastY = DoubleArray(world.lifts.size) { world.lifts[it].topY }
+
+    private fun proximity(sourceX: Double, sourceY: Double, range: Double): Double {
+        val dx = (world.player.x + world.player.width / 2.0) - sourceX
+        val dy = (world.player.y + world.player.height / 2.0) - sourceY
+        val left = 1.0 - kotlin.math.sqrt(dx * dx + dy * dy) / range
+        return if (left <= 0.0) 0.0 else left * left
+    }
+
+    fun sync(ambient: AmbientLoops, dtSec: Double, master: Double, sfxVolume: Float, paused: Boolean) {
+        if (world.lifts.isNotEmpty()) {
+            val step = maxOf(dtSec, 1e-4)
+            var hum = 0.0
+            for (i in world.lifts.indices) {
+                val lift = world.lifts[i]
+                val moved = kotlin.math.abs(lift.topY - liftLastY[i]) / step > 4.0
+                liftLastY[i] = lift.topY
+                if (moved) hum = maxOf(hum, proximity(lift.def.x + lift.def.width / 2.0, lift.topY, GameAudio.ELEVATOR_HEARING_RANGE))
+            }
+            ambient.set("elevator", sounds.elevator, GameAudio.ELEVATOR_LOOP_GAIN * hum * master, dtSec)
+        }
+        for (i in world.levers.indices) {
+            val lever = world.levers[i]
+            val on = lever.isActivated
+            if (on && !leverWasOn[i] && !paused) {
+                val heard = proximity(lever.centerX, lever.centerY, GameAudio.LEVER_HEARING_RANGE)
+                if (heard > 0.0) sounds.leverThrow.playSfx(context, GameAudio.LEVER_THROW_GAIN * heard, sfxVolume, GameAudio.SfxFile.LEVER_THROW)
+            }
+            leverWasOn[i] = on
         }
     }
 }
