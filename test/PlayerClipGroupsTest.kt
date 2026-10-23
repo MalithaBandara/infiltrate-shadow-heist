@@ -100,7 +100,7 @@ class PlayerClipGroupsTest {
 
     /**
      * Every move the game's own walkthroughs make, in every level, checked against what that level
-     * loads - they are the runs that actually swing (5, 9, 12), push (8, 12), and lean into fans
+     * loads - they are the runs that actually swing (5, 9, 12), push (8), and lean into fans
      * (7, 10), end to end. Plus random input on every level for the moves a run would not make.
      */
     @Test
