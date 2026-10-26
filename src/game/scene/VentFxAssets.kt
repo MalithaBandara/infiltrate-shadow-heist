@@ -496,13 +496,8 @@ class CameraBotVisual(
 
     // What the cone was last built from. A rover on its pause, holding still on the player, or
     // parked off-screen keeps the beam it already has instead of re-raycasting the same polygon
-    // every frame - the same rule the guard beams follow in GameplayScene. NaN = nothing built.
-    private var coneEyeX: Double = Double.NaN
-    private var coneEyeY: Double = Double.NaN
-    private var coneFacing: Double = Double.NaN
-    private var coneRange: Double = Double.NaN
-    private var coneFov: Double = Double.NaN
-    private var coneOccluders: List<Rect>? = null
+    // every frame - the same rule the guard beams follow in GameplayScene.
+    private val coneShape = VisionCone()
 
     fun update(
         dt: Double,
@@ -548,7 +543,7 @@ class CameraBotVisual(
         if (bot.isDeactivated) {
             // Permanent deactivated state
             lightCone.clear()
-            coneEyeX = Double.NaN
+            coneShape.reset()
             alertLens.visible = false
             sparks.visible = (totalElapsedSeconds % 1.5 < 0.08)
             sparks.color = SPARK_COLOR
@@ -561,24 +556,9 @@ class CameraBotVisual(
             // Surveillance light cone
             val origin = bot.eyePosition
             val facing = bot.facingAngle
-            if (origin.x == coneEyeX && origin.y == coneEyeY && facing == coneFacing &&
-                bot.visionRange == coneRange && bot.visionFov == coneFov && occluders === coneOccluders
-            ) return
-            coneEyeX = origin.x
-            coneEyeY = origin.y
-            coneFacing = facing
-            coneRange = bot.visionRange
-            coneFov = bot.visionFov
-            coneOccluders = occluders
-            val poly = VisionSystem.computeVisionPolygon(
-                origin = origin,
-                facingAngle = facing,
-                range = bot.visionRange,
-                fov = bot.visionFov,
-                occluders = occluders
-            )
+            if (!coneShape.update(origin, facing, bot.visionRange, bot.visionFov, occluders)) return
             lightCone.setBeam(
-                polygon = poly,
+                polygon = coneShape.polygon,
                 facingAngle = facing,
                 fov = bot.visionFov,
                 range = bot.visionRange,

@@ -147,7 +147,7 @@ class RunRecording(
 /**
  * The body at one moment of a recorded run: [x]/[y] are the standing box's top-left (the player's
  * own x/y), [height] the collision height it had (crouched or not). [flags] is a bit set of
- * [RunSample.FACING_LEFT] and the stance bits; [phase] is the climb's progress (0..1) while climbing. [frame] is the sprite
+ * [RunSample.FACING_LEFT] and the stance bits; [phase] is the climb clip's phase (Player.climbPhase, 0..1) while climbing. [frame] is the sprite
  * frame the scene drew (a global index over every player clip, -1 when there was no scene), and
  * [spriteX]/[spriteY]/[rotation] where it drew it inside the body's box.
  */

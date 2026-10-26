@@ -114,13 +114,10 @@ object GeometryUtils {
      * being tested by every ray.
      */
     fun occludersInReach(origin: Vec2d, range: Double, occluders: List<Rect>): List<Rect> {
-        val reach = range + BROAD_PHASE_SLACK
         var out: ArrayList<Rect>? = null
         for (i in occluders.indices) {
             val o = occluders[i]
-            val inReach = o.x + o.width >= origin.x - reach && o.x <= origin.x + reach &&
-                o.y + o.height >= origin.y - reach && o.y <= origin.y + reach
-            if (inReach) {
+            if (isInReach(origin, range, o)) {
                 out?.add(o)
             } else if (out == null) {
                 out = ArrayList(occluders.size)
@@ -128,6 +125,13 @@ object GeometryUtils {
             }
         }
         return out ?: occluders
+    }
+
+    /** Whether [occludersInReach] keeps [o]. */
+    fun isInReach(origin: Vec2d, range: Double, o: Rect): Boolean {
+        val reach = range + BROAD_PHASE_SLACK
+        return o.x + o.width >= origin.x - reach && o.x <= origin.x + reach &&
+            o.y + o.height >= origin.y - reach && o.y <= origin.y + reach
     }
 
     // castRay and hasLineOfSight below are Segment2d.intersects run against Rect.edges() (top, right,

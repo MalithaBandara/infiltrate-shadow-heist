@@ -82,6 +82,14 @@ data class Guard(
     var isWalking: Boolean = false
         private set
 
+    /**
+     * 0..1 through his walk cycle: one cycle per [WALK_STRIDE_PER_HEIGHT] heights walked, from 0
+     * each time he sets off. GameplayScene draws the walk frame from it, and GameWorld reads where
+     * his weight is from it ([GuardWalkStance]) - one number, so the two cannot disagree.
+     */
+    var walkPhase: Double = 0.0
+        private set
+
     val bounds: Rect get() = Rect(x, y, width, height)
     val center: Vec2d get() = Vec2d(x + width / 2.0, y + height / 2.0)
 
@@ -110,6 +118,13 @@ data class Guard(
         const val TORCH_AHEAD_PER_HEIGHT = 0.29
         /** Torch lens above the feet, as a fraction of the standing height. */
         const val TORCH_ABOVE_FEET_PER_HEIGHT = 0.56
+
+        /**
+         * Ground covered by one walk cycle, per unit of standing height - the measured planted
+         * stride. Here rather than in GuardAnimations because [walkPhase] is the model's; the
+         * reasoning (and why it must not be pulled down) is on GuardAnimations.WALK_STRIDE_PER_HEIGHT.
+         */
+        const val WALK_STRIDE_PER_HEIGHT = 0.53
     }
 
     fun startInvestigating(targetX: Double, moveTowards: Boolean = false) {
@@ -209,10 +224,16 @@ data class Guard(
     }
 
     fun update(dt: Double, obstacles: List<Rect> = emptyList()) {
+        val wasWalking = isWalking
+        val before = x
         isWalking = false
         when (state) {
             GuardState.PATROL -> updatePatrol(dt, obstacles)
             GuardState.INVESTIGATING -> updateInvestigating(dt)
+        }
+        if (isWalking) {
+            if (!wasWalking) walkPhase = 0.0
+            walkPhase = (walkPhase + abs(x - before) / (height * WALK_STRIDE_PER_HEIGHT)) % 1.0
         }
     }
 

@@ -1459,15 +1459,11 @@ class GameplayScene(
 
         // Guards: torch beams first so they render beneath the bodies. LightConeView, not
         // Graphics - see its header for why the old per-frame rasterised cone was the most
-        // expensive thing in the scene. Rebuilt only when the lens, facing or range changed, and
-        // skipped entirely while the guard is off-screen; the arrays below hold the last inputs.
+        // expensive thing in the scene. Rebuilt only when the lens, facing or range changed, or
+        // something that blocks sight moved within his reach (a door, a lift, a moving crate -
+        // VisionCone), and skipped entirely while the guard is off-screen.
         val guardCones = world.allGuards.map { LightConeView().addTo(worldView) }
-        val guardConeLensX = DoubleArray(world.allGuards.size) { Double.NaN }
-        val guardConeLensY = DoubleArray(world.allGuards.size) { Double.NaN }
-        val guardConeFacing = DoubleArray(world.allGuards.size) { Double.NaN }
-        val guardConeRange = DoubleArray(world.allGuards.size) { Double.NaN }
-        // A door opening or shutting in front of a guard reshapes his beam without him moving.
-        val guardConeOccluderVersion = IntArray(world.allGuards.size) { -1 }
+        val guardConeShapes = world.allGuards.map { VisionCone() }
         val guardContainers = world.allGuards.map { g -> worldView.container().xy(g.x, g.y) }
         // The body is the idle sprite, scaled so its standing silhouette is exactly the hitbox
         // height and anchored at the feet like the player's - see GuardAnimations for the frame
@@ -1499,9 +1495,6 @@ class GameplayScene(
         // (height * stride) units, so the feet stay planted at any patrol speed. Idle <-> walk
         // switches on Guard.isWalking, which the model sets per frame.
         val guardAnimWalking = BooleanArray(world.allGuards.size)
-        val guardWalkProgress = DoubleArray(world.allGuards.size)
-        val guardPrevX = DoubleArray(world.allGuards.size) { world.allGuards[it].x }
-        val guardWalkCycleDistance = world.allGuards.map { g -> g.height * GuardAnimations.WALK_STRIDE_PER_HEIGHT }
         // The fallback visor's two colours, parsed once rather than in the per-frame guard loop.
         val guardVisorAlertColor = Colors["#e74c3c"]
         val guardVisorAsleepColor = Colors["#34495e"]
@@ -1524,10 +1517,9 @@ class GameplayScene(
         // flat fill and soft edge the software-rasterised Graphics they replace had, without a
         // bitmap re-rasterised and re-uploaded on every frame of a sweep.
         val cameraCones = world.cameras.map { FlatConeView().addTo(worldView) }
-        // What each camera cone was last drawn from (eye x, eye y, facing, range, fov) - the
-        // updater only re-rasterises one whose inputs moved. NaN = not drawn / drawn empty.
-        val cameraConeKey = DoubleArray(world.cameras.size * 5) { Double.NaN }
-        val cameraConeOccluders = arrayOfNulls<List<Rect>>(world.cameras.size)
+        // What each camera cone was last drawn from - the updater only rebuilds one whose inputs
+        // moved (VisionCone).
+        val cameraConeShapes = world.cameras.map { VisionCone() }
         val cameraContainers = world.cameras.map { c ->
             worldView.container().xy(c.x, c.y).also {
                 if (c in world.translucentCameras) it.alpha = translucentEffectAlpha
@@ -1628,12 +1620,8 @@ class GameplayScene(
         if (!eyeTableMatches) println("[PlayerEyePoints] ${PlayerEyePoints.FRAME_COUNT} eyes for ${playerFrames.size} frames - re-run tools/art/prep_eyes.py")
         val echo = world.echo
         val echoCone = if (echo != null) LightConeView().addTo(worldView) else null
-        // The inputs the echo's cone was last built from, like the guards' (guardConeLensX...):
-        // rebuilt only when one of them changes. NaN = not drawn (cloaked, or not yet).
-        var echoConeLensX = Double.NaN
-        var echoConeLensY = Double.NaN
-        var echoConeFacing = Double.NaN
-        var echoConeOccluderVersion = -1
+        // Rebuilt only when its lens, facing or a sight blocker in reach changed, like the guards'.
+        val echoConeShape = VisionCone()
         val echoContainer = if (echo != null) worldView.container().xy(echo.x, echo.y) else null
         val echoBaseScale = world.player.visualHeight / PlayerAnimations.SOURCE_SILHOUETTE_HEIGHT
         val echoImage = echoContainer?.image(playerAnimations.idle.getSprite(0), Anchor2D(0.5, PlayerAnimations.SOURCE_FEET_Y / PlayerAnimations.SOURCE_FRAME_HEIGHT))?.also {
@@ -2025,7 +2013,8 @@ class GameplayScene(
         // Rain (levels with rain), vent fans, steam jets and lasers are looping beds whose volume
         // follows the player's distance; the hanging-load thud is a one-shot on impact.
         val ambient = AmbientLoops(sfxContext).also { ambientLoops = it }
-        val mechanismSounds = MechanismSounds(world, sounds, sfxContext)
+        // The prisoner's gait is driven by the player's own stride.
+        val mechanismSounds = MechanismSounds(world, sounds, sfxContext, playerVisualHeight * PlayerAnimations.WALK_STRIDE_PER_HEIGHT)
         val crateLastVy = DoubleArray(world.hookCrates.size)
         val crateWasLanded = BooleanArray(world.hookCrates.size)
         var crateThudCooldown = 0.0
@@ -2060,7 +2049,15 @@ class GameplayScene(
             var lit = 0
             for (laser in world.lasers) {
                 if (!laser.isActive || laser.isDisabled) continue
-                val prox = proximity((laser.topX + laser.bottomX) / 2.0, (laser.topY + laser.bottomY) / 2.0, GameAudio.LASER_HEARING_RANGE)
+                // Distance to the nearest point of the beam, not its midpoint: a 260-long beam's
+                // middle can be out of earshot while the player stands right under its emitter.
+                val bx = laser.bottomX - laser.topX
+                val by = laser.bottomY - laser.topY
+                val len2 = bx * bx + by * by
+                val px = world.player.x + world.player.width / 2.0
+                val py = world.player.y + world.player.height / 2.0
+                val along = if (len2 <= 0.0) 0.0 else (((px - laser.topX) * bx + (py - laser.topY) * by) / len2).coerceIn(0.0, 1.0)
+                val prox = proximity(laser.topX + bx * along, laser.topY + by * along, GameAudio.LASER_HEARING_RANGE)
                 if (prox <= 0.0) continue
                 lit++
                 nearest = max(nearest, prox)
@@ -2917,6 +2914,7 @@ class GameplayScene(
             if (type == PowerupType.REMOTE_TRIGGER && !world.hasRemoteTriggerTarget()) return
             if (profileStorage.consumePowerup(type)) {
                 world.activatePowerup(type)
+                sounds.powerupActivate.playSfx(sfxContext, GameAudio.POWERUP_ACTIVATE_GAIN, sfxVolume(), GameAudio.SfxFile.POWERUP_ACTIVATE)
                 // The slot reads the per-frame cache, and this can fire from a key press earlier
                 // in the same frame, so re-read rather than show a stale count for a tick.
                 refreshProfile()
@@ -3303,6 +3301,7 @@ class GameplayScene(
             setObjMark(objMainMark, 1)
             syncBonusMark()
 
+            sounds.missionSuccess.playSfx(sfxContext, GameAudio.MISSION_SUCCESS_GAIN, sfxVolume(), GameAudio.SfxFile.MISSION_SUCCESS)
             winOverlay.show(result, earnedCoins)
         }
 
@@ -3313,6 +3312,7 @@ class GameplayScene(
             } else {
                 val best = levelStorage.getBestResult(levelData.id)
                 caughtOverlay.show(world.timeTaken, world.spottedCount, best, profileStorage.getProfile().coins, world.canContinue)
+                sounds.missionFail.playSfx(sfxContext, GameAudio.MISSION_FAIL_GAIN, sfxVolume(), GameAudio.SfxFile.MISSION_FAIL)
             }
         }
 
@@ -4238,7 +4238,7 @@ class GameplayScene(
                     totalElapsedSeconds,
                     cullLeft,
                     cullRight,
-                    world.visionOccluders,
+                    world.sightBlockers,
                     isDetecting = visual.bot in world.detectingCameraBots
                 )
             }
@@ -5303,7 +5303,6 @@ class GameplayScene(
                     if (g.isWalking != guardAnimWalking[i]) {
                         guardAnimWalking[i] = g.isWalking
                         if (g.isWalking) {
-                            guardWalkProgress[i] = 0.0
                             guardSprite.playAnimationLooped(guardAnimations.walk, manualFrameTime)
                             guardSprite.setFrame(0)
                             guardSprite.y = g.height + GuardAnimations.FEET_GROUND_NUDGE
@@ -5313,10 +5312,8 @@ class GameplayScene(
                         }
                     }
                     if (g.isWalking) {
-                        guardWalkProgress[i] = (guardWalkProgress[i] + abs(g.x - guardPrevX[i]) / guardWalkCycleDistance[i]) % 1.0
-                        guardSprite.setFrame((guardWalkProgress[i] * GuardAnimations.WALK_FRAMES).toInt().coerceIn(0, GuardAnimations.WALK_FRAMES - 1))
+                        guardSprite.setFrame((g.walkPhase * GuardAnimations.WALK_FRAMES).toInt().coerceIn(0, GuardAnimations.WALK_FRAMES - 1))
                     }
-                    guardPrevX[i] = g.x
                 }
                 if (world.activePowerups.isPhantomCloakActive) {
                     guardBadges[i].text = "Zzz"
@@ -5346,7 +5343,7 @@ class GameplayScene(
                 val cone = guardCones[i]
                 if (world.activePowerups.isPhantomCloakActive) {
                     cone.clear()
-                    guardConeLensX[i] = Double.NaN
+                    guardConeShapes[i].reset()
                     continue
                 }
                 val lens = g.eyePosition
@@ -5357,23 +5354,10 @@ class GameplayScene(
                 cone.visible = onScreen
                 if (!onScreen) continue
                 val facing = g.facingAngle
-                if (lens.x != guardConeLensX[i] || lens.y != guardConeLensY[i] ||
-                    facing != guardConeFacing[i] || g.visionRange != guardConeRange[i] ||
-                    world.visionOccluderVersion != guardConeOccluderVersion[i]
-                ) {
-                    guardConeOccluderVersion[i] = world.visionOccluderVersion
-                    guardConeLensX[i] = lens.x
-                    guardConeLensY[i] = lens.y
-                    guardConeFacing[i] = facing
-                    guardConeRange[i] = g.visionRange
-                    val visionPolygon = VisionSystem.computeVisionPolygon(
-                        origin = lens,
-                        facingAngle = facing,
-                        range = g.visionRange,
-                        fov = g.visionFov,
-                        occluders = world.visionOccluders
-                    )
-                    cone.setBeam(visionPolygon, facing, g.visionFov, g.visionRange, glowRadius = g.height * 0.08)
+                // Against what his detection rays test (GameWorld.sightBlockers), moving crates
+                // included, so the beam stops wherever his sight does.
+                if (guardConeShapes[i].update(lens, facing, g.visionRange, g.visionFov, world.sightBlockers)) {
+                    cone.setBeam(guardConeShapes[i].polygon, facing, g.visionFov, g.visionRange, glowRadius = g.height * 0.08)
                 }
             }
 
@@ -5381,23 +5365,9 @@ class GameplayScene(
             if (echo != null && echoCone != null) {
                 if (world.activePowerups.isPhantomCloakActive) {
                     echoCone.clear()
-                    echoConeLensX = Double.NaN
-                } else if (echo.eyePosition.let { it.x != echoConeLensX || it.y != echoConeLensY } ||
-                    echo.facingAngle != echoConeFacing || world.visionOccluderVersion != echoConeOccluderVersion
-                ) {
-                    val lens = echo.eyePosition
-                    echoConeLensX = lens.x
-                    echoConeLensY = lens.y
-                    echoConeFacing = echo.facingAngle
-                    echoConeOccluderVersion = world.visionOccluderVersion
-                    val polygon = VisionSystem.computeVisionPolygon(
-                        origin = lens,
-                        facingAngle = echo.facingAngle,
-                        range = echo.visionRange,
-                        fov = echo.visionFov,
-                        occluders = world.visionOccluders
-                    )
-                    echoCone.setBeam(polygon, echo.facingAngle, echo.visionFov, echo.visionRange, glowRadius = 96.0 * 0.08)
+                    echoConeShape.reset()
+                } else if (echoConeShape.update(echo.eyePosition, echo.facingAngle, echo.visionRange, echo.visionFov, world.sightBlockers)) {
+                    echoCone.setBeam(echoConeShape.polygon, echo.facingAngle, echo.visionFov, echo.visionRange, glowRadius = 96.0 * 0.08)
                 }
             }
 
@@ -5408,44 +5378,26 @@ class GameplayScene(
                 // (see cameraArtBaselineAngle above) - the lens visually sweeps with the cone
                 // instead of sitting fixed while the light beam swings independently of it.
                 cameraPivots[i].rotation = (c.currentAngle - cameraArtBaselineAngle).radians
-                val k = i * 5
                 if (world.activePowerups.isSmokeScreenActive) {
-                    if (!cameraConeKey[k].isNaN()) {
+                    if (cameraConeShapes[i].isBuilt) {
                         cameraCones[i].clear()
-                        cameraConeKey[k] = Double.NaN
+                        cameraConeShapes[i].reset()
                     }
                 } else {
                     // Only rebuilt when it could look different: never while it cannot reach
                     // the screen (the guard beams' culling window), and not while the lens,
-                    // facing, range and occluders are what it was last drawn from - a camera
-                    // dwelling at the end of its sweep or held on the player keeps the shape it has.
+                    // facing, range and sight blockers in reach are what it was last drawn from -
+                    // a camera dwelling at the end of its sweep or held on the player keeps the shape it has.
                     val eye = c.eyePosition
                     val onScreen = eye.x + c.visionRange >= cullLeft && eye.x - c.visionRange <= cullRight
                     cameraCones[i].visible = onScreen
                     if (!onScreen) continue
-                    val facing = c.facingAngle
-                    if (eye.x == cameraConeKey[k] && eye.y == cameraConeKey[k + 1] && facing == cameraConeKey[k + 2] &&
-                        c.visionRange == cameraConeKey[k + 3] && c.visionFov == cameraConeKey[k + 4] &&
-                        world.visionOccluders === cameraConeOccluders[i]
-                    ) continue
-                    cameraConeKey[k] = eye.x
-                    cameraConeKey[k + 1] = eye.y
-                    cameraConeKey[k + 2] = facing
-                    cameraConeKey[k + 3] = c.visionRange
-                    cameraConeKey[k + 4] = c.visionFov
-                    cameraConeOccluders[i] = world.visionOccluders
                     // Camera cones stay a single steady color in every state (detection is indicated
                     // by the pip over the camera, matching the guard beam design) - no yellow/red
                     // alert ramp: FlatConeView's white at 0.32.
-                    cameraCones[i].setPolygon(
-                        VisionSystem.computeVisionPolygon(
-                            origin = eye,
-                            facingAngle = facing,
-                            range = c.visionRange,
-                            fov = c.visionFov,
-                            occluders = world.visionOccluders
-                        )
-                    )
+                    if (cameraConeShapes[i].update(eye, c.facingAngle, c.visionRange, c.visionFov, world.sightBlockers)) {
+                        cameraCones[i].setPolygon(cameraConeShapes[i].polygon)
+                    }
                 }
             }
 

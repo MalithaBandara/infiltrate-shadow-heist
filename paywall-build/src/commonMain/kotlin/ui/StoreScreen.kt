@@ -141,6 +141,7 @@ fun StoreScreen(
     var coinsAdWatchesRemaining by remember { mutableStateOf(coinsAdLimiter.watchesRemainingToday()) }
     var showCoinsRewardAd by remember { mutableStateOf(false) }
     var pendingCoinsAdAmount by remember { mutableStateOf(0) }
+    var earnedCoinsRewardAmount by remember { mutableStateOf<Int?>(null) }
 
     val gadgetAdLimiter = remember {
         GadgetAdLimiter(
@@ -151,6 +152,7 @@ fun StoreScreen(
     var gadgetAdWatchesRemaining by remember { mutableStateOf(gadgetAdLimiter.watchesRemainingToday()) }
     var showGadgetRewardAd by remember { mutableStateOf(false) }
     var pendingGadgetType by remember { mutableStateOf<PowerupType?>(null) }
+    var earnedGadgetType by remember { mutableStateOf<PowerupType?>(null) }
 
     var profile by remember {
         val p = profileStorage.getProfile()
@@ -450,6 +452,7 @@ fun StoreScreen(
                                     if (item.isAd) {
                                         if (gadgetAdLimiter.canWatch()) {
                                             pendingGadgetType = mysteryGadgetPool.random()
+                                            earnedGadgetType = null
                                             showToast(Localization.loadingAd(language), true)
                                             showGadgetRewardAd = true
                                         } else {
@@ -476,6 +479,7 @@ fun StoreScreen(
                                     if (pack.isAd) {
                                         if (coinsAdLimiter.canWatch()) {
                                             pendingCoinsAdAmount = pack.amount
+                                            earnedCoinsRewardAmount = null
                                             showToast(Localization.loadingAd(language), true)
                                             showCoinsRewardAd = true
                                         } else {
@@ -588,6 +592,8 @@ fun StoreScreen(
         // ContinueAdContent()'s gameplay-continue flow, but with no cross-framework bridge needed:
         // the button tap and this composable both live in the same Compose tree already, so the
         // reward can be granted directly instead of polling a shared trigger object from Swift.
+        // The success notification is held until onDismissed so the player actually sees it when
+        // returning to the store screen, rather than firing underneath the full-screen ad.
         if (showCoinsRewardAd) {
             DisposableEffect(Unit) {
                 com.infiltrate.ads.AdAudioCoordinator.onAdStarted()
@@ -598,12 +604,20 @@ fun StoreScreen(
                     profileStorage.addCoins(pendingCoinsAdAmount)
                     coinsAdLimiter.recordWatch()
                     coinsAdWatchesRemaining = coinsAdLimiter.watchesRemainingToday()
-                    refreshProfile()
-                    showToast(Localization.coinsGranted(pendingCoinsAdAmount, language), true)
+                    earnedCoinsRewardAmount = pendingCoinsAdAmount
                 },
-                onDismissed = { showCoinsRewardAd = false },
+                onDismissed = {
+                    showCoinsRewardAd = false
+                    val grantedAmount = earnedCoinsRewardAmount
+                    if (grantedAmount != null) {
+                        earnedCoinsRewardAmount = null
+                        refreshProfile()
+                        showToast(Localization.coinsGranted(grantedAmount, language), true)
+                    }
+                },
                 onFailure = {
                     showCoinsRewardAd = false
+                    earnedCoinsRewardAmount = null
                     showToast(Localization.adNotReady(language), false)
                 },
             )
@@ -611,7 +625,7 @@ fun StoreScreen(
 
         // "Watch ad for a random gadget" - same load-then-show shape as the coins ad above. The
         // granted type was already chosen (uniformly) when the ad was requested; this only needs
-        // to apply it once the reward actually fires.
+        // to apply it once the reward actually fires, holding the notification until dismissal.
         if (showGadgetRewardAd) {
             DisposableEffect(Unit) {
                 com.infiltrate.ads.AdAudioCoordinator.onAdStarted()
@@ -626,14 +640,24 @@ fun StoreScreen(
                         profileStorage.buyPowerup(grantedType.id, 0)
                         gadgetAdLimiter.recordWatch()
                         gadgetAdWatchesRemaining = gadgetAdLimiter.watchesRemainingToday()
+                        earnedGadgetType = grantedType
+                    }
+                },
+                onDismissed = {
+                    showGadgetRewardAd = false
+                    val grantedType = earnedGadgetType
+                    if (grantedType != null) {
+                        earnedGadgetType = null
+                        pendingGadgetType = null
                         refreshProfile()
                         showToast(Localization.adWatchedGadget(Localization.powerupName(grantedType, language), language), true)
+                    } else {
+                        pendingGadgetType = null
                     }
-                    pendingGadgetType = null
                 },
-                onDismissed = { showGadgetRewardAd = false },
                 onFailure = {
                     showGadgetRewardAd = false
+                    earnedGadgetType = null
                     pendingGadgetType = null
                     showToast(Localization.adNotReady(language), false)
                 },

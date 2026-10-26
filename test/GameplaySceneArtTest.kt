@@ -40,7 +40,7 @@ import kotlin.time.Duration.Companion.milliseconds
  */
 class GameplaySceneArtTest {
 
-    private class Harness {
+    internal class Harness {
         var time = DateTime(0.0)
         val frameTime = 16.milliseconds
         val dispatcher = GameWindowCoroutineDispatcher(nowProvider = { time.unixMillisDouble.fastMilliseconds }, fast = true)

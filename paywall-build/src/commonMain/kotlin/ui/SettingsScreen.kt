@@ -1030,6 +1030,10 @@ private val SOUND_CREDITS = listOf(
     SoundCredit("Lift hum", "freesound_community, via Pixabay"),
     SoundCredit("Wall switch", "freesound_community, via Pixabay"),
     SoundCredit("Lever", "freesound_community, via Pixabay"),
+    SoundCredit("Hanging crate chains", "DRAGON-STUDIO, via Pixabay"),
+    SoundCredit("Mission failed", "Tommaso Motteran, via Pixabay"),
+    SoundCredit("Mission complete", "Universfield, via Pixabay"),
+    SoundCredit("Powerup activation", "Universfield, via Pixabay"),
 )
 
 @Composable

@@ -105,14 +105,12 @@ class Door(val def: DoorDef) {
 
 /**
  * A platform that rides a shaft between two stops (level 11's freight lifts): its top is at
- * [upperY] or [lowerY], [x]..[x]+[width] across. At the lower stop it sinks flush into the floor
- * ([lowerY] is the floor's top), so it is walked over like floor; at the upper stop it fills its
- * gap in the room floor. Bodies standing on it ride it.
- *
- * With [restsOnFloor] it instead stands on the floor at the lower stop, its deck showing above
- * it ([lowerY] is the deck's top, [floorY] the floor under it) - level 12's yard lifts ("the
- * elevators go too much below surface", 2026-10-26). Walkers step up onto it and down off it
- * (Player.update's steps).
+ * [upperY] or [lowerY], [x]..[x]+[width] across. At the upper stop it fills its gap in the room
+ * floor (or the road, level 12). At the lower stop it stands on the floor, its deck showing above
+ * it ([lowerY] is the deck's top, [floorY] the floor under it); walkers step up onto it and down
+ * off it (Player.update's steps). Until 2026-10-26 it sank flush into the floor there, the whole
+ * deck drawn under the floor's top ("the elevators go too much below surface", then "fix that
+ * elevator going below surface issue in all levels"). Bodies standing on it ride it.
  */
 data class LiftDef(
     val id: String,
@@ -123,10 +121,30 @@ data class LiftDef(
     val startsUp: Boolean,
     val speed: Double = 80.0,
     val thickness: Double = 14.0,
-    val restsOnFloor: Boolean = false
+    /**
+     * A guard standing on the deck rides it as a body does, and one carried up off his floor
+     * paces the deck (GameWorld.walkGuardOverDecks). Otherwise a guard anywhere in the shaft stops
+     * it - level 11's lifts are not for carrying guards. Level 12's lift_5 carries its road guard
+     * away ("when the guard gets over it we have to lift it up", 2026-10-26).
+     */
+    val carriesGuards: Boolean = false,
+    /**
+     * The prisoner waits at its foot while it is up off his floor (Prisoner.isAtRaisedLift), so
+     * he is never stranded under it against whatever closes the shaft's far side. A lift standing
+     * alone in an open road (level 12's lift_5) has nothing there: he walks on under it.
+     */
+    val holdsHimWhileUp: Boolean = true
 ) {
-    /** The floor the lift comes down to. */
-    val floorY: Double get() = if (restsOnFloor) lowerY + thickness else lowerY
+    /** The floor the lift comes down to and stands on. */
+    val floorY: Double get() = lowerY + thickness
+
+    companion object {
+        /** A lift's deck, standing on [floorY] at the lower stop: [lowerY] is this far over it. */
+        const val DECK = 14.0
+
+        /** [LiftDef.lowerY] for a lift of the usual [DECK] coming down onto the floor at [floorY]. */
+        fun lowerStopOver(floorY: Double): Double = floorY - DECK
+    }
 }
 
 class Lift(val def: LiftDef) {
@@ -184,7 +202,7 @@ class Lift(val def: LiftDef) {
  * from above, where the prisoner cannot follow and the guards cannot see.
  *
  * [surfaceY] is the floor it is mounted over; it is reached from that floor only, like a lever -
- * or from the deck of a lift resting on that floor ([LiftDef.restsOnFloor], [REACH_ABOVE_FLOOR]).
+ * or from the deck of a lift standing on that floor ([LiftDef.floorY], [REACH_ABOVE_FLOOR]).
  */
 data class DoorSwitchDef(
     val id: String,

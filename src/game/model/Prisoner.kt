@@ -92,7 +92,7 @@ class Prisoner(val def: PrisonerDef) {
         val before = body.x
         body.update(
             dt, move, jumpInput = false, crouchInput = false, platforms = platforms,
-            steps = lifts.filter { it.def.restsOnFloor }.map { it.bounds }
+            steps = lifts.map { it.bounds }
         )
         val moved = kotlin.math.abs(body.x - before)
         if (moved > 0.05 && body.isGrounded) {
@@ -120,12 +120,13 @@ class Prisoner(val def: PrisonerDef) {
 
     /**
      * The shaft of a lift that comes down to the floor he stands on, but is not down, starts just
-     * ahead of him - he stops short of it, clear of the platform's way down.
+     * ahead of him - he stops short of it, clear of the platform's way down. Not for a lift with
+     * nothing beyond its shaft to hold him under it (LiftDef.holdsHimWhileUp).
      */
     private fun isAtRaisedLift(lifts: List<Lift>): Boolean {
         val feet = body.y + body.height
         return lifts.any { l ->
-            kotlin.math.abs(l.def.floorY - feet) < 1.0 && l.topY < l.def.lowerY - 1.0 &&
+            l.def.holdsHimWhileUp && kotlin.math.abs(l.def.floorY - feet) < 1.0 && l.topY < l.def.lowerY - 1.0 &&
                 if (def.facing > 0.0) {
                     body.centerX < l.def.x && body.x + body.width + LIFT_WAIT_GAP >= l.def.x
                 } else {
@@ -153,24 +154,41 @@ class Prisoner(val def: PrisonerDef) {
     }
 
     /**
-     * A beam no more than [BEAM_WAIT_GAP] ahead of him will be on before he could reach it and be
-     * through it ([BEAM_MARGIN_SECONDS] to spare). The time he needs shrinks as he walks exactly as
-     * fast as the time the beam stays off, so a beam he set off for stays one he can cross - he
-     * never stops inside one.
+     * The beam no more than [BEAM_WAIT_GAP] ahead of him - with any beams past it too close
+     * together to stand between, which he has to cross in the same go - is one he could not reach
+     * off and be through before it comes on ([BEAM_MARGIN_SECONDS] to spare either side). Once he sets off he
+     * never stops inside a beam, and a run he set off for stays one he can cross: the time he needs
+     * shrinks as he walks exactly as fast as the time the beams stay off.
      */
     private fun isAtBeam(beams: List<Beam>): Boolean {
         if (beams.isEmpty()) return false
         val b = bounds
-        return beams.any { beam ->
-            val r = beam.bounds
-            val gap = if (def.facing > 0.0) r.left - b.right else b.left - r.right
-            r.bottom > b.top && r.top < b.bottom && gap >= 0.0 && gap <= BEAM_WAIT_GAP &&
-                beam.offFor < (gap + b.width + r.width) / def.speed + BEAM_MARGIN_SECONDS
+        fun gapTo(r: Rect) = if (def.facing > 0.0) r.left - b.right else b.left - r.right
+        val level = beams.filter { it.bounds.bottom > b.top && it.bounds.top < b.bottom }
+        if (level.any { gapTo(it.bounds) < 0.0 && gapTo(it.bounds) > -(b.width + it.bounds.width) }) return false
+        val ahead = level.filter { gapTo(it.bounds) >= 0.0 }.sortedBy { gapTo(it.bounds) }
+        val first = ahead.firstOrNull() ?: return false
+        if (gapTo(first.bounds) > BEAM_WAIT_GAP) return false
+        val run = arrayListOf(first)
+        for (next in ahead.drop(1)) {
+            val room = gapTo(next.bounds) - gapTo(run.last().bounds) - run.last().bounds.width
+            if (room >= b.width + BEAM_WAIT_GAP + 1.0) break
+            run.add(next)
+        }
+        return run.any { beam ->
+            val gap = gapTo(beam.bounds)
+            val reach = gap / def.speed
+            val through = (gap + b.width + beam.bounds.width) / def.speed
+            (beam.offIn > 0.0 && beam.offIn > reach - BEAM_MARGIN_SECONDS) ||
+                through + BEAM_MARGIN_SECONDS > beam.offIn + beam.offFor
         }
     }
 
-    /** A laser as he sees it: where it is, and how long it stays off (0 while it is on). */
-    data class Beam(val bounds: Rect, val offFor: Double)
+    /**
+     * A laser as he sees it: where it is, how long until it goes off ([offIn], 0 while it is
+     * off, infinite for one that never does) and how long it then stays off ([offFor]).
+     */
+    data class Beam(val bounds: Rect, val offIn: Double, val offFor: Double)
 
     fun reset() {
         body.resetTo(def.x, def.surfaceY - 96.0)
@@ -205,7 +223,7 @@ class Prisoner(val def: PrisonerDef) {
         const val CRACK = 2.0
         /** How far short of a beam he waits - see [isAtBeam]. */
         const val BEAM_WAIT_GAP = 4.0
-        /** What he leaves himself to spare getting through a beam's gap - see [isAtBeam]. */
+        /** What he leaves himself to spare either side of a beam's gap: there after it goes out, through before it comes on - see [isAtBeam]. */
         const val BEAM_MARGIN_SECONDS = 0.12
     }
 }

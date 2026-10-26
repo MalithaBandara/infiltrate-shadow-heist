@@ -59,7 +59,12 @@ class GameSounds(
     val elevator: Sound? = null,
     /** Wall-switch click and lever clack, one-shots. */
     val switchPress: Sound? = null,
-    val leverThrow: Sound? = null
+    val leverThrow: Sound? = null,
+    /** Chain-dragging bed for a travelling hanging crate ([AmbientLoops]), and the three event stingers. */
+    val chain: Sound? = null,
+    val missionFail: Sound? = null,
+    val missionSuccess: Sound? = null,
+    val powerupActivate: Sound? = null
 ) {
     /**
      * Plays every loaded clip once at zero volume, immediately, then stops it - this is a
@@ -83,7 +88,7 @@ class GameSounds(
      */
     fun primeAll(context: CoroutineContext) {
         gameSfxOutput?.prepare(GameAudio.SfxFile.ALL)
-        for (sound in listOf(stepA, stepB, impact, climb, uiClick, guardInvestigate, toastSuccess, cameraDetect, thunder, crateDrop, switchPress, leverThrow)) {
+        for (sound in listOf(stepA, stepB, impact, climb, uiClick, guardInvestigate, toastSuccess, cameraDetect, thunder, crateDrop, switchPress, leverThrow, missionFail, missionSuccess, powerupActivate)) {
             try {
                 sound?.play(context, PlaybackParameters(volume = 0.0))?.stop()
             } catch (_: Throwable) {
@@ -193,7 +198,7 @@ object GameAudio {
     const val LASER_LOOP_MAX_GAIN = 0.44
 
     /** Patrol-rover motor hum while a rover is rolling. */
-    const val ROBOT_LOOP_GAIN = 0.4
+    const val ROBOT_LOOP_GAIN = 0.75
 
     /** Security-camera servo whine while a camera head is actually turning. */
     const val CAMERA_LOOP_GAIN = 0.32
@@ -202,11 +207,27 @@ object GameAudio {
     const val CART_LOOP_GAIN = 0.55
 
     /** Freight-lift hum while a lift is actually travelling. */
-    const val ELEVATOR_LOOP_GAIN = 0.42
+    const val ELEVATOR_LOOP_GAIN = 0.7
 
     /** Door / lift wall switch click, and the lever clack. */
-    const val SWITCH_PRESS_GAIN = 0.95
-    const val LEVER_THROW_GAIN = 0.9
+    const val SWITCH_PRESS_GAIN = 0.5
+    const val LEVER_THROW_GAIN = 0.68
+
+    /** Chain rattle while a hanging crate's rig is travelling (scaled by its speed and distance). */
+    const val CHAIN_LOOP_GAIN = 0.75
+
+    /**
+     * Guard and escorted-prisoner footsteps: the player's own step clips, a little under
+     * [STEP_GAIN] and scaled by distance so a far-off patrol is faint rather than absent.
+     */
+    const val NPC_STEP_GAIN = 1.0
+
+    /** Mission Failed / level-complete stingers. */
+    const val MISSION_FAIL_GAIN = 0.5
+    const val MISSION_SUCCESS_GAIN = 0.6
+
+    /** Powerup activation blip - deliberately very quiet (the owner asked for it much lower). */
+    const val POWERUP_ACTIVATE_GAIN = 0.1
 
     /**
      * How far each source can be heard, in world units (straight-line, so a duct above or a floor
@@ -216,13 +237,15 @@ object GameAudio {
      */
     const val FAN_HEARING_RANGE = 300.0
     const val STEAM_HEARING_RANGE = 240.0
-    const val LASER_HEARING_RANGE = 260.0
-    const val ROBOT_HEARING_RANGE = 260.0
+    const val LASER_HEARING_RANGE = 380.0
+    const val ROBOT_HEARING_RANGE = 340.0
     const val CAMERA_HEARING_RANGE = 300.0
     const val CART_HEARING_RANGE = 230.0
     const val ELEVATOR_HEARING_RANGE = 300.0
     const val LEVER_HEARING_RANGE = 480.0
     const val CRATE_HEARING_RANGE = 480.0
+    const val CHAIN_HEARING_RANGE = 380.0
+    const val NPC_STEP_HEARING_RANGE = 420.0
 
     /** Volume-units per second an ambient bed ramps at, so a bed never clicks on or off. */
     const val AMBIENT_RAMP_PER_SEC = 2.5
@@ -254,7 +277,10 @@ object GameAudio {
         const val CRATE_DROP = "sfx/crate_drop.wav"
         const val SWITCH_PRESS = "sfx/switch_press.wav"
         const val LEVER_THROW = "sfx/lever_throw.wav"
-        val ALL = listOf(STEP_A, STEP_B, IMPACT, CLIMB, UI_CLICK, GUARD_INVESTIGATE, TOAST_SUCCESS, CAMERA_DETECT, THUNDER, CRATE_DROP, SWITCH_PRESS, LEVER_THROW)
+        const val MISSION_FAIL = "sfx/mission_fail.wav"
+        const val MISSION_SUCCESS = "sfx/mission_success.wav"
+        const val POWERUP_ACTIVATE = "sfx/powerup_activate.wav"
+        val ALL = listOf(STEP_A, STEP_B, IMPACT, CLIMB, UI_CLICK, GUARD_INVESTIGATE, TOAST_SUCCESS, CAMERA_DETECT, THUNDER, CRATE_DROP, SWITCH_PRESS, LEVER_THROW, MISSION_FAIL, MISSION_SUCCESS, POWERUP_ACTIVATE)
     }
 
     /**
@@ -376,7 +402,11 @@ object GameAudio {
             cartRoll = clip("loop_cart"),
             elevator = clip("loop_elevator"),
             switchPress = clip("switch_press"),
-            leverThrow = clip("lever_throw")
+            leverThrow = clip("lever_throw"),
+            chain = clip("loop_chain"),
+            missionFail = clip("mission_fail"),
+            missionSuccess = clip("mission_success"),
+            powerupActivate = clip("powerup_activate")
         )
         if (!audioPrimed) {
             audioPrimed = true
@@ -467,15 +497,50 @@ class AmbientLoops(private val context: CoroutineContext) {
 
 
 /**
- * Lift hum and lever clack, kept out of the scene's giant `sceneMain` (the JVM's 64KB method limit).
+ * Lift hum, lever clack, hanging-crate chain rattle and the guards' / prisoner's footsteps, kept out
+ * of the scene's giant `sceneMain` (the JVM's 64KB method limit).
  * [sync] runs once per frame beside the other ambience: the hum is one shared voice at the nearest
  * travelling lift's distance (a lift held by something in its shaft, or at rest, is silent), and a
  * lever's clack fires on the frame it is thrown - by hand or by REMOTE_TRIGGER alike. The wall
  * switches' click is not here: the world's `onSwitchThrown` callback plays it.
+ *
+ * The chain bed runs while a hanging crate's rig is travelling. Footsteps are the player's own two
+ * clips fired on the player's contact phases ([GameAudio.STEP_PHASES]) of each walker's own
+ * distance-driven gait - the prisoner walks on the player's frames, so his phases are exact; the
+ * guards' contact frames were not measured separately, so theirs reuse the same two phases.
+ * [walkCycleDistance] is the player's stride length (the prisoner's gait is driven by it).
  */
-class MechanismSounds(private val world: GameWorld, private val sounds: GameSounds, private val context: CoroutineContext) {
+class MechanismSounds(
+    private val world: GameWorld,
+    private val sounds: GameSounds,
+    private val context: CoroutineContext,
+    private val walkCycleDistance: Double
+) {
     private val leverWasOn = BooleanArray(world.levers.size) { world.levers[it].isActivated }
     private val liftLastY = DoubleArray(world.lifts.size) { world.lifts[it].topY }
+    private val platformLast = DoubleArray(world.movingPlatforms.size * 2) { if (it % 2 == 0) world.movingPlatforms[it / 2].x else world.movingPlatforms[it / 2].y }
+    private val hangingConveyor = world.conveyorCrates.filter { it.isHanging }
+    private val conveyorLast = DoubleArray(hangingConveyor.size * 2) { if (it % 2 == 0) hangingConveyor[it / 2].x else hangingConveyor[it / 2].y }
+    private val guardPrevX = DoubleArray(world.allGuards.size) { world.allGuards[it].x }
+    private val guardPhase = DoubleArray(world.allGuards.size)
+    private var prisonerPrevWalked = 0.0
+    private var prisonerPrevPhase = 0.0
+    private var stepAlternate = false
+
+    private fun crossedStep(prev: Double, now: Double): Boolean {
+        for (phase in GameAudio.STEP_PHASES) {
+            val crossed = if (now >= prev) phase > prev && phase <= now else phase > prev || phase <= now
+            if (crossed) return true
+        }
+        return false
+    }
+
+    private fun playStep(heard: Double, sfxVolume: Float) {
+        if (heard <= 0.0) return
+        stepAlternate = !stepAlternate
+        if (stepAlternate) sounds.stepA.playSfx(context, GameAudio.NPC_STEP_GAIN * heard, sfxVolume, GameAudio.SfxFile.STEP_A)
+        else sounds.stepB.playSfx(context, GameAudio.NPC_STEP_GAIN * heard, sfxVolume, GameAudio.SfxFile.STEP_B)
+    }
 
     private fun proximity(sourceX: Double, sourceY: Double, range: Double): Double {
         val dx = (world.player.x + world.player.width / 2.0) - sourceX
@@ -495,6 +560,63 @@ class MechanismSounds(private val world: GameWorld, private val sounds: GameSoun
                 if (moved) hum = maxOf(hum, proximity(lift.def.x + lift.def.width / 2.0, lift.topY, GameAudio.ELEVATOR_HEARING_RANGE))
             }
             ambient.set("elevator", sounds.elevator, GameAudio.ELEVATOR_LOOP_GAIN * hum * master, dtSec)
+        }
+        // One chain voice for every hanging crate that is moving this frame: the chained platforms
+        // (`movingPlatforms`, all drawn as hanging crates), the conveyor-carried hanging crates, and
+        // a hook crate whose rig is travelling. Crates at rest, or still hanging in place, are silent.
+        val chainStep = maxOf(dtSec, 1e-4)
+        var chain = 0.0
+        fun hear(cx: Double, cy: Double, speed: Double) {
+            if (speed > 4.0 && speed < 600.0) {
+                chain = maxOf(chain, proximity(cx, cy, GameAudio.CHAIN_HEARING_RANGE) * (speed / 60.0).coerceIn(0.4, 1.0))
+            }
+        }
+        for (i in world.movingPlatforms.indices) {
+            val mp = world.movingPlatforms[i]
+            val moved = kotlin.math.hypot(mp.x - platformLast[i * 2], mp.y - platformLast[i * 2 + 1])
+            platformLast[i * 2] = mp.x
+            platformLast[i * 2 + 1] = mp.y
+            hear(mp.x + mp.width / 2.0, mp.y + mp.height / 2.0, moved / chainStep)
+        }
+        for (i in hangingConveyor.indices) {
+            val c = hangingConveyor[i]
+            val moved = kotlin.math.hypot(c.x - conveyorLast[i * 2], c.y - conveyorLast[i * 2 + 1])
+            conveyorLast[i * 2] = c.x
+            conveyorLast[i * 2 + 1] = c.y
+            hear(c.x + c.width / 2.0, c.y + c.height / 2.0, moved / chainStep)
+        }
+        for (crate in world.hookCrates) {
+            if (crate.isHanging) hear(crate.drawCenterX, crate.drawCenterY, kotlin.math.abs(crate.hookVx))
+        }
+        if (world.movingPlatforms.isNotEmpty() || hangingConveyor.isNotEmpty() || world.hookCrates.isNotEmpty()) {
+            ambient.set("chain", sounds.chain, GameAudio.CHAIN_LOOP_GAIN * chain * master, dtSec)
+        }
+        for (i in world.allGuards.indices) {
+            val g = world.allGuards[i]
+            val moved = kotlin.math.abs(g.x - guardPrevX[i])
+            guardPrevX[i] = g.x
+            if (!g.isWalking || moved > 30.0 || paused) {
+                if (!g.isWalking) guardPhase[i] = 0.0
+                continue
+            }
+            val before = guardPhase[i]
+            val after = (before + moved / (g.height * GuardAnimations.WALK_STRIDE_PER_HEIGHT)) % 1.0
+            guardPhase[i] = after
+            if (crossedStep(before, after)) {
+                playStep(proximity(g.x + g.width / 2.0, g.y + g.height / 2.0, GameAudio.NPC_STEP_HEARING_RANGE), sfxVolume)
+            }
+        }
+        val prisoner = world.prisoner
+        if (prisoner != null) {
+            val walked = prisoner.walkedDistance
+            val phase = (walked / walkCycleDistance) % 1.0
+            if (prisoner.isFree && prisoner.isWalking && walked >= prisonerPrevWalked && walked - prisonerPrevWalked < 30.0 && !paused &&
+                crossedStep(prisonerPrevPhase, phase)
+            ) {
+                playStep(proximity(prisoner.body.centerX, prisoner.body.y + prisoner.body.height / 2.0, GameAudio.NPC_STEP_HEARING_RANGE), sfxVolume)
+            }
+            prisonerPrevWalked = walked
+            prisonerPrevPhase = phase
         }
         for (i in world.levers.indices) {
             val lever = world.levers[i]
