@@ -2,6 +2,7 @@ package game.scene
 
 import com.sample.demo.audio.GameSfxOutput
 import com.sample.demo.audio.getGameSfxOutput
+import game.model.DoorStyle
 import game.model.GameWorld
 import korlibs.audio.sound.*
 import korlibs.io.file.std.*
@@ -62,9 +63,20 @@ class GameSounds(
     val leverThrow: Sound? = null,
     /** Chain-dragging bed for a travelling hanging crate ([AmbientLoops]), and the three event stingers. */
     val chain: Sound? = null,
+    /** The lighter rattle a hanging load makes at a crawl - [MechanismSounds] crossfades the two beds by speed. */
+    val chainLight: Sound? = null,
+    /** A load's chains: jolting as it starts off, clinking as it turns round, settling as it stops. */
+    val chainClanks: List<Sound?> = emptyList(),
+    val chainClinks: List<Sound?> = emptyList(),
+    val chainSettle: Sound? = null,
     val missionFail: Sound? = null,
     val missionSuccess: Sound? = null,
-    val powerupActivate: Sound? = null
+    val powerupActivate: Sound? = null,
+    /** The sliding rumble of the prison cell gate opening. */
+    val doorSlide: Sound? = null,
+    /** The steel shutters: the slide up, and the slide down ending in its bang. */
+    val shutterOpen: Sound? = null,
+    val shutterClose: Sound? = null
 ) {
     /**
      * Plays every loaded clip once at zero volume, immediately, then stops it - this is a
@@ -88,7 +100,7 @@ class GameSounds(
      */
     fun primeAll(context: CoroutineContext) {
         gameSfxOutput?.prepare(GameAudio.SfxFile.ALL)
-        for (sound in listOf(stepA, stepB, impact, climb, uiClick, guardInvestigate, toastSuccess, cameraDetect, thunder, crateDrop, switchPress, leverThrow, missionFail, missionSuccess, powerupActivate)) {
+        for (sound in listOf(stepA, stepB, impact, climb, uiClick, guardInvestigate, toastSuccess, cameraDetect, thunder, crateDrop, switchPress, leverThrow, missionFail, missionSuccess, powerupActivate, doorSlide, shutterOpen, shutterClose, chainSettle) + chainClanks + chainClinks) {
             try {
                 sound?.play(context, PlaybackParameters(volume = 0.0))?.stop()
             } catch (_: Throwable) {
@@ -213,8 +225,30 @@ object GameAudio {
     const val SWITCH_PRESS_GAIN = 0.5
     const val LEVER_THROW_GAIN = 0.68
 
-    /** Chain rattle while a hanging crate's rig is travelling (scaled by its speed and distance). */
-    const val CHAIN_LOOP_GAIN = 0.75
+    /**
+     * A moving hanging load's chains (MechanismSounds.syncChains), all cut from one take of heavy
+     * chains dragging (tools/sfx/scripts/cut_mechanisms.py): the heavy drag bed (-18dBFS RMS in the
+     * file) comes in from [CHAIN_HEAVY_FROM] u/s and is full by [CHAIN_HEAVY_FULL]; the light rattle
+     * (-22dBFS) from [CHAIN_LIGHT_FROM] to [CHAIN_LIGHT_FULL], giving way by half as the heavy one
+     * takes over. Level 2's and 12's swinging crates peak at ~70 u/s, a lever crate at ~130.
+     */
+    const val CHAIN_LOOP_GAIN = 0.7
+    const val CHAIN_LIGHT_LOOP_GAIN = 1.0
+    const val CHAIN_LIGHT_FROM = 4.0
+    const val CHAIN_LIGHT_FULL = 30.0
+    const val CHAIN_HEAVY_FROM = 40.0
+    const val CHAIN_HEAVY_FULL = 120.0
+
+    /** The jolt as a load starts off from rest (files peak at -3dBFS). */
+    const val CHAIN_CLANK_GAIN = 0.55
+    /** The clink as a swinging load turns round (files peak at -6dBFS). */
+    const val CHAIN_CLINK_GAIN = 0.45
+    /** The slow-down and settle as a load comes to rest (file peaks at -6dBFS); scaled by how fast it was going. */
+    const val CHAIN_SETTLE_GAIN = 0.6
+
+    /** Slower than this a load is at rest; it has stopped once at rest this long. */
+    const val CHAIN_REST_SPEED = 4.0
+    const val CHAIN_REST_SECONDS = 0.25
 
     /**
      * Guard and escorted-prisoner footsteps: the player's own step clips, a little under
@@ -228,6 +262,13 @@ object GameAudio {
 
     /** Powerup activation blip - deliberately very quiet (the owner asked for it much lower). */
     const val POWERUP_ACTIVATE_GAIN = 0.1
+
+    /** The prison cell gate (level 11) sliding open. */
+    const val DOOR_SLIDE_GAIN = 0.55
+
+    /** Steel shutters (level 10's end door, level 11's doors) opening and shutting. */
+    const val SHUTTER_OPEN_GAIN = 0.5
+    const val SHUTTER_CLOSE_GAIN = 0.8
 
     /**
      * How far each source can be heard, in world units (straight-line, so a duct above or a floor
@@ -245,6 +286,7 @@ object GameAudio {
     const val LEVER_HEARING_RANGE = 480.0
     const val CRATE_HEARING_RANGE = 480.0
     const val CHAIN_HEARING_RANGE = 380.0
+    const val DOOR_HEARING_RANGE = 480.0
     const val NPC_STEP_HEARING_RANGE = 420.0
 
     /** Volume-units per second an ambient bed ramps at, so a bed never clicks on or off. */
@@ -280,7 +322,14 @@ object GameAudio {
         const val MISSION_FAIL = "sfx/mission_fail.wav"
         const val MISSION_SUCCESS = "sfx/mission_success.wav"
         const val POWERUP_ACTIVATE = "sfx/powerup_activate.wav"
-        val ALL = listOf(STEP_A, STEP_B, IMPACT, CLIMB, UI_CLICK, GUARD_INVESTIGATE, TOAST_SUCCESS, CAMERA_DETECT, THUNDER, CRATE_DROP, SWITCH_PRESS, LEVER_THROW, MISSION_FAIL, MISSION_SUCCESS, POWERUP_ACTIVATE)
+        const val DOOR_SLIDE = "sfx/door_slide.wav"
+        const val SHUTTER_OPEN = "sfx/shutter_open.wav"
+        const val SHUTTER_CLOSE = "sfx/shutter_close.wav"
+        val CHAIN_CLANKS = listOf("sfx/chain_clank_1.wav", "sfx/chain_clank_2.wav", "sfx/chain_clank_3.wav")
+        val CHAIN_CLINKS = listOf("sfx/chain_clink_1.wav", "sfx/chain_clink_2.wav", "sfx/chain_clink_3.wav")
+        const val CHAIN_SETTLE = "sfx/chain_settle.wav"
+        val ALL = listOf(STEP_A, STEP_B, IMPACT, CLIMB, UI_CLICK, GUARD_INVESTIGATE, TOAST_SUCCESS, CAMERA_DETECT, THUNDER, CRATE_DROP, SWITCH_PRESS, LEVER_THROW, MISSION_FAIL, MISSION_SUCCESS, POWERUP_ACTIVATE, DOOR_SLIDE, SHUTTER_OPEN, SHUTTER_CLOSE, CHAIN_SETTLE) +
+            CHAIN_CLANKS + CHAIN_CLINKS
     }
 
     /**
@@ -404,9 +453,16 @@ object GameAudio {
             switchPress = clip("switch_press"),
             leverThrow = clip("lever_throw"),
             chain = clip("loop_chain"),
+            chainLight = clip("loop_chain_light"),
+            chainClanks = listOf(clip("chain_clank_1"), clip("chain_clank_2"), clip("chain_clank_3")),
+            chainClinks = listOf(clip("chain_clink_1"), clip("chain_clink_2"), clip("chain_clink_3")),
+            chainSettle = clip("chain_settle"),
             missionFail = clip("mission_fail"),
             missionSuccess = clip("mission_success"),
-            powerupActivate = clip("powerup_activate")
+            powerupActivate = clip("powerup_activate"),
+            doorSlide = clip("door_slide"),
+            shutterOpen = clip("shutter_open"),
+            shutterClose = clip("shutter_close")
         )
         if (!audioPrimed) {
             audioPrimed = true
@@ -497,7 +553,7 @@ class AmbientLoops(private val context: CoroutineContext) {
 
 
 /**
- * Lift hum, lever clack, hanging-crate chain rattle and the guards' / prisoner's footsteps, kept out
+ * Lift hum, lever clack, door slide, hanging-crate chain rattle and the guards' / prisoner's footsteps, kept out
  * of the scene's giant `sceneMain` (the JVM's 64KB method limit).
  * [sync] runs once per frame beside the other ambience: the hum is one shared voice at the nearest
  * travelling lift's distance (a lift held by something in its shaft, or at rest, is silent), and a
@@ -516,11 +572,33 @@ class MechanismSounds(
     private val context: CoroutineContext,
     private val walkCycleDistance: Double
 ) {
+    private val doorWasOpen = HashMap<String, Boolean>()
     private val leverWasOn = BooleanArray(world.levers.size) { world.levers[it].isActivated }
     private val liftLastY = DoubleArray(world.lifts.size) { world.lifts[it].topY }
-    private val platformLast = DoubleArray(world.movingPlatforms.size * 2) { if (it % 2 == 0) world.movingPlatforms[it / 2].x else world.movingPlatforms[it / 2].y }
     private val hangingConveyor = world.conveyorCrates.filter { it.isHanging }
-    private val conveyorLast = DoubleArray(hangingConveyor.size * 2) { if (it % 2 == 0) hangingConveyor[it / 2].x else hangingConveyor[it / 2].y }
+
+    /** One hanging load the chains are heard on - see [syncChains]. */
+    private class ChainLoad {
+        var lastX = Double.NaN
+        var lastY = Double.NaN
+        /** Sign of its last clear motion along its main axis (0: none yet this run). */
+        var dir = 0.0
+        /** Seconds it has been slower than [GameAudio.CHAIN_REST_SPEED]. */
+        var still = 0.0
+        var running = false
+        /** Fastest it went this run - how hard it settles. */
+        var topSpeed = 0.0
+    }
+
+    private val platformLoads = List(world.movingPlatforms.size) { ChainLoad() }
+    private val conveyorLoads = List(hangingConveyor.size) { ChainLoad() }
+    private val hookLoads = List(world.hookCrates.size) { ChainLoad() }
+    private val pick = kotlin.random.Random(515264)
+    private var lastClank = -1
+    private var lastClink = -1
+
+    /** Told of every chain one-shot as it is played - "clank", "clink" or "settle" - and how loud; for tests. */
+    internal var onChainSound: ((kind: String, heard: Double) -> Unit)? = null
     private val guardPrevX = DoubleArray(world.allGuards.size) { world.allGuards[it].x }
     private val guardPhase = DoubleArray(world.allGuards.size)
     private var prisonerPrevWalked = 0.0
@@ -549,6 +627,110 @@ class MechanismSounds(
         return if (left <= 0.0) 0.0 else left * left
     }
 
+    /**
+     * Every hanging load's chains: the chained platforms (`movingPlatforms`, all drawn hanging),
+     * the conveyor-carried hanging crates, and a hook crate whose rig is travelling (one only
+     * swinging under its hook stays quiet). Two beds follow the loudest load in earshot - the light
+     * rattle at a crawl, the heavy drag as it gets up speed - and each load's own moments are
+     * one-shots at its own distance: a clank as it starts off from rest, a clink each time it turns
+     * round (every end of a swinging crate's run), the settle as it stops. Until 2026-10-27 it was
+     * one bed only, its volume following the speed ("the moving crate sounds are very unnatural").
+     */
+    private fun syncChains(ambient: AmbientLoops, dtSec: Double, master: Double, sfxVolume: Float, paused: Boolean) {
+        if (platformLoads.isEmpty() && conveyorLoads.isEmpty() && hookLoads.isEmpty()) return
+        var light = 0.0
+        var heavy = 0.0
+        if (!paused) {
+            val dt = maxOf(dtSec, 1e-4)
+            fun load(l: ChainLoad, cx: Double, cy: Double, vx: Double, vy: Double) {
+                val speed = kotlin.math.hypot(vx, vy)
+                if (speed > 600.0) {
+                    // A jump (a respawn, a reset), not motion.
+                    l.running = false
+                    l.still = 0.0
+                    l.dir = 0.0
+                    return
+                }
+                val heard = proximity(cx, cy, GameAudio.CHAIN_HEARING_RANGE)
+                if (speed < GameAudio.CHAIN_REST_SPEED) {
+                    l.still += dt
+                    if (l.running && l.still >= GameAudio.CHAIN_REST_SECONDS) {
+                        l.running = false
+                        l.dir = 0.0
+                        val hard = chainRamp(l.topSpeed, GameAudio.CHAIN_LIGHT_FROM, GameAudio.CHAIN_HEAVY_FULL)
+                        sounds.chainSettle.playSfx(context, GameAudio.CHAIN_SETTLE_GAIN * heard * hard, sfxVolume, GameAudio.SfxFile.CHAIN_SETTLE)
+                        onChainSound?.invoke("settle", heard * hard)
+                    }
+                } else {
+                    if (!l.running) {
+                        // Off from rest, a jolt; already under way when first heard (a level's
+                        // start), none.
+                        if (l.still >= GameAudio.CHAIN_REST_SECONDS) {
+                            lastClank = nextChainVariant(sounds.chainClanks.size, lastClank)
+                            if (lastClank >= 0) sounds.chainClanks[lastClank].playSfx(context, GameAudio.CHAIN_CLANK_GAIN * heard, sfxVolume, GameAudio.SfxFile.CHAIN_CLANKS[lastClank])
+                            onChainSound?.invoke("clank", heard)
+                        }
+                        l.running = true
+                        l.topSpeed = 0.0
+                    }
+                    l.still = 0.0
+                    val along = if (kotlin.math.abs(vx) >= kotlin.math.abs(vy)) vx else vy
+                    if (kotlin.math.abs(along) > GameAudio.CHAIN_REST_SPEED * 1.5) {
+                        val d = kotlin.math.sign(along)
+                        if (l.dir != 0.0 && d != l.dir) {
+                            lastClink = nextChainVariant(sounds.chainClinks.size, lastClink)
+                            if (lastClink >= 0) sounds.chainClinks[lastClink].playSfx(context, GameAudio.CHAIN_CLINK_GAIN * heard, sfxVolume, GameAudio.SfxFile.CHAIN_CLINKS[lastClink])
+                            onChainSound?.invoke("clink", heard)
+                        }
+                        l.dir = d
+                    }
+                    l.topSpeed = maxOf(l.topSpeed, speed)
+                }
+                val heavyShare = chainRamp(speed, GameAudio.CHAIN_HEAVY_FROM, GameAudio.CHAIN_HEAVY_FULL)
+                heavy = maxOf(heavy, heard * heavyShare)
+                light = maxOf(light, heard * chainRamp(speed, GameAudio.CHAIN_LIGHT_FROM, GameAudio.CHAIN_LIGHT_FULL) * (1.0 - 0.5 * heavyShare))
+            }
+            fun tracked(l: ChainLoad, x: Double, y: Double, cx: Double, cy: Double) {
+                if (l.lastX.isNaN()) {
+                    l.lastX = x
+                    l.lastY = y
+                }
+                val vx = (x - l.lastX) / dt
+                val vy = (y - l.lastY) / dt
+                l.lastX = x
+                l.lastY = y
+                load(l, cx, cy, vx, vy)
+            }
+            for (i in world.movingPlatforms.indices) {
+                val mp = world.movingPlatforms[i]
+                tracked(platformLoads[i], mp.x, mp.y, mp.x + mp.width / 2.0, mp.y + mp.height / 2.0)
+            }
+            for (i in hangingConveyor.indices) {
+                val c = hangingConveyor[i]
+                tracked(conveyorLoads[i], c.x, c.y, c.x + c.width / 2.0, c.y + c.height / 2.0)
+            }
+            for (i in world.hookCrates.indices) {
+                val crate = world.hookCrates[i]
+                load(hookLoads[i], crate.drawCenterX, crate.drawCenterY, if (crate.isHanging) crate.hookVx else 0.0, 0.0)
+            }
+        }
+        ambient.set("chain", sounds.chain, GameAudio.CHAIN_LOOP_GAIN * heavy * master, dtSec)
+        ambient.set("chain_light", sounds.chainLight, GameAudio.CHAIN_LIGHT_LOOP_GAIN * light * master, dtSec)
+    }
+
+    /** 0 at [from], 1 at [full], eased (smoothstep) between. */
+    private fun chainRamp(v: Double, from: Double, full: Double): Double {
+        val t = ((v - from) / (full - from)).coerceIn(0.0, 1.0)
+        return t * t * (3.0 - 2.0 * t)
+    }
+
+    /** A variant of [n] other than [last], at random; -1 when there are none. */
+    private fun nextChainVariant(n: Int, last: Int): Int = when {
+        n <= 0 -> -1
+        n == 1 || last < 0 -> pick.nextInt(n)
+        else -> (last + 1 + pick.nextInt(n - 1)) % n
+    }
+
     fun sync(ambient: AmbientLoops, dtSec: Double, master: Double, sfxVolume: Float, paused: Boolean) {
         if (world.lifts.isNotEmpty()) {
             val step = maxOf(dtSec, 1e-4)
@@ -561,36 +743,7 @@ class MechanismSounds(
             }
             ambient.set("elevator", sounds.elevator, GameAudio.ELEVATOR_LOOP_GAIN * hum * master, dtSec)
         }
-        // One chain voice for every hanging crate that is moving this frame: the chained platforms
-        // (`movingPlatforms`, all drawn as hanging crates), the conveyor-carried hanging crates, and
-        // a hook crate whose rig is travelling. Crates at rest, or still hanging in place, are silent.
-        val chainStep = maxOf(dtSec, 1e-4)
-        var chain = 0.0
-        fun hear(cx: Double, cy: Double, speed: Double) {
-            if (speed > 4.0 && speed < 600.0) {
-                chain = maxOf(chain, proximity(cx, cy, GameAudio.CHAIN_HEARING_RANGE) * (speed / 60.0).coerceIn(0.4, 1.0))
-            }
-        }
-        for (i in world.movingPlatforms.indices) {
-            val mp = world.movingPlatforms[i]
-            val moved = kotlin.math.hypot(mp.x - platformLast[i * 2], mp.y - platformLast[i * 2 + 1])
-            platformLast[i * 2] = mp.x
-            platformLast[i * 2 + 1] = mp.y
-            hear(mp.x + mp.width / 2.0, mp.y + mp.height / 2.0, moved / chainStep)
-        }
-        for (i in hangingConveyor.indices) {
-            val c = hangingConveyor[i]
-            val moved = kotlin.math.hypot(c.x - conveyorLast[i * 2], c.y - conveyorLast[i * 2 + 1])
-            conveyorLast[i * 2] = c.x
-            conveyorLast[i * 2 + 1] = c.y
-            hear(c.x + c.width / 2.0, c.y + c.height / 2.0, moved / chainStep)
-        }
-        for (crate in world.hookCrates) {
-            if (crate.isHanging) hear(crate.drawCenterX, crate.drawCenterY, kotlin.math.abs(crate.hookVx))
-        }
-        if (world.movingPlatforms.isNotEmpty() || hangingConveyor.isNotEmpty() || world.hookCrates.isNotEmpty()) {
-            ambient.set("chain", sounds.chain, GameAudio.CHAIN_LOOP_GAIN * chain * master, dtSec)
-        }
+        syncChains(ambient, dtSec, master, sfxVolume, paused)
         for (i in world.allGuards.indices) {
             val g = world.allGuards[i]
             val moved = kotlin.math.abs(g.x - guardPrevX[i])
@@ -617,6 +770,25 @@ class MechanismSounds(
             }
             prisonerPrevWalked = walked
             prisonerPrevPhase = phase
+        }
+        // A door's sound plays on the frame it is thrown (faint when far): the barred cell gate's
+        // slide when it opens, the steel shutters' slide on opening and their bang on shutting. A
+        // reset or checkpoint restore snaps the door to its state (openness already at its end), so
+        // only a door actually part-way through its travel counts.
+        for (door in world.doors) {
+            val was = doorWasOpen.put(door.id, door.isOpen) ?: door.isOpen
+            if (door.isOpen == was || paused) continue
+            val opening = door.isOpen
+            if (opening && door.openness >= 0.9 || !opening && door.openness <= 0.1) continue
+            val heard = proximity(door.frame.x + door.frame.width / 2.0, door.frame.y + door.frame.height / 2.0, GameAudio.DOOR_HEARING_RANGE)
+            if (heard <= 0.0) continue
+            if (door.def.style == DoorStyle.BARS) {
+                if (opening) sounds.doorSlide.playSfx(context, GameAudio.DOOR_SLIDE_GAIN * heard, sfxVolume, GameAudio.SfxFile.DOOR_SLIDE)
+            } else if (opening) {
+                sounds.shutterOpen.playSfx(context, GameAudio.SHUTTER_OPEN_GAIN * heard, sfxVolume, GameAudio.SfxFile.SHUTTER_OPEN)
+            } else {
+                sounds.shutterClose.playSfx(context, GameAudio.SHUTTER_CLOSE_GAIN * heard, sfxVolume, GameAudio.SfxFile.SHUTTER_CLOSE)
+            }
         }
         for (i in world.levers.indices) {
             val lever = world.levers[i]

@@ -821,6 +821,38 @@ class Level12EscapeTest {
     }
 
     @Test
+    fun testTheRoadGuardHearsTheRoadButNothingOverHim() {
+        // "when i am on top of here, if i move the guard can hear me" (2026-10-27): walking (not
+        // creeping) back and forth on the raised lift_5's deck, or along the landing crate, for a
+        // whole beat of his and more, he never turns to listen. On the road beside him, he does.
+        val l5 = layout.lifts.first { it.id == "lift_5" }
+        for ((x, span) in listOf(l5.x + 10.0 to 60.0, landingCrate().left + 10.0 to 120.0)) {
+            val e = Escape()
+            e.parkHim()
+            e.p.resetTo(x, ROW - 96.0)
+            val g = e.roadGuard
+            var heard = false
+            val frames = (span / (e.p.moveSpeed * e.dt)).toInt()
+            repeat(60 * 14) { k ->
+                e.step(if ((k / frames) % 2 == 0) 1.0 else -1.0)
+                if (g.state == GuardState.INVESTIGATING) heard = true
+            }
+            assertEquals(ROW, e.feet, 0.5, "still up there")
+            assertFalse(heard, "a footstep at ${x.toInt()} was heard below")
+        }
+        val f = Escape()
+        f.parkHim()
+        val g = f.roadGuard
+        f.waitUntil("the road guard by lift_5, heading on", 30.0) { g.facing > 0.0 && g.x < l5.x + l5.width && g.x > l5.x - 40.0 }
+        // Behind his back, walking away along the road.
+        f.p.resetTo(g.x - 150.0, GROUND - 96.0)
+        var heard = false
+        f.world.onGameOver = {}
+        repeat(20) { if (!f.world.isGameOver) { f.world.update(f.dt, -1.0, false, false, false); if (g.state == GuardState.INVESTIGATING) heard = true } }
+        assertTrue(heard, "a footstep on his own road")
+    }
+
+    @Test
     fun testLift5WaitsForTheGuardUnderItAndTakesNobodyUpButHim() {
         // Under the raised deck the guard stops it coming down (a lift never comes down on a body);
         // sent up with him not on the deck, it goes up empty and he walks on along the road.

@@ -708,6 +708,11 @@ own standing silhouette** - clips can be framed at different sizes at the same f
   `Guard.investigateDuration`); checkpoint respawn and Smoke Screen reset the pause. **Camera bots
   hold still while they see you** (`GameWorld.update` skips `bot.update` for bots in last tick's
   `detectingCameraBots`, as a seeing guard isn't walked on; `testACameraBotThatSpotsThePlayerHoldsWhereItIs`).
+- **Footsteps carry along a floor and down, not up** (`GameWorld`'s noise check, 2026-10-27): a guard
+  does not hear a walker standing more than his own height over his feet ("when i am on top of here,
+  if i move the guard can hear me" - level 12's road guard under the raised lift_5). Guards on hung
+  crates (level 3's and 12's overwatch, level 6's) still hear the floor under them; a guard on a
+  floor still hears it, 180 straight-line with line of sight (`testTheRoadGuardHearsTheRoadButNothingOverHim`).
 - **Detection pip**: "!" (no circle) for a heard noise, a filling clock for a sighting (seeing wins).
   Stealth Boots suppresses the noise pip; losing line-of-sight and losing the sound cue are tracked
   separately. Guards play `sfx/guard_investigate.wav` on the rising edge of hearing noise and on the
@@ -850,12 +855,28 @@ kept in sync with `ATTRIBUTION.md` by hand.
   generic UI click). The logic is `MechanismSounds` in `GameAudio.kt`, not inline in `sceneMain` (64KB limit).
   The lift bed is cut from the two mid-range stretches (0.9-3.1 s, 4.4-7.1 s), not the 10-25 s rumble (all below 300Hz, inaudible on a phone); one-shots are tanh-soft-clipped for body. Gains (loudest 200ms RMS + gain) put the lift near -14.6 dB, lever -19.5, switch -25 - the lift was too quiet and the switch too loud at the earlier -19 targets; fan/steam sit at -22, climb -16.
   Not verified on a device: levels, balance against the music, Android `GameSfxOutput` playback.
-- **Chains, NPC footsteps, stingers** (same script, also `MechanismSounds`): `loop_chain.wav` (Pixabay chains, 10.2s normalized loop with 11 varied phrases)
-  runs while any *hanging* crate is moving: chained `movingPlatforms`, hanging conveyor crates (by position change) and a travelling hook rig (`hookVx`). Guards and the level-11/12 prisoner play the
+- **Chains, NPC footsteps, stingers** (same script, also `MechanismSounds`): the hanging loads' chains are
+  all cut from the one Pixabay heavy-chains take (5.1 s: build-up, loud drag, calmer drag, settle) at its
+  own pitch, since 2026-10-27 ("the moving crate sounds are very unnatural" - it was one 22 kHz loop of 11
+  pitch-shifted, heavily levelled phrases, played at a volume following the speed): two 32 kHz beds
+  reshuffled from the take's own drag (grains cut at its quiet instants, either mic of the wide stereo
+  take, nothing reused within 2.5 s, levelled only halfway - measured: envelope spread 2.0 dB against the
+  take's 2.6, the old loop's 1.1; every octave within 1.7 dB of the take) - `loop_chain_light.wav` at a
+  crawl, `loop_chain.wav` (heavy) from 40 u/s, full at 120 (`CHAIN_*`) - and one-shots per load at its
+  own distance (`syncChains`): `chain_clank_1..3` as it starts off from a quarter-second at rest,
+  `chain_clink_1..3` each time it turns round (every end of a swinging crate's run), `chain_settle` as it
+  stops (scaled by how fast it went). Loads: chained `movingPlatforms`, hanging conveyor crates (by
+  position change) and a travelling hook rig (`hookVx` - a load only swinging under its hook stays quiet).
+  `ChainSoundsTest` checks the events, not the sound. Not heard on a device: the gains are set from the
+  files' measured levels beside the other beds, by ear never. Guards and the level-11/12 prisoner play the
   player's `step_a/b` on `STEP_PHASES` of their own distance-driven gait (`NPC_STEP_GAIN` 1.0 x distance falloff, range 420; raised from 0.4/320 as too quiet, as was the rover at 0.4/260 -> 0.75/340);
   the prisoner's phases are exact (player frames), the guards' are borrowed, not measured. `mission_fail.wav` plays when the
   Mission Failed overlay shows (not on a checkpoint respawn), `mission_success.wav` with the win card,
   `powerup_activate.wav` on a successful `tryActivatePowerup` at `POWERUP_ACTIVATE_GAIN` 0.1 (owner: "reduce by a lot").
+  `door_slide.wav` (jail-door source, 0.15-1.20 s - the clang/thud at 1.25 s is deliberately left out) plays on a
+  `Door.isOpen` rising edge in `MechanismSounds` for `DoorStyle.BARS` cell gates (`DOOR_HEARING_RANGE` 480, gain 0.55). The steel shutters use
+  `shutter_open.wav` / `shutter_close.wav` (cabinet-door source 0.08-1.00 s and 3.40-4.40 s: the close clip starts mid-slide so its
+  bang lands as the 0.45 s door reaches the floor) on the `isOpen` edges; a reset/restore snap (openness already at its end) is skipped.
   None heard on a device.
 - **Any new ambience bed needs energy above ~300Hz**: `loop_laser.wav` had 99% of its energy at
   20-100Hz (phone speakers played only distortion) and was re-voiced two octaves up, saturated and
@@ -1789,7 +1810,8 @@ against, so he walks on under it (`LiftDef.holdsHimWhileUp` false), and it carri
    **lift_5 stands up in the road** where level 2's long crate stands (408 out). Jump the crates from
    lift_4's lip to lift_5. A **road guard** paces below (level 10's room guard: 55, 180 torch, 1s at
    each post; 80 short of lift_5's shaft to 40 past it); his torch (22.5 either side of level from 54
-   over his feet) never reaches the row, so the crossing is never seen
+   over his feet) never reaches the row, nor does a footstep up there (footsteps carry down, not up),
+   so the crossing is never seen or heard
    (`testTheMovingCratesAndTheHookTakeThePlayerToLift5sSwitch`, six start times).
 6. **The hook** - past raised lift_5, a shaft's width (120) of open air at the road's height, then a
    **landing crate** (hung 174x38, rowTop): **beat 2's hook** over the gap (grip 86 out from lift_5's

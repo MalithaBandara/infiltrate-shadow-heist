@@ -1034,6 +1034,8 @@ private val SOUND_CREDITS = listOf(
     SoundCredit("Mission failed", "Tommaso Motteran, via Pixabay"),
     SoundCredit("Mission complete", "Universfield, via Pixabay"),
     SoundCredit("Powerup activation", "Universfield, via Pixabay"),
+    SoundCredit("Prison door", "freesound_community, via Pixabay"),
+    SoundCredit("Shutter doors", "freesound_community, via Pixabay"),
 )
 
 @Composable
