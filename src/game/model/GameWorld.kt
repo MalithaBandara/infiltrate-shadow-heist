@@ -347,13 +347,19 @@ data class GameWorld(
         onGameOver?.invoke()
     }
 
-    /** Everything a checkpoint on a prisoner level puts back as it was when taken. */
+    /**
+     * Everything a checkpoint on a prisoner level puts back as it was when taken. Levers and the
+     * beams they cut are in it because a lever can work a lift (LEVEL_12_LAYOUT's lift_5): put
+     * back to the start, the lever and its screen would no longer match the lift beside them.
+     */
     private class EscortSnapshot(
         val prisonerX: Double,
         val prisonerY: Double,
         val doors: List<Pair<Boolean, Double>>,
         val lifts: List<Pair<Boolean, Double>>,
-        val guards: List<Pair<Double, Double>>
+        val guards: List<Pair<Double, Double>>,
+        val leversThrown: List<Boolean>,
+        val lasersCut: List<Boolean>
     )
 
     private var escortSnapshot: EscortSnapshot? = null
@@ -364,7 +370,9 @@ data class GameWorld(
             prisonerY = p.body.y,
             doors = doors.map { it.isOpen to it.openness },
             lifts = lifts.map { it.isUp to it.topY },
-            guards = allGuards.map { it.x to it.facing }
+            guards = allGuards.map { it.x to it.facing },
+            leversThrown = levers.map { it.isActivated },
+            lasersCut = lasers.map { it.isDisabled }
         )
     }
 
@@ -392,6 +400,10 @@ data class GameWorld(
             doors.forEachIndexed { i, d -> snap.doors.getOrNull(i)?.let { (o, v) -> d.restore(o, v) } }
             lifts.forEachIndexed { i, l -> snap.lifts.getOrNull(i)?.let { (u, y) -> l.restore(u, y) } }
             allGuards.forEachIndexed { i, g -> snap.guards.getOrNull(i)?.let { (x, f) -> g.placeAt(x, f) } }
+            // After respawnAtCheckpoint has put every lever and laser back to the start. A one-shot
+            // crate's lever thrown then re-arms on the next tick, its crate being home again.
+            levers.forEachIndexed { i, l -> if (snap.leversThrown.getOrNull(i) == true) l.isActivated = true }
+            lasers.forEachIndexed { i, l -> if (snap.lasersCut.getOrNull(i) == true) l.disable() }
             p.restore(snap.prisonerX, snap.prisonerY)
         }
         isPrisonerSeen = false
@@ -1605,6 +1617,11 @@ data class GameWorld(
                 if (laser.mechanismId == lever.targetMechanismId) {
                     laser.disable()
                 }
+            }
+            // A lift of that id is sent the other way, as a switch would send it - LEVEL_12_LAYOUT's
+            // lift_5 comes down with the screen under the crate beside it cut by the same lever.
+            for (l in lifts) {
+                if (l.id == lever.targetMechanismId) l.toggle()
             }
         }
     }
