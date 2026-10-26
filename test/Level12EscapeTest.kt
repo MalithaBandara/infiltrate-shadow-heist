@@ -1162,6 +1162,30 @@ class Level12EscapeTest {
         assertTrue(e.world.isLevelComplete)
     }
 
+    @Test
+    fun testThePlayerCannotWalkOnPastTheExit() {
+        // "dont let the player go beyond the ending part", then "just add a invisible barrier just
+        // about at the start of that guard room thing" (2026-10-27): there first, the player is
+        // stopped at the booth's front - in the exit - and the level ends as soon as he walks in
+        // after. Nothing is drawn there.
+        val e = Escape()
+        e.parkHim()
+        e.roadBot.deactivate()
+        val exit = e.world.exitZone
+        val barrier = exit.x + LevelLayout.EXIT_BARRIER_INSET
+        e.p.resetTo(exit.x - 100.0, GROUND - 96.0)
+        repeat(60 * 4) { e.step(1.0) }
+        assertEquals(barrier, e.p.bounds.right, 0.5, "stopped at the booth's front")
+        assertTrue(e.p.bounds.intersects(exit), "in the exit")
+        assertFalse(e.world.isLevelComplete, "not without him")
+        e.pr.restore(exit.x - 60.0, GROUND - 96.0)
+        e.waitUntil("both out", 5.0) { e.world.isLevelComplete }
+        assertTrue(e.p.bounds.right <= barrier + 0.5 && e.pr.bounds.right <= barrier + 0.5, "neither past it")
+        val wall = e.world.platforms.single { abs(it.x - barrier) < 0.5 }
+        assertTrue(wall.height >= 1000.0, "as tall as the side walls, which the scene does not draw")
+        assertFalse(wall in e.world.visionOccluders, "and it blocks no sight")
+    }
+
     // ---- the layout ----------------------------------------------------------------------
 
     @Test

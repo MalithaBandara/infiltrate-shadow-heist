@@ -26,13 +26,16 @@
   chain_settle.wav   44.1kHz mono one-shot: the take's own slow-down and settle (3.40-4.40s) - a load
                      coming to rest. (Until 2026-10-27 the chains were one 22kHz loop of 11 phrases,
                      pitch-shifted and heavily levelled: "the moving crate sounds are very unnatural".)
+  loop_conveyor.wav  22.05kHz mono, 1.0-7.0s of the freemaster2 conveyor-belt take (a steady 18s run, 2.4kHz
+                     centroid, no events) as a 0.5s-crossfaded loop, -17dB RMS. Plays on the belts of levels 3 (its end) and 4.
   mission_fail.wav   44.1kHz mono one-shot, 0-2.0s of the cartoon-defeat stinger (its tail faded out).
   mission_success.wav  44.1kHz mono one-shot, 0-1.3s of the level-up chime (tail faded out).
   door_slide.wav     44.1kHz mono one-shot, 0.15-1.20s of the jail-door source: the sliding rumble only. The
                      source's clang/thud lands at 1.25s and its low rumble tail follows; both are left out.
   shutter_open.wav   44.1kHz mono one-shot, 0.08-1.00s of the sliding-cabinet-door source (its opening slide).
-  shutter_close.wav  44.1kHz mono one-shot, 3.40-4.40s of the same source: the last of the close slide, then its
-                     bang ~0.5s in - timed so the bang lands as the 0.45s shutter reaches the floor.
+  shutter_close.wav  44.1kHz mono one-shot, 2.90-3.55s of the same source: the close slide only. The bang
+                     at 3.90s ("the thump at the end of door close") is left out. Soft-clipped (drive 3)
+                     so the quiet slide carries.
   powerup_activate.wav 44.1kHz mono one-shot, 0.2-1.2s of the interface blip; the source is quiet, so it
                      is peak-normalised here and POWERUP_ACTIVATE_GAIN keeps it low.
 """
@@ -265,4 +268,5 @@ write("mission_success.wav", one_shot(read("universfield-level-up-191997.mp3", 4
 write("powerup_activate.wav", one_shot(read("universfield-interface-124464.mp3", 44100), 44100, 0.2, 1.2, 0.9, fade_out=0.25), 44100)
 write("door_slide.wav", one_shot(read("freesound_community-jaildoorclose-6173.mp3", 44100), 44100, 0.15, 1.20, 0.9, fade_in=0.03, fade_out=0.06), 44100)
 write("shutter_open.wav", one_shot(read("freesound_community-sliding_wooden_cabinet_door_1-of-2-81503.mp3", 44100), 44100, 0.08, 1.00, 0.9, fade_in=0.02, fade_out=0.15), 44100)
-write("shutter_close.wav", one_shot(read("freesound_community-sliding_wooden_cabinet_door_1-of-2-81503.mp3", 44100), 44100, 3.40, 4.40, 0.9, fade_in=0.02, fade_out=0.05), 44100)
+write("shutter_close.wav", punch(one_shot(read("freesound_community-sliding_wooden_cabinet_door_1-of-2-81503.mp3", 44100), 44100, 2.90, 3.55, 1.0, fade_in=0.02, fade_out=0.10), 3.0, 0.9), 44100)
+write("loop_conveyor.wav", loop(read("172350__freemaster2__conveyor-belt.flac", 22050), 22050, [(1.0, 7.0)], 0.5, -17.0, 70.0), 22050)
