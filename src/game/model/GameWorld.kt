@@ -2699,6 +2699,11 @@ data class GameWorld(
         val effectiveNoiseRadius = if (activePowerups.isNoiseSuppressed) 0.0 else player.currentNoiseRadius
         if (effectiveNoiseRadius > 0.0 && !activePowerups.isPhantomCloakActive) {
             for (g in allGuards) {
+                // Footsteps carry along a floor and down off it, not up: a guard does not hear a
+                // walker standing more than his own height over his feet ("when i am on top of
+                // here, if i move the guard can hear me", 2026-10-27 - level 12's road guard under
+                // the raised lift_5). The overwatch guards on their crates still hear the road.
+                if ((g.y + g.height) - (player.y + player.height) > g.height) continue
                 val distToGuard = player.center.distanceTo(g.center)
                 if (distToGuard <= effectiveNoiseRadius &&
                     GeometryUtils.hasLineOfSight(player.center, g.center, visionOccluders)
