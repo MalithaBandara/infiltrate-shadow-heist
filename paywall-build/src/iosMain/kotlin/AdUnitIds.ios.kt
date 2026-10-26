@@ -5,7 +5,7 @@ package com.infiltrate.ads
 // "developer-associated" traffic under AdMob policy, so use test ad unit IDs for both those Play
 // Console tracks (this file's IDs are for iOS/App Store review + TestFlight, which carries the
 // same policy risk). Flip to false only for Open testing or production.
-private const val USE_TEST_ADS = true
+private const val USE_TEST_ADS = false
 
 actual object AdUnitIds {
     // Real iOS rewarded ad unit, created under the "Continue Game" ad unit in AdMob.
