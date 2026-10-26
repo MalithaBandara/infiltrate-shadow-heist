@@ -180,7 +180,7 @@ data class Player(
                     height * (0.5 + 0.5 * u)
                 }
                 t <= SWING_RELEASE_PHASE -> {
-                    curveAt(SWING_GRIP_ABOVE_CURVE, t) * height
+                    curveAt(SWING_GRIP_ABOVE_CURVE, t) * visualHeight
                 }
                 t <= SWING_LAND_PHASE -> {
                     val u = ((t - SWING_RELEASE_PHASE) / (SWING_LAND_PHASE - SWING_RELEASE_PHASE)).coerceIn(0.0, 1.0)
@@ -377,7 +377,14 @@ data class Player(
         climbTargets: List<Rect> = emptyList(),
         swingHooks: List<Rect> = emptyList(),
         floatingClimbTargets: List<Rect> = emptyList(),
-        unclimbableBoxes: List<Rect> = emptyList()
+        unclimbableBoxes: List<Rect> = emptyList(),
+        /**
+         * Platforms (also in [platforms]) a body on its feet walks up onto when their top is no
+         * more than [MAX_STEP_UP] over its feet - a lift's deck resting on the floor
+         * (LiftDef.restsOnFloor). Walked into, the deck's side does not stop it; once the centre
+         * of its feet is over the deck it stands on it.
+         */
+        steps: List<Rect> = emptyList()
     ) {
         if (!jumpInput) {
             jumpConsumed = false
@@ -394,7 +401,7 @@ data class Player(
             val step = minOf(remaining, maxStep)
             updateStep(
                 step, moveInput, if (firstStep) jumpInput else false, crouchInput, platforms,
-                climbTargets, swingHooks, floatingClimbTargets, unclimbableBoxes
+                climbTargets, swingHooks, floatingClimbTargets, unclimbableBoxes, steps
             )
             firstStep = false
             remaining -= step
@@ -578,8 +585,12 @@ data class Player(
         val t = swingPhase
         // Held flat past its ends by curveAt, so these are the grab pose before the grab and the
         // release pose after it - which is exactly what the two interpolations want as endpoints.
-        val gripCenterX = swingGripX - swingDirection * curveAt(SWING_GRIP_AHEAD_CURVE, t) * height
-        val gripFeetY = swingGripY + curveAt(SWING_GRIP_ABOVE_CURVE, t) * height
+        // Fractions of the DRAWN height (visualHeight): the sprite is drawn 5% taller than the box
+        // since VISUAL_HEIGHT_SCALE came in, and on the box's height the fist sat ~4.6 units over
+        // the grip, above the hook's bell ("when swinging he is not touching the bottom of the
+        // hook", 2026-10-26).
+        val gripCenterX = swingGripX - swingDirection * curveAt(SWING_GRIP_AHEAD_CURVE, t) * visualHeight
+        val gripFeetY = swingGripY + curveAt(SWING_GRIP_ABOVE_CURVE, t) * visualHeight
 
         val centerXNow: Double
         val feetYNow: Double
@@ -715,7 +726,8 @@ data class Player(
         climbTargets: List<Rect> = emptyList(),
         swingHooks: List<Rect> = emptyList(),
         floatingClimbTargets: List<Rect> = emptyList(),
-        unclimbableBoxes: List<Rect> = emptyList()
+        unclimbableBoxes: List<Rect> = emptyList(),
+        steps: List<Rect> = emptyList()
     ) {
         if (isSwinging) {
             jumpBufferTimer = 0.0
@@ -885,6 +897,8 @@ data class Player(
 
         for (platform in platforms) {
             if (hRect.intersects(platform)) {
+                // A step under the knee is walked onto, not into - see [steps].
+                if (isGrounded && platform.top < y + height && platform.top >= y + height - MAX_STEP_UP && platform in steps) continue
                 // Resolve towards the side the player actually came from. Going purely on the
                 // sign of vx drags anyone who is already overlapping a platform all the way to
                 // its far edge - which is what happens when you walk off the end of a long
@@ -999,7 +1013,21 @@ data class Player(
         // span later, and removes the appearance of flying past the end of the platform.
         val wasGrounded = isGrounded
         var bestLandingY: Double? = null
+        // A step the feet have come over: stood on, rather than the floor under it the rule just
+        // below would keep (it holds the body at whatever it is nearest to) - see [steps].
+        var stepLandingY: Double? = null
         for (platform in platforms) {
+            if (wasFalling && wasGrounded && platform in steps) {
+                val footCenter = x + width / 2.0
+                val feet = y + height
+                if (footCenter >= platform.left && footCenter <= platform.right &&
+                    platform.top <= feet + 0.5 && platform.top >= feet - MAX_STEP_UP
+                ) {
+                    val candidateY = platform.top - height
+                    if (stepLandingY == null || candidateY < stepLandingY) stepLandingY = candidateY
+                    landed = true
+                }
+            }
             if (wasFalling) {
                 // Feet landing on platform: the player falls if most of their feet are outside
                 // the edge in the direction of movement (or either edge if stationary).
@@ -1042,8 +1070,9 @@ data class Player(
                 }
             }
         }
-        if (wasFalling && bestLandingY != null) {
-            newY = bestLandingY
+        val landingY = stepLandingY ?: bestLandingY
+        if (wasFalling && landingY != null) {
+            newY = landingY
             vy = 0.0
         }
         y = newY
@@ -1211,6 +1240,9 @@ data class Player(
          * 251 of the 244.36 frame-px the box is scaled from = 2.6 units). Only ceilings use it.
          */
         const val CEILING_ART_MARGIN = 3.0
+
+        /** The highest step ([update]'s steps) walked up onto: a lift's 14 deck, with a little over. */
+        const val MAX_STEP_UP = 16.0
 
         /**
          * Where the crouched climb's tail starts, and how much faster it runs.

@@ -43,7 +43,9 @@ data class Guard(
      * see facingAngle for how it's applied per direction, and LEVEL_3_LAYOUT's overwatchGuard1/2
      * for the beat that needs it.
      */
-    var visionTilt: Double = 0.0
+    var visionTilt: Double = 0.0,
+    /** See GuardSpawn.catchTimeScale. */
+    val catchTimeScale: Double = 1.0
 ) {
     var state: GuardState = GuardState.PATROL
         private set

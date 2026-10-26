@@ -610,8 +610,10 @@ own standing silhouette** - clips can be framed at different sizes at the same f
 `*_STRIDE_PER_HEIGHT` by phase-correlating ground-contact alpha on the PROCESSED output.
 
 - **Swing** (`art/frames/player/swing`, levels 5/8/9/12): 52 frames from a 200-frame plate. Hang
-  position measured per frame (`SWING_GRIP_ABOVE_CURVE`/`AHEAD_CURVE`); the rect sits still under the
-  hook while the silhouette sweeps (correct). Hook grip `HOOK_GRIP_X/Y_FRACTION = (0.481, 0.960)` -
+  position measured per frame (`SWING_GRIP_ABOVE_CURVE`/`AHEAD_CURVE`) as fractions of the DRAWN
+  height (`visualHeight`, since 2026-10-26 - on the box's height the 5% `VISUAL_HEIGHT_SCALE` left the
+  fist ~4.6 over the grip, clear of the bell: "when swinging he is not touching the bottom of the
+  hook"); the rect sits still under the hook while the silhouette sweeps (correct). Hook grip `HOOK_GRIP_X/Y_FRACTION = (0.481, 0.960)` -
   re-measure if `hook.png` is recropped. `swingDuration` 0.92s over a pacing curve. Entry: walk into
   the hook and press JUMP (from a standstill it's a plain jump). `findSwingTarget` refuses unless solid
   ground is level with the far ledge (either direction); `swingLandAhead`/`swingMinReach`/
@@ -731,7 +733,7 @@ timed with a person.
 | 9 | 106.1s | 180 | `testLevel9IsBeatableWithoutTouchingTheGround` |
 | 10 | 151.7s | 190 | `testLevel10SimulationPlayableWalkthrough` |
 | 11 | 132.8s | 195 | `Level11EscortTest.testLevel11IsBeatableAsAnEscort` |
-| 12 | 112.5s | 165 | `Level12EscapeTest.testLevel12IsBeatableAsAnEscape` |
+| 12 | 156.9s | 230 | `Level12EscapeTest.testLevel12IsBeatableAsAnEscape` |
 
 - `test/LevelWalkthroughTest.kt` holds the walkthroughs for 1, 2, 3, 5, 6 - one general
   `Runner.runRight` policy (crouch under head-only ceilings, jump when blocked = the climb, jump a gap
@@ -943,7 +945,8 @@ Mostly reasoned and measured on JVM/decompiled classes; on-device improvement un
   once) plus a one-page atlas per `PlayerClipGroup` (SWING, PUSH, WIND), loaded only when
   `PlayerAnimations.groupsFor(levelData, world)` says the level can play it, let go when the next
   can't (pages freed with the level art: `releaseOtherLevelsArt(also = takeReleasedPages())`).
-  Pages: levels 1-4/11 carry 6, 5/6/7/10/12 carry 7, 8 carries 8, 9 carries 9 - never more than before
+  Pages: levels 1-4/11 carry 6, 5/6/7/10 carry 7, 8/12 carry 8 (12 since its dock cart, 2026-10-26),
+  9 carries 9 - never more than before
   (one atlas per group incl. base was measured too: a page MORE on level 9). Groups come off the
   model's own gates: swing = `world.swingHooks`, push = `pushCarts`/`pushStanceDemo`, wind = `fans`,
   all on a `replaysRunOf` level (the echo can show any frame).
@@ -953,7 +956,8 @@ Mostly reasoned and measured on JVM/decompiled classes; on-device improvement un
   - **`PlayerClipGroupsTest`**: frame indices for all 8 group combinations; every move the
     walkthroughs (levels 1-12) and 2 min x 3 seeds of random input per level make, seen through
     `GameWorld.moveObserver` (test hook, null in the game), against the level's groups. Seen: swing
-    5/6/9/12, push 8/demo, wind 7/10 (level 12 since its 2026-10-23 rebuild: swing only, 7 pages).
+    5/6/9/12, push 8/12/demo, wind 7/10 (level 12: swing only from its 2026-10-23 rebuild, swing and
+    push - its dock cart - since 2026-10-26, 8 pages).
     Mutation (before the 2026-10-22 rebuild): dropping WIND from `groupsFor` failed 7/10/12.
     **A new clip, or a new way to start an existing move, must update `groupsFor` and this test.**
     Not seen on a device.
@@ -1573,8 +1577,8 @@ wrong). **No tutorial at all** - level 10's end teaches switches, doors and lift
 (`testLevel10UsesLevel7sMechanicsAndNothingElse`).
 - **`Prisoner` (`Prisoner.kt`)**: a `Player` body driven by a rule - walks right at 110
   (`PrisonerDef.speed`) once freed (cell gate `freedByDoorId` half open; the id may also be a lift
-  that first moves, a hook crate that drops or a lever-started load - level 12's is the lift he sits on -
-  + 0.8s getting up), stops only
+  that first moves, a hook crate that drops, a lever-started load, or `WHEN_THE_PLAYER_SETS_OFF` - the
+  player's first move: level 12's, where he starts beside the player - + 0.8s getting up), stops only
   at a shut door, a wall, or a lip deeper than `MAX_STEP_DOWN` (30) - a crack under 4 with footing on
   both sides is not a lip (`Prisoner.CRACK`, made for an earlier level 12's dropped crate); never
   jumps/climbs/crouches.
@@ -1582,11 +1586,20 @@ wrong). **No tutorial at all** - level 10's end teaches switches, doors and lift
   (`crushesOnContact`) that would crush the player loses him (GameWorld; made for an earlier level
   12's ferries and gate). Level 12's lever crate ferries him again since 2026-10-26 - he walks off it
   in the ~0.4s it lies flush against the far container.
+  Lifts with `LiftDef.restsOnFloor` (level 12) stand on the floor at the bottom, deck 14 up:
+  `Player.update`'s `steps` lets a body on its feet walk up onto such a deck (up to `MAX_STEP_UP` 16)
+  and the normal walk-off steps down; a `DoorSwitchDef` is reached from up to 20 over its floor (a
+  deck resting on it) since 2026-10-26 ("the elevators go too much below surface").
   He also stops short of a lift's shaft while that lift is up off his floor (`isAtRaisedLift`): a
   lift never comes down on a body, so one sent up before he arrived used to strand him under it for
   good (level 12, 2026-10-19 "make sure the level has a solution").
   Seen by anything = the shared alert meter (`GameWorld.isPrisonerSeen`, pip over him); steam and an active
-  laser kill him (`prisonerLost`; lasers since 2026-10-21 - he goes nowhere the player cannot). The level completes only when he AND the player are in `exitZone`. Drawn fully
+  laser kill him (`prisonerLost`; lasers since 2026-10-21 - he goes nowhere the player cannot). Since
+  2026-10-26 he **waits at a laser** that is on, or will be before he could reach and clear it
+  (`Prisoner.isAtBeam`: the time he needs shrinks as fast as the gap does, so he never stops inside
+  one; 0.12s to spare), and **waits for a lift to stop** before stepping onto or off it
+  (`isAtMovingLift`). Being caught leaves the player where he was (it used to put him at the start,
+  which the Checkpoints powerup's death beat showed before the respawn). The level completes only when he AND the player are in `exitZone`. Drawn fully
   black with the player's frames (grey tint rejected), created before the cell so its bars cover him
   (`PrisonCellDef.drawsFigure` = false).
 - **Doors (`Doors.kt`)**: `DoorDef` floor-to-ceiling, the panel rolls up (`openness`; only the
@@ -1645,35 +1658,59 @@ an earlier level draws (`testEverythingIsDrawnAtASizeAnEarlierLevelDrawsIt` now 
 code-built boxes, for the chained crate, and checks lifts, bots and laser emitters), nothing to watch
 above y ~149, he goes nowhere the player cannot, switches by their lifts, no soft-locks.
 
+Later on 2026-10-26: "bring this floating platform part more to the left (to intersect with the
+platform)", "in this part add something interesting to the bottom instead of just getting down and
+climbing", "make the prisoner start at the same place as the player", "the elevators go too much
+below surface" (asked: the floor rests on the ground, walkers step up onto it).
+
 **His road is the top of a container row, 144 up; a freight lift's shaft is what holds him** (down,
-a 144 drop; up, the road). The first three shafts' lifts rest on the ground and each one's ONE switch
-hangs inside the shaft on the far container's face, reached from the lift standing at the bottom:
-drop in, throw it, ride up with him. So those shafts never trap the player (a raised lift closes it;
-the yard under the platform is the one shaft open at the bottom, and from under its raised lift the
-switch still lowers it onto nobody - `testTheYardIsNeverATrap`). Five lifts, four panels (lift_5 is
-its lever's).
-1. **The pickup** - start fences, a wood crate and barrel to hop, then an overwatch guard on a hung
-   crate (level 3/6 numbers: tilt 25, range 220, 35 u/s, 3s dwell). His crate hides whoever is under
-   it and footsteps carry 180 (crouch is silent): creep under behind his back, out once he turns,
-   climb the 96 quay, crawl under level 1's chained crate (174x256 hung from y 30, 58 over the quay)
-   and drop into lift_1's shaft, where he sits on the lift (freed when it moves). Ride up together.
+a 130 drop onto the deck; up, the road). **Lifts stand on the ground** at the bottom (`restsOnFloor`,
+deck 426..440, stepped up onto and off - `testEveryLiftStandsOnTheGroundAndIsSteppedOnAndOff`); a head
+on a deck is 4 into a hung crate's underside at 300/38, so nothing hangs flush beside a shaft he
+walks out of (the screen crate is 36 past lift_5). The first three shafts' lifts each have ONE switch
+inside the shaft on the far container's face, reached from the lift at the bottom: drop in, throw it,
+ride up with him. So those shafts never trap the player (a raised lift closes it; the yard under the
+platform is the one shaft open at the bottom, and from under its raised lift the switch still lowers
+it onto nobody - `testTheYardIsNeverATrap`). Five lifts, four panels (lift_5 is its lever's).
+1. **Setting off** - he sits a step ahead of the player inside the start fences and gets up at the
+   player's first move (`PrisonerDef.WHEN_THE_PLAYER_SETS_OFF`; `GameWorld.hasClockStarted`). An
+   overwatch guard paces a hung crate over the road (level 3/6 numbers: tilt 25, range 220, 35 u/s,
+   3s dwell); his crate hides whoever is under it and footsteps carry 180 (crouch is silent). **This
+   first guard catches in half the usual time** (`GuardSpawn.catchTimeScale` 0.5, 2026-10-26:
+   "the detection seems too slow. i just walked past this and the guards meter didnt fill" - a tilted
+   torch only reaches a standing body near the end of its range, where the meter fills slowest, and a
+   walk crossed that band in ~0.6s; now walking through it is caught, clipping its end is a glimpse -
+   `testWalkingOutIntoTheFirstGuardsTorchIsCaught`). Set off 1.0-4.7s before the guard turns back and
+   he walks under unseen (12.7-0.9 glimpsed; 4.8-12.6 caught). He steps onto lift_1 (860, 146 past the
+   crate) and waits against c1; the player creeps after him behind the guard's back and they ride up.
+   **Gone with the old pickup**: the wood crate and barrel hop, the 96 quay and level 1's chained
+   crate - all walls to a walker who cannot hop, climb or crawl, and with no player-only floor left to
+   carry them (the chained crate needs 58 over a 96 block, and everything on the ground is his road).
 2. **The rover** - lift_2 down, level 8's rover on the next container. Swing over the shaft on level
    5's hook (grip 120 over the road, 86 out) while the rover is up the far end - at its near end it
    sees just past the landing - wait at the lip (164 off), switch it off from behind, drop back in
    and bring him up. Raised early, he walks into the rover.
 3. **The curtain** - his road crosses the yard on a platform to lift_3: level 6's plank (the 30-deep
    table slab, nothing holding it up), drawn seamless like level 8's long table, over the same 522
-   the three hung crates spanned (`testTheYardsHungCratesAreAPlatformNow`). Level 6's lever curtain
+   the three hung crates spanned, its near end run 24 into c2 so the slab's rounded end cap is inside
+   the container (`testTheYardsHungCratesAreAPlatformNow`). Level 6's lever curtain
    (3 beams, emitter 0.6) stands on the container past it. The lever is at the yard's far end under
    the platform (114 headroom), behind level 8's bottom course: three timed gates (platform underside
-   to floor) and a bot on a 70 beat, whose near end is 120+ short of where a body waits for gate 3.
-   Raised before the cut, he dies in the curtain.
-4. **The ferry** - the row breaks off at a 406-wide dock. Level 6's lever crate (174x38, 232 out and
-   back in 5.5s, one-shot, re-arms its lever) is parked flush against the near end, level with the
-   road: he walks onto it and waits at its far end. The player drops into the dock, hops a wood crate
-   at the far container's foot, climbs 96 onto it and throws the lever there (24 in from the lip, like
-   level 6's lever_4); the crate lies flush against the far container for ~0.4s and he walks off.
-   Thrown early it goes and comes back empty; the dock is climbed out of, or crossed back on the crate.
+   to floor) and a bot on a 70 beat, whose near end is 120+ short of where a body waits for gate 3
+   (out 2.0 of its 3.6s since 2026-10-26 - at 1.2 it and the bot came round together only every
+   half-minute or so). Raised before the cut, he walks up to the curtain and waits at it.
+4. **The ferry** - the row breaks off at a 574-wide dock. Level 6's lever crate (174x38, one-shot,
+   re-arms its lever; level 6's speed, run 400 out over 9.5s) is parked flush against the near end,
+   level with the road: he walks onto it and waits at its far end (a checkpoint). **The dock floor**:
+   level 8's step cart (92x48) parked just past where a body dropped off the parked crate lands, and
+   a third rover (`lvl12_dock_bot`) working the floor in the shade of the parked crate (10 of
+   headroom under it), whose sight never reaches him up on the crate. Drop in while it heads away,
+   switch it off from behind, push the cart 250 to the far container's foot (it never goes back under
+   the parked crate: `minX`), hop on, climb the 96, throw the lever there (24 in from the lip, like
+   level 6's lever_4); the crate lies flush against the far container for ~0.5s and he walks off.
+   Thrown early it goes and comes back empty; wherever the cart is left it can be got behind and
+   pushed (`testTheDockIsNeverATrap`); the crate carries the player back. A cart does not collide
+   with a rover, so the switched-off rover is kept out of the cart's path.
 5. **The descent** - lift_4 starts up; he waits on its far lip. The road below is shut: past level
    2's two moving crates (its exact spacing from the lip they are jumped from, 3.6s, half a cycle
    apart) **lift_5 stands up in the road** where level 2's long crate stands (408 out - he waits at a
@@ -1681,15 +1718,20 @@ its lever's).
    45 apart) from its underside to the road. Jump the crates from lift_4's lip to lift_5, walk the
    crate, drop off its end (the last beam is 42 short of it) onto the screen's lever: **one lever cuts
    the screen and sends lift_5 down** (`GameWorld.triggerLever` now also toggles a lift of its target
-   id). Then back to lift_4's post switch: on the road further down, a laser fence (3 beams from
-   off-screen to the floor, 60 apart, 1.4 on / 1.2 off, each opening 60/110 s after the last - a wave
-   at his walking pace), then a second overwatch over the road. **The fence is the lock**: lowered with
-   gate 1's phase in 0.3-0.8 of its 2.6s cycle he and the player 30 behind walk every gap as it opens,
-   otherwise a beam kills him. **The guard is only stealth**: an overwatch on a hung crate can never
-   fill the alert on a walker passing under it, so he only glimpses him (star 2) unless he comes in
-   while the guard looks ahead. Measured with the player following 30 behind: the turn back 9.2-13.1
-   (and on round to 2.0) s away at the press is unseen, 7.0-9.1 glimpsed, 2.2-6.9 the follower is
-   caught; the clean run presses at 9.5-12.9. **A fall off the crates strands nobody**: lowered, he
+   id). From lift_5, a 36 jump to the crate. Then back to lift_4's post switch: on the road further
+   down, a laser fence (3 beams from off-screen to the floor, 60 apart, 1.4 on / 1.2 off, each opening
+   60/110 s after the last - a wave at his walking pace), then a second overwatch over the road, its
+   crate 100 past the last beam. **He waits out the fence himself** since 2026-10-26 ("it is impossible
+   to correct time the lever for the lasers at the end" - the press had to fall in a 0.4s slice of
+   the 2.6s cycle about 9s ahead): at the first beam until a gap he can cross, and the wave carries him
+   through the rest (`testHeWaitsOutTheFenceHimself`); the player times his own way through. The
+   crate was 30 past the last beam, and its torch filled the alert on him waiting at the first.
+   **The second guard keeps the usual catch pace** - off screen from lift_4's switch, he cannot be
+   timed by eye, so he only glimpses (at most 0.87) and costs star 2: lowered 11.45-13.1 (or 0-1.0) s
+   before the guard turns back, whatever the fence is doing, he is unseen. The clean run presses at
+   11.6-12.8, follows 30 behind never stepping into a beam that will come on before it is through,
+   and creeps from the fence on (footsteps past the crate turned the guard round to see him walking
+   out to the gate). **A fall off the crates strands nobody**: lowered, he
    walks as far as raised lift_5 and waits (a checkpoint), and lift_4 - down now, its post switch in
    reach from on it - carries the player back up (`testAFallOffTheMovingCratesStrandsNobody`). A
    one-way drop into a pocket whose only exits kill him was the alternative and was rejected.
@@ -1697,16 +1739,17 @@ its lever's).
 
 - **Checkpoints are his** (held at lift_2's lip, at lift_3's, on the parked ferry, on lift_4, at
   lift_5's foot - the last on the road, spawning the player by lift_4's switch); spawns are out of the
-  rovers' reach. A respawn switches rovers back on and puts the moving crates back; lifts, guards,
+  rovers' reach. A respawn switches rovers back on and puts the moving crates and the cart back; lifts, guards,
   levers and cut beams come back as the checkpoint had them (since 2026-10-26: with the lever and
   screen put back to the start over a lowered lift_5, the crates no longer reached the far side -
   `testARespawnKeepsTheScreenLeverAndLift5InStep`).
-- **Measured** (`Level12EscapeTest`, 29 tests, run in an isolated copy; full suite 422 green): the
-  clean run (112.5s, target 165, star 2 met), his road against every box/hook/load (the check counts
+- **Measured** (`Level12EscapeTest`, 37 tests, run in an isolated copy; full suite 428 green): the
+  clean run (156.9s, target 230, star 2 met), his road against every box/hook/load (the check counts
   a box across his middle - stepping down onto a lift still rising sinks a body's edge past the
   container's corner, as it does the player's), each beat done wrong (lift_2 early: seen; lift_3
-  early: curtain; ferry thrown early; lift_4 off the fence's beat: killed; off the guard's: glimpsed
-  only; lowered before the screen: held at lift_5), the crates crossed from four points in their
+  early: held at the curtain; ferry thrown early; lift_4 at any point of the fence: he waits it out;
+  off the guard's beat: glimpsed; walking out into the first guard's torch: caught; lowered before
+  the screen: held at lift_5; stepping onto a lift still coming up: waits), the crates crossed from four points in their
   cycle, every hold out of every eye for 30s, lifts lowered early or twice, respawns, both-out exit.
 - **Other sessions build this repo too**: concurrent Gradle runs in the same tree clobber each other's
   outputs (2026-10-22: "Unresolved reference 'game'" in untouched tests). Test in a copy of the tree
@@ -1716,10 +1759,10 @@ its lever's).
   look away from the road, and no pole fits off his road), carts (as his ferry the pusher's body is
   where the cart has to go), the crane, bobbing loads over his head (read as the pre-2026-10-22
   versions; the moving crates added 2026-10-26 swing sideways at the row, above him).
-- Scene: never seen on a screen. Worth a look: the lifts outdoors between containers (lift_5 stands
-  alone in the road), the switch panels on container faces inside the shafts, the platform over the
-  yard, the ferry at the dock, the screen under its crate, the fence beams coming down onto the road,
-  the quay crawl.
+- Scene: never seen on a screen. Worth a look: the lifts standing on the ground at the bottom (and
+  the switch panels, still mounted for the floor), lift_5 alone in the road, the platform's end inside
+  c2, the ferry, cart and rover at the dock, the screen under its crate, the fence beams coming down
+  onto the road, him sitting beside the player at the start.
 
 ## Extracted library: `kmp-stealth-game-toolkit` (2026-09-29)
 

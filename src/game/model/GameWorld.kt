@@ -340,6 +340,17 @@ data class GameWorld(
         }
     }
 
+    /**
+     * The lasers the prisoner waits at (Prisoner.update): every beam not cut, with how long it
+     * stays off - 0 while it is on, the rest of its gap while it is off.
+     */
+    private fun beamsHeWaitsAt(): List<Prisoner.Beam> {
+        if (prisoner == null || lasers.isEmpty()) return emptyList()
+        return lasers.filter { !it.isDisabled }.map { l ->
+            Prisoner.Beam(l.bounds, if (l.isActive) 0.0 else l.remainingInactiveTime(totalElapsedSeconds))
+        }
+    }
+
     /** Level 11: the prisoner has walked into steam - Mission Failed. */
     private fun losePrisoner() {
         prisonerLost = true
@@ -1929,11 +1940,13 @@ data class GameWorld(
                 esc.body.y += delta.dy
             }
         }
-        // Freed by a load: level 12 has no doors or lifts - he gets up when the hook crate of that
-        // id is dropped, or the moving platform of that id is set going.
+        // Freed by a load - he gets up when the hook crate of that id is dropped, or the moving
+        // platform of that id is set going - or, on level 12, as the player sets off.
         if (esc != null && !esc.isFree) {
             val id = esc.def.freedByDoorId
-            if (hookCrates.any { it.id == id && it.isDetached } || movingPlatforms.any { it.id == id && it.isActive && it.startsInactive }) esc.free()
+            if (hookCrates.any { it.id == id && it.isDetached } || movingPlatforms.any { it.id == id && it.isActive && it.startsInactive } ||
+                (id == PrisonerDef.WHEN_THE_PLAYER_SETS_OFF && hasClockStarted)
+            ) esc.free()
         }
 
         // A swinging load kills whatever it catches under it - see
@@ -2091,6 +2104,8 @@ data class GameWorld(
         val seeingCameraBots = tickScratch.seeingCameraBots.apply { clear() }
         var spottedDist: Double? = null
         var detectorRange: Double = guard.visionRange
+        // The nearest eye's GuardSpawn.catchTimeScale (1 for cameras, bots and the echo).
+        var detectorScale = 1.0
 
         // Invisibility: player cannot be spotted by any guard or camera
         if (!activePowerups.isInvisibilityActive && spawnGraceTimer <= 0.0) {
@@ -2103,6 +2118,7 @@ data class GameWorld(
                         if (spottedDist == null || d < spottedDist) {
                             spottedDist = d
                             detectorRange = g.visionRange
+                            detectorScale = g.catchTimeScale
                         }
                     }
                 }
@@ -2119,6 +2135,7 @@ data class GameWorld(
                         if (spottedDist == null || d < spottedDist) {
                             spottedDist = d
                             detectorRange = c.visionRange
+                            detectorScale = 1.0
                         }
                     }
                 }
@@ -2131,6 +2148,7 @@ data class GameWorld(
                             if (spottedDist == null || d < spottedDist) {
                                 spottedDist = d
                                 detectorRange = b.visionRange
+                                detectorScale = 1.0
                             }
                         }
                     }
@@ -2148,6 +2166,7 @@ data class GameWorld(
                 if (spottedDist == null || d < spottedDist) {
                     spottedDist = d
                     detectorRange = e.visionRange
+                    detectorScale = 1.0
                 }
             }
         }
@@ -2173,6 +2192,7 @@ data class GameWorld(
                         if (best == null || d < best) {
                             spottedDist = d
                             detectorRange = g.visionRange
+                            detectorScale = g.catchTimeScale
                         }
                     }
                 }
@@ -2190,6 +2210,7 @@ data class GameWorld(
                         if (best == null || d < best) {
                             spottedDist = d
                             detectorRange = c.visionRange
+                            detectorScale = 1.0
                         }
                     }
                 }
@@ -2203,6 +2224,7 @@ data class GameWorld(
                         if (best == null || d < best) {
                             spottedDist = d
                             detectorRange = b.visionRange
+                            detectorScale = 1.0
                         }
                     }
                 }
@@ -2229,14 +2251,14 @@ data class GameWorld(
                     g.onPlayerSpottedWhileInvestigating(player.x)
                 }
             }
-            val timeToCatch = getDetectionTimeToCatch(spottedDist, detectorRange)
+            val timeToCatch = getDetectionTimeToCatch(spottedDist, detectorRange) * detectorScale
             alertProgress = (alertProgress + dt / timeToCatch).coerceAtMost(1.0)
             if (alertProgress >= 1.0) {
                 isSpotted = true
                 spottedCount++
                 wasDetected = true
                 alertProgress = 0.0
-                println("[SPOTTED] Player caught at (${player.x.toInt()}, ${player.y.toInt()}) (distance: ${spottedDist.toInt()}px)! Total alerts: $spottedCount. Resetting to start...")
+                println("[SPOTTED] Player caught at (${player.x.toInt()}, ${player.y.toInt()}) (distance: ${spottedDist.toInt()}px)! Total alerts: $spottedCount.")
                 // firstOrNull, not first: a level can have cameras and no guards at all (see
                 // LEVEL_8_LAYOUT's pole camera), and allGuards is empty on those. Kotlin's `?.`
                 // short-circuits before evaluating arguments, so the old `allGuards.first()`
@@ -2249,7 +2271,10 @@ data class GameWorld(
                 for (g in allGuards) g.returnToPatrol()
                 for (c in cameras) c.resetDetectionPause()
                 recentlySeeingGuards.clear()
-                player.resetToStart()
+                // The player stays where caught: a restart or a respawn moves him. Put back at the
+                // start here, the scene showed the start for the Checkpoints powerup's death beat
+                // before the respawn ("when checkpoints are on, it first gives me a glimpse of
+                // beggining before loading the last checkpoint", 2026-10-26).
             } else {
                 isSpotted = false
             }
@@ -2434,7 +2459,8 @@ data class GameWorld(
         val playerXBeforeMove = player.x
         player.update(
             dt, effectiveMoveInput, effectiveJumpInput, effectiveCrouchInput, playerPlatformsScratch,
-            climbTargets, activeSwingHooks, climbFloatingTargets, climbRefused
+            climbTargets, activeSwingHooks, climbFloatingTargets, climbRefused,
+            steps = if (lifts.isEmpty()) emptyList() else lifts.filter { it.def.restsOnFloor }.map { it.bounds }
         )
         // ...and he may back out from under an overhead load (above) but not push on in under it.
         for (mb in overheadLoads) {
@@ -2457,7 +2483,7 @@ data class GameWorld(
                 }
             }
         }
-        prisoner?.update(dt, currentPlatforms, exitZone, lifts)
+        prisoner?.update(dt, currentPlatforms, exitZone, lifts, beamsHeWaitsAt())
         updateBoardingFromFloorLevel(groundY)
         observeBonusObjective(groundY)
         checkStayOffTheGround()
@@ -3030,7 +3056,8 @@ data class GameWorld(
                     visionRange = spawn.visionRange,
                     patrolPauseDuration = spawn.patrolPauseDuration,
                     holdUntilPlayerCrouches = spawn.holdUntilPlayerCrouches,
-                    visionTilt = spawn.visionTilt
+                    visionTilt = spawn.visionTilt,
+                    catchTimeScale = spawn.catchTimeScale
                 )
             }
             val primaryGuard = guards.firstOrNull() ?: Guard(

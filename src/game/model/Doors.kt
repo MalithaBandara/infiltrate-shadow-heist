@@ -108,6 +108,11 @@ class Door(val def: DoorDef) {
  * [upperY] or [lowerY], [x]..[x]+[width] across. At the lower stop it sinks flush into the floor
  * ([lowerY] is the floor's top), so it is walked over like floor; at the upper stop it fills its
  * gap in the room floor. Bodies standing on it ride it.
+ *
+ * With [restsOnFloor] it instead stands on the floor at the lower stop, its deck showing above
+ * it ([lowerY] is the deck's top, [floorY] the floor under it) - level 12's yard lifts ("the
+ * elevators go too much below surface", 2026-10-26). Walkers step up onto it and down off it
+ * (Player.update's steps).
  */
 data class LiftDef(
     val id: String,
@@ -117,8 +122,12 @@ data class LiftDef(
     val lowerY: Double,
     val startsUp: Boolean,
     val speed: Double = 80.0,
-    val thickness: Double = 14.0
-)
+    val thickness: Double = 14.0,
+    val restsOnFloor: Boolean = false
+) {
+    /** The floor the lift comes down to. */
+    val floorY: Double get() = if (restsOnFloor) lowerY + thickness else lowerY
+}
 
 class Lift(val def: LiftDef) {
     val id: String get() = def.id
@@ -174,7 +183,8 @@ class Lift(val def: LiftDef) {
  * One switch can work several things - LEVEL_11_LAYOUT's control room works the duct under it
  * from above, where the prisoner cannot follow and the guards cannot see.
  *
- * [surfaceY] is the floor it is mounted over; it is reached from that floor only, like a lever.
+ * [surfaceY] is the floor it is mounted over; it is reached from that floor only, like a lever -
+ * or from the deck of a lift resting on that floor ([LiftDef.restsOnFloor], [REACH_ABOVE_FLOOR]).
  */
 data class DoorSwitchDef(
     val id: String,
@@ -186,11 +196,13 @@ data class DoorSwitchDef(
     val centerX: Double get() = x + WIDTH / 2.0
 
     fun isPlayerInRange(player: Player): Boolean {
-        val feet = player.y + player.height
-        return kotlin.math.abs(player.centerX - centerX) <= interactRadius && kotlin.math.abs(feet - surfaceY) <= 6.0
+        val rise = surfaceY - (player.y + player.height)
+        return kotlin.math.abs(player.centerX - centerX) <= interactRadius && rise >= -6.0 && rise <= REACH_ABOVE_FLOOR
     }
 
     companion object {
+        /** How far over its floor a switch is still reached from: a lift's 14 deck, and the 6 either way it always had. */
+        const val REACH_ABOVE_FLOOR = 20.0
         /** The panel's drawn size; it hangs on the wall at chest height over [surfaceY]. */
         const val WIDTH = 12.0
         const val HEIGHT = 18.0
