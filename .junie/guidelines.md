@@ -132,17 +132,24 @@ after adding setup code; move another block into a local `fun` (or a file, as `M
 
 - **Build number lives in THREE places - bump together**: `ios-shell/project.yml`
   `CFBundleVersion`, `ios-testflight.yml`'s `build_number` default, `android-shell` `versionCode`.
-- **Currently**: Android `versionCode` 23 / `versionName` "1.0.1", iOS `CFBundleVersion` 23 /
-  "1.0.1" - aligned again at 23 (Android-only builds 20-22 were never mirrored to iOS).
-- **`unlockAllForTesting` is ON** (`GameProfile.isLevelUnlocked`; restored 2026-10-03, "unlock all
-  levels for now" while level 12 is tested; `GameplayModelTest`'s
-  `testGameProfileStorageLevelUnlockingProgression` is `@Ignore`d). **Turn it off before any production build**: delete the block and remove the
-  `@Ignore`. Builds 21 and 22 shipped without it. It is the single switch - `LevelSelectScreen`
-  calls `profileStorage.isLevelUnlocked(...)` (it used to re-derive the gate inline, so the flag
-  looked dead). Without it a fresh profile unlocks only `level_1` and finishing a level unlocks the
-  next (premium unlocks as before); `LevelSelectScreen`'s premium gate (`id.contains("dlc")`) is
-  separate.
-- **Ads are on REAL units** (`USE_TEST_ADS = false`) - see Ads.
+- **Currently**: Android `versionCode` 24 / `versionName` "1.1.0", iOS `CFBundleVersion` 24 /
+  "1.1.0" (2026-10-27: the rebuilt level 12, chain and door sounds, a production build for both stores).
+- **Level progression is ON**: `unlockAllForTesting` (`GameProfile.isLevelUnlocked`, "unlock all
+  levels for now", 2026-10-03) was deleted for build 24 ("put the level activating method (levels
+  activating only when previous one is done) back again") and
+  `testGameProfileStorageLevelUnlockingProgression` runs again. A fresh profile unlocks only `level_1`
+  and finishing a level unlocks the next (premium unlocks all); `LevelSelectScreen` asks
+  `profileStorage.isLevelUnlocked(...)`, the single gate; its premium gate (`id.contains("dlc")`) is
+  separate. To unlock everything again for testing, return `true` at the top of that function - and
+  take it out before a store build.
+- **RevenueCat `purchases-kmp-core` 3.10.1** (since 2026-10-23; Play Console's SDK warning: 3.6.0 can log
+  users out when updating from before 3.0.0, and from 2027-01-20 no production/open-testing release may
+  carry it - "upgrade to 3.10.0+"). Build 24 is the first release with it: the Android release
+  classpath resolves `purchases-kmp-core` 3.10.1 / `purchases` 10.22.1, and `ios-build.yml`'s
+  on-simulator RevenueCat verification passed on it.
+- **Ads are on REAL units** (`USE_TEST_ADS = false`, both platforms) since build 24 - asked: real
+  units for this production build. Build 23 had shipped test units. TestFlight testers must not tap
+  them - see Ads.
 - All 12 levels are listed (`.take(12)` in `LevelSelectScreen.kt`, `MainMenuScreen.kt`,
   `GameplayScene.kt`). From the Google Play approval gating (2026-09-25) what remains: "Coming Soon"
   chapter placeholders removed (layout-preserving spacers) and Settings showing English/French only
