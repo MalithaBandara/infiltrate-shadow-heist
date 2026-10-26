@@ -874,10 +874,13 @@ kept in sync with `ATTRIBUTION.md` by hand.
   Mission Failed overlay shows (not on a checkpoint respawn), `mission_success.wav` with the win card,
   `powerup_activate.wav` on a successful `tryActivatePowerup` at `POWERUP_ACTIVATE_GAIN` 0.1 (owner: "reduce by a lot").
   `door_slide.wav` (jail-door source, 0.15-1.20 s - the clang/thud at 1.25 s is deliberately left out) plays on a
-  `Door.isOpen` rising edge in `MechanismSounds` for `DoorStyle.BARS` cell gates (`DOOR_HEARING_RANGE` 480, gain 0.55). The steel shutters use
-  `shutter_open.wav` / `shutter_close.wav` (cabinet-door source 0.08-1.00 s and 3.40-4.40 s: the close clip starts mid-slide so its
-  bang lands as the 0.45 s door reaches the floor) on the `isOpen` edges; a reset/restore snap (openness already at its end) is skipped.
+  `Door.isOpen` edge (open and close alike) in `MechanismSounds` for `DoorStyle.BARS` cell gates (`DOOR_HEARING_RANGE` 480, gain 0.55). The steel shutters use
+  `shutter_open.wav` / `shutter_close.wav` (cabinet-door source 0.08-1.00 s and 2.90-3.55 s: the close is the slide only - the bang
+  at 3.90 s was removed on request) on the `isOpen` edges; a reset/restore snap (openness already at its end) is skipped.
   None heard on a device.
+- **Conveyor belt** (`loop_conveyor.wav`, freemaster2 CC BY 4.0, 1.0-7.0 s loop): an `AmbientLoops` bed in `MechanismSounds`,
+  on while `world.conveyorsActive` and the player is within `CONVEYOR_HEARING_RANGE` 320 of the nearest point of any belt
+  (level 4's belt, and the belt level 3 ends on). Gain 0.45 (~-22 dB with the fan/steam beds). Not heard on a device.
 - **Any new ambience bed needs energy above ~300Hz**: `loop_laser.wav` had 99% of its energy at
   20-100Hz (phone speakers played only distortion) and was re-voiced two octaves up, saturated and
   circularly band-passed (`tools/sfx/scripts/revoice_laser.py`, same RMS, gains unchanged).
@@ -1043,7 +1046,16 @@ Every level used to decode every prop (~66 bitmaps, ~230MB decoded) and keep the
   camera, hook, truck, exit booth / exit structure, level 4's end machine, fan, lever, rope +
   dissolve frames, start fences, lift). Small assets, touch controls and end-of-run screens load for
   every level. The exit booth's rule is one function (`drawsExitBooth`) shared by loader and scene,
-  and so are the fences' (`isFence1Box` / `isFence2Box`).
+  and so are the fences' (`isFence1Box` / `isFence2Box`). The booth and fence sizes live in the model
+  (`LevelLayout.EXIT_BOOTH_*` / `EXIT_FENCE_*`). **An invisible barrier stands at the booth's front**
+  (`GameWorld`, wherever `LevelLayout.endsAtTheExitBooth`; `EXIT_BARRIER_INSET` 20 into the exit, so
+  whoever it stops is in it), since 2026-10-27 - "dont let the player go beyond the ending part": in
+  level 12 the player reaches the exit before the prisoner and used to walk on through the booth and
+  fence art to the world's end. First made a wall at the fence, it was drawn as a black pole (the scene
+  draws every platform) - "remove that pole you added, just add a invisible barrier just about at the
+  start of that guard room thing": the scene now skips every platform 1000+ tall (only the side walls
+  and this barrier are), and like the side walls it blocks no sight. Elsewhere the run ends the moment
+  the exit is reached.
 - **Releasing**: `SceneAssets.beginLevel()` at the top of `sceneMain` records what this level asks
   for; `releaseArtOfOtherLevels()` at the end of setup (after `sceneAfterInit`, ~2s cap) drops the
   rest - 18-66MB per level on JVM. It happens behind the level's first frame, not during play.
@@ -1830,7 +1842,9 @@ against, so he walks on under it (`LiftDef.holdsHimWhileUp` false), and it carri
    right+280): drop off the crate's far end while it heads away and catch it from behind
    (`testTheRoadsRoverSeesTheDropUnlessItHeadsAway`). Then back along the road under the lifted guard
    to lift_4's post, lower him, and follow him under it and out through level 1's booth and exit
-   fence (exit 180 past the rover's beat); the level ends with both in the trigger.
+   fence (exit 180 past the rover's beat); the level ends with both in the trigger. An
+   invisible barrier at the booth's front stops a player there first - and the prisoner - inside the
+   exit (`testThePlayerCannotWalkOnPastTheExit`).
    **Before the guard is lifted, the road is his**: lowered then, the prisoner walks into his torch
    (`testSentBeforeTheGuardIsLiftedHeIsCaught`), and a fall off the crates or the hook leaves that
    as the only way back up - a continue puts everyone back as checkpoint 4 had them, the player on

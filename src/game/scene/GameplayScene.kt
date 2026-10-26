@@ -789,7 +789,9 @@ class GameplayScene(
             // Floors, walkways and boundary walls (Solid black platforms with tiny rough edge irregularities)
             for (platform in world.platforms) {
                 if (platform in world.boxes) continue
-                if (platform.width >= 1000.0 && platform.height >= 1000.0) continue // Skip bounds walls
+                // The side walls and the exit barrier (GameWorld) - 1200 tall, nothing drawn - are
+                // the only platforms that tall ("remove that pole you added", 2026-10-27).
+                if (platform.height >= 1000.0) continue // Skip bounds walls
                 if (!isSideScrolling && (platform.x < 0 || platform.x >= 800)) continue
                 val platCont = worldView.container().xy(platform.x, platform.y)
                 if (bgFileName == "bglvl7.png" && platform.y >= 400.0 && platform.width >= 1000.0) {
@@ -842,13 +844,14 @@ class GameplayScene(
             } else if (drawsExitBooth(world, hasExitStructure = false) && entranceBitmap != null) {
                 // A level that ends at a conveyor belt (4, and 3 since it hands over to 4's belt) has
                 // no booth - the belt is the finish. A belt elsewhere in a level (12's) does not count.
-                val entranceHeight = 135.0
+                val entranceHeight = LevelLayout.EXIT_BOOTH_HEIGHT
                 // Pinned to entrance.png's authored 531x612 rather than read off the loaded bitmap.
                 // Same value, but the number no longer moves if the file is ever resampled - it used
                 // to be `entranceBitmap.width / entranceBitmap.height`, which quietly made the stored
                 // aspect load-bearing: the exit fence below is positioned at `exitZone.x +
                 // entranceWidth`, so re-encoding this asset would have shifted the extraction point.
-                val entranceWidth = entranceHeight * (531.0 / 612.0)
+                // The model stands an invisible barrier at its front (GameWorld, LevelLayout.endsAtTheExitBooth).
+                val entranceWidth = LevelLayout.EXIT_BOOTH_WIDTH
                 val exitGroundY = world.exitZone.bottom + 1.0
                 val entranceY = exitGroundY - entranceHeight
                 cullable(
@@ -858,9 +861,9 @@ class GameplayScene(
                     world.exitZone.x, entranceWidth
                 )
                 if (exitFenceBitmap != null) {
-                    val exitFenceHeight = 140.0
+                    val exitFenceHeight = LevelLayout.EXIT_FENCE_HEIGHT
                     // Pinned to exitfence.png's authored 1039x466, for the reason given just above.
-                    val exitFenceWidth = exitFenceHeight * (1039.0 / 466.0)
+                    val exitFenceWidth = LevelLayout.EXIT_FENCE_WIDTH
                     val exitFenceY = exitGroundY - exitFenceHeight
                     cullable(
                         worldView.image(exitFenceBitmap) {

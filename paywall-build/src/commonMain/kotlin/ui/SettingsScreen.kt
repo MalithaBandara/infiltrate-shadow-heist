@@ -1036,6 +1036,7 @@ private val SOUND_CREDITS = listOf(
     SoundCredit("Powerup activation", "Universfield, via Pixabay"),
     SoundCredit("Prison door", "freesound_community, via Pixabay"),
     SoundCredit("Shutter doors", "freesound_community, via Pixabay"),
+    SoundCredit("Conveyor belt", "freemaster2, via Freesound, Creative Commons Attribution 4.0"),
 )
 
 @Composable

@@ -58,6 +58,8 @@ class GameSounds(
     val cameraMotor: Sound? = null,
     val cartRoll: Sound? = null,
     val elevator: Sound? = null,
+    /** Conveyor-belt run, a bed while a belt is moving ([AmbientLoops]). */
+    val conveyor: Sound? = null,
     /** Wall-switch click and lever clack, one-shots. */
     val switchPress: Sound? = null,
     val leverThrow: Sound? = null,
@@ -72,7 +74,7 @@ class GameSounds(
     val missionFail: Sound? = null,
     val missionSuccess: Sound? = null,
     val powerupActivate: Sound? = null,
-    /** The sliding rumble of the prison cell gate opening. */
+    /** The sliding rumble of the prison cell gate, opening or shutting. */
     val doorSlide: Sound? = null,
     /** The steel shutters: the slide up, and the slide down ending in its bang. */
     val shutterOpen: Sound? = null,
@@ -198,7 +200,7 @@ object GameAudio {
     const val FAN_LOOP_GAIN = 0.55
 
     /** Steam-jet hiss at the nozzle while it is erupting. */
-    const val STEAM_LOOP_GAIN = 0.7
+    const val STEAM_LOOP_GAIN = 0.35
 
     /**
      * Laser hum. One shared voice for every beam, however many are lit: a second beam in earshot
@@ -220,6 +222,9 @@ object GameAudio {
 
     /** Freight-lift hum while a lift is actually travelling. */
     const val ELEVATOR_LOOP_GAIN = 0.7
+
+    /** Conveyor belt (levels 3's end and 4), at full when the player is on or beside the belt. */
+    const val CONVEYOR_LOOP_GAIN = 0.45
 
     /** Door / lift wall switch click, and the lever clack. */
     const val SWITCH_PRESS_GAIN = 0.5
@@ -267,8 +272,8 @@ object GameAudio {
     const val DOOR_SLIDE_GAIN = 0.55
 
     /** Steel shutters (level 10's end door, level 11's doors) opening and shutting. */
-    const val SHUTTER_OPEN_GAIN = 0.5
-    const val SHUTTER_CLOSE_GAIN = 0.8
+    const val SHUTTER_OPEN_GAIN = 0.35
+    const val SHUTTER_CLOSE_GAIN = 0.22
 
     /**
      * How far each source can be heard, in world units (straight-line, so a duct above or a floor
@@ -283,6 +288,7 @@ object GameAudio {
     const val CAMERA_HEARING_RANGE = 300.0
     const val CART_HEARING_RANGE = 230.0
     const val ELEVATOR_HEARING_RANGE = 300.0
+    const val CONVEYOR_HEARING_RANGE = 320.0
     const val LEVER_HEARING_RANGE = 480.0
     const val CRATE_HEARING_RANGE = 480.0
     const val CHAIN_HEARING_RANGE = 380.0
@@ -450,6 +456,7 @@ object GameAudio {
             cameraMotor = clip("loop_camera"),
             cartRoll = clip("loop_cart"),
             elevator = clip("loop_elevator"),
+            conveyor = clip("loop_conveyor"),
             switchPress = clip("switch_press"),
             leverThrow = clip("lever_throw"),
             chain = clip("loop_chain"),
@@ -743,6 +750,21 @@ class MechanismSounds(
             }
             ambient.set("elevator", sounds.elevator, GameAudio.ELEVATOR_LOOP_GAIN * hum * master, dtSec)
         }
+        if (world.conveyors.isNotEmpty()) {
+            // Distance to the nearest point of the belt, not its centre: the belts are long, and the
+            // player walks on them. It runs only once the belt is moving (level 4's starts on the
+            // first input).
+            var belt = 0.0
+            if (world.conveyorsActive) {
+                val px = world.player.x + world.player.width / 2.0
+                val py = world.player.y + world.player.height / 2.0
+                for (c in world.conveyors) {
+                    val b = c.bounds
+                    belt = maxOf(belt, proximity(px.coerceIn(b.left, b.right), py.coerceIn(b.top, b.bottom), GameAudio.CONVEYOR_HEARING_RANGE))
+                }
+            }
+            ambient.set("conveyor", sounds.conveyor, GameAudio.CONVEYOR_LOOP_GAIN * belt * master, dtSec)
+        }
         syncChains(ambient, dtSec, master, sfxVolume, paused)
         for (i in world.allGuards.indices) {
             val g = world.allGuards[i]
@@ -772,7 +794,7 @@ class MechanismSounds(
             prisonerPrevPhase = phase
         }
         // A door's sound plays on the frame it is thrown (faint when far): the barred cell gate's
-        // slide when it opens, the steel shutters' slide on opening and their bang on shutting. A
+        // slide whether it opens or shuts, the steel shutters' own slide for each. A
         // reset or checkpoint restore snaps the door to its state (openness already at its end), so
         // only a door actually part-way through its travel counts.
         for (door in world.doors) {
@@ -783,7 +805,7 @@ class MechanismSounds(
             val heard = proximity(door.frame.x + door.frame.width / 2.0, door.frame.y + door.frame.height / 2.0, GameAudio.DOOR_HEARING_RANGE)
             if (heard <= 0.0) continue
             if (door.def.style == DoorStyle.BARS) {
-                if (opening) sounds.doorSlide.playSfx(context, GameAudio.DOOR_SLIDE_GAIN * heard, sfxVolume, GameAudio.SfxFile.DOOR_SLIDE)
+                sounds.doorSlide.playSfx(context, GameAudio.DOOR_SLIDE_GAIN * heard, sfxVolume, GameAudio.SfxFile.DOOR_SLIDE)
             } else if (opening) {
                 sounds.shutterOpen.playSfx(context, GameAudio.SHUTTER_OPEN_GAIN * heard, sfxVolume, GameAudio.SfxFile.SHUTTER_OPEN)
             } else {

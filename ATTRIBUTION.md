@@ -53,7 +53,8 @@ tell at a glance which sounds are ours and which are not.
 | `resources/sfx/powerup_activate.wav` | Powerup activation (played very quietly) - 0.2-1.2 s of the source | [Sound effect](https://pixabay.com/sound-effects/id-124464/) via Pixabay | Universfield | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
 | `resources/sfx/door_slide.wav` | Prison cell gate sliding open (level 11) - 0.15-1.20 s of the source, before its thud | [Sound effect](https://pixabay.com/sound-effects/id-6173/) via Pixabay | freesound_community | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
 | `resources/sfx/shutter_open.wav` | Steel shutter opening (level 10 end door, level 11 doors) - 0.08-1.00 s of the source | [Sound effect](https://pixabay.com/sound-effects/id-81503/) via Pixabay | freesound_community | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
-| `resources/sfx/shutter_close.wav` | Steel shutter shutting - 3.40-4.40 s of the same source (slide, then bang) | [Sound effect](https://pixabay.com/sound-effects/id-81503/) via Pixabay | freesound_community | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
+| `resources/sfx/shutter_close.wav` | Steel shutter shutting - 2.90-3.55 s of the same source (the slide only, no bang) | [Sound effect](https://pixabay.com/sound-effects/id-81503/) via Pixabay | freesound_community | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
+| `resources/sfx/loop_conveyor.wav` | Conveyor belt (level 3 ending, level 4) - 1.0-7.0 s of the source, looped | ["conveyor-belt"](https://freesound.org/s/172350/) | freemaster2 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | `resources/missionmusic.mp3` | In-mission background music | [Track](https://pixabay.com/music/) via Pixabay | DELOSound | [Pixabay Content License](https://pixabay.com/service/license-summary/) |
 
 ### Notes on the plate cuts

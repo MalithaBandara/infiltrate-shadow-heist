@@ -3132,7 +3132,17 @@ data class GameWorld(
                 listOfNotNull(fence2, fence1) + layout.boxes
             }
 
-            val platforms = layout.platforms + allBoxes + listOf(leftWall, rightWall)
+            // An invisible barrier at the booth's front where the level ends at the booth: the player
+            // waiting there for the prisoner (level 12) cannot walk on past the end ("dont let the
+            // player go beyond the ending part", then "remove that pole you added, just add a
+            // invisible barrier just about at the start of that guard room thing", 2026-10-27). It
+            // stands LevelLayout.EXIT_BARRIER_INSET into the exit, so whoever it stops is in it; it is
+            // as tall as the side walls, which the scene does not draw, and like them it blocks no
+            // sight. Anywhere else the run is over the moment the exit is reached.
+            val exitBarrier = if (LevelLayout.endsAtTheExitBooth(layout)) {
+                Rect(x = layout.exitZone.x + LevelLayout.EXIT_BARRIER_INSET, y = -400.0, width = 30.0, height = 1200.0)
+            } else null
+            val platforms = layout.platforms + allBoxes + listOfNotNull(leftWall, rightWall, exitBarrier)
             // Floors and boxes both block sight, so no guard can see through a storey. Table
             // decorations (LevelLayout.tableDecorations) have no collision - nothing stands on or
             // bumps into them - but they're real drawn geometry (a support leg), so they block

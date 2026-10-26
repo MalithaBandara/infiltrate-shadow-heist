@@ -410,6 +410,30 @@ data class LevelLayout(
          * Nothing else in any level is that tall and starts that high.
          */
         fun isChainedCrate(box: Rect): Boolean = box.y <= 30.0 && box.height > 150.0
+
+        /**
+         * The exit booth GameplayScene draws standing on the exit's floor from its left edge
+         * (entrance.png, pinned to its authored 531x612), and the exit fence (exitfence.png,
+         * 1039x466) running on from the booth's right side.
+         */
+        const val EXIT_BOOTH_HEIGHT = 135.0
+        const val EXIT_BOOTH_WIDTH = EXIT_BOOTH_HEIGHT * (531.0 / 612.0)
+        const val EXIT_FENCE_HEIGHT = 140.0
+        const val EXIT_FENCE_WIDTH = EXIT_FENCE_HEIGHT * (1039.0 / 466.0)
+
+        /**
+         * Where the invisible barrier at a booth exit stands, this far into the exit from its left
+         * edge (the booth's front): far enough in that whoever it stops is in the exit.
+         */
+        const val EXIT_BARRIER_INSET = 20.0
+
+        /**
+         * Whether [layout] ends at the booth and its fence: no exit structure of its own, no belt
+         * at the exit (levels 3 and 4 finish on one) and no prison cell (10 and 11).
+         */
+        fun endsAtTheExitBooth(layout: LevelLayout): Boolean =
+            layout.exitStructure == null && layout.prisonCell == null &&
+                layout.conveyors.none { it.bounds.right > layout.exitZone.left - 200.0 && it.bounds.left < layout.exitZone.right + 200.0 }
     }
 }
 
@@ -5206,7 +5230,7 @@ data class LevelData(
             // The booth and its fence (entrance.png + exitfence.png) are drawn standing on the
             // trigger's floor from its left edge; the world runs on past the fence's far end.
             val exitX = roadBot.patrolMaxX + 180.0
-            val worldWidth = exitX + 117.0 + 312.0 + 60.0
+            val worldWidth = exitX + LevelLayout.EXIT_BOOTH_WIDTH + LevelLayout.EXIT_FENCE_WIDTH + 60.0
             val ground = Rect(0.0, groundY, worldWidth, 100.0)
 
             val lifts = listOf(lift1, lift2, lift3, lift4, lift5)
