@@ -1701,7 +1701,7 @@ class GameplayModelTest {
             player.update(dt = 1.0 / 60.0, moveInput = 1.0, jumpInput = false, crouchInput = false, platforms = platforms, climbTargets = listOf(box))
         }
 
-        // Must NOT prematurely cancel before 0.85 progress (which is raw frame ~205 where mantle rise is complete)
+        // Must NOT cancel before Player.CLIMB_WALK_OFF_PHASE (raw 200, upright; progress ~0.85)
         assertTrue(climbProgressWhenExited >= 0.84, "Climb must not cancel prematurely before reaching mantle rise completion (was $climbProgressWhenExited)")
         assertFalse(player.isClimbing, "Climb should have cleanly handed over to walking")
         assertTrue(player.isGrounded, "Player should be grounded on top of the box")

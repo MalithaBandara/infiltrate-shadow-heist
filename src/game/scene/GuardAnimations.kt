@@ -63,8 +63,9 @@ object GuardAnimations {
      * at the cost of some foot-slide. That slide is ~15% of every step, backwards, and on level
      * 6's plank guard (silhouetted on a thin platform at eye level) it read as him gliding: "the
      * guard walking feels like he is floating" (2026-09-30). Planted wins; don't pull it down again.
+     * The number lives in the model (Guard.walkPhase advances by it); this is its name here.
      */
-    const val WALK_STRIDE_PER_HEIGHT = 0.53
+    const val WALK_STRIDE_PER_HEIGHT = game.model.Guard.WALK_STRIDE_PER_HEIGHT
 
     // ---- source geometry ----------------------------------------------------------------
     /**

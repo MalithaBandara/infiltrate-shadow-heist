@@ -270,7 +270,7 @@ class Level11EscortTest {
         assertTrue(l.bounds.bottom <= e.p.bounds.top + 0.5, "stopped over the body in the shaft")
         e.p.resetTo(300.0, LevelData.LEVEL_10_ROOM_FLOOR_Y - 96.0)
         e.waitUntil("the lift down", 5.0) { l.topY == l.def.lowerY }
-        e.waitUntil("him to walk off it into the duct", 5.0) { e.pr.body.x > l.def.x + l.def.width }
+        e.waitUntil("him to walk off it into the duct", 5.0) { e.pr.body.x > l.def.x + l.def.width && e.pr.body.isGrounded }
         assertEquals(440.0, e.pr.body.y + e.pr.body.height, 0.5, "down on the duct floor")
     }
 
@@ -357,7 +357,7 @@ class Level11EscortTest {
         e.waitUntil("him at door_3", 30.0) { e.heldAt("door_3") }
         val lift2 = e.lift("lift_2")
         e.walkTo(lift2.def.x - 5.0)
-        assertEquals(440.0, e.p.y + e.p.height, 0.5, "down the shaft onto lift_2")
+        assertEquals(lift2.def.lowerY, e.p.y + e.p.height, 0.5, "down the shaft onto lift_2, standing on the duct floor")
         e.pressHere("sw_lift_2_below")
         e.waitUntil("lift_2 up", 5.0) { lift2.topY == lift2.def.upperY }
         e.walkTo(3690.0)
@@ -389,7 +389,7 @@ class Level11EscortTest {
         e.waitUntil("him on lift_3", 20.0) { e.pr.isHeld && e.pr.body.x > 4240.0 }
         e.pressHere("sw_lift_3")
         e.waitUntil("riding lift_3 down", 5.0) { e.lift("lift_3").topY == e.lift("lift_3").def.lowerY }
-        assertEquals(440.0, e.p.y + e.p.height, 0.5, "rode down with him")
+        assertEquals(e.lift("lift_3").def.lowerY, e.p.y + e.p.height, 0.5, "rode down with him")
 
         // 6. Over the top: up past door_7, across the room's two jets, down behind the bot.
         e.climbShaft(catwalks[2])

@@ -2,6 +2,63 @@ package game.model
 
 import kotlin.math.*
 
+/**
+ * One drawn cone's vision polygon, rebuilt only when something it is drawn from changed: the lens,
+ * the facing, the range, the field of view, or a sight blocker within its reach. A crate moving
+ * through a cone reshapes it; a crate moving across the level does not cost a rebuild. The scene
+ * holds one per guard, camera, rover and echo and feeds it GameWorld.sightBlockers - the list the
+ * detection rays test - so the drawn cone is the detection's cone.
+ */
+class VisionCone {
+    /** The last polygon built ([VisionSystem.computeVisionPolygon]'s shape); empty until the first [update]. */
+    var polygon: List<Vec2d> = emptyList()
+        private set
+
+    private var originX = Double.NaN
+    private var originY = Double.NaN
+    private var facing = Double.NaN
+    private var range = Double.NaN
+    private var fov = Double.NaN
+    private var inReach: List<Rect> = emptyList()
+
+    /** True once built and not [reset] since. */
+    val isBuilt: Boolean get() = !originX.isNaN()
+
+    /** Rebuilds [polygon] if any input changed; true when it did. */
+    fun update(origin: Vec2d, facingAngle: Double, range: Double, fov: Double, occluders: List<Rect>): Boolean {
+        if (origin.x == originX && origin.y == originY && facingAngle == facing && range == this.range &&
+            fov == this.fov && sameInReach(origin, range, occluders)
+        ) return false
+        originX = origin.x
+        originY = origin.y
+        facing = facingAngle
+        this.range = range
+        this.fov = fov
+        // The same occluders in the same order computeVisionPolygon would pick itself, so the
+        // polygon is the one it builds from the whole list, to the last bit.
+        inReach = ArrayList(GeometryUtils.occludersInReach(origin, range, occluders))
+        polygon = VisionSystem.computeVisionPolygon(origin, facingAngle, range, fov, inReach)
+        return true
+    }
+
+    /** Forget the last build: the next [update] rebuilds whatever it is given. */
+    fun reset() {
+        originX = Double.NaN
+        polygon = emptyList()
+    }
+
+    private fun sameInReach(origin: Vec2d, range: Double, occluders: List<Rect>): Boolean {
+        var n = 0
+        for (i in occluders.indices) {
+            val o = occluders[i]
+            if (!GeometryUtils.isInReach(origin, range, o)) continue
+            if (n >= inReach.size || inReach[n] != o) return false
+            n++
+        }
+        return n == inReach.size
+    }
+}
+
 object VisionSystem {
 
     fun computeVisionPolygon(
@@ -31,6 +88,16 @@ object VisionSystem {
 
         // Ray samples aimed at occluder corners for crisp shadow silhouettes
         val epsilon = 0.0001
+        fun aimAt(angle: Double) {
+            // Normalize relative to startAngle
+            val diff = GeometryUtils.angleDifference(angle, facingAngle)
+            if (abs(diff) <= halfFov) {
+                val normalizedAngle = facingAngle + diff
+                angles.add(normalizedAngle - epsilon)
+                angles.add(normalizedAngle)
+                angles.add(normalizedAngle + epsilon)
+            }
+        }
         for (occluder in nearby) {
             for (c in 0 until 4) {
                 val corner = when (c) {
@@ -41,15 +108,33 @@ object VisionSystem {
                 }
                 val dist = origin.distanceTo(corner)
                 if (dist <= range && dist > 1.0) {
-                    val angle = atan2(corner.y - origin.y, corner.x - origin.x)
-                    // Normalize relative to startAngle
-                    val diff = GeometryUtils.angleDifference(angle, facingAngle)
-                    if (abs(diff) <= halfFov) {
-                        val normalizedAngle = facingAngle + diff
-                        angles.add(normalizedAngle - epsilon)
-                        angles.add(normalizedAngle)
-                        angles.add(normalizedAngle + epsilon)
-                    }
+                    aimAt(atan2(corner.y - origin.y, corner.x - origin.x))
+                }
+            }
+        }
+        // ...and at every point where the end of the range crosses an occluder's side, where the
+        // outline turns from the arc onto the face. Without these the outline cut straight across
+        // from the last ray reaching full range to the first one stopped by the face, leaving
+        // undrawn a sliver the eye sees (a body standing on a crate at the end of an overwatch
+        // guard's reach - level 3 - was spotted there).
+        val rangeSq = range * range
+        for (o in nearby) {
+            for (y in doubleArrayOf(o.top, o.bottom)) {
+                val dy = y - origin.y
+                val h2 = rangeSq - dy * dy
+                if (h2 < 0.0) continue
+                val h = sqrt(h2)
+                for (x in doubleArrayOf(origin.x - h, origin.x + h)) {
+                    if (x >= o.left && x <= o.right) aimAt(atan2(dy, x - origin.x))
+                }
+            }
+            for (x in doubleArrayOf(o.left, o.right)) {
+                val dx = x - origin.x
+                val h2 = rangeSq - dx * dx
+                if (h2 < 0.0) continue
+                val h = sqrt(h2)
+                for (y in doubleArrayOf(origin.y - h, origin.y + h)) {
+                    if (y >= o.top && y <= o.bottom) aimAt(atan2(y - origin.y, dx))
                 }
             }
         }

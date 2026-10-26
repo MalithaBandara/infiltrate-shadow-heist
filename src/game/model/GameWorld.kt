@@ -216,6 +216,9 @@ data class GameWorld(
     val allGuards: List<Guard> =
         if (hasNoGuards) emptyList() else if (extraGuards.isEmpty()) listOf(guard) else listOf(guard) + extraGuards
 
+    /** The floor each guard walks, where he was put down - see [walkGuardOverDecks]. */
+    private val guardFloorY: DoubleArray = DoubleArray(allGuards.size) { allGuards[it].y + allGuards[it].height }
+
     // ---- level 11: doors, lifts and the prisoner (LevelLayout.doors/doorSwitches/lifts/prisoner) ----
     //
     // Assigned by createFromLayout rather than taken through the constructors - nothing but a
@@ -262,9 +265,33 @@ data class GameWorld(
     var visionOccluders: List<Rect> = occluders
         private set
 
-    /** Bumped whenever [visionOccluders] changes shape - the scene rebuilds cached cones on it. */
+    /** Bumped whenever [visionOccluders] changes shape. */
     var visionOccluderVersion: Int = 0
         private set
+
+    /**
+     * Everything that blocks sight, where it was at this tick's detection: [visionOccluders] plus
+     * everything that moves - moving loads, floor and hanging conveyor crates, hook crates, carts
+     * (held or not). It is the one list every eye's detection rays test, and the scene draws
+     * every cone (guards, cameras, rovers, the echo) against it, so a cone ends where sight does -
+     * no part of a cone is drawn through a crate that hides the player, and no part the player
+     * is hidden in goes undrawn. Until 2026-10-26 the cones were drawn against [visionOccluders]
+     * alone and ran on through every moving crate the detection already stopped at. Replaced,
+     * never changed in place, so a reader may keep it.
+     */
+    var sightBlockers: List<Rect> = occluders
+        private set
+
+    private fun keepSightBlockers(current: List<Rect>) {
+        val kept = sightBlockers
+        if (current === kept) return
+        if (current.size == kept.size) {
+            var same = true
+            for (i in current.indices) if (current[i] != kept[i]) { same = false; break }
+            if (same) return
+        }
+        sightBlockers = if (current === visionOccluders) current else ArrayList(current)
+    }
 
     private fun dynamicDoorSolids(): List<Rect> {
         if (doors.isEmpty() && lifts.isEmpty()) return emptyList()
@@ -278,6 +305,7 @@ data class GameWorld(
         if (doors.isEmpty() && lifts.isEmpty()) return
         val next = occluders + dynamicDoorSolids()
         if (next != visionOccluders) {
+            if (sightBlockers === visionOccluders) sightBlockers = next
             visionOccluders = next
             visionOccluderVersion++
         }
@@ -325,8 +353,10 @@ data class GameWorld(
             val playerRides = standsOn(player, before)
             val prisonerRides = p != null && standsOn(p.body, before)
             // A guard in the shaft stops it: the lift is not for carrying guards (he has no
-            // gravity to follow it down with, and nowhere to walk off it at the top).
-            val guardInShaft = allGuards.any { it.bounds.intersects(l.shaft) }
+            // gravity to follow it down with, and nowhere to walk off it at the top) - unless it
+            // is one that does (LiftDef.carriesGuards), and he is standing on its deck.
+            val guardsAboard = if (l.def.carriesGuards) allGuards.filter { guardStandsOn(it, before) } else emptyList()
+            val guardInShaft = allGuards.any { it !in guardsAboard && it.bounds.intersects(l.shaft) }
             val blockers = ArrayList<Rect>(2)
             if (!playerRides) blockers.add(player.bounds)
             if (p != null && !prisonerRides) blockers.add(p.bounds)
@@ -336,18 +366,72 @@ data class GameWorld(
             if (dy != 0.0) {
                 if (playerRides) player.y += dy
                 if (prisonerRides) p!!.body.y += dy
+                for (g in guardsAboard) g.y += dy
             }
         }
     }
 
+    /** A guard standing on [r]'s top, his centre over it - see LiftDef.carriesGuards. */
+    private fun guardStandsOn(g: Guard, r: Rect): Boolean {
+        val c = g.x + g.width / 2.0
+        return kotlin.math.abs(g.y + g.height - r.top) < 2.0 && c >= r.left && c <= r.right
+    }
+
     /**
-     * The lasers the prisoner waits at (Prisoner.update): every beam not cut, with how long it
-     * stays off - 0 while it is on, the rest of its gap while it is off.
+     * A guard's patrol step on a level with lifts ([dt] 0 holds him where he is): a lift's deck standing
+     * on his floor (LiftDef.floorY, no higher than Player.MAX_STEP_UP) is a step he walks up onto
+     * and stands on, not a wall he turns at - level 11's pen guard crosses lift_2 ("fix that
+     * elevator going below surface issue in all levels", 2026-10-26: the decks used to be sunk
+     * flush with the floor).
+     *
+     * The step is taken on the boot carrying him, not his centre ("guards moving looks like they
+     * are floating", 2026-10-26 - level 11): the walk frames are drawn on flat ground, so one boot
+     * is always wrong across an edge, and switching when his centre crossed it left the STANDING
+     * boot 14 inside the deck for the last stride before it and 14 over the floor for the first
+     * after. Now the height is whatever is under his weight at this walk frame ([GuardWalkStance],
+     * measured off the frames), reached at [GUARD_STEP_RATE] - the 14 in ~0.07s, a quick lift
+     * rather than a one-tick pop. [frameDt] is the tick's own time even while he is held ([dt] 0),
+     * so a step under way still finishes; a jump in x (a respawn, a checkpoint) settles him at once.
+     */
+    private fun walkGuardOverDecks(g: Guard, i: Int, floorY: Double, dt: Double, frameDt: Double, occluders: List<Rect>) {
+        // Carried up off his floor by a lift that carries guards (LiftDef.carriesGuards - the lift
+        // loop moves him with it): he paces its deck, turning at its ends, until it brings him down.
+        val aloft = lifts.firstOrNull { l ->
+            l.def.carriesGuards && l.bounds.top < floorY - Player.MAX_STEP_UP && guardStandsOn(g, l.bounds)
+        }?.bounds
+        if (aloft != null) {
+            if (dt > 0.0) g.update(dt, listOf(Rect(aloft.left - 20.0, g.y, 20.0, g.height), Rect(aloft.right, g.y, 20.0, g.height)))
+            g.x = g.x.coerceIn(aloft.left, aloft.right - g.width)
+            g.y = aloft.top - g.height
+            guardLastX[i] = g.x
+            return
+        }
+        val decks = lifts.mapNotNull { l ->
+            val b = l.bounds
+            if (b.bottom <= floorY + 0.5 && b.top >= floorY - Player.MAX_STEP_UP) b else null
+        }
+        if (dt > 0.0) g.update(dt, if (decks.isEmpty()) occluders else occluders.filter { it !in decks })
+        val weight = g.x + g.width / 2.0 +
+            if (g.isWalking) g.facing * GuardWalkStance.ahead((g.walkPhase * GuardWalkStance.FRAMES).toInt()) * g.height else 0.0
+        val target = (decks.filter { weight >= it.left && weight <= it.right }.minOfOrNull { it.top } ?: floorY) - g.height
+        val settled = kotlin.math.abs(g.x - guardLastX[i]) > GUARD_STEP_SNAP
+        guardLastX[i] = g.x
+        val most = GUARD_STEP_RATE * frameDt
+        g.y = if (settled || frameDt <= 0.0) target else g.y + (target - g.y).coerceIn(-most, most)
+    }
+
+    /** Where each guard was after his last step - see [walkGuardOverDecks]. */
+    private val guardLastX: DoubleArray = DoubleArray(allGuards.size) { allGuards[it].x }
+
+    /**
+     * The lasers the prisoner waits at (Prisoner.update): every beam not cut, with how long until
+     * it goes off (0 while it is off) and how long it then stays off.
      */
     private fun beamsHeWaitsAt(): List<Prisoner.Beam> {
         if (prisoner == null || lasers.isEmpty()) return emptyList()
         return lasers.filter { !it.isDisabled }.map { l ->
-            Prisoner.Beam(l.bounds, if (l.isActive) 0.0 else l.remainingInactiveTime(totalElapsedSeconds))
+            if (l.isActive) Prisoner.Beam(l.bounds, l.timeUntilInactive(totalElapsedSeconds), l.inactiveDuration)
+            else Prisoner.Beam(l.bounds, 0.0, l.remainingInactiveTime(totalElapsedSeconds))
         }
     }
 
@@ -369,6 +453,8 @@ data class GameWorld(
         val doors: List<Pair<Boolean, Double>>,
         val lifts: List<Pair<Boolean, Double>>,
         val guards: List<Pair<Double, Double>>,
+        /** Each guard's height - up on a lift that carried him, or on his floor. */
+        val guardYs: List<Double>,
         val leversThrown: List<Boolean>,
         val lasersCut: List<Boolean>
     )
@@ -382,6 +468,7 @@ data class GameWorld(
             doors = doors.map { it.isOpen to it.openness },
             lifts = lifts.map { it.isUp to it.topY },
             guards = allGuards.map { it.x to it.facing },
+            guardYs = allGuards.map { it.y },
             leversThrown = levers.map { it.isActivated },
             lasersCut = lasers.map { it.isDisabled }
         )
@@ -405,12 +492,18 @@ data class GameWorld(
         if (snap == null) {
             for (d in doors) d.reset()
             for (l in lifts) l.reset()
-            for (g in allGuards) g.resetToSpawn()
+            allGuards.forEachIndexed { i, g ->
+                g.resetToSpawn()
+                g.y = guardFloorY[i] - g.height
+            }
             p.reset()
         } else {
             doors.forEachIndexed { i, d -> snap.doors.getOrNull(i)?.let { (o, v) -> d.restore(o, v) } }
             lifts.forEachIndexed { i, l -> snap.lifts.getOrNull(i)?.let { (u, y) -> l.restore(u, y) } }
-            allGuards.forEachIndexed { i, g -> snap.guards.getOrNull(i)?.let { (x, f) -> g.placeAt(x, f) } }
+            allGuards.forEachIndexed { i, g ->
+                snap.guards.getOrNull(i)?.let { (x, f) -> g.placeAt(x, f) }
+                snap.guardYs.getOrNull(i)?.let { g.y = it }
+            }
             // After respawnAtCheckpoint has put every lever and laser back to the start. A one-shot
             // crate's lever thrown then re-arms on the next tick, its crate being home again.
             levers.forEachIndexed { i, l -> if (snap.leversThrown.getOrNull(i) == true) l.isActivated = true }
@@ -1596,7 +1689,7 @@ data class GameWorld(
                 y = p.y,
                 height = p.currentHeight,
                 flags = flags,
-                phase = if (p.isClimbing) p.climbProgress else 0.0,
+                phase = if (p.isClimbing) p.climbPhase else 0.0,
                 cartXs = DoubleArray(rec.cartIds.size) { i -> pushCarts.firstOrNull { it.id == rec.cartIds[i] }?.x ?: 0.0 },
                 spriteX = p.width / 2.0,
                 spriteY = p.height,
@@ -2094,6 +2187,7 @@ data class GameWorld(
                 grippedCart?.let { add(it.bounds) }
             }
         } else visionOccluders
+        keepSightBlockers(currentOccluders)
 
         // Check every guard, camera, and camera bot's vision cone; the closest one with eyes on the player fills the alert.
         val previousAlert = alertProgress
@@ -2340,9 +2434,13 @@ data class GameWorld(
 
         // Guards without eyes on the player keep walking their route (unless asleep from Phantom Cloak)
         if (!isGameOver && !activePowerups.isPhantomCloakActive) {
-            for (g in allGuards) {
+            for ((i, g) in allGuards.withIndex()) {
                 val heldAtPost = g.holdUntilPlayerCrouches && !hasPlayerCrouchedOnce
-                if (g !in seeingGuards && !heldAtPost) g.update(dt, currentOccluders)
+                if (lifts.isEmpty()) {
+                    if (g !in seeingGuards && !heldAtPost) g.update(dt, currentOccluders)
+                } else {
+                    walkGuardOverDecks(g, i, guardFloorY[i], if (g !in seeingGuards && !heldAtPost) dt else 0.0, dt, currentOccluders)
+                }
             }
         }
 
@@ -2460,7 +2558,7 @@ data class GameWorld(
         player.update(
             dt, effectiveMoveInput, effectiveJumpInput, effectiveCrouchInput, playerPlatformsScratch,
             climbTargets, activeSwingHooks, climbFloatingTargets, climbRefused,
-            steps = if (lifts.isEmpty()) emptyList() else lifts.filter { it.def.restsOnFloor }.map { it.bounds }
+            steps = if (lifts.isEmpty()) emptyList() else lifts.map { it.bounds }
         )
         // ...and he may back out from under an overhead load (above) but not push on in under it.
         for (mb in overheadLoads) {
@@ -2634,6 +2732,16 @@ data class GameWorld(
     companion object {
         /** Continues (each one a watched ad) a run gets; the Checkpoints gadget lifts the cap. */
         const val MAX_CONTINUES_PER_RUN = 2
+
+        /**
+         * A guard stepping onto or off a lift's deck ([walkGuardOverDecks]): the body rises or drops
+         * to what is under his weight at this many units a second - fast, because a slower lift
+         * leaves the standing boot in the deck while it catches up (3.6% of ticks crossing a deck
+         * with it off by over 3, against 5.8% for the old centre switch and 5.9% at 100/s). A move
+         * over [GUARD_STEP_SNAP] in a tick is a teleport, not a step.
+         */
+        const val GUARD_STEP_RATE = 200.0
+        const val GUARD_STEP_SNAP = 30.0
 
         /**
          * Test hook, null in the game: told on every tick a move with its own clips is under way

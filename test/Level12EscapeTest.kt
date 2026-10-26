@@ -46,11 +46,12 @@ class Level12EscapeTest {
         val cart: PushCart get() = world.pushCarts.single()
         fun lever(id: String): Lever = world.levers.first { it.id == id }
         val ferry: MovingPlatform get() = world.movingPlatforms.first { it.id == "lvl12_ferry" }
-        /** The guards left to right: 0 over the way in, 1 over the road to the gate. */
+        /** The guards left to right: 0 the overwatch over the way in, 1 the road guard by lift_5. */
         fun guard(i: Int) = world.allGuards.sortedBy { it.patrolMinX }[i]
+        val roadGuard: Guard get() = guard(1)
         fun gate(n: Int) = world.lasers.first { it.id == "lvl12_gate_$n" }
         val curtain: List<Laser> get() = world.lasers.filter { it.id.startsWith("lvl12_curtain_") }
-        val screen: List<Laser> get() = world.lasers.filter { it.id.startsWith("lvl12_screen_") }
+        val roadBot: CameraBot get() = world.cameraBots.first { it.id == "lvl12_road_bot" }
 
         fun step(move: Double = 0.0, jump: Boolean = false, interact: Boolean = false, crouch: Boolean = false) {
             check(deaths == 0) { "died: $report" }
@@ -193,13 +194,6 @@ class Level12EscapeTest {
             }
         }
 
-        /** Gate 1 of the fence by the gate: where it is in its on/off cycle (0 = just switched on). */
-        val fencePhase: Double get() {
-            val f = world.lasers.first { it.id == "lvl12_fence_1" }
-            val c = f.activeDuration + f.inactiveDuration
-            return (((world.totalElapsedSeconds + f.phaseOffsetSeconds) % c) + c) % c
-        }
-
         /** Catches [bot] up from behind and switches it off. */
         fun switchOff(bot: CameraBot) {
             var n = 0
@@ -233,11 +227,60 @@ class Level12EscapeTest {
             p.resetTo(px, ROW - 96.0)
         }
 
-        /** The road below lift_4 opened: lift_5 down and its screen out, as its lever leaves them. */
+        /** The road below lift_4 cleared, as the clean run leaves it: the road guard up on lift_5, the rover off. */
         fun openTheRoad() {
             val l5 = lift("lift_5")
-            l5.restore(false, l5.def.lowerY)
-            screen.forEach { it.disable() }
+            l5.restore(true, l5.def.upperY)
+            roadGuard.placeAt(l5.def.x + 40.0, -1.0)
+            roadGuard.y = ROW - roadGuard.height
+            roadBot.deactivate()
+        }
+
+        /** The road guard sent off along the road to the exit - for a test about something else. */
+        fun parkTheRoadGuard() {
+            roadGuard.placeAt(world.exitZone.x, -1.0)
+        }
+
+        /** Up on the landing crate past lift_5, at its switch on the far corner. */
+        fun atLift5sSwitch() {
+            p.resetTo(switch("sw_lift_5").centerX - p.width / 2.0, ROW - 96.0)
+            wait(0.2)
+        }
+
+        /** The road guard is standing on lift_5's deck. */
+        val roadGuardOnLift5: Boolean get() {
+            val l5 = lift("lift_5")
+            val c = roadGuard.x + roadGuard.width / 2.0
+            return abs(roadGuard.y + roadGuard.height - l5.topY) < 1.0 && c >= l5.def.x && c <= l5.def.x + l5.def.width
+        }
+
+        /**
+         * From lift_5's switch: sent down while the road guard is past it heading on, and up once
+         * he has come back onto its deck - he goes up with it, and paces it 144 over the road.
+         */
+        fun liftTheGuardAway() {
+            val l5 = lift("lift_5")
+            val g = roadGuard
+            val right = l5.def.x + l5.def.width
+            waitUntil("the road guard past lift_5, heading on", 30.0) { g.facing > 0.0 && g.x > right + 5.0 }
+            pressHere("sw_lift_5")
+            waitUntil("lift_5 down", 8.0) { l5.topY == l5.def.lowerY }
+            waitUntil("the guard well onto its deck", 20.0) {
+                val c = g.x + g.width / 2.0
+                roadGuardOnLift5 && g.facing < 0.0 && c < right - 30.0
+            }
+            pressHere("sw_lift_5")
+            waitUntil("lift_5 up with him", 6.0) { l5.topY == l5.def.upperY }
+            assertEquals(ROW, g.y + g.height, 0.5, "the guard carried up")
+        }
+
+        /** The road's rover has just turned away at the near end of its beat. */
+        val roadBotTurningAway: Boolean get() = roadBot.facing > 0.0 && roadBot.x < roadBot.patrolMinX + 10.0
+
+        /** Off the landing crate's far end, down onto the road. */
+        fun dropOffTheLandingCrate() {
+            walkTo(landingCrate().right + 4.0)
+            waitUntil("down on the road", 3.0) { p.isGrounded && abs(feet - GROUND) < 0.5 }
         }
     }
 
@@ -254,7 +297,6 @@ class Level12EscapeTest {
         fun mark(what: String) {
             if (log) println("  ${"%6.1f".format(e.t)}s  $what  (player ${e.p.x.toInt()},${e.feet.toInt()}, prisoner ${e.pr.body.x.toInt()},${e.prFeet.toInt()})")
         }
-        val overwatch2 = overwatchCrates().last()
         val lift1 = e.lift("lift_1").def
         val lift2 = e.lift("lift_2").def
         val lift3 = e.lift("lift_3").def
@@ -289,7 +331,7 @@ class Level12EscapeTest {
         e.walkTo(lift2.x - 300.0)
         val bot = e.bot
         e.waitUntil("the rover up the far end", 30.0) { bot.x > bot.patrolMaxX - 120.0 }
-        e.swing(layout.swingHooks.single(), 1.0)
+        e.swing(layout.swingHooks.minBy { it.x }, 1.0)
         mark("swung over lift_2's shaft")
         e.walkTo(lift2.x + lift2.width + 6.0)
         e.waitUntil("the rover heading away", 30.0) { bot.facing > 0.0 && bot.x < bot.patrolMinX + 40.0 }
@@ -361,56 +403,32 @@ class Level12EscapeTest {
         e.waitUntil("him off the ferry", 12.0) { e.pr.bounds.left > c4Left && e.pr.body.isGrounded }
         mark("across the dock")
 
-        // 5. The descent: with him on lift_4, over the moving crates to lift_5, along the crate and
-        // off past the screen to its lever, back to lift_4's switch, and the lift lowered on the
-        // fence's beat while the second guard looks ahead.
+        // 5. The descent: with him on lift_4, over the moving crates to the raised lift_5.
         e.waitUntil("him on lift_4", 30.0) { e.heldAtX(lift4.x + lift4.width) }
         e.walkTo(lift4.x + lift4.width - e.p.width - 1.0)
         e.hopAlongTo({ e.lift("lift_5").bounds })
-        e.hopAlongTo({ screenCrate() })
         mark("over the moving crates")
-        e.walkTo(e.lever("lvl12_screen_lever").centerX - e.p.width / 2.0)
-        e.throwLever("lvl12_screen_lever")
-        assertTrue(e.screen.all { it.isDisabled }, "the screen is cut")
-        mark("screen cut, lift_5 coming down")
-        val sw4 = e.switch("sw_lift_4")
-        e.walkTo(sw4.centerX - e.p.width / 2.0)
-        assertEquals(e.lift("lift_5").def.lowerY, e.lift("lift_5").topY, 0.01, "lift_5 down by the time he gets there")
-        mark("at lift_4's switch")
-        val g2 = e.guard(1)
-        // On the fence's beat (he walks through each gap as it opens) and the guard's (he comes in
-        // under the crate while the guard looks ahead and goes out after he has turned back).
-        // On the guard's beat; he waits out the fence himself.
-        e.waitUntil("the guard's beat", 30.0) { secondsUntilHeTurnsBack(g2) in PRESS_BEFORE_TURN }
+
+        // 6. The hook: onto the landing crate and along to lift_5's switch; the road guard lifted
+        // away on lift_5; off the crate's far end behind the rover and the rover off; back to
+        // lift_4's post to lower him, and after him under the guard and out.
+        e.swing(lastHook(), 1.0)
+        assertEquals(ROW, e.feet, 0.5, "on the landing crate")
+        mark("swung onto the landing crate")
+        e.walkTo(e.switch("sw_lift_5").centerX - e.p.width / 2.0, crouch = true)
+        e.liftTheGuardAway()
+        mark("the road guard lifted away")
+        e.waitUntil("the road's rover turning away", 30.0) { e.roadBotTurningAway }
+        e.dropOffTheLandingCrate()
+        e.switchOff(e.roadBot)
+        mark("road rover off")
+        e.walkTo(e.switch("sw_lift_4").centerX - e.p.width / 2.0)
         e.pressHere("sw_lift_4")
         mark("lift_4 going down")
-        // Close behind him through the fence, on the same wave, and in under the crate - crept from
-        // the fence on: the guard over the road hears a footstep 180 away, and turned round he
-        // sees him still walking out to the gate.
-        e.waitUntil("him walking the road", 5.0) { e.prFeet > GROUND - 0.5 && e.pr.isWalking }
-        val fence = e.world.lasers.filter { it.id.startsWith("lvl12_fence_") }
-        val pastTheFence = fence.maxOf { it.bounds.right } + 4.0
-        // The player keeps his own way through the fence: never into a beam that will be on before
-        // he is through it, and never stopping in one.
-        fun inABeam() = fence.any { b -> e.p.bounds.right > b.bounds.left - 3.0 && e.p.bounds.left < b.bounds.right + 3.0 }
-        fun beamAheadUnsafe() = fence.any { b ->
-            val gap = b.bounds.left - e.p.bounds.right
-            gap in -3.0..10.0 && (b.isActive ||
-                b.remainingInactiveTime(e.world.totalElapsedSeconds) < (gap + e.p.width + b.bounds.width + 6.0) / e.p.moveSpeed + 0.12)
-        }
-        val behind = e.t + 40.0
-        while (e.pr.bounds.left <= overwatch2.right) {
-            assertTrue(e.t < behind, "him past the guard")
-            val go = inABeam() || (e.pr.body.x - e.p.x > TRAIL && !beamAheadUnsafe())
-            e.step(if (go) 1.0 else 0.0, crouch = e.p.x > pastTheFence)
-        }
-        mark("he is past the second overwatch")
-
-        // 6. The gate.
-        val until = e.t + 15.0
+        val until = e.t + 25.0
         while (!w.isLevelComplete) {
             assertTrue(e.t < until, "out through the gate")
-            e.step(if (e.p.bounds.intersects(w.exitZone)) 0.0 else 1.0, crouch = true)
+            e.step(if (e.p.bounds.intersects(w.exitZone)) 0.0 else 1.0)
         }
         mark("out")
         return e
@@ -489,13 +507,14 @@ class Level12EscapeTest {
         // "the elevators go too much below surface" (2026-10-26): down, a lift's deck stands on the
         // ground. A walker steps up onto it and down off it either way, and nobody snags on it.
         for (def in layout.lifts) {
-            assertTrue(def.restsOnFloor, "${def.id} rests on the ground")
-            assertEquals(GROUND, def.floorY, 0.01)
+            assertEquals(GROUND, def.floorY, 0.01, "${def.id} comes down onto the ground")
             assertEquals(LIFT_DOWN, def.lowerY, 0.01, "${def.id}'s deck shows above the ground")
         }
         val e = Escape()
         e.parkHim()
-        e.openTheRoad()
+        e.parkTheRoadGuard()
+        e.roadBot.deactivate()
+        e.lift("lift_5").restore(false, LIFT_DOWN)
         val l5 = e.lift("lift_5").def
         e.p.resetTo(l5.x - 80.0, GROUND - 96.0)
         e.walkTo(l5.x + 40.0)
@@ -506,7 +525,6 @@ class Level12EscapeTest {
         assertEquals(GROUND, e.feet, 0.5, "and back over it the other way")
         // He walks over it too.
         e.pr.restore(l5.x - 100.0, GROUND - 96.0)
-        e.world.lasers.filter { it.id.startsWith("lvl12_fence_") }.forEach { it.disable() }
         e.waitUntil("him over lift_5", 6.0) { e.pr.bounds.left > l5.x + l5.width + 10.0 }
         assertEquals(GROUND, e.prFeet, 0.5)
     }
@@ -533,7 +551,7 @@ class Level12EscapeTest {
         val e = Escape()
         e.parkHim()
         e.bot.deactivate()
-        val hook = layout.swingHooks.single()
+        val hook = layout.swingHooks.minBy { it.x }
         val lift2 = e.lift("lift_2").def
         e.p.resetTo(lift2.x - 300.0, ROW - 96.0)
         e.swing(hook, 1.0)
@@ -745,10 +763,11 @@ class Level12EscapeTest {
     }
 
     @Test
-    fun testTheMovingCratesCarryThePlayerOverTheScreen() {
-        // From lift_4's far lip over level 2's two moving crates to the raised lift_5, along the
-        // crate and off its far end past the screen - alive, at whatever point in the crates' cycle.
-        for (start in listOf(0.0, 0.9, 1.8, 2.7)) {
+    fun testTheMovingCratesAndTheHookTakeThePlayerToLift5sSwitch() {
+        // From lift_4's far lip over level 2's two moving crates to the raised lift_5, off its far
+        // lip on the hook to the landing crate, and along it to lift_5's switch on its far corner -
+        // alive and unseen, at whatever point in the crates' cycle and the road guard's beat.
+        for (start in listOf(0.0, 0.9, 1.8, 2.7, 5.0, 8.0)) {
             val e = Escape()
             e.parkHim()
             val l4 = e.lift("lift_4").def
@@ -756,62 +775,172 @@ class Level12EscapeTest {
             e.p.resetTo(l4.x + l4.width - 60.0, ROW - 96.0)
             e.walkTo(l4.x + l4.width - e.p.width - 1.0)
             e.hopAlongTo({ e.lift("lift_5").bounds })
-            e.hopAlongTo({ screenCrate() })
-            e.walkTo(e.lever("lvl12_screen_lever").centerX - e.p.width / 2.0)
-            assertEquals(GROUND, e.feet, 0.5, "down past the screen")
-            e.throwLever("lvl12_screen_lever")
-            assertTrue(e.screen.all { it.isDisabled }, "the screen is cut")
-            e.waitUntil("lift_5 down", 4.0) { e.lift("lift_5").topY == e.lift("lift_5").def.lowerY }
+            e.swing(lastHook(), 1.0)
+            assertEquals(ROW, e.feet, 0.5, "on the landing crate")
+            assertTrue(e.p.centerX in landingCrate().left..landingCrate().right)
+            e.walkTo(e.switch("sw_lift_5").centerX - e.p.width / 2.0, crouch = true)
+            assertTrue(e.switch("sw_lift_5").isPlayerInRange(e.p), "at the switch")
             assertEquals(0, e.deaths, e.report)
+            assertEquals(0.0, e.world.alertProgress, "unseen (start $start)")
         }
     }
 
     @Test
-    fun testTheRoadBelowHoldsHimAtLift5UntilItsLeverIsThrown() {
-        // Lowered before the road is open, he walks as far as the raised lift_5 and waits at its
-        // foot, out of the screen. The lever opens the road and he walks on through.
+    fun testLift5CarriesTheRoadGuardAwayAndHeWalksOutUnderHim() {
+        // "a guard moves left and right and we have to time to take the elevator down and when the
+        // guard gets over it we have to lift it up" (2026-10-26): from the switch, lift_5 down
+        // while he is past it, up once he is on its deck - and he stays up there, pacing the deck.
+        // Lowered then, the prisoner walks the road under him and out, never seen.
         val e = Escape()
         val l4 = e.lift("lift_4")
         val l5 = e.lift("lift_5")
         e.pr.restore(l4.def.x + l4.def.width - 40.0, ROW - 96.0)
+        e.atLift5sSwitch()
+        e.liftTheGuardAway()
+        val g = e.roadGuard
+        var left = Double.MAX_VALUE
+        var right = -Double.MAX_VALUE
+        repeat(60 * 20) {
+            e.step()
+            assertEquals(ROW, g.y + g.height, 0.5, "still up on the deck")
+            left = minOf(left, g.x)
+            right = maxOf(right, g.x + g.width)
+        }
+        assertTrue(left >= l5.def.x - 0.5 && right <= l5.def.x + l5.def.width + 0.5, "pacing the deck")
+        assertTrue(right - left > l5.def.width - 10.0, "end to end")
+        assertEquals(0.0, e.world.alertProgress, "the switch is out of his torch up there")
+        e.roadBot.deactivate()
+        var seen = false
+        e.onStep = { if (it.world.isPrisonerSeen) seen = true }
         e.p.resetTo(e.switch("sw_lift_4").centerX - e.p.width / 2.0, GROUND - 96.0)
         e.wait(0.2)
         e.pressHere("sw_lift_4")
-        e.waitUntil("him at lift_5's foot", 12.0) { e.heldAtX(l5.def.x) }
-        assertEquals(GROUND, e.prFeet, 0.5)
-        e.wait(5.0)
-        assertTrue(e.heldAtX(l5.def.x), "still there")
+        e.waitUntil("him out", 25.0) { e.pr.hasEscaped }
+        assertFalse(seen, "never seen")
         assertEquals(0, e.deaths, e.report)
-        // The lever, reached the way the player would reach it.
-        e.p.resetTo(e.lever("lvl12_screen_lever").centerX - e.p.width / 2.0, GROUND - 96.0)
-        e.wait(0.2)
-        e.throwLever("lvl12_screen_lever")
-        e.waitUntil("him past the screen", 8.0) { e.pr.bounds.left > e.screen.maxOf { it.bounds.right } }
-        assertEquals(GROUND, e.prFeet, 0.5)
     }
 
     @Test
-    fun testAFallOffTheMovingCratesStrandsNobody() {
-        // Down on the road under the crates with him still up on lift_4: lowered, he walks as far
-        // as lift_5 and waits; lift_4 carries the player back up, and the crates are there again.
+    fun testLift5WaitsForTheGuardUnderItAndTakesNobodyUpButHim() {
+        // Under the raised deck the guard stops it coming down (a lift never comes down on a body);
+        // sent up with him not on the deck, it goes up empty and he walks on along the road.
         val e = Escape()
-        val l4 = e.lift("lift_4")
+        e.parkHim()
         val l5 = e.lift("lift_5")
-        e.pr.restore(l4.def.x + l4.def.width - 40.0, ROW - 96.0)
-        e.p.resetTo(l4.def.x + l4.def.width + 160.0, GROUND - 96.0)
-        e.wait(1.0)
-        e.walkTo(e.switch("sw_lift_4").centerX - e.p.width / 2.0)
-        e.pressHere("sw_lift_4")
-        e.waitUntil("him at lift_5's foot", 12.0) { e.heldAtX(l5.def.x) }
-        // On the lowered lift, its switch still in reach.
-        e.walkTo(l4.def.x + l4.def.width - e.p.width / 2.0 - 4.0)
-        e.pressHere("sw_lift_4")
-        e.waitUntil("lift_4 up", 5.0) { l4.topY == l4.def.upperY }
-        assertEquals(ROW, e.feet, 0.5, "rode lift_4 back up")
-        e.walkTo(l4.def.x + l4.def.width - e.p.width - 1.0)
-        e.hopAlongTo({ l5.bounds })
-        assertTrue(e.heldAtX(l5.def.x), "he never moved")
+        val g = e.roadGuard
+        e.atLift5sSwitch()
+        e.waitUntil("the guard under the raised deck", 30.0) { g.bounds.intersects(l5.shaft) && g.x > l5.def.x + 10.0 && g.facing < 0.0 }
+        e.pressHere("sw_lift_5")
+        repeat(20) {
+            e.step()
+            if (g.bounds.intersects(l5.shaft)) assertEquals(l5.def.upperY, l5.topY, 0.01, "held up over him")
+        }
+        e.waitUntil("lift_5 down once he is out from under it", 10.0) { l5.topY == l5.def.lowerY }
+        e.waitUntil("the guard off the deck on the road", 20.0) { !e.roadGuardOnLift5 && !g.bounds.intersects(l5.shaft) }
+        e.pressHere("sw_lift_5")
+        e.waitUntil("lift_5 up", 6.0) { l5.topY == l5.def.upperY }
+        e.wait(3.0)
+        assertEquals(GROUND, g.y + g.height, 0.5, "still on the road")
         assertEquals(0, e.deaths, e.report)
+    }
+
+    @Test
+    fun testSentBeforeTheGuardIsLiftedHeIsCaught() {
+        // The road guard is what holds the end: lowered with him still on the road, the prisoner
+        // walks into his torch.
+        val e = Escape()
+        e.roadBot.deactivate()
+        val l4 = e.lift("lift_4")
+        e.pr.restore(l4.def.x + l4.def.width - 40.0, ROW - 96.0)
+        e.p.resetTo(e.switch("sw_lift_4").centerX - e.p.width / 2.0, GROUND - 96.0)
+        e.wait(0.2)
+        var caught = false
+        e.world.onGameOver = { caught = true }
+        e.pressHere("sw_lift_4")
+        var seen = false
+        repeat(60 * 20) {
+            if (!caught) {
+                e.world.update(e.dt, 0.0, false, false, false)
+                if (e.world.isPrisonerSeen) seen = true
+            }
+        }
+        assertTrue(seen, "seen by the road guard")
+        assertFalse(e.pr.hasEscaped)
+    }
+
+    @Test
+    fun testTheRoadsRoverSeesTheDropUnlessItHeadsAway() {
+        // Off the crate's far end while the rover looks back along its beat, the player is caught;
+        // while it heads away, it is caught from behind.
+        val e = Escape()
+        e.parkHim()
+        e.parkTheRoadGuard()
+        e.atLift5sSwitch()
+        val bot = e.roadBot
+        e.waitUntil("the rover at its near end looking back", 30.0) { bot.facing < 0.0 && bot.x < bot.patrolMinX + 20.0 }
+        var caught = false
+        e.world.onGameOver = { caught = true }
+        val until = e.t + 2.0
+        while (!caught && e.t < until) { e.world.update(e.dt, 1.0, false, false, false); e.t += e.dt }
+        repeat(60 * 3) { if (!caught) e.world.update(e.dt, 0.0, false, false, false) }
+        assertTrue(caught, "the drop was seen")
+
+        val f = Escape()
+        f.parkHim()
+        f.parkTheRoadGuard()
+        f.atLift5sSwitch()
+        f.waitUntil("the road's rover turning away", 30.0) { f.roadBotTurningAway }
+        f.dropOffTheLandingCrate()
+        f.switchOff(f.roadBot)
+        assertEquals(0, f.deaths, f.report)
+    }
+
+    @Test
+    fun testTheLandingCrateIsReachedOnlyByTheHook() {
+        // A shaft's width past lift_5 (too far to jump, 84 at most), 144 over the road (too high to
+        // climb), with beat 2's hook over the gap: its grip 86 out from lift_5's far lip and 120
+        // over the road, the swing coming down on the crate. Lift_5's switch is on it, at its far
+        // corner ("move this button to the right corner of that crate"). A body stands under it.
+        val l5 = layout.lifts.first { it.id == "lift_5" }
+        val lc = landingCrate()
+        val h = lastHook()
+        val lip = l5.x + l5.width
+        val probe = Player(x = 0.0, y = 0.0)
+        assertTrue(lc.left - lip > probe.moveSpeed * 2.0 * -probe.jumpSpeed / probe.gravity + 10.0, "out of a running jump's reach")
+        assertTrue(GROUND - lc.top > 96.0 + 30.0, "no climb from the road")
+        assertTrue(lc.bottom <= GROUND - 96.0 - 6.0, "a body stands under it")
+        assertEquals(lip + 86.0, Player.hookGripX(h), 0.5)
+        assertEquals(ROW - 120.0, Player.hookGripY(h), 0.5)
+        val sw = layout.doorSwitches.single { it.id == "sw_lift_5" }
+        assertEquals(listOf("lift_5"), sw.targets)
+        assertEquals(lc.top, sw.surfaceY, 0.01)
+        assertTrue(sw.x >= lc.left && sw.x + DoorSwitchDef.WIDTH <= lc.right && lc.right - sw.x < 30.0, "at the landing crate's far corner")
+        assertTrue(layout.levers.none { it.targetMechanismId == "lift_5" }, "no lever works it any more")
+        assertTrue(layout.lasers.none { it.mechanismId == "lift_5" }, "and no screen goes with it")
+    }
+
+    @Test
+    fun testAFallBeforeTheGuardIsLiftedStrandsNobody() {
+        // Down on the road with him still up on lift_4 and the road guard still on it: the only way
+        // back up is to lower him, and he walks into the guard - a continue puts everyone back as
+        // the checkpoint on lift_4 had them, the player up on the row again.
+        val e = Escape()
+        e.roadBot.deactivate()
+        val l4 = e.lift("lift_4")
+        e.placeOnRow(l4.def.x - 60.0, l4.def.x - 100.0)
+        val cp4 = layout.manualCheckpoints.indexOfFirst { it.id == "lvl12_cp4_descent" }
+        e.waitUntil("his hold on lift_4 to be a checkpoint", 10.0) { e.world.currentManualCheckpointIndex == cp4 }
+        e.p.resetTo(e.switch("sw_lift_4").centerX - e.p.width / 2.0, GROUND - 96.0)
+        e.wait(0.2)
+        e.world.onGameOver = {}
+        e.pressHere("sw_lift_4")
+        repeat(60 * 20) { if (!e.world.isGameOver) e.world.update(e.dt, 0.0, false, false, false) }
+        assertTrue(e.world.isGameOver, "seen by the road guard")
+        assertTrue(e.world.respawnAtCheckpoint())
+        assertEquals(l4.def.upperY, l4.topY, 0.01, "lift_4 back up")
+        assertTrue(e.heldAtX(l4.def.x + l4.def.width) || abs(e.pr.bounds.right - (l4.def.x + l4.def.width)) < 60.0, "him back on lift_4")
+        assertEquals(ROW, e.feet, 0.5, "the player back on the row")
+        assertEquals(GROUND, e.roadGuard.y + e.roadGuard.height, 0.5, "the guard on the road")
     }
 
     @Test
@@ -836,36 +965,6 @@ class Level12EscapeTest {
         e.waitUntil("lift_4 down", 5.0) { l.topY == l.def.lowerY }
         e.waitUntil("him off it", 5.0) { e.pr.bounds.left > l.def.x + l.def.width && e.pr.body.isGrounded }
         assertEquals(GROUND, e.prFeet, 0.5)
-    }
-
-    @Test
-    fun testHeWaitsOutTheFenceHimself() {
-        // "it is impossible to correct time the lever for the lasers at the end" (2026-10-26):
-        // lowered at any point of the fence's cycle - here half a cycle off the beat that walks him
-        // straight through - he waits at the first beam for a gap and the wave takes him through.
-        for (off in listOf(PRESS_FENCE_PHASE + 1.3, PRESS_FENCE_PHASE + 0.6, PRESS_FENCE_PHASE + 2.0)) {
-            val e = Escape()
-            e.bot.deactivate()
-            e.openTheRoad()
-            val l = e.lift("lift_4")
-            e.pr.restore(l.def.x + l.def.width - 40.0, ROW - 96.0)
-            e.p.resetTo(e.switch("sw_lift_4").centerX - e.p.width / 2.0, GROUND - 96.0)
-            e.waitUntil("off the beat", 10.0) { abs(e.fencePhase - off % 2.6) < 0.05 }
-            var failed = false
-            e.world.onGameOver = { failed = true }
-            e.pressHere("sw_lift_4")
-            val fence = e.world.lasers.filter { it.id.startsWith("lvl12_fence_") }
-            var waited = false
-            repeat(60 * 16) {
-                if (!failed) {
-                    e.world.update(e.dt, 0.0, false, false, false)
-                    if (e.pr.isHeld && e.pr.bounds.right <= fence.first().bounds.left && e.pr.bounds.right > fence.first().bounds.left - 8.0) waited = true
-                }
-            }
-            assertFalse(failed, "not lost in the fence (pressed at ${"%.2f".format(off % 2.6)})")
-            assertTrue(waited, "waited for a gap at the first beam")
-            assertTrue(e.pr.bounds.left > fence.maxOf { it.bounds.right }, "and through")
-        }
     }
 
     @Test
@@ -898,34 +997,6 @@ class Level12EscapeTest {
             f.step()
         }
         f.waitUntil("him off it", 3.0) { f.pr.bounds.left > l4.def.x + l4.def.width }
-    }
-
-    @Test
-    fun testTheSecondGuardOnlyGlimpsesHimOffHisBeat() {
-        // Lowered off the guard's beat he is seen coming (the optional objective goes) but never
-        // caught: the guard is off screen from lift_4's switch, so it keeps the usual pace and only
-        // costs star 2 - the first guard, watched before setting off, is the one that catches.
-        val e = Escape()
-        e.bot.deactivate()
-        e.openTheRoad()
-        val l = e.lift("lift_4")
-        e.pr.restore(l.def.x + l.def.width - 40.0, ROW - 96.0)
-        e.p.resetTo(e.switch("sw_lift_4").centerX - e.p.width / 2.0, GROUND - 96.0)
-        val g2 = e.guard(1)
-        e.waitUntil("late on the guard's beat", 30.0) { secondsUntilHeTurnsBack(g2) in GLIMPSED_BEFORE_TURN }
-        var failed = false
-        e.world.onGameOver = { failed = true }
-        e.pressHere("sw_lift_4")
-        var seen = false
-        repeat(60 * 20) {
-            if (!failed) {
-                e.world.update(e.dt, 0.0, false, false, false)
-                if (e.world.isPrisonerSeen) seen = true
-            }
-        }
-        assertFalse(failed, "not caught")
-        assertTrue(seen, "but seen")
-        assertTrue(e.pr.hasEscaped, "and out")
     }
 
     @Test
@@ -1007,13 +1078,6 @@ class Level12EscapeTest {
         e.wait(30.0)
         assertTrue(e.heldAtX(l4.x + l4.width), "held on lift_4")
         assertEquals(0, e.deaths, e.report)
-        val f = Escape()
-        val l5 = f.lift("lift_5").def
-        f.pr.restore(l5.x - 100.0, GROUND - 96.0)
-        f.p.resetTo(150.0, GROUND - 96.0)
-        f.wait(30.0)
-        assertTrue(f.heldAtX(l5.x), "held at lift_5's foot")
-        assertEquals(0, f.deaths, f.report)
     }
 
     @Test
@@ -1035,61 +1099,23 @@ class Level12EscapeTest {
     }
 
     @Test
-    fun testARespawnAtLift5PutsTheRoadBackAndLift4WithinReach() {
-        // Held at lift_5's foot (the checkpoint) and then lost: back at lift_5 with it up and the
-        // screen lit, the player down on the road by lift_4 - which is down, and rides back up.
+    fun testARespawnBringsTheLiftedGuardBackDownWithLift5() {
+        // The checkpoint on lift_4 is taken before the guard is lifted, so a continue after it puts
+        // lift_5 back up empty and the guard back on the road, where his checkpoint had him.
         val e = Escape()
         val l4 = e.lift("lift_4")
         val l5 = e.lift("lift_5")
-        e.pr.restore(l4.def.x + l4.def.width - 40.0, ROW - 96.0)
-        e.p.resetTo(e.switch("sw_lift_4").centerX - e.p.width / 2.0, GROUND - 96.0)
-        e.wait(0.2)
-        e.pressHere("sw_lift_4")
-        e.waitUntil("his hold at lift_5 to be a checkpoint", 15.0) { e.world.currentManualCheckpointIndex == layout.manualCheckpoints.indexOfFirst { it.id == "lvl12_cp5_screen" } }
-        e.world.isGameOver = true
-        assertTrue(e.world.respawnAtCheckpoint())
-        assertEquals(l5.def.upperY, l5.topY, 0.01, "lift_5 still up")
-        assertTrue(e.screen.none { it.isDisabled }, "the screen lit")
-        assertEquals(l4.def.lowerY, l4.topY, 0.01, "lift_4 down, as he left it")
-        assertTrue(abs(e.pr.bounds.right - l5.def.x) < 12.0, "him back at lift_5's foot")
-        assertEquals(GROUND, e.feet, 0.5, "the player on the road")
-        e.wait(0.5)
-        e.walkTo(l4.def.x + l4.def.width - e.p.width / 2.0 - 4.0)
-        e.pressHere("sw_lift_4")
-        e.waitUntil("lift_4 up", 5.0) { l4.topY == l4.def.upperY }
-        assertEquals(ROW, e.feet, 0.5, "and rides lift_4 back up to the crates")
-    }
-
-    @Test
-    fun testARespawnKeepsTheScreenLeverAndLift5InStep() {
-        // The screen's lever thrown before he reaches lift_4, so the checkpoint on lift_4 is taken
-        // with lift_5 already down: a respawn there keeps the screen cut and the lever thrown with
-        // it - put back to the start, the screen would be lit over a lowered lift_5, the crates no
-        // longer reach the far side, and the road could never be opened again.
-        val e = Escape()
-        e.bot.deactivate()
-        e.curtain.forEach { it.disable() }
-        val l4 = e.lift("lift_4")
-        val l5 = e.lift("lift_5")
-        e.p.resetTo(e.lever("lvl12_screen_lever").centerX - e.p.width / 2.0, GROUND - 96.0)
-        e.wait(0.2)
-        e.throwLever("lvl12_screen_lever")
         e.placeOnRow(l4.def.x - 60.0, l4.def.x - 100.0)
-        e.p.resetTo(e.lever("lvl12_screen_lever").centerX - e.p.width / 2.0, GROUND - 96.0)
         val cp4 = layout.manualCheckpoints.indexOfFirst { it.id == "lvl12_cp4_descent" }
         e.waitUntil("his hold on lift_4 to be a checkpoint", 10.0) { e.world.currentManualCheckpointIndex == cp4 }
-        assertEquals(l5.def.lowerY, l5.topY, 0.01)
+        e.atLift5sSwitch()
+        e.liftTheGuardAway()
         e.world.isGameOver = true
         assertTrue(e.world.respawnAtCheckpoint())
-        assertEquals(l5.def.lowerY, l5.topY, 0.01, "lift_5 still down")
-        assertTrue(e.screen.all { it.isDisabled }, "the screen still cut")
-        assertTrue(e.lever("lvl12_screen_lever").isActivated, "its lever still thrown")
-        // ...and the road is open: lowered, he walks through to the fence.
-        e.p.resetTo(e.switch("sw_lift_4").centerX - e.p.width / 2.0, GROUND - 96.0)
-        e.world.lasers.filter { it.id.startsWith("lvl12_fence_") }.forEach { it.disable() }
-        e.wait(0.2)
-        e.pressHere("sw_lift_4")
-        e.waitUntil("him past the screen", 15.0) { e.pr.bounds.left > e.screen.maxOf { it.bounds.right } }
+        assertEquals(l5.def.upperY, l5.topY, 0.01, "lift_5 up")
+        e.wait(0.5)
+        assertEquals(GROUND, e.roadGuard.y + e.roadGuard.height, 0.5, "the guard back on the road")
+        assertFalse(e.roadGuardOnLift5)
     }
 
     @Test
@@ -1109,15 +1135,14 @@ class Level12EscapeTest {
     @Test
     fun testEveryCheckpointIsWhereHeIsHeld() {
         // Each zone ends where something holds him - a lowered lift's shaft, the parked ferry's far
-        // end, lift_4's far lip, the raised lift_5's foot - and respawns the player on that floor.
+        // end, lift_4's far lip - and respawns the player on that floor.
         val lift = layout.lifts.associateBy { it.id }
         val ferry = ferryDef()
         val holds = mapOf(
             "lvl12_cp1_rover" to (lift.getValue("lift_2").x to ROW),
             "lvl12_cp2_curtain" to (lift.getValue("lift_3").x to ROW),
             "lvl12_cp3_ferry" to (ferry.initialX + ferry.width to ROW),
-            "lvl12_cp4_descent" to (lift.getValue("lift_4").let { it.x + it.width } to ROW),
-            "lvl12_cp5_screen" to (lift.getValue("lift_5").x - Prisoner.LIFT_WAIT_GAP to GROUND)
+            "lvl12_cp4_descent" to (lift.getValue("lift_4").let { it.x + it.width } to ROW)
         )
         assertEquals(holds.keys.toList(), layout.manualCheckpoints.map { it.id }, "in order along the level")
         for (cp in layout.manualCheckpoints) {
@@ -1133,24 +1158,25 @@ class Level12EscapeTest {
     fun testUsesTheOutdoorLevelsMechanisms() {
         // "try to use as many mechanisms from other levels as possible" (2026-10-23).
         assertTrue(layout.hasStartFences, "the two start fences")
-        assertEquals(2, layout.guards.size, "two overwatch guards")
-        for (g in layout.guards) {
-            assertTrue(g.visionTilt > 0.0, "torch tilted down, like levels 3 and 6")
-            assertTrue(layout.hangingCrateVariant1.any { abs(it.top - g.surfaceY) < 0.5 && g.patrolMinX >= it.left && g.patrolMaxX + g.width <= it.right }, "on a hung crate")
-        }
-        assertEquals(1, layout.swingHooks.size, "level 5's swing hook")
-        assertEquals(3, layout.cameraBots.size, "level 8's rovers")
+        assertEquals(2, layout.guards.size, "level 3's overwatch and a guard on the road")
+        val overwatch = layout.guards.minBy { it.patrolMinX }
+        assertTrue(overwatch.visionTilt > 0.0, "torch tilted down, like levels 3 and 6")
+        assertTrue(layout.hangingCrateVariant1.any { abs(it.top - overwatch.surfaceY) < 0.5 && overwatch.patrolMinX >= it.left && overwatch.patrolMaxX + overwatch.width <= it.right }, "on a hung crate")
+        val road = layout.guards.maxBy { it.patrolMinX }
+        val l5 = layout.lifts.first { it.id == "lift_5" }
+        assertEquals(GROUND, road.surfaceY, 0.01, "on the road")
+        assertTrue(road.patrolMinX < l5.x - 30.0 && road.patrolMaxX > l5.x + l5.width + 30.0, "pacing across lift_5's shaft")
+        assertTrue(l5.carriesGuards && !l5.holdsHimWhileUp, "lift_5 carries him away, and the prisoner walks on under it")
+        assertEquals(2, layout.swingHooks.size, "level 5's swing hooks")
+        assertEquals(4, layout.cameraBots.size, "level 8's rovers")
         assertEquals(1, layout.pushCarts.size, "level 8's step cart")
         assertEquals(48.0, layout.pushCarts.single().height, 0.01)
-        // Level 6's levers: one cuts the curtain, one sends its lever crate, one cuts a screen and
-        // brings lift_5 down.
-        assertEquals(3, layout.levers.size)
-        for (id in listOf("lvl12_curtain", "lift_5")) {
-            assertTrue(layout.levers.any { it.targetMechanismId == id })
-            val cut = layout.lasers.filter { it.mechanismId == id }
-            assertEquals(3, cut.size, "level 6's curtain, three beams")
-            assertTrue(cut.all { it.isAlwaysActive })
-        }
+        // Level 6's levers: one cuts the curtain, one sends its lever crate.
+        assertEquals(2, layout.levers.size)
+        assertTrue(layout.levers.any { it.targetMechanismId == "lvl12_curtain" })
+        val cut = layout.lasers.filter { it.mechanismId == "lvl12_curtain" }
+        assertEquals(3, cut.size, "level 6's curtain, three beams")
+        assertTrue(cut.all { it.isAlwaysActive })
         assertTrue(layout.lifts.any { it.id == "lift_5" })
         val ferry = ferryDef()
         assertTrue(ferry.startsInactive && ferry.oneShot && ferry.isVariant1 && layout.levers.any { it.targetMechanismId == ferry.id }, "level 6's lever crate")
@@ -1160,9 +1186,9 @@ class Level12EscapeTest {
         assertEquals(1, layout.tables.size, "level 6's plank, the yard's platform")
         assertTrue(layout.tables.single() in layout.seamlessTables, "drawn as one slab, like level 8's long table")
         assertTrue(layout.lasers.count { !it.isAlwaysActive } >= 3, "level 8's timed gates")
-        assertTrue(layout.hangingCrateVariant1.size >= 3, "level 2's hung crates")
+        assertTrue(layout.hangingCrateVariant1.size >= 2, "level 2's hung crates")
         assertEquals(5, layout.lifts.size, "freight lifts")
-        assertTrue(layout.doorSwitches.size <= 4, "few switch panels - one per lift, lift_5 is its lever's")
+        assertEquals(layout.lifts.size, layout.doorSwitches.size, "few switch panels - one per lift")
         assertTrue(LevelData.DEFAULT_LEVEL_12.hasRain, "level 2's rain")
         // Only the outdoor levels' mechanisms, plus lifts (2026-10-07).
         assertTrue(layout.doors.isEmpty() && layout.steamPipes.isEmpty() && layout.fans.isEmpty() && layout.conveyors.isEmpty())
@@ -1302,7 +1328,7 @@ class Level12EscapeTest {
         const val GROUND = 440.0
         /** The container row's top - his road. */
         const val ROW = 296.0
-        /** A lift's deck, down: standing on the ground (LiftDef.restsOnFloor). */
+        /** A lift's deck, down: standing on the ground (LiftDef.floorY). */
         const val LIFT_DOWN = GROUND - 14.0
 
         /**
@@ -1312,48 +1338,20 @@ class Level12EscapeTest {
          */
         val SET_OFF_BEFORE_TURN = 1.3..4.4
 
-        /**
-         * How long before the second guard turns back lift_4 is lowered in the clean run. Measured,
-         * since he waits out the fence himself and the guard moved 70 on: 11.45..13.1 and on round
-         * to 1.0 he is unseen whatever the fence is doing; everywhere else he is glimpsed (at most
-         * 0.87 of the alert), never caught.
-         */
-        val PRESS_BEFORE_TURN = 11.6..12.8
-
-        /** ...and where, lowered, he is always glimpsed coming in under that guard's crate. */
-        val GLIMPSED_BEFORE_TURN = 3.0..8.0
-
-        /**
-         * Where gate 1 of the fence is in its 2.6s cycle when lift_4 is lowered in the clean run, so
-         * he does not have to wait at it and the player 30 behind goes through on the same wave -
-         * round the cycle's end: measured, 2.4 through 0.4 he walks straight through.
-         */
-        const val PRESS_FENCE_PHASE = 0.1
-        const val PRESS_FENCE_SLACK = 0.2
-
-        /** [phase] (gate 1 of the fence, 0..2.6) is within [PRESS_FENCE_SLACK] of [PRESS_FENCE_PHASE], round the cycle. */
-        fun onTheFencesBeat(phase: Double): Boolean {
-            val d = abs(phase - PRESS_FENCE_PHASE) % 2.6
-            return minOf(d, 2.6 - d) <= PRESS_FENCE_SLACK
-        }
-
-        /** How far behind him the player follows him through the fence. */
-        const val TRAIL = 30.0
-
         fun ferryDef(): MovingPlatformDef = LevelData.LEVEL_12_LAYOUT.movingPlatforms.first { it.id == "lvl12_ferry" }
 
         fun dockCartDef(): PushCartDef = LevelData.LEVEL_12_LAYOUT.pushCarts.single()
 
-        /** The long crate past lift_5 that hangs the screen. */
-        fun screenCrate(): Rect = LevelData.LEVEL_12_LAYOUT.let { l ->
-            val l5 = l.lifts.first { it.id == "lift_5" }
-            l.hangingCrateVariant1.first { it.x > l5.x }
-        }
+        /** The hung crate past lift_5 that the last hook swings onto, lift_5's switch on it. */
+        fun landingCrate(): Rect = LevelData.LEVEL_12_LAYOUT.hangingCrateVariant1.maxBy { it.x }
+
+        /** The hook over the gap past lift_5. */
+        fun lastHook(): Rect = LevelData.LEVEL_12_LAYOUT.swingHooks.maxBy { it.x }
 
         /** The container on the far side of the dock: the cart's last stop is against its foot. */
         fun farContainerLeft(): Double = dockCartDef().let { it.maxX + it.width }
 
-        /** The two overwatch guards' hung crates, left to right. */
+        /** The overwatch guard's hung crate. */
         fun overwatchCrates(): List<Rect> =
             LevelData.LEVEL_12_LAYOUT.hangingCrateVariant1.filter { c -> LevelData.LEVEL_12_LAYOUT.guards.any { abs(it.surfaceY - c.top) < 0.5 && it.patrolMinX >= c.left && it.patrolMinX <= c.right } }
                 .sortedBy { it.x }
