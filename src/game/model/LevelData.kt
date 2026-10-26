@@ -23,7 +23,15 @@ data class GuardSpawn(
     /** See Guard.holdUntilPlayerCrouches. */
     val holdUntilPlayerCrouches: Boolean = false,
     /** See Guard.visionTilt. */
-    val visionTilt: Double = 0.0
+    val visionTilt: Double = 0.0,
+    /**
+     * Scales how long this guard takes to fill the alert meter (GameWorld.getDetectionTimeToCatch:
+     * 0.3s point-blank to 1.5s at the edge of his range). 1 for every guard but level 12's first
+     * overwatch, which uses 0.5 - at 1 a body walking through the far end of a tilted torch's
+     * cone was gone before the meter filled ("the detection seems too slow. i just walked past
+     * this and the guards meter didnt fill", 2026-10-26).
+     */
+    val catchTimeScale: Double = 1.0
 )
 
 /** A security camera placed in a [LevelLayout] or [LevelData]. */
@@ -4914,28 +4922,31 @@ data class LevelData(
          * platform ... add a new section where the player has to jump from some moving crates and
          * do something so the player can come from bottom ... add a part where player crosses to
          * otherside and have to press some button to make the moving platform move for the
-         * pisoner to cross"). The standing rules hold: only the outdoor levels' mechanisms plus
+         * pisoner to cross"). Later that day he was made to start beside the player, the
+         * platform's end was run into the container, the dock got a cart and a rover, and the lifts
+         * were stood on the ground instead of sunk into it. The standing rules hold: only the outdoor levels' mechanisms plus
          * lifts (2026-10-07), every prop drawn at a size an earlier level draws it (2026-10-08),
          * everything to watch below a phone screen's top (about y 124), he goes nowhere the player
          * cannot and each switch sits by its lift (2026-10-21), and nothing strands either of them
          * (2026-10-19). Level12EscapeTest checks each.
          *
-         * His road is the top of a row of containers, 144 up, from the lift he hides on to the lift
-         * that brings him down to the road out. He walks right whenever he can and stops only at
-         * a wall, a drop deeper than Prisoner.MAX_STEP_DOWN or the foot of a raised lift, so between
-         * containers a freight lift's shaft is what holds him: with the lift down it is a 144 drop,
-         * with it up it is the road. Each beat is what has to be true on the far side before the
-         * lift comes up. The first three shafts' lifts rest on the ground and each one's switch is
-         * inside the shaft, reached from the lift itself - drop in, throw it, ride up with him - so
-         * those shafts can never trap the player (a raised lift closes it; a lowered one carries
-         * whoever is on it back up). Left to right:
+         * His road is the top of a row of containers, 144 up, from the first lift to the lift that
+         * brings him down to the road out. He walks right whenever he can and stops only at a wall,
+         * a drop deeper than Prisoner.MAX_STEP_DOWN or the foot of a raised lift, so between
+         * containers a freight lift's shaft is what holds him: with the lift down it is a 130 drop
+         * onto its deck, with it up it is the road. Each beat is what has to be true on the far side
+         * before the lift comes up. The first three shafts' lifts stand on the ground and each one's
+         * switch is inside the shaft, reached from the lift itself - drop in, throw it, ride up with
+         * him - so those shafts can never trap the player (a raised lift closes it; a lowered one
+         * carries whoever is on it back up). Left to right:
          *
-         *   1. The pickup    past the start fences (a wood crate and a barrel to hop) a guard
-         *                    paces a hung crate over the yard (level 3's overwatch, torch tilted
-         *                    down). His crate hides whoever is under it, and he hears a footstep
-         *                    180 away (a crouch is silent): creep in under him behind his back, out
-         *                    once he has turned, climb the quay, crawl under level 1's chained crate
-         *                    and drop into the shaft where he hides on the lift. Ride it up together.
+         *   1. Setting off   he sits beside the player inside the start fences and gets up as the
+         *                    player sets off. Ahead a guard paces a hung crate over the yard (level
+         *                    3's overwatch, torch tilted down): his crate hides whoever is under it,
+         *                    and he hears a footstep 180 away (a crouch is silent). Set off while the
+         *                    guard looks ahead and he walks under unseen to the first lift, steps on
+         *                    and waits against the container; creep after him behind the guard's
+         *                    back, and ride the lift up together.
          *   2. The rover     the next lift is down and a rover (level 8's) works the container
          *                    past it - he would walk straight into its eye. Swing over the shaft
          *                    on level 5's hook while the rover is up the far end, wait at the lip
@@ -4949,19 +4960,22 @@ data class LevelData(
          *                    and the bot to the lever, back, and ride the lift up with him.
          *   4. The ferry     the row breaks off at a dock. Level 6's lever crate is parked flush
          *                    against the near end, level with the road: he walks onto it and waits
-         *                    at its far end. Drop into the dock, get out the far side up a wood
-         *                    crate, and throw the lever on the far container: the crate runs out,
-         *                    lies flush against that container for a moment, and he walks off.
+         *                    at its far end. A rover works the dock floor in the shade of the parked
+         *                    crate and level 8's step cart stands just past it: drop in while the
+         *                    rover heads away, switch it off from behind, push the cart across to
+         *                    the far container and climb out off it, and throw the lever there: the
+         *                    crate runs out, lies flush against that container for a moment, and he
+         *                    walks off.
          *   5. The descent   the last lift stands up at the row's end and he waits on it. The road
          *                    below is shut: a fifth lift stands up in it (he waits at a raised
          *                    lift's foot) and the long crate past it hangs a screen of beams down to
          *                    the road (level 6's curtain again). Jump level 2's moving crates from
          *                    his lift to the raised one, walk the crate, drop off past the screen and
          *                    throw its lever: the screen goes out and the fifth lift comes down.
-         *                    Then, back at his lift's switch, lower it on the beat of the laser fence
-         *                    further down the road (off it he walks into a beam) and, for nobody to
-         *                    so much as glimpse him, while the second guard past the fence looks
-         *                    ahead. Follow him close. A fall off the moving crates strands nobody:
+         *                    Then, back at his lift's switch, lower it: he waits out each beam of
+         *                    the laser fence further down the road on his own, and for nobody to so
+         *                    much as glimpse him the press is made on the second guard's beat, so he
+         *                    comes in under that guard's crate while the guard looks ahead. Follow him close. A fall off the moving crates strands nobody:
          *                    lowered, he walks as far as the raised fifth lift and waits there, and
          *                    his lift carries the player back up for another go.
          *   6. The gate      the yard's booth and fence (level 1's), and out.
@@ -4978,8 +4992,13 @@ data class LevelData(
             val rowTop = groundY - 144.0
             val liftW = 120.0
             fun container(left: Double, right: Double) = Rect(left, rowTop, right - left, groundY - rowTop)
-            fun lift(id: String, x: Double, up: Boolean = false) =
-                LiftDef(id = id, x = x, width = liftW, upperY = rowTop, lowerY = groundY, startsUp = up)
+            // Down, a lift stands on the ground with its 14 deck showing, stepped up onto and down
+            // off ("the elevators go too much below surface", 2026-10-26 - it used to sink flush).
+            val deck = 14.0
+            fun lift(id: String, x: Double, up: Boolean = false) = LiftDef(
+                id = id, x = x, width = liftW, upperY = rowTop, lowerY = groundY - deck, startsUp = up,
+                thickness = deck, restsOnFloor = true
+            )
             // A shaft's switch hangs on the far container's face, inside the shaft: reached from the
             // lift standing at the bottom (or from the ground under it), never from the road.
             fun shaftSwitch(id: String, liftX: Double) =
@@ -4987,35 +5006,36 @@ data class LevelData(
             val hungW = 174.0
             val hungH = 38.0
             // Level 6's pit guard and level 3's overwatch pair: a 174x38 crate hung at 300, a guard
-            // pacing its deck with his torch tilted 25 down, 102 of headroom under it.
+            // pacing its deck with his torch tilted 25 down, 102 of headroom under it. [catchTimeScale]
+            // (GuardSpawn): the first fills the alert in half the usual time - at the usual pace a
+            // body walking through his torch's far end was out of it before the meter filled. The
+            // second keeps the usual pace: he is off screen from lift_4's switch, so the press that
+            // sends the prisoner under him cannot be timed by eye, and only glimpses cost star 2.
             val overwatchTop = 300.0
-            fun overwatchGuard(crate: Rect) = GuardSpawn(
+            fun overwatchGuard(crate: Rect, catchTimeScale: Double) = GuardSpawn(
                 startX = crate.left + 10.0, surfaceY = crate.top,
                 patrolMinX = crate.left + 10.0, patrolMaxX = crate.right - 10.0 - 30.0,
                 speed = 35.0, facing = 1.0, visionRange = 220.0, width = 30.0, height = 96.0,
-                visionTilt = 25.0 * PI / 180.0, patrolPauseDuration = 3.0
+                visionTilt = 25.0 * PI / 180.0, patrolPauseDuration = 3.0, catchTimeScale = catchTimeScale
             )
             // Level 6's lever: 22x12, standing on the floor it is thrown from.
             fun lever(id: String, x: Double, floorY: Double, target: String) =
                 Lever(id = id, x = x, y = floorY - 12.0, width = 22.0, height = 12.0, targetMechanismId = target)
 
-            // ---- 1. The pickup ----------------------------------------------------------------
-            // Far enough from the start that his torch, turned back towards the fences, does not
-            // reach a body standing at the spawn.
+            // ---- 1. Setting off ----------------------------------------------------------------
+            // He starts beside the player and gets up as the player sets off. Far enough from the
+            // start that his torch, turned back towards the fences, reaches neither of them.
+            val playerStartX = 236.0
             val overwatch1 = Rect(480.0, overwatchTop, hungW, hungH)
-            // Yard clutter on the way in, jumped (48): one of level 3's wood crates and a barrel.
-            val woodCrate = Rect(318.0, groundY - 48.0, 68.0, 48.0)
-            val barrel = Rect(woodCrate.right, groundY - 48.0, 32.0, 48.0)
-            // The quay: a 96 block (level 6's tallBlock), a plain climb from the ground, with level
-            // 1's chained crate hung 58 over it - crawled under, and a wall to him.
-            val quay = Rect(760.0, groundY - 96.0, 300.0, 96.0)
-            val chainedCrate = Rect(840.0, 30.0, 174.0, quay.top - 58.0 - 30.0)
-            val lift1 = lift("lift_1", quay.right)
-            val c1 = container(lift1.x + liftW, 1840.0)
+            // Down at the end of the open ground, against the first container: he walks onto it and
+            // waits against the container's face. Far enough past the crate that the guard, looking
+            // out from its near end, does not see him there.
+            val lift1 = lift("lift_1", 860.0)
+            val c1 = container(lift1.x + liftW, lift1.x + liftW + 660.0)
 
             // ---- 2. The rover -------------------------------------------------------------------
             val lift2 = lift("lift_2", c1.right)
-            val c2 = container(lift2.x + liftW, 2640.0)
+            val c2 = container(lift2.x + liftW, lift2.x + liftW + 680.0)
             // Over lift_2's shaft, its grip 120 over the road (inside Player.swingMinGripHeight..
             // swingMaxGripHeight) and 86 out from the near lip: a running jump off c1's end takes
             // it, and the fixed swing lands 109 past the grip, 75 onto c2. The same hook swings
@@ -5040,11 +5060,14 @@ data class LevelData(
             // ---- 3. The curtain -----------------------------------------------------------------
             // His road over the yard: level 6's plank - LEVEL_3_LAYOUT's 30-deep table slab with
             // nothing holding it up - drawn as one seamless slab (level 8's long table), flush with
-            // the containers' tops, over the 522 the three hung crates it replaced spanned. Under
-            // it, 114 of headroom to the yard floor.
+            // the containers' tops, over the 522 the three hung crates it replaced spanned. Its near
+            // end runs 24 into c2, so the slab's rounded end cap is inside the container and it reads
+            // as coming out of it, not floating ("bring this floating platform part more to the
+            // left", 2026-10-26). Under it, 114 of headroom to the yard floor.
             val yardLeft = c2.right
             val yardRight = yardLeft + 3 * hungW
-            val bridge = Rect(yardLeft, rowTop, yardRight - yardLeft, 30.0)
+            val bridgeIntoC2 = 24.0
+            val bridge = Rect(yardLeft - bridgeIntoC2, rowTop, yardRight - yardLeft + bridgeIntoC2, 30.0)
             val lift3 = lift("lift_3", yardRight)
             val c3 = container(lift3.x + liftW, lift3.x + liftW + 420.0)
             // The curtain's lever, at the yard's far (left) end.
@@ -5061,7 +5084,9 @@ data class LevelData(
             val yardGates = listOf(
                 gate("1", yardLeft + 100.0, 1.4, 1.2, 0.0),
                 gate("2", yardLeft + 200.0, 1.2, 1.0, -0.5),
-                gate("3", yardLeft + 440.0, 1.6, 1.2, -0.8)
+                // 2.0 out: crossed only while the bot past it heads away and can be caught before it
+                // turns, and at 1.2 out the two came round together only every half-minute or so.
+                gate("3", yardLeft + 440.0, 1.6, 2.0, -0.8)
             )
             // Its 70-unit beat (level 8's) ends 120-plus short of where a body waits for gate 3, so
             // it is waited out from there and caught from behind past the gate.
@@ -5080,20 +5105,36 @@ data class LevelData(
             }
 
             // ---- 4. The ferry -------------------------------------------------------------------
-            // Level 6's lever crate, its numbers and all: a long hung crate that one throw sends 232
-            // out and back over 5.5s, re-arming its lever once it is home. Parked flush against c3's
-            // end and level with the road, it is his road's next step - he walks onto it and waits
-            // at its far end. Out at the far end it lies flush against c4, and he walks off.
-            val ferryTravel = 232.0
+            // Level 6's lever crate: a long hung crate that one throw sends out and back, re-arming
+            // its lever once it is home - level 6's speed (232 over 5.5s), run 400 out over 9.5s so
+            // the dock under it has room for its cart. Parked flush against c3's end and level with
+            // the road, it is his road's next step - he walks onto it and waits at its far end. Out
+            // at the far end it lies flush against c4 for half a second, and he walks off.
+            val ferryTravel = 400.0
             val ferry = MovingPlatformDef(
                 id = "lvl12_ferry", initialX = c3.right, y = rowTop, width = hungW, height = hungH,
-                minX = c3.right, maxX = c3.right + ferryTravel, periodSeconds = 5.5, isVariant1 = true,
+                minX = c3.right, maxX = c3.right + ferryTravel, periodSeconds = 9.5, isVariant1 = true,
                 startsInactive = true, oneShot = true
             )
             val c4 = container(c3.right + hungW + ferryTravel, c3.right + hungW + ferryTravel + 300.0)
-            // The way out of the dock under it, at the far container's foot: a wood crate (48), then
-            // the 96 climb the quay is.
-            val dockStep = Rect(c4.left - 68.0, groundY - 48.0, 68.0, 48.0)
+            // The dock under it ("add something interesting to the bottom instead of just getting
+            // down and climbing", 2026-10-26). The way out is level 8's step cart, parked just past
+            // where a body dropped off the parked crate lands: pushed 250 to c4's foot it is the 48
+            // step its 96 climb wants. It never goes back under the parked crate (minX), whose
+            // underside a body on its deck would stand in.
+            val dockCart = PushCartDef(
+                id = "lvl12_dock_cart", initialX = c3.right + hungW + 58.0, surfaceY = groundY,
+                width = 92.0, height = 48.0, minX = c3.right + hungW, maxX = c4.left - 92.0
+            )
+            // ...and one of level 8's rovers working the dock floor in the shade of the parked crate
+            // (a body stands under it with 10 to spare). From the near end of its beat it sees the
+            // landing and the cart - the drop is made while it heads away, and it is switched off
+            // from behind before the push. Its sight, 120 along the floor, never reaches him up on
+            // the crate. Its beat ends 8 short of the crate's far end.
+            val dockBot = CameraBotDef(
+                id = "lvl12_dock_bot", startX = c3.right + hungW - 40.0, surfaceY = groundY,
+                patrolMinX = c3.right + 16.0, patrolMaxX = c3.right + hungW - 40.0, facing = -1.0
+            )
             // On the far container by the lip the crate comes in to - level 6's lever_4 stands 24 in
             // from the end of the plank it is on.
             val ferryLever = lever("lvl12_ferry_lever", c4.left + 24.0, rowTop, "lvl12_ferry")
@@ -5120,8 +5161,9 @@ data class LevelData(
             val lift5 = lift("lift_5", launch + 408.0, up = true)
             // Level 6's curtain under a long hung crate, from its underside to the road: three beams
             // 45 apart, the last 42 short of the crate's far end so a body dropped off that end lands
-            // clear of it.
-            val screenCrate = Rect(lift5.x + liftW, rowTop, hungW, hungH)
+            // clear of it. A body's width past lift_5: a head on its deck, down, is 4 into the
+            // crate's underside, so he has to be off the deck before he is under the crate.
+            val screenCrate = Rect(lift5.x + liftW + 36.0, rowTop, hungW, hungH)
             val screen = (0 until 3).map { i ->
                 val x = screenCrate.left + 42.0 + i * 45.0
                 LaserDef(
@@ -5134,10 +5176,11 @@ data class LevelData(
             val screenLever = lever("lvl12_screen_lever", screenCrate.right + 16.0, groundY, "lift_5")
             // The gate's laser fence: three timed beams from off the top of the screen down to the
             // road (level 9's top course runs its beams the same way, up off its table), 60 apart
-            // and each opening 60/110 s after the one before - a wave timed to his walk. Sent down on
-            // the wave's beat, he walks through every gap as it opens; off it, a beam is on when he
-            // gets there. The ~0.8s of slack in each 2.6s cycle is the whole timing (body and beam
-            // take 0.38s of a 1.2s gap).
+            // and each opening 60/110 s after the one before - a wave timed to his walk. He waits at
+            // the first beam for a gap he can cross and the wave carries him through the other two
+            // (Prisoner.update's beams); the player, following, times his own way through. Until
+            // 2026-10-26 he walked into it, and the lift had to be lowered on the wave's beat ~9s
+            // ahead - "impossible to correct time".
             val fenceX = screenCrate.right + 120.0
             val fence = (0 until 3).map { i ->
                 val x = fenceX + i * 60.0
@@ -5149,7 +5192,9 @@ data class LevelData(
             // Past the fence the second guard paces a crate over the road. Its torch only glimpses
             // him if he comes in under it while it looks back (the alert never fills on a walker
             // going by under it), so it is the stealth half of the beat: the optional objective.
-            val overwatch2 = Rect(fence.last().topX + 30.0, overwatchTop, hungW, hungH)
+            // 100 past the last beam: from 30 its torch, looking back, reached him waiting out the
+            // first beam and filled the alert while he stood there.
+            val overwatch2 = Rect(fence.last().topX + 100.0, overwatchTop, hungW, hungH)
 
             // ---- 6. The gate ---------------------------------------------------------------------
             // The booth and its fence (entrance.png + exitfence.png) are drawn standing on the
@@ -5176,41 +5221,42 @@ data class LevelData(
                 cp("lvl12_cp5_screen", lift5.x - Prisoner.LIFT_WAIT_GAP, spawnX = launch + 30.0, floorY = groundY)
             )
 
-            val boxes = listOf(woodCrate, barrel, overwatch1, quay, chainedCrate, c1, c2, bridge, c3, dockStep, c4, screenCrate, overwatch2)
+            val boxes = listOf(overwatch1, c1, c2, bridge, c3, c4, screenCrate, overwatch2)
 
             LevelLayout(
                 worldWidth = worldWidth,
-                playerStartX = 236.0,
+                playerStartX = playerStartX,
                 playerStartY = groundY - 96.0,
                 exitZone = Rect(x = exitX, y = groundY - 100.0, width = 44.0, height = 100.0),
                 platforms = listOf(ground),
                 boxes = boxes,
-                guards = listOf(overwatchGuard(overwatch1), overwatchGuard(overwatch2)),
+                guards = listOf(overwatchGuard(overwatch1, catchTimeScale = 0.5), overwatchGuard(overwatch2, catchTimeScale = 1.0)),
                 hangingCrateVariant1 = listOf(overwatch1, screenCrate, overwatch2),
-                woodCrates = listOf(woodCrate, dockStep),
-                barrels = listOf(barrel),
                 tables = listOf(bridge),
                 seamlessTables = listOf(bridge),
                 movingPlatforms = listOf(ferry) + movingCrates,
+                pushCarts = listOf(dockCart),
                 swingHooks = listOf(hook),
                 levers = listOf(curtainLever, ferryLever, screenLever),
                 lasers = yardGates + curtain + screen + fence,
-                cameraBots = listOf(rover, yardBot),
+                cameraBots = listOf(rover, yardBot, dockBot),
                 manualCheckpoints = checkpoints,
                 lifts = lifts,
                 doorSwitches = switches,
-                prisoner = PrisonerDef(x = lift1.x + 40.0, surfaceY = groundY, freedByDoorId = "lift_1")
+                // Beside the player, a step ahead of him ("make the prisoner start at the same place
+                // as the player", 2026-10-26), sitting until the player sets off.
+                prisoner = PrisonerDef(x = playerStartX + 40.0, surfaceY = groundY, freedByDoorId = PrisonerDef.WHEN_THE_PLAYER_SETS_OFF)
             )
         }
 
         val DEFAULT_LEVEL_12 = LevelData(
             id = "level_12",
             name = "12: Final Escape",
-            // Level12EscapeTest's scripted clean run takes 112.5s - creeping past the first guard,
-            // the swing and the rover, the yard's gates and bot both ways, the dock and the ferry,
-            // the moving crates, the fence's beat; x1.46, rounded to 5, as levels 11 and 12 before -
-            // a person also has to read each beat.
-            timeTargetSeconds = 165.0f,
+            // Level12EscapeTest's scripted clean run takes 156.9s - setting off on the first guard's
+            // beat and creeping after him, the swing and the rover, the yard's gates and bot both
+            // ways, the dock's rover and cart and the ferry, the moving crates, the fence's beat;
+            // x1.46, rounded to 5, as levels 11 and 12 before - a person also has to read each beat.
+            timeTargetSeconds = 230.0f,
             description = "Guards are closing in. Get the prisoner out of the shipyard before it’s too late.",
             objectiveHint = "Escort the Prisoner Out of the Shipyard",
             bonusObjective = BonusObjective.STAY_UNSEEN,

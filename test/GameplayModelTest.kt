@@ -131,8 +131,14 @@ class GameplayModelTest {
 
         assertTrue(world.isSpotted, "World should register isSpotted = true upon reaching threshold")
         assertEquals(1, world.spottedCount, "Spotted counter should increment to 1")
-        assertEquals(startX, world.player.x, 0.01, "Player should be reset to start position X")
-        assertEquals(startY, world.player.y, 0.01, "Player should be reset to start position Y")
+        assertTrue(world.isGameOver, "Caught is game over")
+        // Left where he was caught (2026-10-26): put back at the start, the scene showed the start
+        // during the Checkpoints powerup's death beat before the respawn moved him on. A restart
+        // is what takes him back to the start.
+        assertEquals(guardTargetX - 100.0, world.player.x, 0.01, "Player stays where he was caught")
+        world.restartLevel()
+        assertEquals(startX, world.player.x, 0.01, "A restart puts him back at the start (X)")
+        assertEquals(startY, world.player.y, 0.01, "A restart puts him back at the start (Y)")
     }
 
     @Test
@@ -5232,6 +5238,15 @@ class GameplayModelTest {
                         "At phase $phase the body sat ${offset.toInt()} units off the hook")
                     assertTrue(world.player.y + world.player.height > hook.bottom,
                         "At phase $phase the feet were above the grip")
+                    // The DRAWN fist on the grip: the scene pivots the sprite at swingPivotHeight
+                    // over the feet, which in the hang is the fist's height at the drawn scale
+                    // (Player.VISUAL_HEIGHT_SCALE) - on the box's scale it sat ~4.6 over the grip,
+                    // clear of the hook's bell ("when swinging he is not touching the bottom of
+                    // the hook", 2026-10-26).
+                    val feet = world.player.y + world.player.height
+                    assertEquals(Player.hookGripY(hook), feet - world.player.swingPivotHeight, 0.01,
+                        "At phase $phase the drawn fist is on the grip")
+                    assertEquals(world.player.visualHeight / world.player.height, Player.VISUAL_HEIGHT_SCALE, 1e-9)
                 }
             } else if (started) {
                 break

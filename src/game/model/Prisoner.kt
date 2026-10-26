@@ -2,14 +2,18 @@ package game.model
 
 /**
  * The prisoner level 10 found behind bars, as level 11 starts him: sitting in his cell at [x] on
- * the floor at [surfaceY], until the door [freedByDoorId] opens - or, on level 12 (no doors), until
- * the lift of that id he is sitting on first moves.
+ * the floor at [surfaceY], until the door [freedByDoorId] opens - or, with no door of that id, until
+ * the lift of that id he is sitting on first moves, or with [WHEN_THE_PLAYER_SETS_OFF] until the
+ * player first moves (level 12, where he starts beside the player - 2026-10-26).
  *
  * "the [prisoner] will move forward whenever possible. he cant climb or parkour" (2026-09-30):
  * once free he walks towards [facing] at [speed] on his own and never stops to be told - he stops
  * only where he cannot go on: a closed door, a wall, or the lip of any drop deeper than
  * [Prisoner.MAX_STEP_DOWN]. He never jumps, climbs, crouches or swings. Doors are therefore the
- * only way to hold him, and the whole level is about where and when to hold him.
+ * only way to hold him, and the whole level is about where and when to hold him. Since
+ * 2026-10-26 he also waits at a laser that is on or about to come on, and goes when it has a gap
+ * he can cross ("it is impossible to correct time the lever for the lasers at the end"), and for
+ * a lift he would step onto or off to stop moving.
  *
  * He also waits at the foot of a lift's shaft while the lift is up off his floor, as anyone waits
  * for a lift, rather than walking in under it: a lift never comes down on a body, so one sent up
@@ -26,7 +30,12 @@ data class PrisonerDef(
      * both level 11 and 12 the prisoner is moving very slow").
      */
     val speed: Double = 110.0
-)
+) {
+    companion object {
+        /** [freedByDoorId] for a prisoner who gets up as the player sets off (GameWorld.hasClockStarted). */
+        const val WHEN_THE_PLAYER_SETS_OFF = ""
+    }
+}
 
 class Prisoner(val def: PrisonerDef) {
     /** His body: the player's own physics (gravity, collision), driven by the rule above instead of input. */
@@ -66,19 +75,25 @@ class Prisoner(val def: PrisonerDef) {
 
     /**
      * One tick. [platforms] is everything solid to him this tick (floors, walls, closed door
-     * panels, lifts); [exitZone] is where he is going; [lifts] are the ones he waits for.
+     * panels, lifts); [exitZone] is where he is going; [lifts] are the ones he waits for;
+     * [beams] are the lasers he waits at when they are on, or will be before he is through
+     * (GameWorld.beamsHeWaitsAt, [isAtBeam]).
      */
-    fun update(dt: Double, platforms: List<Rect>, exitZone: Rect, lifts: List<Lift> = emptyList()) {
+    fun update(dt: Double, platforms: List<Rect>, exitZone: Rect, lifts: List<Lift> = emptyList(), beams: List<Beam> = emptyList()) {
         isWalking = false
         isHeld = false
         if (isFree) freedFor += dt
         if (!hasEscaped && bounds.intersects(exitZone)) hasEscaped = true
         val arrived = hasEscaped && body.centerX * def.facing >= exitZone.centerX * def.facing
         val ready = isFree && freedFor >= STAND_UP_SECONDS && !arrived
-        val atLip = ready && body.isGrounded && (isAtLip(platforms) || isAtRaisedLift(lifts))
+        val atLip = ready && body.isGrounded &&
+            (isAtLip(platforms) || isAtRaisedLift(lifts) || isAtMovingLift(lifts) || isAtBeam(beams))
         val move = if (ready && !atLip) def.facing else 0.0
         val before = body.x
-        body.update(dt, move, jumpInput = false, crouchInput = false, platforms = platforms)
+        body.update(
+            dt, move, jumpInput = false, crouchInput = false, platforms = platforms,
+            steps = lifts.filter { it.def.restsOnFloor }.map { it.bounds }
+        )
         val moved = kotlin.math.abs(body.x - before)
         if (moved > 0.05 && body.isGrounded) {
             isWalking = true
@@ -110,7 +125,7 @@ class Prisoner(val def: PrisonerDef) {
     private fun isAtRaisedLift(lifts: List<Lift>): Boolean {
         val feet = body.y + body.height
         return lifts.any { l ->
-            kotlin.math.abs(l.def.lowerY - feet) < 1.0 && l.topY < feet - 1.0 &&
+            kotlin.math.abs(l.def.floorY - feet) < 1.0 && l.topY < l.def.lowerY - 1.0 &&
                 if (def.facing > 0.0) {
                     body.centerX < l.def.x && body.x + body.width + LIFT_WAIT_GAP >= l.def.x
                 } else {
@@ -118,6 +133,44 @@ class Prisoner(val def: PrisonerDef) {
                 }
         }
     }
+
+    /**
+     * A lift he would step onto or off - the one under him, or the one just ahead - is still on
+     * its way: he waits for it to stop rather than step down onto it as it comes up ("prisoner
+     * tries to jump down before the elevator is completely up ... make sure he waits until it is
+     * at the top before going onto it", 2026-10-26).
+     */
+    private fun isAtMovingLift(lifts: List<Lift>): Boolean {
+        val feet = body.y + body.height
+        val px = body.centerX + def.facing * LIP_PROBE_AHEAD
+        return lifts.any { l ->
+            if (!l.isMoving) return@any false
+            val left = l.def.x
+            val right = l.def.x + l.def.width
+            val under = body.centerX >= left && body.centerX <= right && kotlin.math.abs(l.topY - feet) < 4.5
+            under || px >= left && px <= right
+        }
+    }
+
+    /**
+     * A beam no more than [BEAM_WAIT_GAP] ahead of him will be on before he could reach it and be
+     * through it ([BEAM_MARGIN_SECONDS] to spare). The time he needs shrinks as he walks exactly as
+     * fast as the time the beam stays off, so a beam he set off for stays one he can cross - he
+     * never stops inside one.
+     */
+    private fun isAtBeam(beams: List<Beam>): Boolean {
+        if (beams.isEmpty()) return false
+        val b = bounds
+        return beams.any { beam ->
+            val r = beam.bounds
+            val gap = if (def.facing > 0.0) r.left - b.right else b.left - r.right
+            r.bottom > b.top && r.top < b.bottom && gap >= 0.0 && gap <= BEAM_WAIT_GAP &&
+                beam.offFor < (gap + b.width + r.width) / def.speed + BEAM_MARGIN_SECONDS
+        }
+    }
+
+    /** A laser as he sees it: where it is, and how long it stays off (0 while it is on). */
+    data class Beam(val bounds: Rect, val offFor: Double)
 
     fun reset() {
         body.resetTo(def.x, def.surfaceY - 96.0)
@@ -150,5 +203,9 @@ class Prisoner(val def: PrisonerDef) {
         const val LIFT_WAIT_GAP = 2.0
         /** Half the widest crack he walks over - see [isAtLip]. */
         const val CRACK = 2.0
+        /** How far short of a beam he waits - see [isAtBeam]. */
+        const val BEAM_WAIT_GAP = 4.0
+        /** What he leaves himself to spare getting through a beam's gap - see [isAtBeam]. */
+        const val BEAM_MARGIN_SECONDS = 0.12
     }
 }
