@@ -429,6 +429,15 @@ the ground has nothing below it, so filling a squarer screen means magnifying.)
   publish at launch AND on every switch into gameplay (`GameMain` and `PaywallModule` each compile
   their own `DeviceScreen`).
 - `viewportFor` assumes landscape defensively (max/min, not "width"), clamped 0.75..3.0.
+- **iOS landscape is enforced by the shell, not the system**: iPadOS 26 can give a landscape-only app
+  a portrait window on an upright iPad (rotation lock off), despite the ~ipad Info.plist orientations,
+  `UIRequiresFullScreen` (deprecated, TN3192), the delegate's `.landscape` mask and
+  `requestGeometryUpdate`. The window's root is `LandscapeHostViewController` for the whole session;
+  Compose and KorGE take turns as its child (`host.show`) on a landscape-sized stage, turned a quarter
+  whenever the window is taller than wide (towards the last landscape side). Safe-area insets are
+  published as the stage sees them (`stageSafeAreaInsets`). KorGE's GLKView is made to follow its
+  controller's bounds (it otherwise keeps the size UIScreen had at launch). CI's iPad simulator step
+  logs `HOST:` lines and screenshots `ipad_menu.png`/`ipad_gameplay.png`. Not yet seen on a real iPad.
 - **Gameplay safe areas**: `GameplayScene`'s `edgeInset`/`bottomInset` (46/38) are floors; a
   reported inset + 12 wins where larger. Android reports
   `displayCutout() | mandatorySystemGestures()` (not the full `systemGestures()`). **The TOP is ignored in landscape**

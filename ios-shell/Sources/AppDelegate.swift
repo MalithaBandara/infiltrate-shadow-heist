@@ -16,6 +16,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     private var korgeVC: UIViewController?
     private var composeVC: UIViewController?
+    /// The window's rootViewController for the whole session; the two above take turns inside it.
+    private let host = LandscapeHostViewController()
     private var shellWindow: UIWindow?
     private var levelObserverTimer: Timer?
 
@@ -41,6 +43,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // ShellAppDelegate initialized the warm KorGE ViewController.
         // Compose Multiplatform owns non-gameplay screens, so MainMenu is the initial rootViewController.
         korgeVC = window.rootViewController
+        // KorGE adds its GLKView once, at whatever size UIScreen had at that moment, and never
+        // resizes it - an iPad that launched upright kept a portrait-shaped game. Following its
+        // view controller's bounds, it takes the host's landscape stage.
+        if let korgeView = korgeVC?.view {
+            for glView in korgeView.subviews {
+                glView.frame = korgeView.bounds
+                glView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            }
+        }
 
         let compose = MainMenuComposeScreen.shared.makeViewController { [weak self] levelId in
             print("MAIN_MENU: Start Level tapped (\(levelId)) -> Swapping rootViewController to KorGE gameplay")
@@ -51,7 +62,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             self?.switchToKorGE()
         }
         composeVC = compose
-        window.rootViewController = compose
+        host.onTurnChanged = { [weak self] in self?.publishSafeArea() }
+        window.rootViewController = host
+        host.show(compose)
         window.makeKeyAndVisible()
         // Key and visible, so safeAreaInsets is real now: in landscape that is the Dynamic
         // Island / notch on one side and the home indicator along the bottom, which the HUD's
@@ -89,10 +102,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return .landscape
     }
 
-    // The delegate mask above is only read when UIKit re-evaluates orientation, and swapping the
-    // window's rootViewController (Compose <-> KorGE) does not always trigger that - the game could
-    // stay in, or return to, portrait. Asking the scene explicitly after launch and after every
-    // swap pins it to landscape.
+    // The delegate mask above is only read when UIKit re-evaluates orientation, and swapping
+    // Compose <-> KorGE does not always trigger that - the game could stay in, or return to,
+    // portrait. Asking the scene explicitly after launch and after every swap pins it to landscape
+    // on iPhone. iPadOS 26 may still refuse; LandscapeHostViewController covers that case.
     private func lockLandscape() {
         DispatchQueue.main.async {
             if #available(iOS 16.0, *) {
@@ -236,10 +249,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         publishSafeArea()
     }
 
-    /// Publishes `window.safeAreaInsets`. Zero until the window has been laid out, which is why
-    /// this is separate from the size above.
+    /// Publishes `window.safeAreaInsets`, as the host's stage sees them (turned with it on an
+    /// upright iPad). Zero until the window has been laid out, which is why this is separate from
+    /// the size above.
     private func publishSafeArea() {
-        guard let insets = shellWindow?.safeAreaInsets else { return }
+        guard shellWindow != nil else { return }
+        let insets = host.stageSafeAreaInsets
         GameScreenMetricsBridge.shared.publishSafeArea(
             leftPt: Double(insets.left),
             topPt: Double(insets.top),
@@ -271,7 +286,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // for storage_bridge_result.txt/transition_test_result.txt, just marking a moment instead
         // of a final result.
         writeTextFile("korge_visible.txt", "\(Date())")
-        window.rootViewController = korge
+        host.show(korge)
         window.makeKeyAndVisible()
         lockLandscape()
         // An ad may have taken the session; gameplay audio needs it back.
@@ -282,7 +297,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func switchToCompose() {
         guard let window = self.shellWindow, let compose = self.composeVC else { return }
         print("SHELL: Swapping to Compose (MainMenu)")
-        window.rootViewController = compose
+        host.show(compose)
         window.makeKeyAndVisible()
         lockLandscape()
         stopObservingLevelEnd()
