@@ -140,7 +140,9 @@ after adding setup code; move another block into a local `fun` (or a file, as `M
   Build 25 was a test build (every level unlocked, test ads); 24 the production build before 26.
 - **iOS interop views take the touches that land on them** - a full-screen `UIKitView` under a
   Compose `clickable` swallows its taps unless given
-  `UIKitInteropProperties(isInteractive = false)` (`androidx.compose.ui.viewinterop`).
+  `UIKitInteropProperties(isInteractive = false, isNativeAccessibilityEnabled = false)`
+  (`androidx.compose.ui.viewinterop`; in Compose 1.12 that constructor has no defaults - both
+  arguments are required, and the iOS compile only runs on macOS CI).
 - **Level unlocking** (build 25 had an `unlockAllForTesting` override plus an `@Ignore`d
   `testGameProfileStorageLevelUnlockingProgression`; both gone again in 26). Normal rule: a fresh profile unlocks only `level_1` and finishing a level
   unlocks the next (premium unlocks all); `LevelSelectScreen` asks `profileStorage.isLevelUnlocked(...)`,
