@@ -2728,6 +2728,25 @@ object Localization {
         else -> "Purchased $item!"
     }
 
+    /** A paid coin pack went through (not the ad pack - that is [adWatchedCoins]). */
+    fun coinsPurchased(coins: Int, lang: String): String = when (langCode(lang)) {
+        FR -> "Achat réussi ! +$coins pièces"
+        ES -> "¡Compra completada! +$coins monedas"
+        PT_BR -> "Compra concluída! +$coins moedas"
+        DE -> "Kauf abgeschlossen! +$coins Münzen"
+        ID -> "Pembelian berhasil! +$coins koin"
+        TR -> "Satın alma tamamlandı! +$coins jeton"
+        VI -> "Mua thành công! +$coins xu"
+        RU -> "Покупка совершена! +$coins монет"
+        JA -> "購入完了！ +$coins コイン"
+        KO -> "구매 완료! +$coins 코인"
+        ZH_TW -> "購買完成！獲得 +$coins 金幣"
+        HI -> "खरीदारी पूरी हुई! +$coins सिक्के"
+        AR -> "تمت عملية الشراء! +$coins عملة"
+        TH -> "ซื้อสำเร็จ! +$coins เหรียญ"
+        else -> "Purchase complete! +$coins coins"
+    }
+
     fun adWatchedCoins(coins: Int, lang: String): String = when (langCode(lang)) {
         FR -> "Publicité visionnée ! +$coins pièces"
         ES -> "¡Anuncio visto! +$coins monedas"

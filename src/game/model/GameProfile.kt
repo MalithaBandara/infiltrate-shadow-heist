@@ -156,12 +156,6 @@ class InMemoryGameProfileStorage(
     }
 
     override fun isLevelUnlocked(levelId: String, levelRegistry: List<LevelData>, levelStorage: LevelStorage): Boolean {
-        // TEMPORARY (test build 25, 2026-10-27): every level unlocked regardless of progress, for
-        // testing. Delete this block (and the @Ignore on testGameProfileStorageLevelUnlockingProgression)
-        // before a store build - the original logic is unchanged below.
-        val unlockAllForTesting = true
-        if (unlockAllForTesting) return true
-
         if (profile.isPremium) return true
         if (profile.unlockedLevelIds.contains(levelId)) return true
         val targetIndex = levelRegistry.indexOfFirst { it.id == levelId }

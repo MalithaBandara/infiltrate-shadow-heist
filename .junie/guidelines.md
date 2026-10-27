@@ -132,14 +132,13 @@ after adding setup code; move another block into a local `fun` (or a file, as `M
 
 - **Build number lives in THREE places - bump together**: `ios-shell/project.yml`
   `CFBundleVersion`, `ios-testflight.yml`'s `build_number` default, `android-shell` `versionCode`.
-- **Currently**: Android `versionCode` 25 / `versionName` "1.1.0", iOS `CFBundleVersion` 25 /
-  "1.1.0" (2026-10-27: a TEST build - all levels unlocked, test ad units - with the retuned time
-  targets, checkpoint coverage test, objectives moved left and no music under ads). Build 24 was the
-  production build for both stores.
-- **Build 25 has every level unlocked** ("make a test build with all levels unlocked"):
-  `unlockAllForTesting` is back at the top of `InMemoryGameProfileStorage.isLevelUnlocked` and
-  `testGameProfileStorageLevelUnlockingProgression` is `@Ignore`d. **Take both out before a store
-  build** (as build 24 did). Normal rule: a fresh profile unlocks only `level_1` and finishing a level
+- **Currently**: Android `versionCode` 26 / `versionName` "1.1.0", iOS `CFBundleVersion` 26 /
+  "1.1.0" (2026-10-27: the PRODUCTION build - levels unlock in order, real ad units - adding the
+  launch intro video, the laser hit fix and the coin-pack toast fix on top of build 25's retuned time
+  targets, checkpoints, objectives moved left and no music under ads). Build 25 was a test build
+  (every level unlocked, test ads); 24 the previous production build.
+- **Level unlocking** (build 25 had an `unlockAllForTesting` override plus an `@Ignore`d
+  `testGameProfileStorageLevelUnlockingProgression`; both gone again in 26). Normal rule: a fresh profile unlocks only `level_1` and finishing a level
   unlocks the next (premium unlocks all); `LevelSelectScreen` asks `profileStorage.isLevelUnlocked(...)`,
   the single gate; its premium gate (`id.contains("dlc")`) is separate.
 - **RevenueCat `purchases-kmp-core` 3.10.1** (since 2026-10-23; Play Console's SDK warning: 3.6.0 can log
@@ -147,8 +146,8 @@ after adding setup code; move another block into a local `fun` (or a file, as `M
   carry it - "upgrade to 3.10.0+"). Build 24 is the first release with it: the Android release
   classpath resolves `purchases-kmp-core` 3.10.1 / `purchases` 10.22.1, and `ios-build.yml`'s
   on-simulator RevenueCat verification passed on it.
-- **Ads are on TEST units** (`USE_TEST_ADS = true`, both platforms) in build 25, a test build. Build
-  24 shipped real units; flip both back to `false` for the next production build - see Ads.
+- **Ads are on REAL units** (`USE_TEST_ADS = false`, both platforms) in build 26, a production
+  build; build 25 (a test build) was on test units - see Ads.
 - All 12 levels are listed (`.take(12)` in `LevelSelectScreen.kt`, `MainMenuScreen.kt`,
   `GameplayScene.kt`). From the Google Play approval gating (2026-09-25) what remains: "Coming Soon"
   chapter placeholders removed (layout-preserving spacers) and Settings showing English/French only
@@ -190,6 +189,8 @@ Build 19 ships REAL ad units because the TestFlight binary is the one submitted.
   `StoreScreen.kt`'s coin packs; Android wired via `InfiltrateApplication.kt`, iOS via
   `AppDelegate.swift` + `StoreBilling.ios.kt`. On success `profileStorage.addCoins(pack.amount)`
   credits a plain local integer - RevenueCat validates the money, local storage owns the balance.
+  Its toast is `Localization.coinsPurchased` ("PURCHASE COMPLETE! +N COINS"); it used to borrow the
+  ad pack's `adWatchedCoins` ("Ad watched!") - fixed 2026-10-27, after build 25.
   RevenueCat's Virtual Currency is deliberately unused (no backend; most grants are gameplay). No
   paywall UI in `:game`'s scenes.
 
@@ -235,8 +236,8 @@ kotlin {
 JVM falls back to Google's published test IDs (rewarded and interstitial test IDs differ - don't
 reuse one for the other).
 
-**Both platforms are on TEST units in build 25** (`USE_TEST_ADS = true` in `AdUnitIds.android.kt`
-and `AdUnitIds.ios.kt`; build 24 was on real units). Flip both to `true` for any Play Internal/Closed track or TestFlight build
+**Both platforms are on REAL units in build 26** (`USE_TEST_ADS = false` in `AdUnitIds.android.kt`
+and `AdUnitIds.ios.kt`; test build 25 was on test units). Flip both to `true` for any Play Internal/Closed track or TestFlight build
 (invited testers clicking real ads violates AdMob policy) - not automatic; grep `USE_TEST_ADS` before
 a build. **It is the first thing to check when ads "don't work" on one platform** - a fresh real unit
 no-fills for a while; test units always fill.
@@ -446,7 +447,11 @@ the ground has nothing below it, so filling a squarer screen means magnifying.)
   whenever the window is taller than wide (towards the last landscape side). Safe-area insets are
   published as the stage sees them (`stageSafeAreaInsets`). KorGE's GLKView is made to follow its
   controller's bounds (it otherwise keeps the size UIScreen had at launch). CI's iPad simulator step
-  logs `HOST:` lines and screenshots `ipad_menu.png`/`ipad_gameplay.png`. Not yet seen on a real iPad.
+  logs `HOST:` lines and screenshots `ipad_menu.png`/`ipad_gameplay.png` - but that simulator runs
+  Full Screen Apps and hands over a wide window even booted upright, so it never shows the case.
+  **Owner, 2026-10-27 (iPadOS 26.5, build 25): a portrait window happens only in Windowed Apps mode,
+  where the game shows letterboxed - accepted as is, "no need to do anything".** Windowed mode
+  ignores the app's orientations by design; the app cannot force the window's shape.
 - **Gameplay safe areas**: `GameplayScene`'s `edgeInset`/`bottomInset` (46/38) are floors; a
   reported inset + 12 wins where larger. Android reports
   `displayCutout() | mandatorySystemGestures()` (not the full `systemGestures()`). **The TOP is ignored in landscape**
@@ -474,6 +479,17 @@ the ground has nothing below it, so filling a squarer screen means magnifying.)
     `SUBJECT_TRAILING_EDGE` strip (the silhouette spans 0.78..0.87 of the frame; stays ~4% clear of
     the edge). **Compose trap**: `Box(contentAlignment = TopEnd)` can't align an oversized child (the
     box grows to the child) - put `wrapContentSize(align, unbounded = true)` on the CHILD.
+  - **Launch intro** (`ui/IntroVideo.kt`, 2026-10-27): `intro.mp4` (re-encoded from the owner's
+    `final.mp4`, trimmed to 59.5s where its audio has faded; in `android-shell/.../res/raw` and
+    `ios-shell/Resources`), then a hard cut to `logo_main` for 2.2s, then the menu. A tap anywhere
+    skips to the menu. Cold launch only (`IntroState.played` - `NavigationRoot` is rebuilt after
+    every level); menu, menu video and `MenuMusic` aren't composed until it ends. Sound at the music
+    volume. **Per-shot crop**: `INTRO_SHOTS` holds a safe rect per shot (keep them <= ~0.75 wide,
+    <= ~0.8 tall so 4:3 and 19.5:9 still fill), `introVideoBoxFor` covers the screen unless that
+    cuts the safe rect, then black bars; crop changes only at cuts/black. Desktop plays it through
+    JavaFX, reading the `android-shell/.../res/raw` copy - never put it in `resources/`, which both
+    apps bundle whole (a double copy on Android, a name clash in the iOS bundle root).
+    Tests: `IntroVideoTest`. Not yet seen on a device.
   - **Dossier card** (`dossierCardWidthFor`): `DOSSIER_HEIGHT_FRACTION` 0.37 of height,
     `DOSSIER_MAX_WIDTH_FRACTION` 0.35 (binds on tablets), `DOSSIER_MAX_SCALE` 1.0 (no upscaling).
 - Verified on JVM desktop (`-PwindowSize=`) at 4:3/16:9/21:9/7:6 on levels 1, 4, 7 and menus at
@@ -1310,6 +1326,14 @@ Ground `y = 440`, `worldWidth = 8600`, exit `x = 7680`, `backgroundImage = "meta
 - Belt `speed = -45` against the player (net walk 87 px/s, crouch crawl 20). Floor crates (68x48)
   ride it; four hanging crates (`isHanging`, some bobbing) force crouch-slides under two (crate top
   366 vs hanging bottom 340 = 26 of air; a crouching head clears by 18).
+- **A laser kills only what touches its drawn core** (every level, 2026-10-27: "it counts it as
+  touching if i am very close to it ... especially in lasers that are diagonal"):
+  `Laser.intersectsPlayer` is the exact distance from the beam's centre line to the body <= half of
+  `Laser.coreThickness` (the drawn core, `beamThickness * 0.55` clamped 2..4 - `LaserFxAssets` draws
+  it from the same property), and GameWorld hands in `laserBody` - the centre `footWidth` column
+  (~21.6 of the 36-wide box, the same column as `crushBox`), for the player and the prisoner. It was
+  the whole box grown by half of `beamThickness` (6) as a square, so a slanted beam past an empty
+  corner of the box killed from several units off. `LaserHitTest`. Not seen on a screen.
 - Eight timed lasers (`Laser.kt`). The beam texture (`LaserFxAssets.beamBitmap`, all levels) is 4x16
   and mipmapped (2x64 unmipmapped broke slanted beams into dots).
 - **The game's metre scale is defined here, in wall decals only**: six stencils `wall_{150..0}m.png`

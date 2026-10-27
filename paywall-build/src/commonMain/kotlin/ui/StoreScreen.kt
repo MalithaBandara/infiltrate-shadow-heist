@@ -493,7 +493,7 @@ fun StoreScreen(
                                             if (success) {
                                                 profileStorage.addCoins(pack.amount)
                                                 refreshProfile()
-                                                showToast(Localization.adWatchedCoins(pack.amount, language), true)
+                                                showToast(Localization.coinsPurchased(pack.amount, language), true)
                                             } else {
                                                 showToast(errorMsg ?: Localization.purchaseCancelled(language), false)
                                             }

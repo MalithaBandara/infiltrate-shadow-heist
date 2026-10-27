@@ -56,6 +56,18 @@ fun NavigationRoot(
     var musicVolume by remember { mutableStateOf(profileStorage.getProfile().musicVolume) }
     var sfxVolume by remember { mutableStateOf(profileStorage.getProfile().sfxVolume) }
     var currentLanguage by remember { mutableStateOf(profileStorage.getProfile().language) }
+
+    // Cold launch only: the intro video, then the logo, then this menu. The menu, its video and
+    // its music are not composed at all until then, so nothing plays under the intro's own sound.
+    var introDone by remember { mutableStateOf(IntroState.played) }
+    if (!introDone) {
+        IntroSequence(volume = musicVolume, onDone = {
+            IntroState.played = true
+            introDone = true
+        })
+        return
+    }
+
     MenuMusic(volume = musicVolume)
 
     // The click is provided here, alongside the music, and for the same reason: every menu
