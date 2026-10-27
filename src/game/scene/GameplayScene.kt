@@ -2334,8 +2334,14 @@ class GameplayScene(
         // 2026-10-19 (iOS: "too close to the corner"): the 8/6 margin sat under the rounded
         // screen corner and the notch side, so the margin is now 24/16 and the left safe-area
         // inset counts again.
+        // 2026-10-27 ("too much gap from the left end"): the left inset is out again and the
+        // margin is 16. In landscape the notch/Dynamic Island and a punch-hole camera sit at the
+        // MIDDLE of the side edge, well below this block, and iOS reports the same inset on both
+        // sides whichever way the phone is turned - so the inset only ever pushed the block in,
+        // up to ~70 units on an iPhone. What the top-left corner does have is the screen's
+        // rounding, which 16 across at 16 down still clears.
         val objPanel = hudLayer.container().xy(
-            OBJECTIVES_CORNER_X + safeInsets.left, OBJECTIVES_CORNER_Y + safeTopInset
+            OBJECTIVES_CORNER_X, OBJECTIVES_CORNER_Y + safeTopInset
         )
 
         val objTitle = objPanel.text(
@@ -5913,7 +5919,7 @@ class GameplayScene(
         internal const val CELL_FIGURE_MARGIN = 26.0
 
         /** The objectives block's top-left, from the screen's corner - see objPanel. */
-        internal const val OBJECTIVES_CORNER_X = 24.0
+        internal const val OBJECTIVES_CORNER_X = 16.0
         internal const val OBJECTIVES_CORNER_Y = 16.0
 
         /**

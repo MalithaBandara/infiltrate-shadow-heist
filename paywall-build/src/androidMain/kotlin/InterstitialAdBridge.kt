@@ -19,12 +19,19 @@ import app.lexilabs.basic.ads.composable.rememberInterstitialAd
 object InterstitialAdTrigger {
     internal val showRequested: MutableState<Boolean> = mutableStateOf(false)
 
+    // The ad counts as up (AdAudioCoordinator: menu music silent) from the request, not from when
+    // the ad composes: the request comes in the same tick the menu comes back, so the menu's
+    // music would otherwise start under the ad and only stop a frame later.
     fun requestShow() {
+        if (showRequested.value) return
         showRequested.value = true
+        AdAudioCoordinator.onAdStarted()
     }
 
     fun onAdClosed() {
+        if (!showRequested.value) return
         showRequested.value = false
+        AdAudioCoordinator.onAdDismissed()
     }
 }
 

@@ -83,8 +83,13 @@ actual fun MenuMusic(
 ) {
     val context = LocalContext.current
 
+    // Never started under a full-screen ad: the level-exit interstitial is requested in the same
+    // frame the menu comes back, so the menu's first composition can already be inside one. The
+    // LaunchedEffect below starts it when the ad closes.
     DisposableEffect(trackName, trackExtension) {
-        AndroidMusicPlayer.start(context, trackName, trackExtension, volume)
+        if (!com.infiltrate.ads.AdAudioCoordinator.isAdActive) {
+            AndroidMusicPlayer.start(context, trackName, trackExtension, volume)
+        }
         onDispose { AndroidMusicPlayer.stop() }
     }
 
@@ -99,7 +104,9 @@ actual fun MenuMusic(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> AndroidMusicPlayer.pause()
-                Lifecycle.Event.ON_RESUME -> AndroidMusicPlayer.start(context, trackName, trackExtension, volume)
+                Lifecycle.Event.ON_RESUME -> if (!com.infiltrate.ads.AdAudioCoordinator.isAdActive) {
+                    AndroidMusicPlayer.start(context, trackName, trackExtension, volume)
+                }
                 else -> {}
             }
         }
