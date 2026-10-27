@@ -137,6 +137,6 @@ actual fun IntroVideoPlayer(
         modifier = modifier,
         // A native view takes the touches that land on it, and the video covers the whole screen,
         // so IntroSequence's tap-to-skip would never fire. Leave the touches to Compose.
-        properties = UIKitInteropProperties(isInteractive = false)
+        properties = UIKitInteropProperties(isInteractive = false, isNativeAccessibilityEnabled = false)
     )
 }
