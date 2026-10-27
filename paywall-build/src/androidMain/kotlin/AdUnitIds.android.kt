@@ -11,7 +11,7 @@ package com.infiltrate.ads
 // a single, impossible-to-miss switch at the top of the file is harder to forget than six separate
 // edits across two files. Flip to false before any Open testing/production build; flip back to
 // true if further Internal/Closed testing is needed afterward.
-private const val USE_TEST_ADS = true
+private const val USE_TEST_ADS = false
 
 actual object AdUnitIds {
     actual val REWARDED_CONTINUE: String =

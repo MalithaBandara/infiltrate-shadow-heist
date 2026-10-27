@@ -386,7 +386,7 @@ class LaserVisual(
                     .xy(0.0, -unitThickness / 2.0)
 
                 // 3. Thinner, sharper laser beam spanning from emitter nozzle to receiver nozzle
-                val coreThickness = (laser.beamThickness * 0.55).coerceIn(2.0, 4.0)
+                val coreThickness = laser.coreThickness
                 val hazeThickness = (laser.beamThickness * 1.50).coerceIn(5.0, 10.0)
 
                 val beamHaze = emitterCont.image(LaserFxAssets.beamBitmap)

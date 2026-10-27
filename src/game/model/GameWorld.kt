@@ -762,11 +762,18 @@ data class GameWorld(
      * 36-unit collision box (Player.footWidth), so a crusher is judged on that centre span - one
      * coming down in front of the chest, clear of the drawn body, is a miss.
      */
-    private fun crushBox(): Rect {
-        val b = player.bounds
-        val w = player.footWidth
+    /**
+     * The body a laser has to touch: the drawn figure's column, [Player.footWidth] (~21.6) wide in
+     * the middle of the 36-wide box - the same column [crushBox] judges, for the same reason (the
+     * box is wider than anything drawn). See [Laser.intersectsPlayer].
+     */
+    internal fun laserBody(p: Player): Rect {
+        val b = p.bounds
+        val w = p.footWidth
         return Rect(b.x + (b.width - w) / 2.0, b.y, w, b.height)
     }
+
+    private fun crushBox(): Rect = laserBody(player)
 
     /**
      * The body as a load coming down meets it, as the parts actually drawn. Standing, that is
@@ -2648,7 +2655,7 @@ data class GameWorld(
             // The prisoner too: he goes nowhere the player cannot (level 12, 2026-10-21 "make it so
             // that prisoner doesnt have to go through stuff the player cannot go"). The player's
             // gadgets do not cover him, as with the eyes above.
-            val laserPb = prisoner?.takeIf { it.isFree && !it.hasEscaped }?.bounds
+            val laserPb = prisoner?.takeIf { it.isFree && !it.hasEscaped }?.let { laserBody(it.body) }
             if (laserPb != null && lasers.any { it.intersectsPlayer(laserPb) }) {
                 onLaserHit?.invoke()
                 losePrisoner()
@@ -2656,7 +2663,7 @@ data class GameWorld(
             }
             if (laserGraceTimer <= 0.0) {
                 for (laser in lasers) {
-                    if (!activePowerups.isInvisibilityActive && laser.intersectsPlayer(player.bounds)) {
+                    if (!activePowerups.isInvisibilityActive && laser.intersectsPlayer(laserBody(player))) {
                         if (activePowerups.isLaserShieldActive) {
                             activePowerups.consumeLaserShield()
                             laserGraceTimer = 1.2

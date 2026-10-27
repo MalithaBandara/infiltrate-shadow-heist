@@ -842,10 +842,6 @@ class GameplayModelTest {
     }
 
     @Test
-    // TEMPORARILY DISABLED: GameProfile.kt's isLevelUnlocked() has a temporary "unlock all
-    // levels for testing" override (see the unlockAllForTesting flag there). Re-enable this test
-    // when that flag is removed - the progression logic below it is unchanged.
-    @Ignore
     fun testGameProfileStorageLevelUnlockingProgression() {
         val levelStorage = InMemoryLevelStorage()
         val profileStorage = InMemoryGameProfileStorage()
@@ -3477,12 +3473,20 @@ class GameplayModelTest {
         assertTrue(gameOverFired, "onGameOver callback triggered for mission failed screen")
         assertTrue(world.isGameOver, "Touching laser sets isGameOver to true")
 
-        // In a world without restartOnConveyorFallOff, laser hit triggers spotted game over
+        // In a world without restartOnConveyorFallOff, laser hit triggers spotted game over.
+        // The beam goes through the middle of where the body settles on its first tick (level 1's
+        // geometry shoves a body placed at 210 to ~221): a laser hits the drawn body
+        // (GameWorld.laserBody), not the edge of the 36-wide box.
+        val probe = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1)
+        probe.player.x = 210.0
+        probe.player.y = 318.0
+        probe.update(0.01, 0.0, false)
+        val beamX = probe.player.x + probe.player.width / 2.0
         val testLaser = Laser(
             id = "laser_barrier",
-            topX = 220.0,
+            topX = beamX,
             topY = 150.0,
-            bottomX = 220.0,
+            bottomX = beamX,
             bottomY = 414.0
         )
         val regularWorld = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_1).copy(lasers = listOf(testLaser))

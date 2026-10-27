@@ -200,19 +200,23 @@ class Laser(
         isAlwaysActive = isAlwaysActive
     )
 
+    /** The bright core the scene draws (LaserFxAssets) - what a body has to touch to be hit. */
+    val coreThickness: Double get() = (beamThickness * 0.55).coerceIn(2.0, 4.0)
+
     /**
-     * Accurate collision detection against the player bounding box, accounting for beam thickness.
+     * Whether [body] touches the drawn core: the beam's centre line comes within half of
+     * [coreThickness] of the rect. GameWorld hands in the body as drawn ([GameWorld.laserBody]),
+     * not the 36-wide collision box.
+     *
+     * Before 2026-10-27 ("even though i am not touching the laser, it counts it as touching if i
+     * am very close to it ... especially in lasers that are diagonal") it was the whole box
+     * grown by half of [beamThickness] (6, nearly twice the 3.3 core) on every side - a square
+     * grown at the corners too, so a slanted beam passing a corner of the box, where nothing of
+     * the figure is drawn, killed from several units off.
      */
-    fun intersectsPlayer(playerBounds: Rect): Boolean {
+    fun intersectsPlayer(body: Rect): Boolean {
         if (!isActive) return false
-        val halfThick = beamThickness / 2.0
-        val expandedPlayer = Rect(
-            x = playerBounds.x - halfThick,
-            y = playerBounds.y - halfThick,
-            width = playerBounds.width + beamThickness,
-            height = playerBounds.height + beamThickness
-        )
-        return expandedPlayer.intersectsSegment(beamSegment)
+        return distanceToSegment(body, Vec2d(topX, topY), Vec2d(bottomX, bottomY)) <= coreThickness / 2.0
     }
 
     /**
@@ -259,4 +263,24 @@ class Laser(
         isActive = true
         isDisabled = false
     }
+}
+
+/** Shortest distance from [r] to the segment [a]..[b] (0 when they touch or cross). */
+internal fun distanceToSegment(r: Rect, a: Vec2d, b: Vec2d): Double {
+    if (r.intersectsSegment(Segment2d(a, b))) return 0.0
+    fun pointToSegment(p: Vec2d): Double {
+        val d = b - a
+        val len2 = d.lengthSquared()
+        val t = if (len2 == 0.0) 0.0 else (((p.x - a.x) * d.x + (p.y - a.y) * d.y) / len2).coerceIn(0.0, 1.0)
+        return p.distanceTo(Vec2d(a.x + d.x * t, a.y + d.y * t))
+    }
+    fun pointToRect(p: Vec2d): Double {
+        val dx = max(max(r.left - p.x, 0.0), p.x - r.right)
+        val dy = max(max(r.top - p.y, 0.0), p.y - r.bottom)
+        return sqrt(dx * dx + dy * dy)
+    }
+    return minOf(
+        minOf(pointToRect(a), pointToRect(b)),
+        minOf(minOf(pointToSegment(r.topLeft), pointToSegment(r.topRight)), minOf(pointToSegment(r.bottomLeft), pointToSegment(r.bottomRight)))
+    )
 }
