@@ -132,11 +132,15 @@ after adding setup code; move another block into a local `fun` (or a file, as `M
 
 - **Build number lives in THREE places - bump together**: `ios-shell/project.yml`
   `CFBundleVersion`, `ios-testflight.yml`'s `build_number` default, `android-shell` `versionCode`.
-- **Currently**: Android `versionCode` 26 / `versionName` "1.1.0", iOS `CFBundleVersion` 26 /
-  "1.1.0" (2026-10-27: the PRODUCTION build - levels unlock in order, real ad units - adding the
-  launch intro video, the laser hit fix and the coin-pack toast fix on top of build 25's retuned time
-  targets, checkpoints, objectives moved left and no music under ads). Build 25 was a test build
-  (every level unlocked, test ads); 24 the previous production build.
+- **Currently**: Android `versionCode` 27 / `versionName` "1.1.0", iOS `CFBundleVersion` 27 /
+  "1.1.0" (2026-10-27: PRODUCTION build 27 = build 26 plus the iOS fix for tapping to skip the
+  launch intro - the intro's `UIKitView` is non-interactive so taps reach Compose). Build 26 was the
+  production build adding the launch intro video, the laser hit fix and the coin-pack toast fix on
+  top of build 25's retuned time targets, checkpoints, objectives moved left and no music under ads.
+  Build 25 was a test build (every level unlocked, test ads); 24 the production build before 26.
+- **iOS interop views take the touches that land on them** - a full-screen `UIKitView` under a
+  Compose `clickable` swallows its taps unless given
+  `UIKitInteropProperties(isInteractive = false)` (`androidx.compose.ui.viewinterop`).
 - **Level unlocking** (build 25 had an `unlockAllForTesting` override plus an `@Ignore`d
   `testGameProfileStorageLevelUnlockingProgression`; both gone again in 26). Normal rule: a fresh profile unlocks only `level_1` and finishing a level
   unlocks the next (premium unlocks all); `LevelSelectScreen` asks `profileStorage.isLevelUnlocked(...)`,

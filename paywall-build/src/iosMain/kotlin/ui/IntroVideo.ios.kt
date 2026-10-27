@@ -8,7 +8,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.interop.UIKitView
+import androidx.compose.ui.viewinterop.UIKitInteropProperties
+import androidx.compose.ui.viewinterop.UIKitView
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.CValue
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -133,6 +134,9 @@ actual fun IntroVideoPlayer(
         update = { view ->
             view.playerLayer?.frame = view.bounds
         },
-        modifier = modifier
+        modifier = modifier,
+        // A native view takes the touches that land on it, and the video covers the whole screen,
+        // so IntroSequence's tap-to-skip would never fire. Leave the touches to Compose.
+        properties = UIKitInteropProperties(isInteractive = false)
     )
 }
