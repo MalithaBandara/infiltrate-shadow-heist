@@ -132,24 +132,23 @@ after adding setup code; move another block into a local `fun` (or a file, as `M
 
 - **Build number lives in THREE places - bump together**: `ios-shell/project.yml`
   `CFBundleVersion`, `ios-testflight.yml`'s `build_number` default, `android-shell` `versionCode`.
-- **Currently**: Android `versionCode` 24 / `versionName` "1.1.0", iOS `CFBundleVersion` 24 /
-  "1.1.0" (2026-10-27: the rebuilt level 12, chain and door sounds, a production build for both stores).
-- **Level progression is ON**: `unlockAllForTesting` (`GameProfile.isLevelUnlocked`, "unlock all
-  levels for now", 2026-10-03) was deleted for build 24 ("put the level activating method (levels
-  activating only when previous one is done) back again") and
-  `testGameProfileStorageLevelUnlockingProgression` runs again. A fresh profile unlocks only `level_1`
-  and finishing a level unlocks the next (premium unlocks all); `LevelSelectScreen` asks
-  `profileStorage.isLevelUnlocked(...)`, the single gate; its premium gate (`id.contains("dlc")`) is
-  separate. To unlock everything again for testing, return `true` at the top of that function - and
-  take it out before a store build.
+- **Currently**: Android `versionCode` 25 / `versionName` "1.1.0", iOS `CFBundleVersion` 25 /
+  "1.1.0" (2026-10-27: a TEST build - all levels unlocked, test ad units - with the retuned time
+  targets, checkpoint coverage test, objectives moved left and no music under ads). Build 24 was the
+  production build for both stores.
+- **Build 25 has every level unlocked** ("make a test build with all levels unlocked"):
+  `unlockAllForTesting` is back at the top of `InMemoryGameProfileStorage.isLevelUnlocked` and
+  `testGameProfileStorageLevelUnlockingProgression` is `@Ignore`d. **Take both out before a store
+  build** (as build 24 did). Normal rule: a fresh profile unlocks only `level_1` and finishing a level
+  unlocks the next (premium unlocks all); `LevelSelectScreen` asks `profileStorage.isLevelUnlocked(...)`,
+  the single gate; its premium gate (`id.contains("dlc")`) is separate.
 - **RevenueCat `purchases-kmp-core` 3.10.1** (since 2026-10-23; Play Console's SDK warning: 3.6.0 can log
   users out when updating from before 3.0.0, and from 2027-01-20 no production/open-testing release may
   carry it - "upgrade to 3.10.0+"). Build 24 is the first release with it: the Android release
   classpath resolves `purchases-kmp-core` 3.10.1 / `purchases` 10.22.1, and `ios-build.yml`'s
   on-simulator RevenueCat verification passed on it.
-- **Ads are on REAL units** (`USE_TEST_ADS = false`, both platforms) since build 24 - asked: real
-  units for this production build. Build 23 had shipped test units. TestFlight testers must not tap
-  them - see Ads.
+- **Ads are on TEST units** (`USE_TEST_ADS = true`, both platforms) in build 25, a test build. Build
+  24 shipped real units; flip both back to `false` for the next production build - see Ads.
 - All 12 levels are listed (`.take(12)` in `LevelSelectScreen.kt`, `MainMenuScreen.kt`,
   `GameplayScene.kt`). From the Google Play approval gating (2026-09-25) what remains: "Coming Soon"
   chapter placeholders removed (layout-preserving spacers) and Settings showing English/French only
@@ -236,8 +235,8 @@ kotlin {
 JVM falls back to Google's published test IDs (rewarded and interstitial test IDs differ - don't
 reuse one for the other).
 
-**Both platforms are on REAL units** (`USE_TEST_ADS = false` in `AdUnitIds.android.kt` and
-`AdUnitIds.ios.kt`). Flip both to `true` for any Play Internal/Closed track or TestFlight build
+**Both platforms are on TEST units in build 25** (`USE_TEST_ADS = true` in `AdUnitIds.android.kt`
+and `AdUnitIds.ios.kt`; build 24 was on real units). Flip both to `true` for any Play Internal/Closed track or TestFlight build
 (invited testers clicking real ads violates AdMob policy) - not automatic; grep `USE_TEST_ADS` before
 a build. **It is the first thing to check when ads "don't work" on one platform** - a fresh real unit
 no-fills for a while; test units always fill.
@@ -337,6 +336,16 @@ outside the show gate so the fetch starts at first composition, reloading whenev
   dashboard cap. Plain per-platform files: Android's `MainActivity.kt` flips the menu regardless of
   the ad; iOS's `GameLevelExitBridge` is polled by `AppDelegate.swift`'s `startObservingLevelEnd()`,
   gated on `showRequested` with both hazard branches. **Never run on a device on either platform.**
+- **No app audio under a full-screen ad - `AdAudioCoordinator`** (menu music and the iOS menu video
+  pause on `isAdActive`). The interstitial counts as up from `InterstitialAdTrigger.requestShow()`
+  to `onAdClosed()` (both platforms, idempotent): it is requested in the same tick the menu comes
+  back, so marking it from the ad's composition let the menu music start under it (2026-10-27,
+  "game background audio plays inside interstitial ads"; Android's interstitial never reported to
+  the coordinator at all and relied on `onPause`). `MenuMusic` never starts while an ad is active
+  (first composition and Android `ON_RESUME`); its `LaunchedEffect` starts it when the ad closes.
+  Android's continue ad reports too, like iOS's. Gameplay music/ambience is already stopped
+  (`stopBgMusic`) before any return to the menu. Not heard on a device; iOS side compile-checked
+  only in CI.
 
 ## Native iOS shell (`ios-shell/`) - works on a real Simulator in CI
 
@@ -508,6 +517,13 @@ the ground has nothing below it, so filling a squarer screen means magnifying.)
   the floor. A respawn clears `touchedGround`. `testEveryAutomaticCheckpointHoldsTheBodyAfterAContinue`
   (levels 1, 2, 5; 3/4/8/9's autopilots live elsewhere). Every respawn resets a hook crate with
   `reset(atSweepClock = sweepClock)` so the rig keeps its phase against the level clock.
+- **Every level has checkpoints - `CheckpointCoverageTest`** (2026-10-27) follows all 12 clean
+  walkthroughs tick by tick (`GameWorld.tickObserver`, a test hook): each takes a checkpoint, a
+  manual level takes all of its own, and no death replays more than 45s of the clean run (measured
+  from when the player last stood within 120 of his respawn - not time between checkpoints: level
+  8 waits ~40s by its last one). Manual: 5, 6, 7, 10, 11, 12; automatic (every 250 on fixed footing):
+  1-4, 8, 9. Worst stretch is level 11's beat 5 (~40s clearing the way while he waits at the pen) -
+  no checkpoint while he is on lift_2 because a respawn switches the rover back on.
 - **`createFromLayout` copies every stateful def** (`.map { it.copy() }` on `layout.levers`/
   `layout.hookCrates`): two worlds built from one layout `val` used to share lever objects, so one
   test's thrown lever broke a later one. Partial/up-to-date runs hide this class of bug - re-verify
@@ -777,40 +793,48 @@ if not); AVOID kinds cross when it happens (ticked at the exit). `bonusObjective
   that raise the alert; the search is slow - the owner stopped one run).
 
 **Star 3 = `timeTaken <= LevelData.timeTargetSeconds`**, shown on the results card only - **the HUD
-does NOT list the time target** (owner; `Localization.finishUnder` removed). Target = the autopilot's
-clean run x ~1.4, rounded up to 5s (levels 1 and 5, short and mostly running, get ~15s flat slack).
-The autopilot never hesitates, so its time is a floor (old targets below it were impossible). Not
-timed with a person.
+does NOT list the time target** (owner; `Localization.finishUnder` removed). **Rule (2026-10-27, "make
+sure they are generous enough ... consider the tutorial reading time"): target = the autopilot's clean
+run x 1.6 + `LevelData.tutorialReadingSeconds`, rounded up to 5s.** The autopilot never hesitates or
+reads, so its time is a floor; the level clock runs while a tutorial prompt is up, so reading counts:
+`TutorialStep.readingSeconds` = (title + touch instruction + callout words) / 3 wps + 1s. Not timed
+with a person.
 
-| level | clean run | target | timed by |
-| --- | --- | --- | --- |
-| 1 | 28.8s | 45 | `LevelWalkthroughTest` |
-| 2 | 42.2s | 60 | `LevelWalkthroughTest` |
-| 3 | 46.1s (17s of it holding) | 65 | `LevelWalkthroughTest` |
-| 4 | 116.9s | 165 | `testLevel4SimulationPlayable` |
-| 5 | 19.2s | 35 | `LevelWalkthroughTest` |
-| 6 | 65.3s | 95 | `LevelWalkthroughTest` |
-| 7 | 107.7s | 155 | `testLevel7SimulationPlayableWalkthrough` |
-| 8 | 130.2s | 180 | `testLevel8IsBeatableOnTheGroundRoad` |
-| 9 | 106.1s | 180 | `testLevel9IsBeatableWithoutTouchingTheGround` |
-| 10 | 151.5s | 190 | `testLevel10SimulationPlayableWalkthrough` |
-| 11 | 122.4s | 195 | `Level11EscortTest.testLevel11IsBeatableAsAnEscort` |
-| 12 | 157.5s | 230 | `Level12EscapeTest.testLevel12IsBeatableAsAnEscape` |
+| level | clean run | reading | target (was) | timed by |
+| --- | --- | --- | --- | --- |
+| 1 | 28.8s | 31.3s | 80 (45) | `LevelWalkthroughTest` |
+| 2 | 42.2s | 0 | 70 (60) | `LevelWalkthroughTest` |
+| 3 | 46.1s (17s of it holding) | 7.7s | 85 (65) | `LevelWalkthroughTest` |
+| 4 | 116.9s | 0 | 190 (165) | `testLevel4SimulationPlayable` |
+| 5 | 19.2s | 15.3s | 50 (35) | `LevelWalkthroughTest` |
+| 6 | 65.3s | 0 | 105 (95) | `LevelWalkthroughTest` |
+| 7 | 108.0s | 13.7s | 190 (155) | `testLevel7SimulationPlayableWalkthrough` |
+| 8 | 130.2s | 15.7s | 225 (180) | `testLevel8IsBeatableOnTheGroundRoad` |
+| 9 | 106.1s | 10.0s | 180 (180) | `testLevel9IsBeatableWithoutTouchingTheGround` |
+| 10 | 151.5s | 5.3s | 250 (190) | `testLevel10SimulationPlayableWalkthrough` |
+| 11 | 122.4s | 0 | 200 (195) | `Level11EscortTest.testLevel11IsBeatableAsAnEscort` |
+| 12 | 157.5s | 0 | 255 (230) | `Level12EscapeTest.testLevel12IsBeatableAsAnEscape` |
 
+- Levels 8 and 9 were both 180 by the owner's call (2026-09-29); the rule split them (8 -> 225).
 - `test/LevelWalkthroughTest.kt` holds the walkthroughs for 1, 2, 3, 5, 6 - one general
   `Runner.runRight` policy (crouch under head-only ceilings, jump when blocked = the climb, jump a gap
   at its lip, hold at a lip for a moving crate/lift, swing a hook in reach, throw a lever underfoot)
-  plus level 6's own legs - and `assertPace`, pinning each target to `MIN_TARGET_OVER_CLEAN_RUN`
-  (1.25) .. `MAX_TARGET_OVER_CLEAN_RUN` (2.0) x the clean run. 4/7/8/9's times are constants there
-  (`cleanRunsMeasuredElsewhere`) - update them with the level's own test. **After changing a level's
-  route or timing, re-run its walkthrough and re-pick the target** (failures read "not reachable by
-  hand" / "would not ask for a clean run").
+  plus level 6's own legs - and `LevelWalkthroughTest.assertTargetIsGenerous` (every level's
+  walkthrough calls it, 10/11/12 from their own), pinning each target to `MIN_TARGET_OVER_CLEAN_RUN`
+  (1.5) .. `MAX_TARGET_OVER_CLEAN_RUN` (2.0) x the clean run + reading; it prints `PACE` lines with what
+  the rule picks. 4/7/8/9's times are constants there (`cleanRunsMeasuredElsewhere`) - update them
+  with the level's own test. **After changing a level's route, timing or tutorial text, re-run its
+  walkthrough and re-pick the target.**
 - The autopilot's crouch rule must skip `floatingClimbTargets`, or it ducks under level 3's table.
 
 ## HUD, overlays, gadgets
 
-- **Objectives panel** (`objPanel`): Bebas Neue (Inter was rejected), at `OBJECTIVES_CORNER_X/Y` (8, 6) with no
-  left safe-area inset ("move it very close to corner" - it may sit over a camera cutout).
+- **Objectives panel** (`objPanel`): Bebas Neue (Inter was rejected), at `OBJECTIVES_CORNER_X/Y` (16, 16 +
+  top inset) with NO left safe-area inset (2026-10-27, "too much gap from the left end"). History: 8/6
+  with no inset ("move it very close to corner") was "too close to the corner" on iOS, 24/16 + the left
+  inset was then too far in - iOS reports the notch's inset on BOTH sides in landscape (~70 units),
+  and the notch/island/punch-hole sits mid-edge, below the block. Only the screen's corner rounding
+  matters up there. Not seen on a device.
 - **Gadget tray**: idle slot icon `resources/gadget_bolt.png` drawn 16x22 (deliberately wider than
   the source), recoloured via `colorMul`; `drawPowerupIcon` is the fallback. Icon centred both axes,
   count text white; a running gadget shows a white curtain draining top-to-bottom (alpha `0.14`,

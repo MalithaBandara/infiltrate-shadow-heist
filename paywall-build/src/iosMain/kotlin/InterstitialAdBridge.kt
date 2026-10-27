@@ -1,7 +1,6 @@
 package com.infiltrate.ads
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
@@ -23,12 +22,19 @@ import kotlin.native.ObjCName
 object InterstitialAdTrigger {
     internal val showRequested: MutableState<Boolean> = mutableStateOf(false)
 
+    // The ad counts as up (AdAudioCoordinator: menu music silent) from the request, not from when
+    // the ad composes: the request comes in the same tick the menu comes back, so the menu's
+    // music would otherwise start under the ad and only stop a frame later.
     fun requestShow() {
+        if (showRequested.value) return
         showRequested.value = true
+        AdAudioCoordinator.onAdStarted()
     }
 
     fun onAdClosed() {
+        if (!showRequested.value) return
         showRequested.value = false
+        AdAudioCoordinator.onAdDismissed()
     }
 
     /**
@@ -72,10 +78,6 @@ fun InterstitialAdContent() {
         return
     }
     if (InterstitialAdTrigger.showRequested.value) {
-        DisposableEffect(Unit) {
-            AdAudioCoordinator.onAdStarted()
-            onDispose { AdAudioCoordinator.onAdDismissed() }
-        }
         InterstitialAd(
             adUnitId = AdUnitIds.INTERSTITIAL_LEVEL_EXIT,
             onDismissed = { InterstitialAdTrigger.onAdClosed() },

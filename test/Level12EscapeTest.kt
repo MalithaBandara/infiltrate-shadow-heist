@@ -440,8 +440,7 @@ class Level12EscapeTest {
         assertEquals(0, e.deaths, e.report)
         assertEquals(ObjectiveState.MET, e.world.bonusObjectiveState, "a clean run is never seen")
         println("WALKTHROUGH level_12: ${"%.1f".format(e.t)}s (target ${LevelData.DEFAULT_LEVEL_12.timeTargetSeconds}s)")
-        val ratio = LevelData.DEFAULT_LEVEL_12.timeTargetSeconds / e.t
-        assertTrue(ratio in 1.25..2.0, "target should be 1.25..2.0x the clean run (${"%.1f".format(e.t)}s, ratio ${"%.2f".format(ratio)})")
+        LevelWalkthroughTest.assertTargetIsGenerous(LevelData.DEFAULT_LEVEL_12, e.t)
     }
 
     @Test

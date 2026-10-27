@@ -25,10 +25,10 @@ import platform.Foundation.NSURL
 private object IosMusicPlayer {
     private var player: AVAudioPlayer? = null
 
-    fun start(url: NSURL, volume: Float) {
+    fun start(url: NSURL, volume: Float, play: Boolean) {
         if (player != null) {
             setVolume(volume)
-            player?.play()
+            if (play) player?.play()
             return
         }
         val created = AVAudioPlayer(contentsOfURL = url, error = null)
@@ -37,7 +37,7 @@ private object IosMusicPlayer {
         created.numberOfLoops = (-1).convert()
         created.volume = volume.coerceIn(0f, 1f)
         created.prepareToPlay()
-        created.play()
+        if (play) created.play()
         player = created
     }
 
@@ -72,7 +72,10 @@ actual fun MenuMusic(
     }
 
     DisposableEffect(url) {
-        if (url != null) IosMusicPlayer.start(url, volume)
+        // Not played under a full-screen ad: the level-exit interstitial is requested as the menu
+        // comes back, so its first composition can already be inside one. The LaunchedEffect
+        // below plays it when the ad closes.
+        if (url != null) IosMusicPlayer.start(url, volume, play = !com.infiltrate.ads.AdAudioCoordinator.isAdActive)
         onDispose { IosMusicPlayer.stop() }
     }
 

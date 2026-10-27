@@ -493,7 +493,25 @@ data class TutorialStep(
     // that same rightward bow sweeps the curve out past the anchor and back through it,
     // visually cutting across whatever it's pointing at. Mirrors the bow to the left instead.
     val arrowBowsLeft: Boolean = false
-)
+) {
+    /**
+     * Seconds a person spends on this prompt that the autopilot never does: reading its title,
+     * instruction and callout at [READING_WORDS_PER_SECOND], plus [REACTION_SECONDS] to take it
+     * in and act. The level clock runs while a prompt is up, so star 3's target adds this
+     * ([LevelData.tutorialReadingSeconds]).
+     */
+    val readingSeconds: Double
+        get() {
+            val words = listOfNotNull(title, instructionTouch, handwrittenCallout).sumOf { it.split(' ').count(String::isNotBlank) }
+            return words / READING_WORDS_PER_SECOND + REACTION_SECONDS
+        }
+
+    companion object {
+        /** Slow on purpose: read on a phone, mid-level, with something else on screen. */
+        const val READING_WORDS_PER_SECOND = 3.0
+        const val REACTION_SECONDS = 1.0
+    }
+}
 
 data class LevelData(
     val id: String = "level_1",
@@ -560,6 +578,10 @@ data class LevelData(
      */
     val bonusObjective: BonusObjective? = null
 ) {
+    /** What this level's tutorial prompts cost a person to read - see [TutorialStep.readingSeconds]. */
+    val tutorialReadingSeconds: Double
+        get() = tutorialSteps.sumOf { it.readingSeconds }
+
     val resolvedBackgroundImage: String
         get() {
             if (backgroundImage != null) return backgroundImage
@@ -604,7 +626,9 @@ data class LevelData(
             name = "01: Night Arrival",
             // Autopilot clean run 28.8s (3900 units is 28s of pure walking); star 3 is that x1.5 -
             // a person needs the extra to read the crouch-under and the climbs. LevelWalkthroughTest.
-            timeTargetSeconds = 45.0f,
+            // Retuned 2026-10-27 to be generous (45.0s before): 28.8s x1.6 + 31.3s of tutorial reading,
+            // rounded up to 5 (LevelWalkthroughTest.TARGET_OVER_CLEAN_RUN; the clock runs while a prompt is up).
+            timeTargetSeconds = 80.0f,
             description = "Reach the shipyard under cover of darkness and find a way inside.",
             objectiveHint = "Find the Shipyard Entrance",
             bonusObjective = BonusObjective.BASIC_MOVES,
@@ -920,7 +944,9 @@ data class LevelData(
             name = "02: Cargo Yard",
             // Autopilot clean run 42.2s, including the wait for each moving container to come within
             // reach; x1.4. LevelWalkthroughTest.
-            timeTargetSeconds = 60.0f,
+            // Retuned 2026-10-27 to be generous (60.0s before): 42.2s x1.6,
+            // rounded up to 5 (LevelWalkthroughTest.TARGET_OVER_CLEAN_RUN; the clock runs while a prompt is up).
+            timeTargetSeconds = 70.0f,
             description = "Cross the empty container yard and reach the restricted section.",
             objectiveHint = "Find a Way Through the Yard",
             bonusObjective = BonusObjective.NO_DROP_FROM_HANGING_CRATES,
@@ -1886,7 +1912,9 @@ data class LevelData(
             name = "03: First Contact",
             // Autopilot clean run 46.1s, 17s of which is standing crouched waiting for the roof guard,
             // the overwatch pair and the cameras to look away; x1.4. LevelWalkthroughTest.
-            timeTargetSeconds = 65.0f,
+            // Retuned 2026-10-27 to be generous (65.0s before): 46.1s x1.6 + 7.7s of tutorial reading,
+            // rounded up to 5 (LevelWalkthroughTest.TARGET_OVER_CLEAN_RUN; the clock runs while a prompt is up).
+            timeTargetSeconds = 85.0f,
             description = "Security is active. Avoid guards and cameras to reach the conveyor belt.",
             objectiveHint = "Reach the Conveyor Belt",
             bonusObjective = BonusObjective.STAY_UNSEEN,
@@ -1924,7 +1952,9 @@ data class LevelData(
             name = "04: Moving Target",
             // Autopilot clean run 116.9s (7680 units against a belt that nets 87 u/s is 88s before a
             // single laser is waited on); x1.4. Was 115, which no clean run could meet.
-            timeTargetSeconds = 165.0f,
+            // Retuned 2026-10-27 to be generous (165.0s before): 116.9s x1.6,
+            // rounded up to 5 (LevelWalkthroughTest.TARGET_OVER_CLEAN_RUN; the clock runs while a prompt is up).
+            timeTargetSeconds = 190.0f,
             description = "Search the moving conveyor belt for Container 17 while avoiding lasers.",
             objectiveHint = "Cross the Conveyor Line",
             bonusObjective = BonusObjective.USE_A_GADGET,
@@ -2131,7 +2161,9 @@ data class LevelData(
             name = "05: The Crane Yard",
             // Autopilot clean run 19.2s (two swings, one lever); short enough that a person needs a
             // flat 15s more, not x1.4, to line up the swing run-ups. LevelWalkthroughTest.
-            timeTargetSeconds = 35.0f,
+            // Retuned 2026-10-27 to be generous (35.0s before): 19.2s x1.6 + 15.3s of tutorial reading,
+            // rounded up to 5 (LevelWalkthroughTest.TARGET_OVER_CLEAN_RUN; the clock runs while a prompt is up).
+            timeTargetSeconds = 50.0f,
             description = "Container 17 is gone. Search the crane yard for signs of where it went.",
             objectiveHint = "Cross the Crane Yard",
             bonusObjective = BonusObjective.SWING_FROM_A_HOOK,
@@ -2901,7 +2933,9 @@ data class LevelData(
             // Autopilot clean run 64.5s: swing, pit under the overwatch crate, the boom, the gantry
             // climb timed to the swinging crate and the plank guard, the plank lever; x1.45.
             // LevelWalkthroughTest.
-            timeTargetSeconds = 95.0f,
+            // Retuned 2026-10-27 to be generous (95.0s before): 65.3s x1.6,
+            // rounded up to 5 (LevelWalkthroughTest.TARGET_OVER_CLEAN_RUN; the clock runs while a prompt is up).
+            timeTargetSeconds = 105.0f,
             description = "The records revealing Container 17’s location are kept in the security building. Find a way in.",
             objectiveHint = "Reach the Security Building",
             bonusObjective = BonusObjective.STAY_UNSEEN,
@@ -3291,7 +3325,9 @@ data class LevelData(
             // (testLevel7SimulationPlayableWalkthrough - waiting out every doubtful window and
             // holding for any drone that has spotted it), and star 3 is that x1.4. 6160 units is
             // 46.7s of pure walking. LevelWalkthroughTest pins the ratio for every shipped level.
-            timeTargetSeconds = 155.0f,
+            // Retuned 2026-10-27 to be generous (155.0s before): 108.0s x1.6 + 13.7s of tutorial reading,
+            // rounded up to 5 (LevelWalkthroughTest.TARGET_OVER_CLEAN_RUN; the clock runs while a prompt is up).
+            timeTargetSeconds = 190.0f,
             description = "Avoid the heavily guarded security room through the underground service tunnel.",
             objectiveHint = "Reach the Security Desk",
             bonusObjective = BonusObjective.DISABLE_ALL_SECURITY_BOTS,
@@ -4211,7 +4247,9 @@ data class LevelData(
             // crate (up to a 16s camera cycle apiece), the climb behind the deck load, and the
             // double-length laser course with its three bots. 180 (three minutes, the owner's call
             // for both 8 and 9, 2026-09-29) is that x1.38 - room for a misread or two.
-            timeTargetSeconds = 180.0f,
+            // Retuned 2026-10-27 to be generous (180.0s before): 130.2s x1.6 + 15.7s of tutorial reading,
+            // rounded up to 5 (LevelWalkthroughTest.TARGET_OVER_CLEAN_RUN; the clock runs while a prompt is up).
+            timeTargetSeconds = 225.0f,
             description = "The guards moved Container 17. Follow the trail to its new location.",
             objectiveHint = "Track Down Container 17",
             bonusObjective = BonusObjective.NEVER_TOUCH_A_HANGING_CRATE,
@@ -4299,6 +4337,8 @@ data class LevelData(
             // the swing's slot coming up, the swing onto the deck load, the ride out, and the
             // double-length top course with its three bots. 180 - three minutes, the same as level 8
             // (owner, 2026-09-29) - is that x1.58: it also has to follow the figure, not race it.
+            // Re-checked 2026-10-27 (kept at 180): 106.1s x1.6 + 10.0s of tutorial reading,
+            // rounded up to 5 (LevelWalkthroughTest.TARGET_OVER_CLEAN_RUN; the clock runs while a prompt is up).
             timeTargetSeconds = 180.0f,
             description = "The trail feels strangely familiar, as if you’ve done this before.",
             objectiveHint = "Follow the Figure Without Touching the Ground",
@@ -4612,7 +4652,9 @@ data class LevelData(
             // LevelWalkthroughTest's rule (1.25..2.0x a clean autopilot run), at its tight end:
             // testLevel10SimulationPlayableWalkthrough clears it in 151.1s since the prison-cell
             // ending, most of that waiting on drones, room guards and the shorter steam windows.
-            timeTargetSeconds = 190.0f,
+            // Retuned 2026-10-27 to be generous (190.0s before): 151.5s x1.6 + 5.3s of tutorial reading,
+            // rounded up to 5 (LevelWalkthroughTest.TARGET_OVER_CLEAN_RUN; the clock runs while a prompt is up).
+            timeTargetSeconds = 250.0f,
             description = "Follow the underground tunnels in search of the person you were tracking.",
             objectiveHint = "Find the Prisoner in the Holding Cells",
             bonusObjective = BonusObjective.USE_EACH_SWITCH_ONCE,
@@ -4925,7 +4967,9 @@ data class LevelData(
             // person also has to work out each beat's doors, which the script knows. It was 132.8s
             // until the lifts stood on the duct floor (2026-10-26): lift_3 down 0.3s sooner meets
             // two jets' earlier windows - script luck, not a shorter level, so the target stayed.
-            timeTargetSeconds = 195.0f,
+            // Retuned 2026-10-27 to be generous (195.0s before): 122.4s x1.6,
+            // rounded up to 5 (LevelWalkthroughTest.TARGET_OVER_CLEAN_RUN; the clock runs while a prompt is up).
+            timeTargetSeconds = 200.0f,
             description = "Rescue the prisoner and escort him to safety. Something about him feels familiar.",
             objectiveHint = "Escort the Prisoner to the Exit",
             bonusObjective = BonusObjective.KEEP_THE_PRISONER_OUT_OF_SIGHT,
@@ -5288,7 +5332,9 @@ data class LevelData(
             // ways, the dock's rover and cart and the ferry, the moving crates, the hook, the road
             // guard lifted away on lift_5, the road's rover, and back to lower him;
             // x1.46, rounded to 5, as levels 11 and 12 before - a person also has to read each beat.
-            timeTargetSeconds = 230.0f,
+            // Retuned 2026-10-27 to be generous (230.0s before): 157.5s x1.6,
+            // rounded up to 5 (LevelWalkthroughTest.TARGET_OVER_CLEAN_RUN; the clock runs while a prompt is up).
+            timeTargetSeconds = 255.0f,
             description = "Guards are closing in. Get the prisoner out of the shipyard before it’s too late.",
             objectiveHint = "Escort the Prisoner Out of the Shipyard",
             bonusObjective = BonusObjective.STAY_UNSEEN,

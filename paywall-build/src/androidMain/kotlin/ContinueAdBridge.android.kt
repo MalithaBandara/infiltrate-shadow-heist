@@ -1,6 +1,7 @@
 package com.infiltrate.ads
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
@@ -108,6 +109,11 @@ fun ContinueAdContent() {
         },
     )
     if (ContinueAdTrigger.showRequested.value) {
+        // Same as the interstitial and iOS: nothing of ours plays while the ad is up.
+        DisposableEffect(Unit) {
+            AdAudioCoordinator.onAdStarted()
+            onDispose { AdAudioCoordinator.onAdDismissed() }
+        }
         when (ad.state) {
             AdState.READY -> {
                 ad.setListeners(

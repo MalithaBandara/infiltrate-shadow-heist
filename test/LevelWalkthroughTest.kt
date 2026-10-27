@@ -10,10 +10,12 @@ import kotlin.test.*
  * `timeTargetSeconds` to how long a clean run actually takes.
  *
  * **What a target means:** the autopilot never hesitates, misjudges a jump or fumbles a timing
- * window, so its time is the floor a person can approach, not match. A target is
- * [MIN_TARGET_OVER_CLEAN_RUN]..[MAX_TARGET_OVER_CLEAN_RUN] times that floor - tight enough that star 3
- * still asks for a clean run, loose enough that a real player who knows the level can make it.
- * Re-run the walkthroughs and re-pick the target whenever a level's route or timing changes.
+ * window, and never stops to read a tutorial prompt (the level clock runs while one is up), so its
+ * time is the floor a person can approach, not match. A target is
+ * [MIN_TARGET_OVER_CLEAN_RUN]..[MAX_TARGET_OVER_CLEAN_RUN] times that floor plus the level's
+ * [LevelData.tutorialReadingSeconds] - picked at [TARGET_OVER_CLEAN_RUN]x + reading, rounded up to
+ * 5s: generous to a first-time player who knows the level, still a clean run. Re-run the
+ * walkthroughs and re-pick the target whenever a level's route, timing or tutorial changes.
  */
 class LevelWalkthroughTest {
 
@@ -366,24 +368,12 @@ class LevelWalkthroughTest {
      */
     private val cleanRunsMeasuredElsewhere = mapOf(
         "level_4" to 116.9,
-        "level_7" to 107.7,
+        "level_7" to 108.0,
         "level_8" to 130.2,
         "level_9" to 106.1
     )
 
-    private fun assertPace(level: LevelData, cleanRunSeconds: Double) {
-        val target = level.timeTargetSeconds.toDouble()
-        assertTrue(
-            target >= cleanRunSeconds * MIN_TARGET_OVER_CLEAN_RUN,
-            "${level.name}: a target of ${target}s leaves a person under ${MIN_TARGET_OVER_CLEAN_RUN}x the autopilot's " +
-                "${"%.1f".format(cleanRunSeconds)}s clean run - not reachable by hand"
-        )
-        assertTrue(
-            target <= cleanRunSeconds * MAX_TARGET_OVER_CLEAN_RUN,
-            "${level.name}: a target of ${target}s is over ${MAX_TARGET_OVER_CLEAN_RUN}x the autopilot's " +
-                "${"%.1f".format(cleanRunSeconds)}s clean run - star 3 would not ask for a clean run"
-        )
-    }
+    private fun assertPace(level: LevelData, cleanRunSeconds: Double) = assertTargetIsGenerous(level, cleanRunSeconds)
 
     @Test
     fun testTargetsForLevelsTimedByTheirOwnWalkthroughs() {
@@ -404,10 +394,32 @@ class LevelWalkthroughTest {
     }
 
     companion object {
-        /** A target below this many times the clean run cannot be met by a person. */
-        const val MIN_TARGET_OVER_CLEAN_RUN = 1.25
+        /** A target below this many times the clean run (plus reading) is not generous to a person. */
+        const val MIN_TARGET_OVER_CLEAN_RUN = 1.5
         /** ...and above this it no longer asks for a clean run. */
         const val MAX_TARGET_OVER_CLEAN_RUN = 2.0
+        /** What the shipped targets were picked at (2026-10-27): this x the clean run + reading, up to 5s. */
+        const val TARGET_OVER_CLEAN_RUN = 1.6
+
+        /** The pace rule above, for every level's own walkthrough (10, 11 and 12 call it from theirs). */
+        fun assertTargetIsGenerous(level: LevelData, cleanRunSeconds: Double) {
+            val target = level.timeTargetSeconds.toDouble()
+            val reading = level.tutorialReadingSeconds
+            val floor = cleanRunSeconds * MIN_TARGET_OVER_CLEAN_RUN + reading
+            val ceiling = cleanRunSeconds * MAX_TARGET_OVER_CLEAN_RUN + reading
+            val suggested = kotlin.math.ceil((cleanRunSeconds * TARGET_OVER_CLEAN_RUN + reading) / 5.0) * 5.0
+            println("PACE ${level.id}: clean ${"%.1f".format(cleanRunSeconds)}s + reading ${"%.1f".format(reading)}s -> target ${target}s (rule picks ${suggested}s)")
+            assertTrue(
+                target >= floor,
+                "${level.name}: a target of ${target}s is under ${MIN_TARGET_OVER_CLEAN_RUN}x the autopilot's " +
+                    "${"%.1f".format(cleanRunSeconds)}s clean run + ${"%.1f".format(reading)}s of tutorial reading - not generous enough (rule picks ${suggested}s)"
+            )
+            assertTrue(
+                target <= ceiling,
+                "${level.name}: a target of ${target}s is over ${MAX_TARGET_OVER_CLEAN_RUN}x the autopilot's " +
+                    "${"%.1f".format(cleanRunSeconds)}s clean run + ${"%.1f".format(reading)}s of reading - star 3 would not ask for a clean run (rule picks ${suggested}s)"
+            )
+        }
 
         /** Where level 3's hold points begin: every 100 units from the crate to just short of the exit. */
         val LEVEL_3_STAGE_STARTS: List<Double> = (300..2800 step 100).map { it.toDouble() }

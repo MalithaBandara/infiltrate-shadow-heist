@@ -1917,6 +1917,18 @@ data class GameWorld(
         forwardTap: Boolean = false
     ) {
         if (isSuspended || isLevelComplete || isGameOver) return
+        tick(dt, moveInput, jumpInput, crouchInput, interactInput, forwardTap)
+        tickObserver?.invoke(this)
+    }
+
+    private fun tick(
+        dt: Double,
+        moveInput: Double,
+        jumpInput: Boolean,
+        crouchInput: Boolean,
+        interactInput: Boolean,
+        forwardTap: Boolean
+    ) {
         moveObserver?.let { observe ->
             if (player.isSwinging) observe(this, PlayerMove.SWING)
             if (!isPushStanceIdle) observe(this, PlayerMove.PUSH)
@@ -2754,6 +2766,13 @@ data class GameWorld(
          * really makes against what it loads).
          */
         var moveObserver: ((GameWorld, PlayerMove) -> Unit)? = null
+
+        /**
+         * Test hook, null in the game: told at the end of every tick of every world (checkpoint
+         * and completion already decided) - CheckpointCoverageTest follows every level's
+         * walkthrough with it.
+         */
+        var tickObserver: ((GameWorld) -> Unit)? = null
 
         /**
          * How long the lean-in and the stand-up take. The raw footage runs ~1.45s at the plate's
