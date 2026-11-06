@@ -3152,6 +3152,25 @@ class GameplayScene(
 
         val gadgetKeys = listOf(Key.N1, Key.N2, Key.N3, Key.N4, Key.N5, Key.N6)
 
+        // Every button below that starts or restarts play goes through this: the host shows an
+        // interstitial if one is due and ready, and reports finished at once if not. Frames stop
+        // while an ad covers the game, so this simply resumes when it closes, and the action runs
+        // only after that, in the foreground. Never used for RESUME, the HUD or anything else
+        // reached during play - no ad may interrupt a run in progress. The flag covers the buttons
+        // that stay live under the wait: a second tap must not start a second flow or leave.
+        var waitingForInterstitial = false
+        suspend fun afterInterstitial(action: suspend () -> Unit) {
+            if (waitingForInterstitial) return
+            waitingForInterstitial = true
+            val levelExitBridge = getLevelExitBridge()
+            levelExitBridge.requestTransitionAd()
+            while (!levelExitBridge.consumeTransitionAdFinished()) {
+                sceneView.delayFrame()
+            }
+            action()
+            waitingForInterstitial = false
+        }
+
         // ==========================================
         // 1. PAUSE OVERLAY (Heist Dossier - matches the main menu)
         // ==========================================
@@ -3169,13 +3188,15 @@ class GameplayScene(
             },
             onRestart = {
                 if (world.activePowerups.isCheckpointsActive) {
-                    isPaused = false
-                    world.respawnAtCheckpoint()
-                    isFirstCameraFrame = true
-                    world.onCheckpointAutoRespawn?.invoke()
+                    afterInterstitial {
+                        isPaused = false
+                        world.respawnAtCheckpoint()
+                        isFirstCameraFrame = true
+                        world.onCheckpointAutoRespawn?.invoke()
+                    }
                 } else {
                     stopBgMusic()
-                    sceneContainer.changeTo { GameplayScene(levelData) }
+                    afterInterstitial { sceneContainer.changeTo { GameplayScene(levelData) } }
                 }
             },
             onQuit = {
@@ -3205,22 +3226,26 @@ class GameplayScene(
             playClick = playClick,
             currentLanguage = currentLanguage,
             onRequestContinueAd = {
-                getContinueAdBridge().requestContinueAd()
+                if (!waitingForInterstitial) getContinueAdBridge().requestContinueAd()
             },
             onRetry = {
                 if (world.activePowerups.isCheckpointsActive) {
-                    world.respawnAtCheckpoint()
-                    isFirstCameraFrame = true
-                    world.onCheckpointAutoRespawn?.invoke()
+                    afterInterstitial {
+                        world.respawnAtCheckpoint()
+                        isFirstCameraFrame = true
+                        world.onCheckpointAutoRespawn?.invoke()
+                    }
                 } else {
                     stopBgMusic()
-                    sceneContainer.changeTo { GameplayScene(levelData) }
+                    afterInterstitial { sceneContainer.changeTo { GameplayScene(levelData) } }
                 }
             },
             onReturnToMenu = {
-                stopBgMusic()
-                getLevelExitBridge().requestReturnToMenu()
-                changeToMenuBackdrop()
+                if (!waitingForInterstitial) {
+                    stopBgMusic()
+                    getLevelExitBridge().requestReturnToMenu()
+                    changeToMenuBackdrop()
+                }
             }
         )
 
@@ -3241,18 +3266,21 @@ class GameplayScene(
             currentLanguage = currentLanguage,
             onRetry = {
                 stopBgMusic()
-                sceneContainer.changeTo { GameplayScene(levelData) }
+                afterInterstitial { sceneContainer.changeTo { GameplayScene(levelData) } }
             },
             onReturnToMenu = {
-                stopBgMusic()
-                getLevelExitBridge().requestReturnToMenu()
-                changeToMenuBackdrop()
+                if (!waitingForInterstitial) {
+                    stopBgMusic()
+                    getLevelExitBridge().requestReturnToMenu()
+                    changeToMenuBackdrop()
+                }
             },
             onNextMission = {
-                stopBgMusic()
                 if (nextLevel != null) {
-                    sceneContainer.changeTo { GameplayScene(nextLevel) }
-                } else {
+                    stopBgMusic()
+                    afterInterstitial { sceneContainer.changeTo { GameplayScene(nextLevel) } }
+                } else if (!waitingForInterstitial) {
+                    stopBgMusic()
                     getLevelExitBridge().requestReturnToMenu()
                     changeToMenuBackdrop()
                 }
