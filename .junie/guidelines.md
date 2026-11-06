@@ -39,7 +39,10 @@ before touching them.
   keys, passwords/tokens, signing certs/provisioning profiles/keystores, and any long random string
   near "key"/"secret"/"token"/"password"/"credential". On a match: STOP, don't commit, warn the user
   with file+line, suggest GitHub Actions secrets or a gitignored `.env`/`local.properties`, wait for
-  confirmation. The real RevenueCat key lives in gitignored `local.properties`.
+  confirmation. Local builds read the RevenueCat key from gitignored `local.properties`; CI doesn't
+  inject it, so signed AABs use the `goog_` fallback hardcoded in `android-shell/build.gradle.kts` and
+  `StoreBilling.android.kt` - the same value as `local.properties` (checked 2026-11-06), so that key
+  is already public; it is an SDK key of the kind that ships in the app.
 - **Never push without explicit consent**: commit locally, show the changes, ask, wait.
   Force-pushes need approval per occurrence.
 - **Never mention Claude or any other AI agent in commits** - no `Co-Authored-By`/`Generated-by`/
@@ -50,9 +53,9 @@ before touching them.
   check the message before every `git commit`. History has been rewritten for this twice; verify with
   `git log origin/main --format=%B | grep -i anthropic` (not the GitHub UI, which lags).
 - Repo: https://github.com/MalithaBandara/infiltrate-shadow-heist, default branch `main`. `gh` is
-  NOT on PATH; Git Credential Manager has a cached credential so `git push/pull` work. For anything
-  `gh` would do, use the REST API with a token from `git credential fill` - never print or embed it.
-  If `curl -d` with inline non-ASCII JSON fails, write the payload to a file and use
+  on PATH and signed in (checked 2026-11-05); Git Credential Manager has a cached credential so
+  `git push/pull` work. Without `gh`, use the REST API with a token from `git credential fill` -
+  never print or embed it. If `curl -d` with inline non-ASCII JSON fails, write the payload to a file and use
   `--data-binary @file`.
 
 ## Build setup
@@ -60,8 +63,8 @@ before touching them.
 **LOCKED WORKING CONFIGURATION for `:game` (verified 2026-08-25, commit `0b958c3`): KorGE `6.0.0`,
 Kotlin `2.0.20`, Gradle `8.8`, JDK `21`** (`zulu` in CI). The only combination proven to link on iOS
 after a long chain of klib-ABI failures - **do not upgrade without re-running the full iOS build in
-CI first.** This machine's default `JAVA_HOME` is JDK 19; use JDK 21 (Temurin) explicitly for local
-`gradlew`.
+CI first.** Local `gradlew` needs JDK 21: `JAVA_HOME` already points at Temurin 21 on this machine
+(checked 2026-11-05; JDKs 17 and 19 are also installed).
 
 - **`:game`** - KorGE, gameplay only. No Compose, **zero RevenueCat dependency** (no framework
   vendoring, linker flags or CocoaPods of its own).
@@ -94,6 +97,8 @@ clean checkouts and nothing on the Android path builds it). CI runs
 compiles against the previous model (an up-to-date build in ~1s is the tell). A local
 `bundleRelease` fails at `signReleaseBundle` with a bare NullPointerException - `local.properties`
 has no keystore passwords; the signed AAB comes from CI (`gradle.yml` decodes the keystore secrets).
+To inspect a bundle locally, `packageReleaseBundle` stops before signing:
+`build/intermediates/intermediary_bundle/release/packageReleaseBundle/intermediary-bundle.aab`.
 
 **`GameplayScene.sceneMain` lives against the JVM's 64KB method limit, and android-shell hits it
 first**: its newer Kotlin compiles the same suspend function ~19% bigger than the root build's 2.0.20,
@@ -105,6 +110,22 @@ android 59,180 / 65,535, JVM 49,583 (android 58,071 on 2026-10-26, after the con
 `android-shell/build/intermediates/built_in_kotlinc/release/compileReleaseKotlin/classes/game/scene/GameplayScene.class`
 after adding setup code; move another block into a local `fun` (or a file, as `MechanismSounds`,
 `VentFxAssets`) well before it nears the limit.
+
+**R8 is on for `android-shell` release builds** (2026-11-06; Play Console's "DEX code optimization"
+warning: obfuscation 0%, under 25% by Feb 2027). Rules: `android-shell/proguard-rules.pro`. **Not yet
+run on a device** - only built locally (`minifyReleaseWithR8`, ~11 min from cold). Dex 52.2MB -> 8.5MB
+(the "before" was a build from 2026-09-26). R8's own report, `r8-metadata.dat` (`r8.json` in the bundle):
+no-obfuscation 6.09%, no-optimization 6.44%, no-shrinking 6.19%; Play's score not seen yet. The bundle
+carries `proguard.map` for crash deobfuscation.
+- **`isShrinkResources` stays off on purpose**: `MenuSfx`, `MenuMusic`, `IntroVideo` and
+  `VideoBackground` find `res/raw` files with `getIdentifier`, which resource shrinking can't see.
+- **Anything reached by a string name needs a keep rule**, and a `try/catch` around it hides the
+  failure: `StoreBilling.android.kt` reflects on RevenueCat's `AndroidProvider` (kept). KorGE/korlibs
+  ship no keep rules; a bytecode scan found no by-name lookup the game reaches (`jvmAutomapping` has no
+  callers, no `META-INF/services`), so none are kept. `e::class.simpleName` in the LEVEL LOAD FAILED
+  text now prints a short name.
+- **First thing to test on a device**: levels (each player clip group), audio, intro and menu videos,
+  every ad type, a purchase, restore, in-app review.
 
 ### CI (`.github/workflows/`) - every push to `main`, no path filters
 
@@ -132,8 +153,9 @@ after adding setup code; move another block into a local `fun` (or a file, as `M
 
 - **Build number lives in THREE places - bump together**: `ios-shell/project.yml`
   `CFBundleVersion`, `ios-testflight.yml`'s `build_number` default, `android-shell` `versionCode`.
-- **Currently**: Android `versionCode` 27 / `versionName` "1.1.0", iOS `CFBundleVersion` 27 /
-  "1.1.0" (2026-10-27: PRODUCTION build 27 = build 26 plus the iOS fix for tapping to skip the
+- **Currently**: Android `versionCode` 28 / `versionName` "1.1.0", iOS `CFBundleVersion` 28 /
+  "1.1.0" (2026-11-06: build 28 adds interstitials on every button that does not interrupt play, and R8 on Android. Android only so far: iOS was not built.)
+  2026-10-27: PRODUCTION build 27 = build 26 plus the iOS fix for tapping to skip the
   launch intro - the intro's `UIKitView` is non-interactive so taps reach Compose). Build 26 was the
   production build adding the launch intro video, the laser hit fix and the coin-pack toast fix on
   top of build 25's retuned time targets, checkpoints, objectives moved left and no music under ads.
@@ -152,8 +174,8 @@ after adding setup code; move another block into a local `fun` (or a file, as `M
   carry it - "upgrade to 3.10.0+"). Build 24 is the first release with it: the Android release
   classpath resolves `purchases-kmp-core` 3.10.1 / `purchases` 10.22.1, and `ios-build.yml`'s
   on-simulator RevenueCat verification passed on it.
-- **Ads are on REAL units** (`USE_TEST_ADS = false`, both platforms) in build 26, a production
-  build; build 25 (a test build) was on test units - see Ads.
+- **Ads are on REAL units** (`USE_TEST_ADS = false`, both platforms) in production builds 26 and
+  27; build 25 (a test build) was on test units - see Ads.
 - All 12 levels are listed (`.take(12)` in `LevelSelectScreen.kt`, `MainMenuScreen.kt`,
   `GameplayScene.kt`). From the Google Play approval gating (2026-09-25) what remains: "Coming Soon"
   chapter placeholders removed (layout-preserving spacers) and Settings showing English/French only
@@ -184,7 +206,8 @@ Build 19 ships REAL ad units because the TestFlight binary is the one submitted.
   ceiling (the compiler reads ABI `1.8.0`; RevenueCat passed it at `2.0.0+15.0.0`), needed a
   CocoaPods dependency with no Podfile, and `PurchasesBridge.kt` was uncalled stubs. If `:game` ever
   wants purchases of its own, start from `paywall-build`'s approach.
-- **`paywall-build`: `purchases-kmp-core:3.6.0`, proven on iOS (2026-08-29)** - links into a real
+- **`paywall-build`: `purchases-kmp-core` (3.10.1 now, see Release state); what follows was
+  established on 3.6.0, proven on iOS (2026-08-29)** - links into a real
   `PaywallModule.framework` for `iosSimulatorArm64`; 3.x bundles the native SDK via cinterop (zero
   CocoaPods for RevenueCat); its klib (compiled at 2.3.20) is readable by 2.4.10.
 - **Swift compatibility-shim link fix**: Kotlin/Native's linker searches a stale hardcoded Xcode path
@@ -242,7 +265,7 @@ kotlin {
 JVM falls back to Google's published test IDs (rewarded and interstitial test IDs differ - don't
 reuse one for the other).
 
-**Both platforms are on REAL units in build 26** (`USE_TEST_ADS = false` in `AdUnitIds.android.kt`
+**Both platforms are on REAL units in builds 26 and 27** (`USE_TEST_ADS = false` in `AdUnitIds.android.kt`
 and `AdUnitIds.ios.kt`; test build 25 was on test units). Flip both to `true` for any Play Internal/Closed track or TestFlight build
 (invited testers clicking real ads violates AdMob policy) - not automatic; grep `USE_TEST_ADS` before
 a build. **It is the first thing to check when ads "don't work" on one platform** - a fresh real unit
@@ -336,13 +359,28 @@ outside the show gate so the fetch starts at first composition, reloading whenev
   `List.random()` at request time, granted with `spendCoins(0)`; `GadgetAdLimiter`
   `MAX_WATCHES_PER_DAY = 3`. **Never `PowerupType.PROTOTYPE`** - an in-progress sixth gadget,
   excluded from the Store and from the in-game HUD tray (F2 still grants it as dead stock).
-- **Level-exit interstitial (`INTERSTITIAL_LEVEL_EXIT`)**: on QUIT / RETURN TO MENU / MAIN MENU / ALL
-  CLEAR, never NEXT LEVEL (ruled too aggressive). `InterstitialAdLimiter`:
-  `totalLevelsCompleted >= 1`, `!isPremium`, in-memory 120s cooldown from launch (retuned from
-  2 / 180s / 5 per session on vendor guidance; unmeasured - tune on D1 retention/ARPDAU), 8 per session; no
-  dashboard cap. Plain per-platform files: Android's `MainActivity.kt` flips the menu regardless of
-  the ad; iOS's `GameLevelExitBridge` is polled by `AppDelegate.swift`'s `startObservingLevelEnd()`,
-  gated on `showRequested` with both hazard branches. **Never run on a device on either platform.**
+- **Interstitial (`INTERSTITIAL_LEVEL_EXIT`)**: any button that does not interrupt play, since
+  2026-11-06 (reverses the earlier "too aggressive" ruling, to raise ad revenue). In game: QUIT /
+  RETURN TO MENU / MAIN MENU / ALL CLEAR, NEXT MISSION, RETRY (win and fail), RESTART. Menu:
+  PLAY, MISSIONS, STORE, SETTINGS, mission start, BACK. **Never** RESUME, the HUD, or anything during
+  a run; not CONTINUE (already a rewarded ad); not Store purchases/rewarded cards, coin shortcuts or
+  controls inside Settings. More buttons only fill gaps: the limiter still decides. `InterstitialAdLimiter`: `totalLevelsCompleted >= 1`, `!isPremium`,
+  in-memory 120s cooldown from launch (retuned from 2 / 180s / 5 per session on vendor guidance;
+  unmeasured - tune on D1 retention/ARPDAU), 8 per session; no dashboard cap.
+  - **A not-ready ad is skipped, never waited for** (it would pop up late, over the menu or a level).
+    Cooldown and session count are charged on `onShown`, not at the request.
+  - **Failed loads retry** (`retryDelayMillis`: 2s, then 30s doubling to 5 min). Android replaces the
+    handler with `key(attempt)`. **iOS keeps its handler on `InterstitialAdTrigger`, not in the
+    composition**: the shell removes the Compose scene from the window during gameplay, and NEXT
+    MISSION must know the ad is ready before leaving KorGE.
+  - **NEXT MISSION / RETRY / RESTART**: `GameplayScene.afterInterstitial` calls
+    `requestTransitionAd()`, then waits a frame at a time on `consumeTransitionAdFinished()` before
+    play starts again; the host must always end in `finishTransitionAd()` (10s deadline if a ready ad
+    never appears). Menu buttons go through `InterstitialAdGate` in `NavigationRoot`: a level start
+    waits for the ad, plain navigation changes screen underneath it. Android stays on the KorGE
+    view; iOS goes to the Compose scene and back like the continue ad, so the menu shows briefly
+    around the ad. Desktop/web take the interface defaults (no ad, carry on).
+  - **Never run on a device on either platform**; iOS side compile-checked only in CI.
 - **No app audio under a full-screen ad - `AdAudioCoordinator`** (menu music and the iOS menu video
   pause on `isAdActive`). The interstitial counts as up from `InterstitialAdTrigger.requestShow()`
   to `onAdClosed()` (both platforms, idempotent): it is requested in the same tick the menu comes
@@ -1934,7 +1972,7 @@ against, so he walks on under it (`LiftDef.holdsHimWhileUp` false), and it carri
   after checkpoint 4 comes back down on the road with lift_5 back up empty
   (`testARespawnBringsTheLiftedGuardBackDownWithLift5`).
 - **Measured** (`Level12EscapeTest`, 37 tests, run in an isolated copy; full suite 430 green): the
-  clean run (157.5s, target 230, star 2 met), his road against every box/hook/load (the check counts
+  clean run (157.5s, target 255, star 2 met), his road against every box/hook/load (the check counts
   a box across his middle - stepping down onto a lift still rising sinks a body's edge past the
   container's corner, as it does the player's), each beat done wrong (lift_2 early: seen; lift_3
   early: held at the curtain; ferry thrown early; lowered before the road guard is lifted: seen;
@@ -1957,6 +1995,19 @@ against, so he walks on under it (`LiftDef.holdsHimWhileUp` false), and it carri
   pacing its deck - the step-up stance code was written for level 11's flat crossing), the road's
   rover past the crate, him sitting beside the player at the start, and levels 10 and 11's lifts
   standing in the ducts.
+
+## Marketing: Google Ads assets (`marketing/google-ads/`, 2026-11-05)
+
+App campaign set (9 videos, 48 images, EN/FR copy). **The whole folder is git-ignored by the owner's
+choice - it exists only on the machine that made it, not in a clone.** Its README holds the specs,
+research and upload steps. Built only from clean takes in `screenshots/` (listed in `setup.mjs`) - **several other takes
+contain F1 noclip stretches, a body hanging in mid-air in a jump pose, which must never reach an ad or
+store asset.** Those takes predate build 27. The video end cards carry the Google Play badge, so **Google's brand
+team must approve them before they run** (its legal page: any creative that includes or refers to the
+trademark). Copy may say "free" only while the Play listing is; no
+popularity claims (1+ downloads on 2026-11-05). `apps.apple.com/us/app/id6815256409` returned 404 that
+day - App Store availability unconfirmed. The app has no analytics SDK, so iOS App campaigns and in-app
+conversion events need one first (and a privacy pass). Audio levels measured, never heard.
 
 ## Extracted library: `kmp-stealth-game-toolkit` (2026-09-29)
 

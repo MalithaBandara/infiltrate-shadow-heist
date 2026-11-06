@@ -24,7 +24,6 @@ import com.infiltrate.ads.AdPrivacy
 import com.infiltrate.ads.ContinueAdContent
 import com.infiltrate.ads.ContinueAdTrigger
 import com.infiltrate.ads.InterstitialAdContent
-import com.infiltrate.ads.InterstitialAdLimiter
 import com.infiltrate.ads.InterstitialAdTrigger
 import com.infiltrate.billing.StoreBilling
 import com.infiltrate.review.InAppReview
@@ -71,6 +70,9 @@ private val windowSize = Size(1560, 720)
 
 /** The display refresh asked for while gameplay is showing - see MainActivity.applyGameplayFrameRate. */
 private const val GAMEPLAY_REFRESH_HZ = 60f
+
+/** How long a transition waits for a ready ad to reach the screen. Not a limit on the ad itself. */
+private const val INTERSTITIAL_DISPLAY_TIMEOUT_MS = 10_000L
 
 /**
  * Real Android host - the Android equivalent of ios-shell/Sources/AppDelegate.swift. Single
@@ -147,6 +149,12 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // NEXT MISSION / RETRY / RESTART in GameplayScene.kt, which waits for finishTransitionAd()
+        // before play starts again. Same GL-thread-to-UI-thread hop as above.
+        AndroidLevelExitBridgeState.onTransitionAdRequested = {
+            runOnUiThread { showTransitionInterstitial() }
+        }
+
         // Google's consent message (GDPR) before the first ad request - see AdPrivacy. Nothing below
         // starts the ads SDK until this reports.
         AdConsent.gather(this)
@@ -196,14 +204,28 @@ class MainActivity : ComponentActivity() {
 
     // Called every time GameplayScene.kt leaves gameplay back to the menu (QUIT / RETURN TO MENU /
     // MAIN MENU / ALL CLEAR, all via LevelExitBridge). Gated by InterstitialAdLimiter so this is a
-    // rare event, not a call attached to every menu return - see .junie/guidelines.md for the
-    // level-2 / 180s-cooldown / 5-per-session reasoning.
-    private fun maybeShowLevelExitInterstitial() {
+    // rare event, not a call attached to every menu return - see .junie/guidelines.md.
+    private fun maybeShowLevelExitInterstitial(): Boolean {
         val profile = profileStorage.getProfile()
-        if (profile.isPremium) return
-        if (!InterstitialAdLimiter.canShow(profile.totalLevelsCompleted)) return
-        InterstitialAdLimiter.recordShown()
-        InterstitialAdTrigger.requestShow()
+        return InterstitialAdTrigger.maybeRequestShow(profile.totalLevelsCompleted, profile.isPremium)
+    }
+
+    // NEXT MISSION / RETRY / RESTART: same gate and same ad as the menu return. Always ends in
+    // finishTransitionAd(), which is what releases GameplayScene. Finished only once the ad's
+    // own Activity has gone (onDismissed), for the grey-screen reason in ContinueAdBridge.android.kt.
+    private fun showTransitionInterstitial() {
+        if (!maybeShowLevelExitInterstitial()) {
+            AndroidLevelExitBridgeState.finishTransitionAd()
+            return
+        }
+        lifecycleScope.launch {
+            val displayDeadlineMs = System.currentTimeMillis() + INTERSTITIAL_DISPLAY_TIMEOUT_MS
+            while (InterstitialAdTrigger.isAdFlowActive) {
+                if (System.currentTimeMillis() >= displayDeadlineMs) InterstitialAdTrigger.cancelIfNotDisplayed()
+                delay(100)
+            }
+            AndroidLevelExitBridgeState.finishTransitionAd()
+        }
     }
 
     private fun startLevel(levelId: String) {

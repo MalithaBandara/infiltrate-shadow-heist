@@ -21,9 +21,9 @@ object MainMenuComposeScreen {
             // Real "watch ad to continue" trigger (see ContinueAdBridge.kt) - inert until Swift
             // calls ContinueAdTrigger.requestShow() after a mid-game death.
             ContinueAdContent()
-            // Real level-exit interstitial (see InterstitialAdBridge.kt) - inert until Swift
-            // calls InterstitialAdTrigger.maybeRequestShow(...) after QUIT/RETURN TO MENU/
-            // MAIN MENU/ALL CLEAR, matching Android's InterstitialAdContent() call site.
+            // Real interstitial (see InterstitialAdBridge.kt) - preloads, then inert until Swift
+            // or the menu's own buttons request it (see InterstitialAdGate.kt), matching Android's
+            // InterstitialAdContent() call site.
             InterstitialAdContent()
         }
 

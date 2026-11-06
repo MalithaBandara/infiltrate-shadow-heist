@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -14,10 +15,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.infiltrate.ads.cancelMenuInterstitialIfNotDisplayed
+import com.infiltrate.ads.isMenuInterstitialActive
+import com.infiltrate.ads.requestMenuInterstitial
 import com.infiltrate.storage.PlatformStorage
 import game.model.GameProfileStorage
 import game.model.LevelData
 import game.model.MapBackedGameProfileStorage
+import kotlinx.coroutines.delay
+
+/** How long a level start waits for a ready ad to reach the screen. Not a limit on the ad itself. */
+private const val MENU_AD_DISPLAY_TIMEOUT_MS = 10_000L
+private const val MENU_AD_POLL_MS = 100L
 
 val LocalAppLanguage = compositionLocalOf { "en" }
 
@@ -70,6 +79,38 @@ fun NavigationRoot(
 
     MenuMusic(volume = musicVolume)
 
+    // The menu's navigation buttons can each carry an interstitial, under the same limiter as every
+    // other placement. Deliberately not on Store purchases and rewarded cards, the coin top-up
+    // shortcuts, or the controls inside Settings: an ad there interrupts a purchase or a setting.
+    fun requestAd(): Boolean {
+        val profile = profileStorage.getProfile()
+        return requestMenuInterstitial(profile.totalLevelsCompleted, profile.isPremium)
+    }
+
+    // Moving between menu screens needs no waiting: the screen changes underneath and the ad covers it.
+    fun navigateWithAd(navigate: () -> Unit) {
+        navigate()
+        requestAd()
+    }
+
+    // Starting a level does wait, so that play never begins underneath the ad.
+    var levelAwaitingAd by remember { mutableStateOf<String?>(null) }
+    fun startLevelAfterAd(levelId: String) {
+        if (levelAwaitingAd != null) return
+        if (requestAd()) levelAwaitingAd = levelId else onStartLevel(levelId)
+    }
+    LaunchedEffect(levelAwaitingAd) {
+        val levelId = levelAwaitingAd ?: return@LaunchedEffect
+        var waitedMs = 0L
+        while (isMenuInterstitialActive()) {
+            if (waitedMs >= MENU_AD_DISPLAY_TIMEOUT_MS) cancelMenuInterstitialIfNotDisplayed()
+            delay(MENU_AD_POLL_MS)
+            waitedMs += MENU_AD_POLL_MS
+        }
+        levelAwaitingAd = null
+        onStartLevel(levelId)
+    }
+
     // The click is provided here, alongside the music, and for the same reason: every menu
     // screen needs it, and mounting it per-screen would rebuild the voice pool on every
     // navigation. UI_CLICK_RELATIVE_GAIN/MENU_CLIP_RELATIVE_GAIN keep these from playing at the
@@ -95,17 +136,19 @@ fun NavigationRoot(
                 // video background (which causes frame drops or surface cutouts) when backing
                 // out of Settings, Store, or Missions.
                 MainMenuScreen(
-                    onPlayClicked = { levelId ->
-                        onStartLevel(levelId)
-                    },
-                    onMissionsClicked = { currentScreen = AppScreen.LevelSelect },
+                    onPlayClicked = { levelId -> startLevelAfterAd(levelId) },
+                    onMissionsClicked = { navigateWithAd { currentScreen = AppScreen.LevelSelect } },
                     onStoreClicked = {
-                        storeInitialTab = StoreTab.POWER_UPS
-                        currentScreen = AppScreen.Store
+                        navigateWithAd {
+                            storeInitialTab = StoreTab.POWER_UPS
+                            currentScreen = AppScreen.Store
+                        }
                     },
                     onSettingsClicked = {
-                        settingsInitialTab = SettingsTab.GENERAL
-                        currentScreen = AppScreen.Settings
+                        navigateWithAd {
+                            settingsInitialTab = SettingsTab.GENERAL
+                            currentScreen = AppScreen.Settings
+                        }
                     },
                     refreshTrigger = currentScreen
                 )
@@ -126,19 +169,19 @@ fun NavigationRoot(
                                 LevelSelectScreen(
                                     onStartMission = { levelData ->
                                         println("[Navigation] Launching mission ${levelData.id}")
-                                        onStartLevel(levelData.id)
+                                        startLevelAfterAd(levelData.id)
                                     },
                                     onStoreClicked = {
                                         storeInitialTab = StoreTab.COINS
                                         currentScreen = AppScreen.Store
                                     },
-                                    onBackClicked = { currentScreen = AppScreen.MainMenu }
+                                    onBackClicked = { navigateWithAd { currentScreen = AppScreen.MainMenu } }
                                 )
                             }
                             AppScreen.Store -> {
                                 StoreScreen(
                                     initialTab = storeInitialTab,
-                                    onBackClicked = { currentScreen = AppScreen.MainMenu }
+                                    onBackClicked = { navigateWithAd { currentScreen = AppScreen.MainMenu } }
                                 )
                             }
                             AppScreen.Settings -> {
@@ -159,7 +202,7 @@ fun NavigationRoot(
                                         currentLanguage = it
                                         profileStorage.setLanguage(it)
                                     },
-                                    onBackClicked = { currentScreen = AppScreen.MainMenu },
+                                    onBackClicked = { navigateWithAd { currentScreen = AppScreen.MainMenu } },
                                     onStoreShortcutClicked = {
                                         storeInitialTab = StoreTab.COINS
                                         currentScreen = AppScreen.Store

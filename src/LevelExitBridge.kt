@@ -19,6 +19,19 @@ package com.sample.demo.nav
  */
 interface LevelExitBridge {
     fun requestReturnToMenu()
+
+    /**
+     * NEXT MISSION, RETRY, RESTART: lets the host show an interstitial before play starts again.
+     * GameplayScene then polls [consumeTransitionAdFinished] each frame and carries on once it
+     * returns true, so nothing loads underneath the ad. The host decides whether an ad is due, and reports
+     * finished straight away when it is not.
+     *
+     * The defaults are the no-host behaviour (desktop and web): nothing to show, carry straight on.
+     * A host that overrides [requestTransitionAd] must always end in finished, or the level never
+     * starts.
+     */
+    fun requestTransitionAd() {}
+    fun consumeTransitionAdFinished(): Boolean = true
 }
 
 expect fun getLevelExitBridge(): LevelExitBridge

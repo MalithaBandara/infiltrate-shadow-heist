@@ -27,8 +27,31 @@ object InterstitialAdLimiter {
         return currentEpochSeconds() - lastShownAtEpochSeconds >= COOLDOWN_SECONDS
     }
 
+    /**
+     * Call when the ad is actually on screen, not when it is asked for. Counting at the request
+     * spent the cooldown and a session slot on ads that never appeared (no fill, failed display),
+     * which is the next [COOLDOWN_SECONDS] of opportunities lost for no impression.
+     */
     fun recordShown() {
         lastShownAtEpochSeconds = currentEpochSeconds()
         sessionShowCount++
     }
+
+    /**
+     * How long to wait before loading again after [consecutiveFailures] failed loads in a row. The
+     * first retry is quick because the usual cause is a request racing SDK start at launch; after
+     * that it backs off, since an instant re-request just meets the same empty inventory.
+     */
+    fun retryDelayMillis(consecutiveFailures: Int): Long = when {
+        consecutiveFailures <= 1 -> FIRST_RETRY_DELAY_MS
+        else -> {
+            val doublings = (consecutiveFailures - 2).coerceAtMost(MAX_RETRY_DOUBLINGS)
+            (BACKOFF_BASE_DELAY_MS shl doublings).coerceAtMost(MAX_RETRY_DELAY_MS)
+        }
+    }
+
+    private const val FIRST_RETRY_DELAY_MS = 2_000L
+    private const val BACKOFF_BASE_DELAY_MS = 30_000L
+    private const val MAX_RETRY_DELAY_MS = 300_000L
+    private const val MAX_RETRY_DOUBLINGS = 8
 }

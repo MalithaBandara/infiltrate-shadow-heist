@@ -52,7 +52,7 @@ android {
         // Must be >= paywall-build's own minSdk (24) - AGP fails the merge otherwise.
         minSdk = 24
         targetSdk = 37
-        versionCode = 27
+        versionCode = 28
         versionName = "1.1.0"
 
         val revenueCatKey = localProperties.getProperty("REVENUECAT_GOOGLE_KEY")
@@ -72,6 +72,10 @@ android {
     buildTypes {
         getByName("release") {
             signingConfig = signingConfigs.getByName("release")
+            // Play Console's DEX code optimization check (fix by Feb 2027). Deliberately no
+            // isShrinkResources: the check only scores code, and this avoids risking resources.
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 
