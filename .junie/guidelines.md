@@ -112,8 +112,11 @@ after adding setup code; move another block into a local `fun` (or a file, as `M
 `VentFxAssets`) well before it nears the limit.
 
 **R8 is on for `android-shell` release builds** (2026-11-06; Play Console's "DEX code optimization"
-warning: obfuscation 0%, under 25% by Feb 2027). Rules: `android-shell/proguard-rules.pro`. **Not yet
-run on a device** - only built locally (`minifyReleaseWithR8`, ~11 min from cold). Dex 52.2MB -> 8.5MB
+warning: obfuscation 0%, under 25% by Feb 2027). Rules: `android-shell/proguard-rules.pro`. **Build 28 crashed on every launch**: Room 2.2.5's consumer rule keeps `RoomDatabase` subclasses but
+not their no-arg constructor, full-mode R8 removed it, and WorkManager's startup provider died creating
+`WorkDatabase_Impl`. Fixed by a keep rule in build 29. Launch, menu and first level then checked on an API 30
+emulator; billing and ads have not been run on a release build. `assembleRelease` with
+`-Pandroid.injected.signing.*` and the debug keystore gives a testable R8 APK without the upload key. Dex 52.2MB -> 8.5MB
 (the "before" was a build from 2026-09-26). R8's own report, `r8-metadata.dat` (`r8.json` in the bundle):
 no-obfuscation 6.09%, no-optimization 6.44%, no-shrinking 6.19%; Play's score not seen yet. The bundle
 carries `proguard.map` for crash deobfuscation.
@@ -153,8 +156,8 @@ carries `proguard.map` for crash deobfuscation.
 
 - **Build number lives in THREE places - bump together**: `ios-shell/project.yml`
   `CFBundleVersion`, `ios-testflight.yml`'s `build_number` default, `android-shell` `versionCode`.
-- **Currently**: Android `versionCode` 28 / `versionName` "1.1.0", iOS `CFBundleVersion` 28 /
-  "1.1.0" (2026-11-06: build 28 adds interstitials on every button that does not interrupt play, and R8 on Android. Android only so far: iOS was not built.)
+- **Currently**: Android `versionCode` 29 / `versionName` "1.1.0", iOS `CFBundleVersion` 29 /
+  "1.1.0" (2026-11-06: build 28 added interstitials on every button that does not interrupt play and R8 on Android, and crashed on launch. Build 29 fixes that crash with a keep rule. iOS was not built.)
   2026-10-27: PRODUCTION build 27 = build 26 plus the iOS fix for tapping to skip the
   launch intro - the intro's `UIKitView` is non-interactive so taps reach Compose). Build 26 was the
   production build adding the launch intro video, the laser hit fix and the coin-pack toast fix on
