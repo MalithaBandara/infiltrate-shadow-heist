@@ -938,6 +938,14 @@ WAV only** (iOS/JavaFX can't decode Ogg). Shared clips are checked in twice (`re
 `ios-shell/Resources/`); Android reads `assets/sfx/`. Credits in `SOUND_CREDITS` (`SettingsScreen.kt`),
 kept in sync with `ATTRIBUTION.md` by hand.
 
+- **iOS audio session: KorGE overrides the category** (found 2026-11-08, "no sound in-game on iOS,
+  and the menu goes silent after a level"). `AppDelegate.configureAudioSession` sets `.playback`
+  (ignores the silent switch), but korlibs-audio-core 6.0.0's `AppleInitAudio.ios.kt` sets
+  `.ambient` (obeys it) once per process, lazily, when gameplay creates its first audio output - so
+  on a phone on silent, gameplay was mute and the menu stayed mute afterwards (confirmed by the
+  owner: turning silent mode off brought the sound back).
+  `AppDelegate.ensurePlaybackCategory()` restores `.playback` on every switch and every 50ms tick
+  of the gameplay observer timer. Swift compile-checked only in CI; not yet heard on a device.
 - **Gameplay sfx are decoded once per process** (`GameAudio.clipCache`). The music (`readMusic`,
   streamed) is built per scene - don't cache it; a stopped stream isn't guaranteed to restart.
   `GameAudio.silentForTesting` keeps scene tests off the Windows waveOut backend (it crashed the JVM

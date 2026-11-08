@@ -129,6 +129,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         try? session.setActive(true)
     }
 
+    // KorGE takes the category back: korlibs-audio-core's AppleInitAudio.ios.kt (6.0.0) sets
+    // .ambient, once per process, when gameplay creates its first audio output - and .ambient obeys
+    // the silent switch. A phone on silent then heard no gameplay audio at all, and no menu audio
+    // after the first level either (the category never came back). Called every tick of the
+    // gameplay observer timer and on every switch, so the override lasts at most one 50ms tick -
+    // during the level's loading, where the first output is the zero-volume priming.
+    private func ensurePlaybackCategory() {
+        let session = AVAudioSession.sharedInstance()
+        guard session.category != .playback else { return }
+        print("SHELL: Audio session category was \(session.category.rawValue) -> restoring playback")
+        configureAudioSession()
+    }
+
     func applicationWillResignActive(_ application: UIApplication) {
         ShellAppDelegate.shared.applicationWillResignActive(app: application)
     }
@@ -291,6 +304,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         lockLandscape()
         // An ad may have taken the session; gameplay audio needs it back.
         try? AVAudioSession.sharedInstance().setActive(true)
+        ensurePlaybackCategory()
         startObservingLevelEnd()
     }
 
@@ -301,11 +315,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         window.makeKeyAndVisible()
         lockLandscape()
         stopObservingLevelEnd()
+        ensurePlaybackCategory()
     }
 
     private func startObservingLevelEnd() {
         levelObserverTimer?.invalidate()
         levelObserverTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] t in
+            self?.ensurePlaybackCategory()
             if GameContinueAdBridge.shared.consumeContinueAdRequest() {
                 print("SHELL: Continue-with-ad requested -> showing rewarded ad")
                 self?.showContinueAd()
