@@ -119,11 +119,11 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath ios-shell/build/ShellApp.xcarchive \
-            CODE_SIGN_STYLE=Manual \
-            PROVISIONING_PROFILE_SPECIFIER="ShadowHeist_AppStore" \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            DEVELOPMENT_TEAM="AGLKGW9XC9" \
             archive
+          # Signing (Manual, Apple Distribution, ShadowHeist_AppStore, team AGLKGW9XC9) comes from
+          # ios-shell/project.yml's Release config for the ShellApp target only. Passing it here
+          # applied it to the Swift packages' targets too (Firebase etc.), which cannot take a
+          # provisioning profile - build 30's first archive failed on exactly that.
 
       - name: Export .ipa
         run: |
