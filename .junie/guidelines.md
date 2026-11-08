@@ -157,7 +157,8 @@ carries `proguard.map` for crash deobfuscation.
 - **Build number lives in THREE places - bump together**: `ios-shell/project.yml`
   `CFBundleVersion`, `ios-testflight.yml`'s `build_number` default, `android-shell` `versionCode`.
 - **Currently**: Android `versionCode` 30 / `versionName` "1.1.0", iOS `CFBundleVersion` 30 /
-  "1.1.0" (2026-11-08: build 30 adds Firebase Analytics - project `shadow-heist-game`, gameplay events in
+  `CFBundleShortVersionString` "1.1.3" (2026-11-08: App Store Connect closed the 1.1.0 train once 1.1.0 was
+  approved - error 90186 - so iOS build 30 ships as 1.1.3; bump it again for the next approved release. 2026-11-08: build 30 adds Firebase Analytics - project `shadow-heist-game`, gameplay events in
   `game.model.GameAnalytics`, config files `android-shell/google-services.json` and
   `ios-shell/Resources/GoogleService-Info.plist` - and starts new installs in the device language. 2026-11-06: build 28 added interstitials on every button that does not interrupt play and R8 on Android, and crashed on launch. Build 29 fixes that crash with a keep rule. iOS was not built.)
   2026-10-27: PRODUCTION build 27 = build 26 plus the iOS fix for tapping to skip the
