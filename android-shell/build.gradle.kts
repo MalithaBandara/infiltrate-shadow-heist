@@ -15,6 +15,17 @@ plugins {
     // (applying it is now an error: "no longer required for Kotlin support since AGP 9.0").
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.10"
     id("org.jetbrains.compose") version "1.12.0"
+    // Firebase Analytics config (google-services.json -> resources the Firebase SDK reads at
+    // startup). Applied below only when that file is present, so a checkout without the Firebase
+    // project's config still builds - Firebase then stays uninitialized and
+    // FirebaseGameAnalyticsSink.createOrNull() turns analytics off.
+    id("com.google.gms.google-services") version "4.5.0" apply false
+}
+
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+} else {
+    logger.warn("android-shell: no google-services.json - building without Firebase Analytics")
 }
 
 repositories {
@@ -52,7 +63,7 @@ android {
         // Must be >= paywall-build's own minSdk (24) - AGP fails the merge otherwise.
         minSdk = 24
         targetSdk = 37
-        versionCode = 29
+        versionCode = 30
         versionName = "1.1.0"
 
         val revenueCatKey = localProperties.getProperty("REVENUECAT_GOOGLE_KEY")
@@ -148,6 +159,10 @@ dependencies {
     implementation("app.lexilabs.basic:basic-ads:1.2.1")
     // Google Play Billing Library (v8.0.0+ compliant with Google Play Console requirements)
     implementation("com.android.billingclient:billing-ktx:8.0.0")
+    // Firebase Analytics: gameplay events (game.model.GameAnalytics) plus the SDK's own
+    // first_open / in_app_purchase / ad_impression, imported into Google Ads as conversions.
+    implementation(platform("com.google.firebase:firebase-bom:35.1.0"))
+    implementation("com.google.firebase:firebase-analytics")
     // Google Play In-App Review
     implementation("com.google.android.play:review:2.0.2")
     implementation("com.google.android.play:review-ktx:2.0.2")

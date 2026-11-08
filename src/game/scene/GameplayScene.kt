@@ -3287,6 +3287,9 @@ class GameplayScene(
             }
         )
 
+        // One per attempt: RETRY / NEXT MISSION build a fresh GameplayScene, checkpoint respawns don't.
+        GameAnalytics.levelStart(levelData.id)
+
         world.onLevelComplete = {
             val result = world.getLevelResult()
             // Checked before saveResult() overwrites it - this is how many *distinct* levels have
@@ -3312,9 +3315,8 @@ class GameplayScene(
                     }
                 }
             }
-            if (!alreadyCompletedBefore) {
-                profileStorage.incrementLevelsCompleted()
-            }
+            val distinctLevelsCleared = if (!alreadyCompletedBefore) profileStorage.incrementLevelsCompleted() else null
+            GameAnalytics.levelComplete(result.levelId, result.starCount, distinctLevelsCleared)
 
             // Calculate and award coins
             val multiplier = if (profileStorage.getProfile().isPremium) 2 else 1
@@ -3347,6 +3349,7 @@ class GameplayScene(
             if (world.activePowerups.isCheckpointsActive) {
                 checkpointRespawnTimer = CHECKPOINT_RESPAWN_DELAY
             } else {
+                GameAnalytics.levelFail(levelData.id, world.timeTaken.toDouble())
                 val best = levelStorage.getBestResult(levelData.id)
                 caughtOverlay.show(world.timeTaken, world.spottedCount, best, profileStorage.getProfile().coins, world.canContinue)
                 sounds.missionFail.playSfx(sfxContext, GameAudio.MISSION_FAIL_GAIN, sfxVolume(), GameAudio.SfxFile.MISSION_FAIL)

@@ -4,6 +4,15 @@ options:
   deploymentTarget:
     iOS: "15.0"
 
+packages:
+  # Firebase Analytics - gameplay events (game.model.GameAnalytics, sent by
+  # Sources/FirebaseGameAnalyticsSink.swift) plus the SDK's own first_open / in_app_purchase /
+  # ad_impression, imported into Google Ads as conversions. 13.x needs iOS 15 (matches above) and
+  # Xcode 26 (its Package.swift is swift-tools-version 6.2).
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: "13.1.1"
+
 targets:
   ShellApp:
     type: application
@@ -39,12 +48,17 @@ targets:
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
           - "@executable_path/Frameworks"
+        # Firebase Analytics' own install instructions for Swift Package Manager: without it the
+        # linker drops ObjC categories the SDK relies on at runtime.
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-ObjC"
     info:
       path: Generated/Info.plist
       properties:
         CFBundleDisplayName: Shadow Heist
         CFBundleShortVersionString: "1.1.0"
-        CFBundleVersion: "29"
+        CFBundleVersion: "30"
         ITSAppUsesNonExemptEncryption: false
         UIRequiresFullScreen: true
         UILaunchScreen: {}
@@ -157,6 +171,8 @@ targets:
         embed: true
         codeSign: true
       - sdk: StoreKit.framework
+      - package: Firebase
+        product: FirebaseAnalytics
     postbuildScripts:
       # Real bug found via the console diagnostic added to GameplayScene.kt's asset-loading
       # catch block + a CI screenshot proving the game reaches gameplay at all: korlibs threw

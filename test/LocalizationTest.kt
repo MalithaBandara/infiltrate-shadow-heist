@@ -229,6 +229,51 @@ class LocalizationTest {
     }
 
     @Test
+    fun testFirstClearOfLevel1SendsTutorialComplete() {
+        val events = GameAnalytics.levelCompleteEvents("level_1", stars = 3, distinctLevelsCleared = 1)
+        assertEquals(listOf("level_complete", "tutorial_complete"), events.map { it.name })
+        assertEquals(
+            mapOf("level_id" to "level_1", "level_number" to 1L, "stars" to 3L, "first_clear" to 1L),
+            events[0].params
+        )
+        // Replaying level 1 is just a level_complete.
+        assertEquals(listOf("level_complete"), GameAnalytics.levelCompleteEvents("level_1", 2, null).map { it.name })
+    }
+
+    @Test
+    fun testClearMilestonesFireOnlyOnTheirFirstClear() {
+        assertEquals(
+            listOf("level_complete", "levels_cleared_3"),
+            GameAnalytics.levelCompleteEvents("level_3", 1, distinctLevelsCleared = 3).map { it.name }
+        )
+        assertEquals(
+            listOf("level_complete", "levels_cleared_5"),
+            GameAnalytics.levelCompleteEvents("level_6", 1, distinctLevelsCleared = 5).map { it.name }
+        )
+        assertEquals(listOf("level_complete"), GameAnalytics.levelCompleteEvents("level_4", 1, 4).map { it.name })
+        assertEquals(listOf("level_complete"), GameAnalytics.levelCompleteEvents("level_3", 1, null).map { it.name })
+    }
+
+    @Test
+    fun testAnalyticsSinkReceivesEventsAndNeverThrows() {
+        val logged = mutableListOf<String>()
+        GameAnalytics.sink = object : GameAnalyticsSink {
+            override fun logEvent(name: String, params: Map<String, Any>) {
+                logged += name
+                error("sink failure must not reach gameplay")
+            }
+        }
+        try {
+            GameAnalytics.levelStart("level_2")
+            GameAnalytics.levelFail("level_2", 12.7)
+        } finally {
+            GameAnalytics.sink = null
+        }
+        assertEquals(listOf("level_start", "level_fail"), logged)
+        assertEquals(12L, GameAnalytics.levelFailEvents("level_2", 12.7)[0].params["seconds_played"])
+    }
+
+    @Test
     fun testSpecificFrenchTranslations() {
         assertEquals("PLAY", Localization.play("en"))
         assertEquals("JOUER", Localization.play("fr"))
