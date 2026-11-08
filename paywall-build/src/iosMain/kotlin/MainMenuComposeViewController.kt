@@ -3,14 +3,22 @@ package com.infiltrate.ui
 import androidx.compose.ui.window.ComposeUIViewController
 import com.infiltrate.ads.ContinueAdContent
 import com.infiltrate.ads.InterstitialAdContent
+import game.model.SystemLanguage
 import kotlin.native.ObjCName
+import platform.Foundation.NSLocale
+import platform.Foundation.preferredLanguages
 import platform.UIKit.UIViewController
 
 @OptIn(kotlin.experimental.ExperimentalObjCName::class, kotlin.experimental.ExperimentalObjCRefinement::class)
 @ObjCName(name = "MainMenuComposeScreen", exact = true)
 object MainMenuComposeScreen {
-    fun makeViewController(onStartLevel: (String) -> Unit): UIViewController =
-        ComposeUIViewController {
+    fun makeViewController(onStartLevel: (String) -> Unit): UIViewController {
+        // AppDelegate's first call into PaywallModule, so this runs before NavigationRoot creates
+        // any profile storage: a first launch picks the device language if the game is
+        // translated into it (see SystemLanguage / MapBackedGameProfileStorage). The KorGE game
+        // framework has its own copy of SystemLanguage, never set - it reads the saved choice.
+        SystemLanguage.preferredTags = { NSLocale.preferredLanguages.mapNotNull { it as? String } }
+        return ComposeUIViewController {
             NavigationRoot(onStartLevel = onStartLevel)
             // Real BasicAds.Initialize() + RequestConfiguration call site (see
             // AdMobVerifyScreen.kt), inert until AppDelegate.swift's consent flow settles -
@@ -26,6 +34,7 @@ object MainMenuComposeScreen {
             // InterstitialAdContent() call site.
             InterstitialAdContent()
         }
+    }
 
     fun makeViewController(onStartLevel: () -> Unit): UIViewController =
         makeViewController(onStartLevel = { _ -> onStartLevel() })

@@ -2,6 +2,7 @@ package com.infiltrate.androidshell
 
 import android.os.Build
 import android.os.Bundle
+import android.os.LocaleList
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
@@ -38,6 +39,7 @@ import game.model.DeviceScreen
 import game.model.GameProfileStorage
 import game.model.LevelData
 import game.model.MapBackedGameProfileStorage
+import game.model.SystemLanguage
 import game.scene.DeviceViewport
 import game.scene.GamePreload
 import game.scene.GameplayScene
@@ -109,6 +111,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         PlatformStorage.init(this)
+        // Before any profile storage is created: a first launch picks the device language if
+        // the game is translated into it (see SystemLanguage / MapBackedGameProfileStorage).
+        SystemLanguage.preferredTags = { LocaleList.getDefault().toLanguageTags().split(',') }
         publishScreenMetrics()
         observeSafeAreaInsets()
         // applicationContext, not this Activity - AndroidGameSfxOutputState is a long-lived

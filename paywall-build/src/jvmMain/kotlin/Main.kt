@@ -10,6 +10,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.infiltrate.ui.DesktopVideoPlayerManager
 import com.infiltrate.ui.NavigationRoot
+import game.model.SystemLanguage
 import java.io.File
 import kotlin.concurrent.thread
 
@@ -55,6 +56,8 @@ private fun parseWindowSizeOverride(raw: String?): Pair<Float, Float>? {
 }
 
 fun main() {
+    // A first launch picks the OS language if the game is translated into it - see SystemLanguage.
+    SystemLanguage.preferredTags = { listOf(java.util.Locale.getDefault().toLanguageTag()) }
     // Eagerly pre-warm video decoder in background so it's ready on the very first frame
     val candidates = listOf(
         File("resources/bg1080p.mp4"),

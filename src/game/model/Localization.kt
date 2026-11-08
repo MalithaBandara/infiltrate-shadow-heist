@@ -38,6 +38,37 @@ object Localization {
         }
     }
 
+    /**
+     * The supported language code for a device locale tag ("zh-Hant-TW", "ja_JP", "pt-PT"), or
+     * null when the game has no translation for it. Unlike [langCode], unknown languages give
+     * null instead of falling back to English, so a caller can try the device's next preferred
+     * language. Matches on the primary subtag only: every Chinese variant maps to zh-TW and every
+     * Portuguese one to pt-BR, the only variants translated. "in" is Java's legacy code for
+     * Indonesian.
+     */
+    fun supportedLanguageFor(tag: String): String? =
+        when (tag.trim().replace('_', '-').substringBefore('-').lowercase()) {
+            "en" -> EN
+            "fr" -> FR
+            "es" -> ES
+            "pt" -> PT_BR
+            "de" -> DE
+            "id", "in" -> ID
+            "tr" -> TR
+            "vi" -> VI
+            "ru" -> RU
+            "ja" -> JA
+            "ko" -> KO
+            "zh" -> ZH_TW
+            "hi" -> HI
+            "ar" -> AR
+            "th" -> TH
+            else -> null
+        }
+
+    /** The first of the device's preferred languages ([tags], most preferred first) the game supports. */
+    fun firstSupportedLanguage(tags: List<String>): String? = tags.firstNotNullOfOrNull { supportedLanguageFor(it) }
+
     fun isFrench(lang: String): Boolean = langCode(lang) == FR
 
     // --- Level Metadata Delegation ---
