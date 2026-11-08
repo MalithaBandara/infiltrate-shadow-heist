@@ -169,6 +169,66 @@ class LocalizationTest {
     }
 
     @Test
+    fun testSupportedLanguageForDeviceTags() {
+        assertEquals("zh-TW", Localization.supportedLanguageFor("zh-Hant-TW"))
+        assertEquals("zh-TW", Localization.supportedLanguageFor("zh-TW"))
+        assertEquals("zh-TW", Localization.supportedLanguageFor("zh-Hans-CN"))
+        assertEquals("ja", Localization.supportedLanguageFor("ja-JP"))
+        assertEquals("ko", Localization.supportedLanguageFor("ko_KR"))
+        assertEquals("pt-BR", Localization.supportedLanguageFor("pt-PT"))
+        assertEquals("id", Localization.supportedLanguageFor("in-ID"))
+        assertEquals("en", Localization.supportedLanguageFor("en-CA"))
+        assertEquals(null, Localization.supportedLanguageFor("hr-HR"))
+        assertEquals(null, Localization.supportedLanguageFor(""))
+        // Falls through unsupported preferences to the next one the game has.
+        assertEquals("de", Localization.firstSupportedLanguage(listOf("nl-NL", "de-DE", "en-US")))
+        assertEquals(null, Localization.firstSupportedLanguage(listOf("nl-NL", "sv-SE")))
+    }
+
+    @Test
+    fun testFirstLaunchUsesSupportedDeviceLanguageAndSavesIt() {
+        val map = mutableMapOf<String, String>()
+        val storage = MapBackedGameProfileStorage(
+            getRaw = { map[it] },
+            setRaw = { k, v -> map[k] = v },
+            systemLanguageTags = { listOf("zh-Hant-TW", "en-US") }
+        )
+        assertEquals("zh-TW", storage.getProfile().language)
+        assertEquals("zh-TW", map["user_language"])
+
+        // A later launch with a different device language keeps the saved one.
+        val reloaded = MapBackedGameProfileStorage(
+            getRaw = { map[it] },
+            setRaw = { k, v -> map[k] = v },
+            systemLanguageTags = { listOf("ja-JP") }
+        )
+        assertEquals("zh-TW", reloaded.getProfile().language)
+    }
+
+    @Test
+    fun testDeviceLanguageNeverOverridesSavedChoice() {
+        val map = mutableMapOf("user_language" to "en")
+        val storage = MapBackedGameProfileStorage(
+            getRaw = { map[it] },
+            setRaw = { k, v -> map[k] = v },
+            systemLanguageTags = { listOf("ko-KR") }
+        )
+        assertEquals("en", storage.getProfile().language)
+    }
+
+    @Test
+    fun testUnsupportedDeviceLanguageStaysEnglishWithoutSaving() {
+        val map = mutableMapOf<String, String>()
+        val storage = MapBackedGameProfileStorage(
+            getRaw = { map[it] },
+            setRaw = { k, v -> map[k] = v },
+            systemLanguageTags = { listOf("hr-HR") }
+        )
+        assertEquals("en", storage.getProfile().language)
+        assertEquals(null, map["user_language"])
+    }
+
+    @Test
     fun testSpecificFrenchTranslations() {
         assertEquals("PLAY", Localization.play("en"))
         assertEquals("JOUER", Localization.play("fr"))
