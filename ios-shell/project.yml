@@ -53,6 +53,16 @@ targets:
         OTHER_LDFLAGS:
           - "$(inherited)"
           - "-ObjC"
+      # App Store signing for the app target only. ios-testflight.yml used to pass these on the
+      # xcodebuild command line, which applies them to EVERY target - including the Swift
+      # packages' resource-bundle targets (Firebase, GoogleUtilities, nanopb, Promises), which
+      # cannot take a provisioning profile, so build 30's archive failed with "does not support
+      # provisioning profiles". Release only: ios-build.yml's simulator build is Debug and unsigned.
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          PROVISIONING_PROFILE_SPECIFIER: ShadowHeist_AppStore
     info:
       path: Generated/Info.plist
       properties:
