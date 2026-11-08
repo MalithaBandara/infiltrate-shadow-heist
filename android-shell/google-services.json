@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "463937303943",
+    "project_id": "shadow-heist-game",
+    "storage_bucket": "shadow-heist-game.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:463937303943:android:ce3e4f369177e59069cf22",
+        "android_client_info": {
+          "package_name": "com.infiltrate.shadowheist"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCEJTw3ums_9_WbeOpKmbPK2AvtkZF6lEc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

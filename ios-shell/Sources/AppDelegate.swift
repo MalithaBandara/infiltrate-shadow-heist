@@ -32,6 +32,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // below, once the window is laid out. See GameScreenMetricsBridge / game.model.ScreenLayout.
         publishScreenMetrics()
         configureAudioSession()
+        // Before any gameplay can start, so a level's first events aren't dropped.
+        FirebaseGameAnalyticsSink.configureIfAvailable()
 
         ShellAppDelegate.shared.applicationDidFinishLaunching(app: application)
         let window = ShellAppDelegate.shared.window
