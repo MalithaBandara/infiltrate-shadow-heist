@@ -205,6 +205,11 @@ def sync(client, locales, version_string, apply):
         existing = version_locs.get(locale)
         if existing:
             attrs = diff(existing["attributes"], wanted, VERSION_FIELDS)
+            # Locales Apple created alongside a new app info locale start with no support URL,
+            # which blocks submission ("Support URL - This field is required").
+            for url_field in ("supportUrl", "marketingUrl"):
+                if primary_version.get(url_field) and not existing["attributes"].get(url_field):
+                    attrs[url_field] = primary_version[url_field]
             if attrs:
                 changes += 1
                 print(f"[{locale}] update " + ", ".join(sorted(attrs)))
