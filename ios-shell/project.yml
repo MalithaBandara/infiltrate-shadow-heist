@@ -67,6 +67,28 @@ targets:
       path: Generated/Info.plist
       properties:
         CFBundleDisplayName: Shadow Heist
+        # The game translates itself (game.model.Localization), so iOS can't see those languages
+        # unless they're listed here - without this the App Store's "Languages" row says English
+        # only and iOS Settings offers no per-app language. Keep in step with Localization.langCode.
+        # Arabic here makes iOS resolve right-to-left on Arabic devices; MainMenuComposeScreen pins
+        # the Compose UI to left-to-right to match Android (no supportsRtl).
+        CFBundleDevelopmentRegion: en
+        CFBundleLocalizations:
+          - en
+          - zh-Hant
+          - ja
+          - ko
+          - fr
+          - es
+          - de
+          - pt-BR
+          - id
+          - tr
+          - vi
+          - ru
+          - hi
+          - ar
+          - th
         CFBundleShortVersionString: "1.1.3"
         CFBundleVersion: "30"
         ITSAppUsesNonExemptEncryption: false
