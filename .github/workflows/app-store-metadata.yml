@@ -1,0 +1,67 @@
+name: "🌐 App Store Listing Text"
+
+# Uploads store-metadata/app-store.json (description, keywords, promotional text, What's New, name,
+# subtitle for every locale) to an App Store version via tools/app_store_metadata.py.
+#
+#   Tag push:  git tag store-metadata-1.1.3 && git push origin store-metadata-1.1.3
+#              writes the listing to version 1.1.3 (the version must already exist in App Store
+#              Connect and not be submitted yet).
+#   Manual:    Actions → this workflow → Run workflow (only once this file is on the default
+#              branch); leave "apply" off for a dry run that only lists the changes.
+#
+# Uses the same APPSTORE_* secrets as ios-testflight.yml. That key needs the App Manager or Admin
+# role: a Developer-role key uploads builds but App Store Connect refuses listing edits with it.
+
+on:
+  push:
+    tags:
+      - "store-metadata-*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "App Store version string (e.g. 1.1.3)"
+        required: true
+      apply:
+        description: "Write the changes (off = dry run)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: "app-store-metadata"
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyJWT
+        run: pip install "pyjwt[crypto]==2.10.1"
+
+      - name: Check limits
+        run: python3 tools/app_store_metadata.py --check
+
+      - name: Upload listing text
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          KEY_BASE64: ${{ secrets.APPSTORE_PRIVATE_KEY_BASE64 }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_APPLY: ${{ inputs.apply }}
+        run: |
+          export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          echo "$KEY_BASE64" | base64 --decode > "$ASC_KEY_PATH"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            VERSION="${GITHUB_REF_NAME#store-metadata-}"
+            APPLY="--apply"
+          else
+            VERSION="$INPUT_VERSION"
+            APPLY=""
+            [ "$INPUT_APPLY" = "true" ] && APPLY="--apply"
+          fi
+          python3 tools/app_store_metadata.py --version "$VERSION" $APPLY
