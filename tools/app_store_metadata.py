@@ -197,6 +197,10 @@ def sync(client, locales, version_string, apply):
                     client.request("POST", "/appInfoLocalizations", {"data": {
                         "type": "appInfoLocalizations", "attributes": attrs,
                         "relationships": {"appInfo": {"data": {"type": "appInfos", "id": app_info["id"]}}}}})
+                    # Adding a locale to the app info also adds an empty one to the version being
+                    # prepared, so a POST for it below would fail with 409: patch that one instead.
+                    version_locs = {l["attributes"]["locale"]: l for l in client.get_all(
+                        f"/appStoreVersions/{version['id']}/appStoreVersionLocalizations")}
 
         existing = version_locs.get(locale)
         if existing:
