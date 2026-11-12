@@ -156,8 +156,9 @@ after adding setup code; move another block into a local `fun` (or a file, as `M
   build; build 25 (a test build) was on test units - see Ads.
 - All 12 levels are listed (`.take(12)` in `LevelSelectScreen.kt`, `MainMenuScreen.kt`,
   `GameplayScene.kt`). From the Google Play approval gating (2026-09-25) what remains: "Coming Soon"
-  chapter placeholders removed (layout-preserving spacers) and Settings showing English/French only
-  (`SUPPORTED_LANGUAGES`; the 15-language shortlist is kept in `ALL_SUPPORTED_LANGUAGES`). If a Play
+  chapter placeholders removed (layout-preserving spacers). Settings now lists all 16 languages
+  (`SUPPORTED_LANGUAGES = ALL_SUPPORTED_LANGUAGES` since `dbd09b8`; Italian added 2026-11-12) - narrow
+  `SUPPORTED_LANGUAGES` if a review ever needs fewer. If a Play
   review ever needs the rain gone, `LevelData.DEFAULT_LEVEL_2.hasRain` is the whole switch.
 
 ### Release 1.0 (iOS build 19) - App Store review audit (2026-09-26)
@@ -407,8 +408,13 @@ MainMenu, LevelSelect, Store and Settings are Compose screens in `paywall-build`
 `rootViewController` swap; on Android the Compose menu draws opaquely over an always-visible KorGE
 view (bug #7).
 
-- **Settings**: language list (see Release state) - French fully localized across menus, in-game
-  overlays, and in-game tutorials (`step_*` in `Localization.kt`), `Localization.kt` pure Kotlin. Volume sliders are
+- **Settings**: language list (see Release state) - 16 languages, each fully localized across menus,
+  in-game overlays and tutorials (`Localization.kt`, `LocalizationLevels.kt`,
+  `LocalizationTutorials.kt`, pure Kotlin; `when (code)` per string, `else` = English). **A new
+  language** = a code constant + `langCode` prefix, an entry after every `"fr" ->`/`FR ->` line
+  (~251), a `LanguageOption` in `SettingsScreen.kt`, and the code in `LocalizationTest.allLanguages`.
+  Italian (2026-11-12) is machine-drafted, not reviewed by a native speaker, and its longer words
+  (PUBBLICITÀ) not checked for fit on a screen. Volume sliders are
   lifted into `NavigationRoot` as `mutableStateOf` (they had no live effect). Reset Progress has a
   confirmation and resets coins/inventory/unlocks/results, keeping `isPremium`.
 - **In-App Review**: automatic StoreKit/Play prompt after completing level 4. iOS's manual RATE US

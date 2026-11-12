@@ -11,6 +11,7 @@ internal object LocalizationLevels {
         return when (levelId) {
             "level_1" -> when (code) {
                 "fr" -> "01: Arrivée nocturne"
+                "it" -> "01: Arrivo notturno"
                 "es" -> "01: Llegada nocturna"
                 "pt-BR" -> "01: Chegada Noturna"
                 "de" -> "01: Nächtliche Ankunft"
@@ -28,6 +29,7 @@ internal object LocalizationLevels {
             }
             "level_2" -> when (code) {
                 "fr" -> "02: Zone de fret"
+                "it" -> "02: Deposito merci"
                 "es" -> "02: Patio de carga"
                 "pt-BR" -> "02: Pátio de Carga"
                 "de" -> "02: Frachthof"
@@ -45,6 +47,7 @@ internal object LocalizationLevels {
             }
             "level_3" -> when (code) {
                 "fr" -> "03: Premier contact"
+                "it" -> "03: Primo contatto"
                 "es" -> "03: Primer contacto"
                 "pt-BR" -> "03: Primeiro Contato"
                 "de" -> "03: Erster Kontakt"
@@ -62,6 +65,7 @@ internal object LocalizationLevels {
             }
             "level_4" -> when (code) {
                 "fr" -> "04: Cible mobile"
+                "it" -> "04: Bersaglio mobile"
                 "es" -> "04: Blanco móvil"
                 "pt-BR" -> "04: Alvo em Movimento"
                 "de" -> "04: Bewegliches Ziel"
@@ -79,6 +83,7 @@ internal object LocalizationLevels {
             }
             "level_5" -> when (code) {
                 "fr" -> "05: Le parc à grues"
+                "it" -> "05: Il parco gru"
                 "es" -> "05: El patio de grúas"
                 "pt-BR" -> "05: O Pátio de Guindastes"
                 "de" -> "05: Der Kranhof"
@@ -96,6 +101,7 @@ internal object LocalizationLevels {
             }
             "level_6" -> when (code) {
                 "fr" -> "06: Manifeste volé"
+                "it" -> "06: Manifesto rubato"
                 "es" -> "06: Manifiesto robado"
                 "pt-BR" -> "06: Manifesto Roubado"
                 "de" -> "06: Gestohlenes Manifest"
@@ -113,6 +119,7 @@ internal object LocalizationLevels {
             }
             "level_7" -> when (code) {
                 "fr" -> "07: Tunnel de service"
+                "it" -> "07: Tunnel di servizio"
                 "es" -> "07: Túnel de servicio"
                 "pt-BR" -> "07: Túnel de Serviço"
                 "de" -> "07: Wartungstunnel"
@@ -130,6 +137,7 @@ internal object LocalizationLevels {
             }
             "level_8" -> when (code) {
                 "fr" -> "08: Relocalisation"
+                "it" -> "08: Trasferimento"
                 "es" -> "08: Reubicación"
                 "pt-BR" -> "08: Remanejamento"
                 "de" -> "08: Verlegung"
@@ -147,6 +155,7 @@ internal object LocalizationLevels {
             }
             "level_9" -> when (code) {
                 "fr" -> "09: Déjà Vu"
+                "it" -> "09: Déjà vu"
                 "es" -> "09: Déjà Vu"
                 "pt-BR" -> "09: Déjà Vu"
                 "de" -> "09: Déjà-vu"
@@ -164,6 +173,7 @@ internal object LocalizationLevels {
             }
             "level_10" -> when (code) {
                 "fr" -> "10: Sous le chantier"
+                "it" -> "10: Sotto il cantiere"
                 "es" -> "10: Bajo el patio"
                 "pt-BR" -> "10: Sob o Pátio"
                 "de" -> "10: Unter der Werft"
@@ -181,6 +191,7 @@ internal object LocalizationLevels {
             }
             "level_11" -> when (code) {
                 "fr" -> "11: Le prisonnier"
+                "it" -> "11: Il prigioniero"
                 "es" -> "11: El prisionero"
                 "pt-BR" -> "11: O Prisioneiro"
                 "de" -> "11: Der Gefangene"
@@ -198,6 +209,7 @@ internal object LocalizationLevels {
             }
             "level_12" -> when (code) {
                 "fr" -> "12: Échappée finale"
+                "it" -> "12: Fuga finale"
                 "es" -> "12: Huida final"
                 "pt-BR" -> "12: Fuga Final"
                 "de" -> "12: Die Flucht"
@@ -222,6 +234,7 @@ internal object LocalizationLevels {
         return when (levelId) {
             "level_1" -> when (code) {
                 "fr" -> "Rejoignez le chantier naval sous couvert de l'obscurité et trouvez un moyen d'entrer."
+                "it" -> "Raggiungi il cantiere navale col favore del buio e trova un modo per entrare."
                 "es" -> "Llega al astillero al amparo de la oscuridad y encuentra una forma de entrar."
                 "pt-BR" -> "Alcance o estaleiro sob a proteção da escuridão e encontre uma forma de entrar."
                 "de" -> "Erreiche die Schiffswerft im Schutz der Dunkelheit und finde einen Weg hinein."
@@ -239,6 +252,7 @@ internal object LocalizationLevels {
             }
             "level_2" -> when (code) {
                 "fr" -> "Traversez le dépôt de conteneurs vide et atteignez la zone d'accès restreint."
+                "it" -> "Attraversa il deposito di container vuoto e raggiungi l'area riservata."
                 "es" -> "Cruza el patio de contenedores vacío y llega a la sección restringida."
                 "pt-BR" -> "Atravesse o pátio de contêineres vazio e alcance o setor restrito."
                 "de" -> "Durchquere den leeren Containerhof und erreiche den Sperrbereich."
@@ -256,6 +270,7 @@ internal object LocalizationLevels {
             }
             "level_3" -> when (code) {
                 "fr" -> "La sécurité est active. Évitez les gardes et les caméras pour atteindre le tapis roulant."
+                "it" -> "La sicurezza è attiva. Evita guardie e telecamere per raggiungere il nastro trasportatore."
                 "es" -> "La seguridad está activa. Evita guardias y cámaras para llegar a la cinta transportadora."
                 "pt-BR" -> "Segurança ativa. Evite guardas e câmeras para alcançar a esteira rolante."
                 "de" -> "Sicherheitskräfte aktiv. Weiche Wachen und Kameras aus, um das Förderband zu erreichen."
@@ -273,6 +288,7 @@ internal object LocalizationLevels {
             }
             "level_4" -> when (code) {
                 "fr" -> "Fouillez le tapis roulant en mouvement pour trouver le conteneur 17 tout en évitant les lasers."
+                "it" -> "Perlustra il nastro trasportatore in movimento in cerca del Container 17, evitando i laser."
                 "es" -> "Registra la cinta transportadora en movimiento buscando el Contenedor 17 mientras evitas los láseres."
                 "pt-BR" -> "Procure o Contêiner 17 na esteira rolante em movimento desviando dos lasers."
                 "de" -> "Suche das laufende Förderband nach Container 17 ab und meide dabei Laserfallen."
@@ -290,6 +306,7 @@ internal object LocalizationLevels {
             }
             "level_5" -> when (code) {
                 "fr" -> "Le conteneur 17 a disparu. Fouillez le parc à grues pour découvrir où il a été emmené."
+                "it" -> "Il Container 17 è sparito. Perlustra il parco gru in cerca di indizi su dove sia finito."
                 "es" -> "El contenedor 17 ya no está. Busca pistas en el patio de grúas sobre adónde fue."
                 "pt-BR" -> "O Contêiner 17 sumiu. Vasculhe o pátio de guindastes em busca de pistas de seu destino."
                 "de" -> "Container 17 ist verschwunden. Durchsuche den Kranhof nach Hinweisen auf seinen Verbleib."
@@ -307,6 +324,7 @@ internal object LocalizationLevels {
             }
             "level_6" -> when (code) {
                 "fr" -> "Les documents révélant l'emplacement du conteneur 17 sont conservés dans le bâtiment de sécurité. Trouvez un moyen d'y entrer."
+                "it" -> "I documenti che rivelano la posizione del Container 17 sono custoditi nell'edificio della sicurezza. Trova un modo per entrare."
                 "es" -> "Los registros que revelan la ubicación del Contenedor 17 están en el edificio de seguridad. Entra."
                 "pt-BR" -> "Os registros com a localização do Contêiner 17 estão no prédio da segurança. Encontre uma entrada."
                 "de" -> "Die Unterlagen zum Verbleib von Container 17 liegen im Sicherheitsgebäude. Finde einen Weg hinein."
@@ -324,6 +342,7 @@ internal object LocalizationLevels {
             }
             "level_7" -> when (code) {
                 "fr" -> "Évitez la salle de sécurité lourdement gardée en empruntant le tunnel de service souterrain."
+                "it" -> "Aggira la sala di sicurezza sorvegliatissima passando per il tunnel di servizio sotterraneo."
                 "es" -> "Evita la sala de seguridad fuertemente vigilada usando el túnel de servicio subterráneo."
                 "pt-BR" -> "Evite a sala de segurança fortificada usando o túnel subterrâneo de serviço."
                 "de" -> "Umgehe den schwer bewachten Sicherheitsraum durch den unterirdischen Wartungstunnel."
@@ -341,6 +360,7 @@ internal object LocalizationLevels {
             }
             "level_8" -> when (code) {
                 "fr" -> "Les gardes ont déplacé le conteneur 17. Suivez la piste jusqu'à son nouvel emplacement."
+                "it" -> "Le guardie hanno spostato il Container 17. Segui le tracce fino alla sua nuova posizione."
                 "es" -> "Los guardias movieron el Contenedor 17. Sigue el rastro hasta su nueva ubicación."
                 "pt-BR" -> "Os guardas moveram o Contêiner 17. Siga a pista até o novo local."
                 "de" -> "Die Wachen haben Container 17 versetzt. Folge der Spur zum neuen Standort."
@@ -358,6 +378,7 @@ internal object LocalizationLevels {
             }
             "level_9" -> when (code) {
                 "fr" -> "Cette piste semble étrangement familière, comme si vous étiez déjà venu ici."
+                "it" -> "Questa pista ti sembra stranamente familiare, come se l'avessi già fatto."
                 "es" -> "El rastro resulta extrañamente familiar, como si ya hubieras hecho esto antes."
                 "pt-BR" -> "O caminho parece estranhamente familiar, como se você já tivesse feito isso antes."
                 "de" -> "Der Pfad wirkt seltsam vertraut, als wärst du schon einmal hier gewesen."
@@ -375,6 +396,7 @@ internal object LocalizationLevels {
             }
             "level_10" -> when (code) {
                 "fr" -> "Suivez les tunnels souterrains à la recherche de la personne que vous traquiez."
+                "it" -> "Segui i tunnel sotterranei alla ricerca della persona che stavi pedinando."
                 "es" -> "Sigue los túneles subterráneos en busca de la persona a la que seguías la pista."
                 "pt-BR" -> "Siga os túneis subterrâneos em busca da pessoa que você estava rastreando."
                 "de" -> "Folge den unterirdischen Gängen auf der Suche nach der verfolgten Person."
@@ -392,6 +414,7 @@ internal object LocalizationLevels {
             }
             "level_11" -> when (code) {
                 "fr" -> "Libérez le prisonnier et escortez-le en lieu sûr. Quelque chose chez lui vous semble familier."
+                "it" -> "Libera il prigioniero e scortalo in salvo. C'è qualcosa in lui che ti sembra familiare."
                 "es" -> "Rescata al prisionero y escoltalo a un lugar seguro. Algo en él te resulta familiar."
                 "pt-BR" -> "Resgate o prisioneiro e escolte-o em segurança. Há algo de familiar nele."
                 "de" -> "Befreie den Gefangenen und bringe ihn in Sicherheit. Er kommt dir seltsam vertraut vor."
@@ -409,6 +432,7 @@ internal object LocalizationLevels {
             }
             "level_12" -> when (code) {
                 "fr" -> "Les gardes se rapprochent. Faites sortir le prisonnier du chantier naval avant qu'il ne soit trop tard."
+                "it" -> "Le guardie stanno stringendo il cerchio. Porta il prigioniero fuori dal cantiere navale prima che sia troppo tardi."
                 "es" -> "Los guardias se acercan. Saca al prisionero del astillero antes de que sea tarde."
                 "pt-BR" -> "Os guardas estão cercando o local. Tire o prisioneiro do estaleiro antes que seja tarde."
                 "de" -> "Die Wachen rücken vor. Schaffe den Gefangenen aus der Werft, bevor es zu spät ist."
@@ -433,6 +457,7 @@ internal object LocalizationLevels {
         return when (levelId) {
             "level_1" -> when (code) {
                 "fr" -> "Trouvez l'entrée du chantier naval"
+                "it" -> "Trova l'ingresso del cantiere navale"
                 "es" -> "Encuentra la entrada al astillero"
                 "pt-BR" -> "Encontre a entrada do estaleiro"
                 "de" -> "Finde den Eingang zur Werft"
@@ -450,6 +475,7 @@ internal object LocalizationLevels {
             }
             "level_2" -> when (code) {
                 "fr" -> "Trouvez un chemin à travers le dépôt"
+                "it" -> "Trova un passaggio attraverso il deposito"
                 "es" -> "Encuentra un camino por el patio"
                 "pt-BR" -> "Encontre um caminho pelo pátio"
                 "de" -> "Finde einen Weg durch den Frachthof"
@@ -467,6 +493,7 @@ internal object LocalizationLevels {
             }
             "level_3" -> when (code) {
                 "fr" -> "Atteignez le tapis roulant"
+                "it" -> "Raggiungi il nastro trasportatore"
                 "es" -> "Llega a la cinta transportadora"
                 "pt-BR" -> "Alcance a esteira rolante"
                 "de" -> "Erreiche das Förderband"
@@ -484,6 +511,7 @@ internal object LocalizationLevels {
             }
             "level_4" -> when (code) {
                 "fr" -> "Franchissez la ligne de convoyage"
+                "it" -> "Attraversa la linea dei nastri"
                 "es" -> "Cruza la línea de transporte"
                 "pt-BR" -> "Atravesse a linha de esteiras"
                 "de" -> "Überquere die Förderlinie"
@@ -501,6 +529,7 @@ internal object LocalizationLevels {
             }
             "level_5" -> when (code) {
                 "fr" -> "Traversez le parc à grues"
+                "it" -> "Attraversa il parco gru"
                 "es" -> "Cruza el patio de grúas"
                 "pt-BR" -> "Atravesse o pátio de guindastes"
                 "de" -> "Durchquere den Kranhof"
@@ -518,6 +547,7 @@ internal object LocalizationLevels {
             }
             "level_6" -> when (code) {
                 "fr" -> "Atteignez le bâtiment de sécurité"
+                "it" -> "Raggiungi l'edificio della sicurezza"
                 "es" -> "Llega al edificio de seguridad"
                 "pt-BR" -> "Alcance o prédio da segurança"
                 "de" -> "Erreiche das Sicherheitsgebäude"
@@ -535,6 +565,7 @@ internal object LocalizationLevels {
             }
             "level_7" -> when (code) {
                 "fr" -> "Atteignez le poste de sécurité"
+                "it" -> "Raggiungi la postazione di sicurezza"
                 "es" -> "Llega al puesto de seguridad"
                 "pt-BR" -> "Alcance o posto de segurança"
                 "de" -> "Erreiche die Sicherheitszentrale"
@@ -552,6 +583,7 @@ internal object LocalizationLevels {
             }
             "level_8" -> when (code) {
                 "fr" -> "Retrouvez la trace du conteneur 17"
+                "it" -> "Rintraccia il Container 17"
                 "es" -> "Rastrea el Contenedor 17"
                 "pt-BR" -> "Rastreie o Contêiner 17"
                 "de" -> "Spüre Container 17 auf"
@@ -569,6 +601,7 @@ internal object LocalizationLevels {
             }
             "level_9" -> when (code) {
                 "fr" -> "Suivez la silhouette sans toucher le sol"
+                "it" -> "Segui la figura senza toccare terra"
                 "es" -> "Sigue a la figura sin tocar el suelo"
                 "pt-BR" -> "Siga a silhueta sem tocar o chão"
                 "de" -> "Folge der Gestalt, ohne den Boden zu berühren"
@@ -586,6 +619,7 @@ internal object LocalizationLevels {
             }
             "level_10" -> when (code) {
                 "fr" -> "Trouvez le prisonnier dans les cellules"
+                "it" -> "Trova il prigioniero nelle celle"
                 "es" -> "Encuentra al prisionero en las celdas"
                 "pt-BR" -> "Encontre o prisioneiro nas celas"
                 "de" -> "Finde den Gefangenen in den Zellen"
@@ -603,6 +637,7 @@ internal object LocalizationLevels {
             }
             "level_11" -> when (code) {
                 "fr" -> "Escortez le prisonnier jusqu'à la sortie"
+                "it" -> "Scorta il prigioniero fino all'uscita"
                 "es" -> "Escolta al prisionero a la salida"
                 "pt-BR" -> "Escolte o prisioneiro até a saída"
                 "de" -> "Eskortiere den Gefangenen zum Ausgang"
@@ -620,6 +655,7 @@ internal object LocalizationLevels {
             }
             "level_12" -> when (code) {
                 "fr" -> "Escortez le prisonnier hors du chantier naval"
+                "it" -> "Scorta il prigioniero fuori dal cantiere navale"
                 "es" -> "Escolta al prisionero fuera del astillero"
                 "pt-BR" -> "Escolte o prisioneiro para fora do estaleiro"
                 "de" -> "Eskortiere den Gefangenen aus der Werft"

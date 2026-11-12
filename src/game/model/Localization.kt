@@ -3,6 +3,7 @@ package game.model
 object Localization {
     const val EN = "en"
     const val FR = "fr"
+    const val IT = "it"
     const val ES = "es"
     const val PT_BR = "pt-BR"
     const val DE = "de"
@@ -23,6 +24,7 @@ object Localization {
             lower.startsWith("pt") -> PT_BR
             lower.startsWith("zh") -> ZH_TW
             lower.startsWith("fr") -> FR
+            lower.startsWith("it") -> IT
             lower.startsWith("es") -> ES
             lower.startsWith("de") -> DE
             lower.startsWith("id") -> ID
@@ -56,6 +58,7 @@ object Localization {
         return when (type) {
             PowerupType.INVISIBILITY -> when (code) {
                 "fr" -> "CAPE D'INVISIBILITÉ"
+                "it" -> "MANTELLO DELL'INVISIBILITÀ"
                 "es" -> "CAPA DE INVISIBILIDAD"
                 "pt-BR" -> "CAPA DE INVISIBILIDADE"
                 "de" -> "TARNUMHANG"
@@ -73,6 +76,7 @@ object Localization {
             }
             PowerupType.NOISE_SUPPRESSION -> when (code) {
                 "fr" -> "BOTTES SILENCIEUSES"
+                "it" -> "STIVALI SILENZIOSI"
                 "es" -> "BOTAS SILENCIOSAS"
                 "pt-BR" -> "BOTAS SILENCIOSAS"
                 "de" -> "LEISE STIEFEL"
@@ -90,6 +94,7 @@ object Localization {
             }
             PowerupType.LASER_SHIELD -> when (code) {
                 "fr" -> "BOUCLIER DE PROTECTION"
+                "it" -> "SCUDO PROTETTIVO"
                 "es" -> "ESCUDO PROTECTOR"
                 "pt-BR" -> "ESCUDO DE PROTEÇÃO"
                 "de" -> "SCHUTZSCHILD"
@@ -107,6 +112,7 @@ object Localization {
             }
             PowerupType.REMOTE_TRIGGER -> when (code) {
                 "fr" -> "DÉCLENCHEUR À DISTANCE"
+                "it" -> "ATTIVATORE A DISTANZA"
                 "es" -> "ACTIVADOR REMOTO"
                 "pt-BR" -> "ATIVADOR REMOTO"
                 "de" -> "FERNAUSLÖSER"
@@ -124,6 +130,7 @@ object Localization {
             }
             PowerupType.CHECKPOINTS -> when (code) {
                 "fr" -> "POINTS DE CONTRÔLE"
+                "it" -> "CHECKPOINT TATTICI"
                 "es" -> "PUNTOS DE CONTROL"
                 "pt-BR" -> "PONTOS DE CONTROLE"
                 "de" -> "TAKTIK-KONTROLLPUNKTE"
@@ -141,6 +148,7 @@ object Localization {
             }
             PowerupType.SMOKE_SCREEN -> when (code) {
                 "fr" -> "ÉCRAN DE FUMÉE"
+                "it" -> "CORTINA FUMOGENA"
                 "es" -> "CORTINA DE HUMO"
                 "pt-BR" -> "CORTINA DE FUMAÇA"
                 "de" -> "RAUCHWAND"
@@ -158,6 +166,7 @@ object Localization {
             }
             PowerupType.PROTOTYPE -> when (code) {
                 "fr" -> "PROTOTYPE"
+                "it" -> "PROTOTIPO"
                 "es" -> "PROTOTIPO"
                 "pt-BR" -> "PROTÓTIPO"
                 "de" -> "PROTOTYP"
@@ -181,6 +190,7 @@ object Localization {
         return when (type) {
             PowerupType.INVISIBILITY -> when (code) {
                 "fr" -> "Devenez invisible pour les gardes et les caméras pendant 10 secondes."
+                "it" -> "Diventa invisibile a guardie e telecamere per 10 secondi."
                 "es" -> "Hazte invisible para guardias y cámaras durante 10 segundos."
                 "pt-BR" -> "Fique invisível para guardas e câmeras por 10 segundos."
                 "de" -> "Werde für 10 Sekunden für Wachen und Kameras unsichtbar."
@@ -198,6 +208,7 @@ object Localization {
             }
             PowerupType.NOISE_SUPPRESSION -> when (code) {
                 "fr" -> "Déplacement silencieux pendant toute la mission."
+                "it" -> "Movimenti silenziosi per l'intera missione."
                 "es" -> "Movimiento silencioso durante toda la misión."
                 "pt-BR" -> "Movimento silencioso por toda a missão."
                 "de" -> "Lautlose Bewegung für die gesamte Mission."
@@ -215,6 +226,7 @@ object Localization {
             }
             PowerupType.LASER_SHIELD -> when (code) {
                 "fr" -> "Protège d'un contact avec un laser ou un jet de vapeur."
+                "it" -> "Protegge da 1 contatto con un laser o un getto di vapore."
                 "es" -> "Protege de 1 impacto de láser o vapor."
                 "pt-BR" -> "Protege contra 1 impacto de laser ou vapor."
                 "de" -> "Schützt vor 1 Treffer durch Laser oder Dampf."
@@ -232,6 +244,7 @@ object Localization {
             }
             PowerupType.REMOTE_TRIGGER -> when (code) {
                 "fr" -> "Active le mécanisme le plus proche sans avoir à trouver son interrupteur."
+                "it" -> "Attiva il meccanismo più vicino senza dover trovare il suo interruttore."
                 "es" -> "Activa el mecanismo más cercano sin buscar su interruptor."
                 "pt-BR" -> "Ativa o mecanismo mais próximo sem precisar achar o botão."
                 "de" -> "Löst den nächsten Mechanismus ohne Schaltersuche aus."
@@ -249,6 +262,7 @@ object Localization {
             }
             PowerupType.CHECKPOINTS -> when (code) {
                 "fr" -> "Réapparaissez aux points de contrôle après avoir été capturé ou en recommençant"
+                "it" -> "Riparti dai checkpoint attivati dopo essere stato catturato o aver ricominciato"
                 "es" -> "Reaparece en puntos de control activados tras ser atrapado"
                 "pt-BR" -> "Ressurja nos pontos de controle ativados após ser pego"
                 "de" -> "Einstieg an aktivierten Kontrollpunkten nach Entdeckung"
@@ -266,6 +280,7 @@ object Localization {
             }
             PowerupType.SMOKE_SCREEN -> when (code) {
                 "fr" -> "Déploie de la fumée pour bloquer la ligne de vue."
+                "it" -> "Rilascia fumo per bloccare la linea di vista."
                 "es" -> "Despliega humo para bloquear la línea de visión."
                 "pt-BR" -> "Espalha fumaça para bloquear a visão dos guardas."
                 "de" -> "Erzeuge Rauch, um Sichtlinien zu blockieren."
@@ -283,6 +298,7 @@ object Localization {
             }
             PowerupType.PROTOTYPE -> when (code) {
                 "fr" -> "Gadget expérimental en cours de développement."
+                "it" -> "Gadget sperimentale in fase di sviluppo."
                 "es" -> "Dispositivo experimental en desarrollo."
                 "pt-BR" -> "Dispositivo experimental em desenvolvimento."
                 "de" -> "Experimentelles Gadget in Entwicklung."
@@ -303,6 +319,7 @@ object Localization {
 
     fun mysteryGadgetName(lang: String): String = when (langCode(lang)) {
         "fr" -> "GADGET MYSTÈRE"
+        "it" -> "GADGET MISTERIOSO"
         "es" -> "ARTILUGIO MISTERIOSO"
         "pt-BR" -> "DISPOSITIVO MISTERIOSO"
         "de" -> "MYSTERIÖSES GADGET"
@@ -321,6 +338,7 @@ object Localization {
 
     fun mysteryGadgetDescription(lang: String): String = when (langCode(lang)) {
         "fr" -> "Obtenez 1 gadget aléatoire. Chaque gadget a une chance égale d'apparaître."
+        "it" -> "Ottieni 1 gadget casuale. Ogni gadget ha la stessa probabilità di uscire."
         "es" -> "Consigue 1 artilugio aleatorio con las mismas probabilidades."
         "pt-BR" -> "Receba 1 dispositivo aleatório. Todos têm a mesma chance de vir."
         "de" -> "Erhalte 1 zufälliges Gadget. Alle Gadgets haben gleiche Chancen."
@@ -342,6 +360,7 @@ object Localization {
         return when (packId) {
             "coins_loose" -> when (code) {
                 "fr" -> "PIÈCES EN VRAC"
+                "it" -> "MONETE SPARSE"
                 "es" -> "MONEDAS SUELTAS"
                 "pt-BR" -> "MOEDAS AVULSAS"
                 "de" -> "EINZELMÜNZEN"
@@ -359,6 +378,7 @@ object Localization {
             }
             "coins_pouch" -> when (code) {
                 "fr" -> "BOURSE DU CONTREBANDIER"
+                "it" -> "BORSELLO DEL CONTRABBANDIERE"
                 "es" -> "BOLSA DE CONTRABANDISTA"
                 "pt-BR" -> "BOLSA DO CONTRABANDISTA"
                 "de" -> "SCHMUGGLERBEUTEL"
@@ -376,6 +396,7 @@ object Localization {
             }
             "coins_briefcase" -> when (code) {
                 "fr" -> "MALLETTE TACTIQUE"
+                "it" -> "VALIGETTA TATTICA"
                 "es" -> "MALETÍN TÁCTICO"
                 "pt-BR" -> "MALETA TÁTICA"
                 "de" -> "TAKTIK-KOFFER"
@@ -393,6 +414,7 @@ object Localization {
             }
             "coins_stash" -> when (code) {
                 "fr" -> "RÉSERVE D'AGENT"
+                "it" -> "SCORTA DELL'AGENTE"
                 "es" -> "ALJOJO DE OPERATIVO"
                 "pt-BR" -> "RESERVA DO OPERATIVO"
                 "de" -> "AGENTENVERSTECK"
@@ -410,6 +432,7 @@ object Localization {
             }
             "coins_duffle" -> when (code) {
                 "fr" -> "SAC DE BRAQUAGE"
+                "it" -> "BORSONE DA RAPINA"
                 "es" -> "BOLSA DE ROBO"
                 "pt-BR" -> "BOLSA DO GOLPE"
                 "de" -> "BEUTE-SPORTTASCHE"
@@ -427,6 +450,7 @@ object Localization {
             }
             "coins_vault" -> when (code) {
                 "fr" -> "COFFRE DU MARCHÉ NOIR"
+                "it" -> "CAVEAU DEL MERCATO NERO"
                 "es" -> "BÓVEDA DEL MERCADO NEGRO"
                 "pt-BR" -> "COFRE DO MERCADO NEGRO"
                 "de" -> "SCHWARZMARKT-TRESOR"
@@ -451,6 +475,7 @@ object Localization {
         return when (objective) {
             BonusObjective.BASIC_MOVES -> when (code) {
                 "fr" -> "Sautez, escaladez et accroupissez-vous"
+                "it" -> "Salta, arrampicati e accovacciati"
                 "es" -> "Salta, escala y agáchate"
                 "pt-BR" -> "Salte, escale e agache-se"
                 "de" -> "Springen, klettern und ducken"
@@ -468,6 +493,7 @@ object Localization {
             }
             BonusObjective.NO_DROP_FROM_HANGING_CRATES -> when (code) {
                 "fr" -> "Ne tombez jamais d'une caisse suspendue"
+                "it" -> "Non cadere mai da una cassa sospesa"
                 "es" -> "Nunca caigas de una caja colgante"
                 "pt-BR" -> "Nunca caia de uma caixa suspensa"
                 "de" -> "Falle niemals von einer Hängekiste"
@@ -485,6 +511,7 @@ object Localization {
             }
             BonusObjective.STAY_UNSEEN -> when (code) {
                 "fr" -> "Restez totalement invisible"
+                "it" -> "Resta completamente invisibile"
                 "es" -> "Permanece completamente inadvertido"
                 "pt-BR" -> "Permaneça totalmente invisível"
                 "de" -> "Bleibe vollkommen ungesehen"
@@ -502,6 +529,7 @@ object Localization {
             }
             BonusObjective.USE_A_GADGET -> when (code) {
                 "fr" -> "Déployez un gadget"
+                "it" -> "Usa un gadget"
                 "es" -> "Usa un artilugio"
                 "pt-BR" -> "Use um dispositivo"
                 "de" -> "Setze ein Gadget ein"
@@ -519,6 +547,7 @@ object Localization {
             }
             BonusObjective.SWING_FROM_A_HOOK -> when (code) {
                 "fr" -> "Balancez-vous à un crochet de grue"
+                "it" -> "Dondola da un gancio della gru"
                 "es" -> "Balancéate en el gancho de la grúa"
                 "pt-BR" -> "Balança-se no gancho do guindaste"
                 "de" -> "Schwinge an einem Kranhaken"
@@ -536,6 +565,7 @@ object Localization {
             }
             BonusObjective.DISABLE_ALL_SECURITY_BOTS -> when (code) {
                 "fr" -> "Désactivez tous les robots de sécurité"
+                "it" -> "Disattiva tutti i robot di sicurezza"
                 "es" -> "Desactiva todos los robots de seguridad"
                 "pt-BR" -> "Desative todos os robôs de segurança"
                 "de" -> "Schalte jede Sicherheitsdrohne aus"
@@ -553,6 +583,7 @@ object Localization {
             }
             BonusObjective.NEVER_TOUCH_A_HANGING_CRATE -> when (code) {
                 "fr" -> "Ne touchez aucune caisse suspendue"
+                "it" -> "Non toccare mai una cassa sospesa"
                 "es" -> "Nunca toques una caja colgante"
                 "pt-BR" -> "Nunca toque em caixas suspensas"
                 "de" -> "Berühre niemals eine Hängekiste"
@@ -570,6 +601,7 @@ object Localization {
             }
             BonusObjective.STAY_OUT_OF_THE_FIGURES_SIGHT -> when (code) {
                 "fr" -> "Restez hors de vue de la silhouette"
+                "it" -> "Resta fuori dalla vista della figura"
                 "es" -> "Mantente fuera de la vista de la figura"
                 "pt-BR" -> "Fique fora da visão da silhueta"
                 "de" -> "Meide das Sichtfeld der Gestalt"
@@ -587,6 +619,7 @@ object Localization {
             }
             BonusObjective.USE_EACH_SWITCH_ONCE -> when (code) {
                 "fr" -> "N'actionnez chaque interrupteur qu'une fois"
+                "it" -> "Usa ogni interruttore una sola volta"
                 "es" -> "Usa cada interruptor solo una vez"
                 "pt-BR" -> "Use cada interruptor apenas uma vez"
                 "de" -> "Betätige jeden Schalter nur einmal"
@@ -604,6 +637,7 @@ object Localization {
             }
             BonusObjective.KEEP_THE_PRISONER_OUT_OF_SIGHT -> when (code) {
                 "fr" -> "Gardez le prisonnier hors de vue"
+                "it" -> "Tieni il prigioniero fuori vista"
                 "es" -> "Mantén al prisionero fuera de la vista"
                 "pt-BR" -> "Mantenha o prisioneiro fora de vista"
                 "de" -> "Halte den Gefangenen verborgen"
@@ -624,6 +658,7 @@ object Localization {
 
     fun confirmResetDesc(lang: String): String = when (langCode(lang)) {
         "fr" -> "Êtes-vous sûr de vouloir réinitialiser toutes les données de jeu ? Cela effacera définitivement :\n• Toutes les missions terminées, les meilleurs temps et les étoiles\n• Le solde de pièces et l'inventaire de gadgets\n• Les préférences audio, de langue et de commandes\n\nRemarque : Tout achat actif de suppression des publicités sera conservé."
+        "it" -> "Sei sicuro di voler azzerare tutti i dati di gioco? Verranno cancellati definitivamente:\n• Tutte le missioni completate, i tempi migliori e le stelle\n• Il saldo delle monete e l'inventario dei gadget\n• Le preferenze di audio, lingua e comandi\n\nNota: un eventuale acquisto attivo di Rimozione pubblicità verrà conservato."
         "es" -> "¿Seguro que quieres restablecer todos los datos del juego? Esto borrará permanentemente:\n• Todas las misiones completadas, mejores tiempos y estrellas\n• Saldo de monedas e inventario de artilugios\n• Preferencias de audio, idioma y controles\n\nNota: Cualquier compra activa de Quitar Anuncios se conservará."
         "pt-BR" -> "Tem certeza de que deseja redefinir todos os dados do jogo? Isso apagará permanentemente:\n• Todas as missões concluídas, melhores tempos e estrelas\n• Saldo de moedas e inventário de equipamentos\n• Preferências de áudio, idioma e controles\n\nNota: Qualquer compra ativa de Remover Anúncios será preservada."
         "de" -> "Möchtest du wirklich alle Spieldaten zurücksetzen? Dies löscht dauerhaft:\n• Alle abgeschlossenen Missionen, Bestzeiten und Sterne\n• Münzguthaben und Gadget-Inventar\n• Audio-, Sprach- und Steuerungseinstellungen\n\nHinweis: Aktive Käufe zum Entfernen von Werbung bleiben erhalten."
@@ -642,6 +677,7 @@ object Localization {
 
     fun play(lang: String): String = when (langCode(lang)) {
         "fr" -> "JOUER"
+        "it" -> "GIOCA"
         "es" -> "JUGAR"
         "pt-BR" -> "JOGAR"
         "de" -> "SPIELEN"
@@ -660,6 +696,7 @@ object Localization {
 
     fun missions(lang: String): String = when (langCode(lang)) {
         "fr" -> "MISSIONS"
+        "it" -> "MISSIONI"
         "es" -> "MISIONES"
         "pt-BR" -> "MISSÕES"
         "de" -> "MISSIONEN"
@@ -678,6 +715,7 @@ object Localization {
 
     fun store(lang: String): String = when (langCode(lang)) {
         "fr" -> "BOUTIQUE"
+        "it" -> "NEGOZIO"
         "es" -> "TIENDA"
         "pt-BR" -> "LOJA"
         "de" -> "SHOP"
@@ -696,6 +734,7 @@ object Localization {
 
     fun settings(lang: String): String = when (langCode(lang)) {
         "fr" -> "PARAMÈTRES"
+        "it" -> "IMPOSTAZIONI"
         "es" -> "AJUSTES"
         "pt-BR" -> "CONFIGURAÇÕES"
         "de" -> "EINSTELLUNGEN"
@@ -714,6 +753,7 @@ object Localization {
 
     fun theShipyard(lang: String): String = when (langCode(lang)) {
         "fr" -> "LE CHANTIER NAVAL"
+        "it" -> "IL CANTIERE NAVALE"
         "es" -> "EL ASTILLERO"
         "pt-BR" -> "O ESTALEIRO"
         "de" -> "DIE WERFT"
@@ -732,6 +772,7 @@ object Localization {
 
     fun situationBriefing(lang: String): String = when (langCode(lang)) {
         "fr" -> "RAPPORT DE SITUATION"
+        "it" -> "BRIEFING DELLA SITUAZIONE"
         "es" -> "INFORME DE SITUACIÓN"
         "pt-BR" -> "RELATÓRIO DE SITUAÇÃO"
         "de" -> "LAGEBERICHT"
@@ -750,6 +791,7 @@ object Localization {
 
     fun fileNo(lang: String): String = when (langCode(lang)) {
         "fr" -> "DOSSIER N°"
+        "it" -> "FASCICOLO N."
         "es" -> "EXPEDIENTE N.º"
         "pt-BR" -> "ARQUIVO Nº"
         "de" -> "AKTEN-NR."
@@ -768,6 +810,7 @@ object Localization {
 
     fun status(lang: String): String = when (langCode(lang)) {
         "fr" -> "STATUT"
+        "it" -> "STATO"
         "es" -> "ESTADO"
         "pt-BR" -> "STATUS"
         "de" -> "STATUS"
@@ -786,6 +829,7 @@ object Localization {
 
     fun readyForDeployment(lang: String): String = when (langCode(lang)) {
         "fr" -> "PRÊT AU DÉPLOIEMENT"
+        "it" -> "PRONTO ALL'IMPIEGO"
         "es" -> "LISTO PARA DESPLIEGUE"
         "pt-BR" -> "PRONTO PARA MOBILIZAÇÃO"
         "de" -> "BEREIT ZUM EINSATZ"
@@ -804,6 +848,7 @@ object Localization {
 
     fun primaryObjective(lang: String): String = when (langCode(lang)) {
         "fr" -> "OBJECTIF PRINCIPAL"
+        "it" -> "OBIETTIVO PRINCIPALE"
         "es" -> "OBJETIVO PRINCIPAL"
         "pt-BR" -> "OBJETIVO PRINCIPAL"
         "de" -> "PRIMÄRZIEL"
@@ -822,6 +867,7 @@ object Localization {
 
     fun securityLevel(lang: String): String = when (langCode(lang)) {
         "fr" -> "NIVEAU DE SÉCURITÉ"
+        "it" -> "LIVELLO DI SICUREZZA"
         "es" -> "NIVEL DE SEGURIDAD"
         "pt-BR" -> "NÍVEL DE SEGURANÇA"
         "de" -> "SICHERHEITSSTUFE"
@@ -840,6 +886,7 @@ object Localization {
 
     fun highRisk(lang: String): String = when (langCode(lang)) {
         "fr" -> "RISQUE ÉLEVÉ"
+        "it" -> "RISCHIO ELEVATO"
         "es" -> "ALTO RIESGO"
         "pt-BR" -> "ALTO RISCO"
         "de" -> "HOHES RISIKO"
@@ -858,6 +905,7 @@ object Localization {
 
     fun payout(lang: String): String = when (langCode(lang)) {
         "fr" -> "PRIME"
+        "it" -> "COMPENSO"
         "es" -> "RECOMPENSA"
         "pt-BR" -> "RECOMPENSA"
         "de" -> "BEUTE"
@@ -876,6 +924,7 @@ object Localization {
 
     fun authorizationPending(lang: String): String = when (langCode(lang)) {
         "fr" -> "EN ATTENTE D'AUTORISATION"
+        "it" -> "AUTORIZZAZIONE IN ATTESA"
         "es" -> "AUTORIZACIÓN PENDIENTE"
         "pt-BR" -> "AUTORIZAÇÃO PENDENTE"
         "de" -> "AUTORISIERUNG AUSSTEHEND"
@@ -894,6 +943,7 @@ object Localization {
 
     fun shadowHeistDossier(lang: String): String = when (langCode(lang)) {
         "fr" -> "DOSSIER D'AGENT SHADOW HEIST"
+        "it" -> "FASCICOLO AGENTE SHADOW HEIST"
         "es" -> "EXPEDIENTE DE AGENTE SHADOW HEIST"
         "pt-BR" -> "DOSSIÊ DO OPERATIVO SHADOW HEIST"
         "de" -> "SHADOW HEIST AGENTENDOSSIER"
@@ -912,6 +962,7 @@ object Localization {
 
     fun missionsAvailable(lang: String): String = when (langCode(lang)) {
         "fr" -> "12 MISSIONS DISPONIBLES"
+        "it" -> "12 MISSIONI DISPONIBILI"
         "es" -> "12 MISIONES DISPONIBLES"
         "pt-BR" -> "12 MISSÕES DISPONÍVEIS"
         "de" -> "12 MISSIONEN VERFÜGBAR"
@@ -930,6 +981,7 @@ object Localization {
 
     fun comingSoon(lang: String): String = when (langCode(lang)) {
         "fr" -> "BIENTÔT DISPONIBLE"
+        "it" -> "PROSSIMAMENTE"
         "es" -> "PRÓXIMAMENTE"
         "pt-BR" -> "EM BREVE"
         "de" -> "DEMNÄCHST"
@@ -948,6 +1000,7 @@ object Localization {
 
     fun locked(lang: String): String = when (langCode(lang)) {
         "fr" -> "VERROUILLÉ"
+        "it" -> "BLOCCATO"
         "es" -> "BLOQUEADO"
         "pt-BR" -> "BLOQUEADO"
         "de" -> "GESPERRT"
@@ -966,6 +1019,7 @@ object Localization {
 
     fun completePreviousMission(lang: String): String = when (langCode(lang)) {
         "fr" -> "Terminez la mission précédente"
+        "it" -> "Completa la missione precedente"
         "es" -> "Completa la misión anterior"
         "pt-BR" -> "Conclua a missão anterior"
         "de" -> "Vorherige Mission abschließen"
@@ -984,6 +1038,7 @@ object Localization {
 
     fun shadowPassRequired(lang: String): String = when (langCode(lang)) {
         "fr" -> "Passe de l'Ombre requis"
+        "it" -> "Pass dell'Ombra richiesto"
         "es" -> "Pase de la Sombra requerido"
         "pt-BR" -> "Passe das Sombras necessário"
         "de" -> "Schatten-Pass erforderlich"
@@ -1002,6 +1057,7 @@ object Localization {
 
     fun missionLabel(lang: String): String = when (langCode(lang)) {
         "fr" -> "MISSION"
+        "it" -> "MISSIONE"
         "es" -> "MISIÓN"
         "pt-BR" -> "MISSÃO"
         "de" -> "MISSION"
@@ -1020,6 +1076,7 @@ object Localization {
 
     fun startMission(lang: String): String = when (langCode(lang)) {
         "fr" -> "DÉMARRER LA MISSION"
+        "it" -> "INIZIA MISSIONE"
         "es" -> "INICIAR MISIÓN"
         "pt-BR" -> "INICIAR MISSÃO"
         "de" -> "MISSION STARTEN"
@@ -1038,6 +1095,7 @@ object Localization {
 
     fun bestTime(lang: String): String = when (langCode(lang)) {
         "fr" -> "MEILLEUR TEMPS"
+        "it" -> "TEMPO MIGLIORE"
         "es" -> "MEJOR TIEMPO"
         "pt-BR" -> "MELHOR TEMPO"
         "de" -> "BESTZEIT"
@@ -1056,6 +1114,7 @@ object Localization {
 
     fun alerts(lang: String): String = when (langCode(lang)) {
         "fr" -> "ALERTES"
+        "it" -> "ALLARMI"
         "es" -> "ALERTAS"
         "pt-BR" -> "ALERTAS"
         "de" -> "ALARME"
@@ -1074,6 +1133,7 @@ object Localization {
 
     fun reward(lang: String): String = when (langCode(lang)) {
         "fr" -> "RÉCOMPENSE"
+        "it" -> "RICOMPENSA"
         "es" -> "RECOMPENSA"
         "pt-BR" -> "RECOMPENSA"
         "de" -> "BELOHNUNG"
@@ -1092,6 +1152,7 @@ object Localization {
 
     fun stars(lang: String): String = when (langCode(lang)) {
         "fr" -> "ÉTOILES"
+        "it" -> "STELLE"
         "es" -> "ESTRELLAS"
         "pt-BR" -> "ESTRELAS"
         "de" -> "STERNE"
@@ -1110,6 +1171,7 @@ object Localization {
 
     fun powerupsTab(lang: String): String = when (langCode(lang)) {
         "fr" -> "GADGETS"
+        "it" -> "GADGET"
         "es" -> "POTENCIADORES"
         "pt-BR" -> "EQUIPAMENTOS"
         "de" -> "POWER-UPS"
@@ -1128,6 +1190,7 @@ object Localization {
 
     fun coinsTab(lang: String): String = when (langCode(lang)) {
         "fr" -> "PIÈCES"
+        "it" -> "MONETE"
         "es" -> "MONEDAS"
         "pt-BR" -> "MOEDAS"
         "de" -> "MÜNZEN"
@@ -1146,6 +1209,7 @@ object Localization {
 
     fun removeAdsTab(lang: String): String = when (langCode(lang)) {
         "fr" -> "SUPPRIMER LES PUBS"
+        "it" -> "RIMUOVI PUBBLICITÀ"
         "es" -> "QUITAR ANUNCIOS"
         "pt-BR" -> "REMOVER ANÚNCIOS"
         "de" -> "WERBUNG ENTFERNEN"
@@ -1164,6 +1228,7 @@ object Localization {
 
     fun inventory(lang: String): String = when (langCode(lang)) {
         "fr" -> "INVENTAIRE"
+        "it" -> "INVENTARIO"
         "es" -> "INVENTARIO"
         "pt-BR" -> "INVENTÁRIO"
         "de" -> "INVENTAR"
@@ -1182,6 +1247,7 @@ object Localization {
 
     fun gadgetsAndEquipment(lang: String): String = when (langCode(lang)) {
         "fr" -> "GADGETS ET ÉQUIPEMENT"
+        "it" -> "GADGET ED EQUIPAGGIAMENTO"
         "es" -> "ARTILUGIOS Y EQUIPO"
         "pt-BR" -> "DISPOSITIVOS E EQUIPAMENTOS"
         "de" -> "GADGETS & AUSRÜSTUNG"
@@ -1200,6 +1266,7 @@ object Localization {
 
     fun coinPacks(lang: String): String = when (langCode(lang)) {
         "fr" -> "PACKS DE PIÈCES"
+        "it" -> "PACCHETTI DI MONETE"
         "es" -> "PACKS DE MONEDAS"
         "pt-BR" -> "PACOTES DE MOEDAS"
         "de" -> "MÜNZPAKETE"
@@ -1218,6 +1285,7 @@ object Localization {
 
     fun free(lang: String): String = when (langCode(lang)) {
         "fr" -> "GRATUIT"
+        "it" -> "GRATIS"
         "es" -> "GRATIS"
         "pt-BR" -> "GRÁTIS"
         "de" -> "KOSTENLOS"
@@ -1236,6 +1304,7 @@ object Localization {
 
     fun buy(lang: String): String = when (langCode(lang)) {
         "fr" -> "ACHETER"
+        "it" -> "ACQUISTA"
         "es" -> "COMPRAR"
         "pt-BR" -> "COMPRAR"
         "de" -> "KAUFEN"
@@ -1254,6 +1323,7 @@ object Localization {
 
     fun equipped(lang: String): String = when (langCode(lang)) {
         "fr" -> "ÉQUIPÉ"
+        "it" -> "EQUIPAGGIATO"
         "es" -> "EQUIPADO"
         "pt-BR" -> "EQUIPADO"
         "de" -> "AUSGERÜSTET"
@@ -1272,6 +1342,7 @@ object Localization {
 
     fun watchAd(lang: String): String = when (langCode(lang)) {
         "fr" -> "REGARDER UNE PUB"
+        "it" -> "GUARDA PUBBLICITÀ"
         "es" -> "VER ANUNCIO"
         "pt-BR" -> "ASSISTIR ANÚNCIO"
         "de" -> "WERBUNG ANSEHEN"
@@ -1290,6 +1361,7 @@ object Localization {
 
     fun comeBackTomorrow(lang: String): String = when (langCode(lang)) {
         "fr" -> "REVENEZ DEMAIN"
+        "it" -> "TORNA DOMANI"
         "es" -> "VUELVE MAÑANA"
         "pt-BR" -> "VOLTE AMANHÃ"
         "de" -> "KOMM MORGEN WIEDER"
@@ -1308,6 +1380,7 @@ object Localization {
 
     fun lifetimePass(lang: String): String = when (langCode(lang)) {
         "fr" -> "PASSE À VIE"
+        "it" -> "PASS A VITA"
         "es" -> "PASE DE POR VIDA"
         "pt-BR" -> "PASSE VITALÍCIO"
         "de" -> "LEBENSLANGER PASS"
@@ -1326,6 +1399,7 @@ object Localization {
 
     fun active(lang: String): String = when (langCode(lang)) {
         "fr" -> "ACTIF"
+        "it" -> "ATTIVO"
         "es" -> "ACTIVO"
         "pt-BR" -> "ATIVO"
         "de" -> "AKTIV"
@@ -1344,6 +1418,7 @@ object Localization {
 
     fun permanentAdRemoval(lang: String): String = when (langCode(lang)) {
         "fr" -> "SUPPRESSION PERMANENTE DES PUBS"
+        "it" -> "RIMOZIONE PUBBLICITÀ PERMANENTE"
         "es" -> "ELIMINACIÓN PERMANENTE DE ANUNCIOS"
         "pt-BR" -> "REMOÇÃO PERMANENTE DE ANÚNCIOS"
         "de" -> "DAUERHAFTE WERBEENTFERNUNG"
@@ -1362,6 +1437,7 @@ object Localization {
 
     fun lifetimeDesc(lang: String): String = when (langCode(lang)) {
         "fr" -> "Achat unique. Profitez d'une infiltration furtive sans interruption pour toujours."
+        "it" -> "Acquisto unico. Goditi un'infiltrazione furtiva senza interruzioni, per sempre."
         "es" -> "Compra única. Disfruta de una infiltración sigilosa e ininterrumpida para siempre."
         "pt-BR" -> "Compra única. Aproveite a infiltração furtiva sem interrupções para sempre."
         "de" -> "Einmaliger Kauf. Genieße dauerhaft ungestörte Stealth-Infiltration."
@@ -1380,6 +1456,7 @@ object Localization {
 
     fun zeroAds(lang: String): String = when (langCode(lang)) {
         "fr" -> "ZÉRO PUB"
+        "it" -> "ZERO PUBBLICITÀ"
         "es" -> "CERO ANUNCIOS"
         "pt-BR" -> "ZERO ANÚNCIOS"
         "de" -> "KEINE WERBUNG"
@@ -1398,6 +1475,7 @@ object Localization {
 
     fun zeroAdsDesc(lang: String): String = when (langCode(lang)) {
         "fr" -> "Supprime totalement toutes les publicités interstitielles."
+        "it" -> "Rimuove completamente tutte le pubblicità interstitial."
         "es" -> "Elimina por completo todos los anuncios intersticiales."
         "pt-BR" -> "Remove completamente todos os anúncios intersticiais."
         "de" -> "Entfernt sämtliche Vollbild-Werbeeinblendungen vollständig."
@@ -1416,6 +1494,7 @@ object Localization {
 
     fun doubleBounty(lang: String): String = when (langCode(lang)) {
         "fr" -> "BUTIN DE BRAQUAGE x2"
+        "it" -> "BOTTINO DEL COLPO x2"
         "es" -> "RECOMPENSA x2"
         "pt-BR" -> "RECOMPENSA 2X"
         "de" -> "2X BEUTE-BONUS"
@@ -1434,6 +1513,7 @@ object Localization {
 
     fun doubleBountyDesc(lang: String): String = when (langCode(lang)) {
         "fr" -> "Double définitivement tous les gains en pièces pour les victoires à 1, 2 et 3 étoiles."
+        "it" -> "Raddoppia per sempre tutte le ricompense in monete per i livelli completati con 1, 2 e 3 stelle."
         "es" -> "Duplica permanentemente las monedas obtenidas en niveles de 1, 2 y 3 estrellas."
         "pt-BR" -> "Dobra permanentemente todas as moedas ganhas em vitórias de 1, 2 e 3 estrelas."
         "de" -> "Verdoppelt dauerhaft alle Münzbelohnungen für 1-, 2- und 3-Sterne-Abschlüsse."
@@ -1452,6 +1532,7 @@ object Localization {
 
     fun bonusCoins(lang: String): String = when (langCode(lang)) {
         "fr" -> "+2 000 PIÈCES BONUS"
+        "it" -> "+2.000 MONETE BONUS"
         "es" -> "+2.000 MONEDAS BONUS"
         "pt-BR" -> "+2.000 MOEDAS BÔNUS"
         "de" -> "+2.000 BONUSMÜNZEN"
@@ -1470,6 +1551,7 @@ object Localization {
 
     fun bonusCoinsDesc(lang: String): String = when (langCode(lang)) {
         "fr" -> "Ajout immédiat de 2 000 pièces d'or à votre solde d'agent."
+        "it" -> "Accredito immediato di 2.000 monete d'oro sul tuo saldo da agente."
         "es" -> "Ingreso inmediato de 2.000 monedas de oro en el saldo de tu agente."
         "pt-BR" -> "Crédito imediato de 2.000 moedas de ouro no saldo do seu agente."
         "de" -> "Sofortige Gutschrift von 2.000 Goldmünzen auf dein Agentenkonto."
@@ -1488,6 +1570,7 @@ object Localization {
 
     fun purchaseLifetimePass(lang: String): String = when (langCode(lang)) {
         "fr" -> "ACHETER LE PASSE À VIE — 2,99 \$"
+        "it" -> "ACQUISTA IL PASS A VITA — 2,99 \$"
         "es" -> "COMPRAR PASE DE POR VIDA — \$2.99"
         "pt-BR" -> "COMPRAR PASSE VITALÍCIO — R\$ 14,90"
         "de" -> "LEBENSLANGEN PASS KAUFEN — 2,99 €"
@@ -1506,6 +1589,7 @@ object Localization {
 
     fun allAdsRemoved(lang: String): String = when (langCode(lang)) {
         "fr" -> "✓ TOUTES LES PUBS SUPPRIMÉES — PASSE À VIE ACTIF"
+        "it" -> "✓ TUTTE LE PUBBLICITÀ RIMOSSE — PASS A VITA ATTIVO"
         "es" -> "✓ TODOS LOS ANUNCIOS ELIMINADOS — PASE ACTIVO"
         "pt-BR" -> "✓ ANÚNCIOS REMOVIDOS — PASSE ATIVO"
         "de" -> "✓ ALLE WERBUNG ENTFERNT — PASS AKTIV"
@@ -1524,6 +1608,7 @@ object Localization {
 
     fun restorePurchases(lang: String): String = when (langCode(lang)) {
         "fr" -> "RESTAURER LES ACHATS"
+        "it" -> "RIPRISTINA ACQUISTI"
         "es" -> "RESTAURAR COMPRAS"
         "pt-BR" -> "RESTAURAR COMPRAS"
         "de" -> "KÄUFE WIEDERHERSTELLEN"
@@ -1542,6 +1627,7 @@ object Localization {
 
     fun notEnoughCoins(lang: String): String = when (langCode(lang)) {
         "fr" -> "Pas assez de pièces"
+        "it" -> "Monete insufficienti"
         "es" -> "No hay suficientes monedas"
         "pt-BR" -> "Moedas insuficientes"
         "de" -> "Nicht genügend Münzen"
@@ -1560,6 +1646,7 @@ object Localization {
 
     fun adNotReady(lang: String): String = when (langCode(lang)) {
         "fr" -> "Publicité non prête. Veuillez réessayer plus tard."
+        "it" -> "Pubblicità non pronta. Riprova più tardi."
         "es" -> "El anuncio no está listo. Inténtalo de nuevo más tarde."
         "pt-BR" -> "Anúncio não está pronto. Tente novamente mais tarde."
         "de" -> "Werbung noch nicht bereit. Bitte später erneut versuchen."
@@ -1578,6 +1665,7 @@ object Localization {
 
     fun dailyLimitReached(lang: String): String = when (langCode(lang)) {
         "fr" -> "Limite quotidienne atteinte. Revenez demain !"
+        "it" -> "Limite giornaliero raggiunto. Torna domani!"
         "es" -> "Límite diario alcanzado. ¡Vuelve mañana!"
         "pt-BR" -> "Limite diário atingido. Volte amanhã!"
         "de" -> "Tageslimit erreicht. Komm morgen wieder!"
@@ -1596,6 +1684,7 @@ object Localization {
 
     fun purchasesRestored(lang: String): String = when (langCode(lang)) {
         "fr" -> "Achats restaurés"
+        "it" -> "Acquisti ripristinati"
         "es" -> "Compras restauradas"
         "pt-BR" -> "Compras restauradas"
         "de" -> "Käufe wiederhergestellt"
@@ -1614,6 +1703,7 @@ object Localization {
 
     fun nothingToRestore(lang: String): String = when (langCode(lang)) {
         "fr" -> "Rien à restaurer"
+        "it" -> "Niente da ripristinare"
         "es" -> "Nada para restaurar"
         "pt-BR" -> "Nada a restaurar"
         "de" -> "Nichts wiederherzustellen"
@@ -1632,6 +1722,7 @@ object Localization {
 
     fun loadingAd(lang: String): String = when (langCode(lang)) {
         "fr" -> "CHARGEMENT DE LA PUB..."
+        "it" -> "CARICAMENTO PUBBLICITÀ..."
         "es" -> "CARGANDO ANUNCIO..."
         "pt-BR" -> "CARREGANDO ANÚNCIO..."
         "de" -> "WERBUNG WIRD GELADEN..."
@@ -1650,6 +1741,7 @@ object Localization {
 
     fun purchaseCancelled(lang: String): String = when (langCode(lang)) {
         "fr" -> "ACHAT ANNULÉ"
+        "it" -> "ACQUISTO ANNULLATO"
         "es" -> "COMPRA CANCELADA"
         "pt-BR" -> "COMPRA CANCELADA"
         "de" -> "KAUF ABGEBROCHEN"
@@ -1668,6 +1760,7 @@ object Localization {
 
     fun restoreFailed(lang: String): String = when (langCode(lang)) {
         "fr" -> "ÉCHEC DE LA RESTAURATION"
+        "it" -> "RIPRISTINO NON RIUSCITO"
         "es" -> "ERROR AL RESTAURAR"
         "pt-BR" -> "FALHA AO RESTAURAR"
         "de" -> "WIEDERHERSTELLUNG FEHLGESCHLAGEN"
@@ -1686,6 +1779,7 @@ object Localization {
 
     fun adsRemovedPermanently(lang: String): String = when (langCode(lang)) {
         "fr" -> "PUBS SUPPRIMÉES DÉFINITIVEMENT"
+        "it" -> "PUBBLICITÀ RIMOSSE PER SEMPRE"
         "es" -> "ANUNCIOS ELIMINADOS DEFINITIVAMENTE"
         "pt-BR" -> "ANÚNCIOS REMOVIDOS DEFINITIVAMENTE"
         "de" -> "WERBUNG DAUERHAFT ENTFERNT"
@@ -1704,6 +1798,7 @@ object Localization {
 
     fun removeAdsDeactivated(lang: String): String = when (langCode(lang)) {
         "fr" -> "SUPPRESSION DES PUBS DÉSACTIVÉE"
+        "it" -> "RIMOZIONE PUBBLICITÀ DISATTIVATA"
         "es" -> "ELIMINACIÓN DE ANUNCIOS DESACTIVADA"
         "pt-BR" -> "REMOÇÃO DE ANÚNCIOS DESATIVADA"
         "de" -> "WERBEENTFERNUNG DEAKTIVIERT"
@@ -1722,6 +1817,7 @@ object Localization {
 
     fun connecting(lang: String): String = when (langCode(lang)) {
         "fr" -> "CONNEXION..."
+        "it" -> "CONNESSIONE..."
         "es" -> "CONECTANDO..."
         "pt-BR" -> "CONECTANDO..."
         "de" -> "VERBINDUNG..."
@@ -1740,6 +1836,7 @@ object Localization {
 
     fun waitPlease(lang: String): String = when (langCode(lang)) {
         "fr" -> "VEUILLEZ PATIENTER..."
+        "it" -> "ATTENDERE..."
         "es" -> "ESPERA..."
         "pt-BR" -> "AGUARDE..."
         "de" -> "BITTE WARTEN..."
@@ -1758,6 +1855,7 @@ object Localization {
 
     fun generalTab(lang: String): String = when (langCode(lang)) {
         "fr" -> "GÉNÉRAL"
+        "it" -> "GENERALE"
         "es" -> "GENERAL"
         "pt-BR" -> "GERAL"
         "de" -> "ALLGEMEIN"
@@ -1776,6 +1874,7 @@ object Localization {
 
     fun aboutTab(lang: String): String = when (langCode(lang)) {
         "fr" -> "À PROPOS"
+        "it" -> "INFO"
         "es" -> "ACERCA DE"
         "pt-BR" -> "SOBRE"
         "de" -> "ÜBER"
@@ -1794,6 +1893,7 @@ object Localization {
 
     fun generalConfig(lang: String): String = when (langCode(lang)) {
         "fr" -> "CONFIGURATION GÉNÉRALE"
+        "it" -> "CONFIGURAZIONE GENERALE"
         "es" -> "CONFIGURACIÓN GENERAL"
         "pt-BR" -> "CONFIGURAÇÃO GERAL"
         "de" -> "ALLGEMEINE KONFIGURATION"
@@ -1812,6 +1912,7 @@ object Localization {
 
     fun languageSetting(lang: String): String = when (langCode(lang)) {
         "fr" -> "LANGUE"
+        "it" -> "LINGUA"
         "es" -> "IDIOMA"
         "pt-BR" -> "IDIOMA"
         "de" -> "SPRACHE"
@@ -1830,6 +1931,7 @@ object Localization {
 
     fun languageDesc(lang: String): String = when (langCode(lang)) {
         "fr" -> "Sélectionnez votre langue"
+        "it" -> "Seleziona la tua lingua"
         "es" -> "Selecciona tu idioma"
         "pt-BR" -> "Selecione seu idioma"
         "de" -> "Wähle deine Sprache"
@@ -1848,6 +1950,7 @@ object Localization {
 
     fun controlsSetting(lang: String): String = when (langCode(lang)) {
         "fr" -> "COMMANDES"
+        "it" -> "COMANDI"
         "es" -> "CONTROLES"
         "pt-BR" -> "CONTROLES"
         "de" -> "STEUERUNG"
@@ -1866,6 +1969,7 @@ object Localization {
 
     fun swapControls(lang: String): String = when (langCode(lang)) {
         "fr" -> "INVERSER LES COMMANDES"
+        "it" -> "INVERTI COMANDI"
         "es" -> "INVERTIR CONTROLES"
         "pt-BR" -> "INVERTER CONTROLES"
         "de" -> "STEUERUNG WECHSELN"
@@ -1884,6 +1988,7 @@ object Localization {
 
     fun swapControlsDesc(lang: String): String = when (langCode(lang)) {
         "fr" -> "Placer le pavé directionnel à droite et les actions à gauche"
+        "it" -> "Sposta il D-pad a destra e le azioni a sinistra"
         "es" -> "Mover la cruceta a la derecha y las acciones a la izquierda"
         "pt-BR" -> "Mover o direcional para a direita e as ações para a esquerda"
         "de" -> "Steuerkreuz nach rechts, Aktionstasten nach links"
@@ -1902,6 +2007,7 @@ object Localization {
 
     fun defaultControls(lang: String): String = when (langCode(lang)) {
         "fr" -> "PAR DÉFAUT"
+        "it" -> "PREDEFINITO"
         "es" -> "PREDETERMINADO"
         "pt-BR" -> "PADRÃO"
         "de" -> "STANDARD"
@@ -1920,6 +2026,7 @@ object Localization {
 
     fun swappedControls(lang: String): String = when (langCode(lang)) {
         "fr" -> "INVERSÉ"
+        "it" -> "INVERTITO"
         "es" -> "INVERTIDO"
         "pt-BR" -> "INVERTIDO"
         "de" -> "GETAUSCHT"
@@ -1938,6 +2045,7 @@ object Localization {
 
     fun defaultLeft(lang: String): String = when (langCode(lang)) {
         "fr" -> "PAR DÉFAUT (GAUCHE)"
+        "it" -> "PREDEFINITO (SINISTRA)"
         "es" -> "PREDETERMINADO (IZQ)"
         "pt-BR" -> "PADRÃO (ESQUERDA)"
         "de" -> "STANDARD (LINKS)"
@@ -1956,6 +2064,7 @@ object Localization {
 
     fun swappedRight(lang: String): String = when (langCode(lang)) {
         "fr" -> "INVERSÉ (DROITE)"
+        "it" -> "INVERTITO (DESTRA)"
         "es" -> "INVERTIDO (DER)"
         "pt-BR" -> "INVERTIDO (DIREITA)"
         "de" -> "GETAUSCHT (RECHTS)"
@@ -1974,6 +2083,7 @@ object Localization {
 
     fun audioSetting(lang: String): String = when (langCode(lang)) {
         "fr" -> "AUDIO"
+        "it" -> "AUDIO"
         "es" -> "AUDIO"
         "pt-BR" -> "ÁUDIO"
         "de" -> "AUDIO"
@@ -1992,6 +2102,7 @@ object Localization {
 
     fun musicVolume(lang: String): String = when (langCode(lang)) {
         "fr" -> "VOLUME DE LA MUSIQUE"
+        "it" -> "VOLUME MUSICA"
         "es" -> "VOLUMEN DE MÚSICA"
         "pt-BR" -> "VOLUME DA MÚSICA"
         "de" -> "MUSIKLAUTSTÄRKE"
@@ -2010,6 +2121,7 @@ object Localization {
 
     fun bgMusicLevel(lang: String): String = when (langCode(lang)) {
         "fr" -> "Niveau de la musique de fond"
+        "it" -> "Volume della musica di sottofondo"
         "es" -> "Nivel de música de fondo"
         "pt-BR" -> "Nível da música de fundo"
         "de" -> "Lautstärke der Hintergrundmusik"
@@ -2028,6 +2140,7 @@ object Localization {
 
     fun soundEffects(lang: String): String = when (langCode(lang)) {
         "fr" -> "EFFETS SONORES"
+        "it" -> "EFFETTI SONORI"
         "es" -> "EFECTOS DE SONIDO"
         "pt-BR" -> "EFEITOS SONOROS"
         "de" -> "SOUNDEFFEKTE"
@@ -2046,6 +2159,7 @@ object Localization {
 
     fun tacticalSfx(lang: String): String = when (langCode(lang)) {
         "fr" -> "Effets sonores tactiques"
+        "it" -> "Effetti sonori tattici"
         "es" -> "Efectos de sonido tácticos"
         "pt-BR" -> "Efeitos sonoros táticos"
         "de" -> "Taktische Geräuscheffekte"
@@ -2064,6 +2178,7 @@ object Localization {
 
     fun resetProgress(lang: String): String = when (langCode(lang)) {
         "fr" -> "RÉINITIALISER LA PROGRESSION"
+        "it" -> "AZZERA PROGRESSI"
         "es" -> "RESTABLECER PROGRESO"
         "pt-BR" -> "REDEFINIR PROGRESSO"
         "de" -> "FORTSCHRITT ZURÜCKSETZEN"
@@ -2082,6 +2197,7 @@ object Localization {
 
     fun resetAllProgress(lang: String): String = when (langCode(lang)) {
         "fr" -> "RÉINITIALISER TOUTE LA PROGRESSION"
+        "it" -> "AZZERA TUTTI I PROGRESSI"
         "es" -> "RESTABLECER TODO EL PROGRESO"
         "pt-BR" -> "REDEFINIR TODO O PROGRESSO"
         "de" -> "GESAMTEN FORTSCHRITT ZURÜCKSETZEN"
@@ -2100,6 +2216,7 @@ object Localization {
 
     fun resetProgressDesc(lang: String): String = when (langCode(lang)) {
         "fr" -> "Effacer toutes les étoiles de mission, les temps et l'inventaire"
+        "it" -> "Cancella tutte le stelle, i tempi delle missioni e l'inventario"
         "es" -> "Borrar todas las estrellas de misión, tiempos e inventario"
         "pt-BR" -> "Limpar todas as estrelas de missões, tempos e inventário"
         "de" -> "Löscht alle Missionssterne, Bestzeiten und das Inventar"
@@ -2118,6 +2235,7 @@ object Localization {
 
     fun resetBtn(lang: String): String = when (langCode(lang)) {
         "fr" -> "RÉINITIALISER"
+        "it" -> "AZZERA"
         "es" -> "RESTABLECER"
         "pt-BR" -> "REDEFINIR"
         "de" -> "ZURÜCKSETZEN"
@@ -2136,6 +2254,7 @@ object Localization {
 
     fun confirmProgressReset(lang: String): String = when (langCode(lang)) {
         "fr" -> "CONFIRMER LA RÉINITIALISATION"
+        "it" -> "CONFERMA AZZERAMENTO"
         "es" -> "CONFIRMAR RESTABLECIMIENTO"
         "pt-BR" -> "CONFIRMAR REDEFINIÇÃO"
         "de" -> "ZURÜCKSETZEN BESTÄTIGEN"
@@ -2154,6 +2273,7 @@ object Localization {
 
     fun cancel(lang: String): String = when (langCode(lang)) {
         "fr" -> "ANNULER"
+        "it" -> "ANNULLA"
         "es" -> "CANCELAR"
         "pt-BR" -> "CANCELAR"
         "de" -> "ABBRECHEN"
@@ -2172,6 +2292,7 @@ object Localization {
 
     fun resetEverything(lang: String): String = when (langCode(lang)) {
         "fr" -> "TOUT RÉINITIALISER"
+        "it" -> "AZZERA TUTTO"
         "es" -> "RESTABLECER TODO"
         "pt-BR" -> "REDEFINIR TUDO"
         "de" -> "ALLES ZURÜCKSETZEN"
@@ -2190,6 +2311,7 @@ object Localization {
 
     fun resetSuccessToast(lang: String): String = when (langCode(lang)) {
         "fr" -> "PARAMÈTRES ET PROGRESSION RÉINITIALISÉS"
+        "it" -> "IMPOSTAZIONI E PROGRESSI RIPRISTINATI"
         "es" -> "AJUSTES Y PROGRESO RESTABLECIDOS"
         "pt-BR" -> "CONFIGURAÇÕES E PROGRESSO REDEFINIDOS"
         "de" -> "EINSTELLUNGEN & FORTSCHRITT ZURÜCKGESETZT"
@@ -2208,6 +2330,7 @@ object Localization {
 
     fun version(lang: String): String = when (langCode(lang)) {
         "fr" -> "VERSION"
+        "it" -> "VERSIONE"
         "es" -> "VERSIÓN"
         "pt-BR" -> "VERSÃO"
         "de" -> "VERSION"
@@ -2226,6 +2349,7 @@ object Localization {
 
     fun build(lang: String): String = when (langCode(lang)) {
         "fr" -> "BUILD"
+        "it" -> "BUILD"
         "es" -> "COMPILACIÓN"
         "pt-BR" -> "BUILD"
         "de" -> "BUILD"
@@ -2244,6 +2368,7 @@ object Localization {
 
     fun privacyPolicy(lang: String): String = when (langCode(lang)) {
         "fr" -> "POLITIQUE DE CONFIDENTIALITÉ"
+        "it" -> "INFORMATIVA SULLA PRIVACY"
         "es" -> "POLÍTICA DE PRIVACIDAD"
         "pt-BR" -> "POLÍTICA DE PRIVACIDADE"
         "de" -> "DATENSCHUTZRICHTLINIE"
@@ -2262,6 +2387,7 @@ object Localization {
 
     fun contactUs(lang: String): String = when (langCode(lang)) {
         "fr" -> "CONTACTEZ-NOUS"
+        "it" -> "CONTATTACI"
         "es" -> "CONTÁCTANOS"
         "pt-BR" -> "FALE CONOSCO"
         "de" -> "KONTAKTIERE UNS"
@@ -2280,6 +2406,7 @@ object Localization {
 
     fun creditsLicenses(lang: String): String = when (langCode(lang)) {
         "fr" -> "CRÉDITS ET LICENCES"
+        "it" -> "CREDITI E LICENZE"
         "es" -> "CRÉDITOS Y LICENCIAS"
         "pt-BR" -> "CRÉDITOS E LICENÇAS"
         "de" -> "CREDITS & LIZENZEN"
@@ -2298,6 +2425,7 @@ object Localization {
 
     fun rateUs(lang: String): String = when (langCode(lang)) {
         "fr" -> "ÉVALUER LE JEU"
+        "it" -> "VALUTACI"
         "es" -> "VALÓRANOS"
         "pt-BR" -> "AVALIE-NOS"
         "de" -> "BEWERTE UNS"
@@ -2316,6 +2444,7 @@ object Localization {
 
     fun soundCredits(lang: String): String = when (langCode(lang)) {
         "fr" -> "CRÉDITS SONORES"
+        "it" -> "CREDITI AUDIO"
         "es" -> "CRÉDITOS DE SONIDO"
         "pt-BR" -> "CRÉDITOS DE ÁUDIO"
         "de" -> "SOUND-CREDITS"
@@ -2334,6 +2463,7 @@ object Localization {
 
     fun close(lang: String): String = when (langCode(lang)) {
         "fr" -> "FERMER"
+        "it" -> "CHIUDI"
         "es" -> "CERRAR"
         "pt-BR" -> "FECHAR"
         "de" -> "SCHLIESSEN"
@@ -2352,6 +2482,7 @@ object Localization {
 
     fun aboutInfiltrate(lang: String): String = when (langCode(lang)) {
         "fr" -> "À PROPOS D'INFILTRATE"
+        "it" -> "INFORMAZIONI SU INFILTRATE"
         "es" -> "ACERCA DE INFILTRATE"
         "pt-BR" -> "SOBRE O INFILTRATE"
         "de" -> "ÜBER INFILTRATE"
@@ -2370,6 +2501,7 @@ object Localization {
 
     fun adPrivacyChoices(lang: String): String = when (langCode(lang)) {
         "fr" -> "CHOIX DE CONFIDENTIALITÉ PUBLICITAIRE"
+        "it" -> "SCELTE PRIVACY PUBBLICITÀ"
         "es" -> "OPCIONES DE PRIVACIDAD DE ANUNCIOS"
         "pt-BR" -> "OPÇÕES DE PRIVACIDADE DE ANÚNCIOS"
         "de" -> "WERBE-DATENSCHUTZEINSTELLUNGEN"
@@ -2388,6 +2520,7 @@ object Localization {
 
     fun loading(lang: String): String = when (langCode(lang)) {
         "fr" -> "C H A R G E M E N T . . ."
+        "it" -> "C A R I C A M E N T O . . ."
         "es" -> "C A R G A N D O . . ."
         "pt-BR" -> "C A R R E G A N D O . . ."
         "de" -> "L Ä D T . . ."
@@ -2406,6 +2539,7 @@ object Localization {
 
     fun paused(lang: String): String = when (langCode(lang)) {
         "fr" -> "PAUSE"
+        "it" -> "IN PAUSA"
         "es" -> "PAUSA"
         "pt-BR" -> "PAUSA"
         "de" -> "PAUSE"
@@ -2424,6 +2558,7 @@ object Localization {
 
     fun resume(lang: String): String = when (langCode(lang)) {
         "fr" -> "REPRENDRE"
+        "it" -> "RIPRENDI"
         "es" -> "CONTINUAR"
         "pt-BR" -> "CONTINUAR"
         "de" -> "FORTSETZEN"
@@ -2442,6 +2577,7 @@ object Localization {
 
     fun restart(lang: String): String = when (langCode(lang)) {
         "fr" -> "RECOMMENCER"
+        "it" -> "RICOMINCIA"
         "es" -> "REINICIAR"
         "pt-BR" -> "REINICIAR"
         "de" -> "NEUSTART"
@@ -2460,6 +2596,7 @@ object Localization {
 
     fun quit(lang: String): String = when (langCode(lang)) {
         "fr" -> "QUITTER"
+        "it" -> "ESCI"
         "es" -> "SALIR"
         "pt-BR" -> "SAIR"
         "de" -> "BEENDEN"
@@ -2478,6 +2615,7 @@ object Localization {
 
     fun continueGame(lang: String): String = when (langCode(lang)) {
         "fr" -> "CONTINUER"
+        "it" -> "CONTINUA"
         "es" -> "CONTINUAR"
         "pt-BR" -> "CONTINUAR"
         "de" -> "WEITER"
@@ -2496,6 +2634,7 @@ object Localization {
 
     fun retry(lang: String): String = when (langCode(lang)) {
         "fr" -> "RÉESSAYER"
+        "it" -> "RIPROVA"
         "es" -> "REINTENTAR"
         "pt-BR" -> "TENTAR NOVAMENTE"
         "de" -> "WIEDERHOLEN"
@@ -2514,6 +2653,7 @@ object Localization {
 
     fun mainMenu(lang: String): String = when (langCode(lang)) {
         "fr" -> "MENU PRINCIPAL"
+        "it" -> "MENU PRINCIPALE"
         "es" -> "MENÚ PRINCIPAL"
         "pt-BR" -> "MENU PRINCIPAL"
         "de" -> "HAUPTMENÜ"
@@ -2532,6 +2672,7 @@ object Localization {
 
     fun nextMission(lang: String): String = when (langCode(lang)) {
         "fr" -> "MISSION SUIVANTE"
+        "it" -> "MISSIONE SUCCESSIVA"
         "es" -> "SIGUIENTE MISIÓN"
         "pt-BR" -> "PRÓXIMA MISSÃO"
         "de" -> "NÄCHSTE MISSION"
@@ -2550,6 +2691,7 @@ object Localization {
 
     fun allClear(lang: String): String = when (langCode(lang)) {
         "fr" -> "TOUT EST CLAIR !"
+        "it" -> "VIA LIBERA!"
         "es" -> "¡TODO DESPEJADO!"
         "pt-BR" -> "TUDO LIMPO!"
         "de" -> "ALLES GESICHERT!"
@@ -2568,6 +2710,7 @@ object Localization {
 
     fun objectives(lang: String): String = when (langCode(lang)) {
         "fr" -> "OBJECTIFS"
+        "it" -> "OBIETTIVI"
         "es" -> "OBJETIVOS"
         "pt-BR" -> "OBJETIVOS"
         "de" -> "ZIELE"
@@ -2586,6 +2729,7 @@ object Localization {
 
     fun optional(lang: String): String = when (langCode(lang)) {
         "fr" -> "(FACULTATIF)"
+        "it" -> "(FACOLTATIVO)"
         "es" -> "(OPCIONAL)"
         "pt-BR" -> "(OPCIONAL)"
         "de" -> "(OPTIONAL)"
@@ -2604,6 +2748,7 @@ object Localization {
 
     fun noAlertsRaised(lang: String): String = when (langCode(lang)) {
         "fr" -> "AUCUNE ALERTE DÉCLENCHÉE"
+        "it" -> "NESSUN ALLARME ATTIVATO"
         "es" -> "SIN ALERTAS ACTIVADAS"
         "pt-BR" -> "NENHUM ALARME ACIONADO"
         "de" -> "KEIN ALARM AUSGELÖST"
@@ -2622,6 +2767,7 @@ object Localization {
 
     fun bounty(lang: String): String = when (langCode(lang)) {
         "fr" -> "PRIME"
+        "it" -> "TAGLIA"
         "es" -> "RECOMPENSA"
         "pt-BR" -> "RECOMPENSA"
         "de" -> "BEUTE"
@@ -2640,6 +2786,7 @@ object Localization {
 
     fun owned(count: Int, lang: String): String = when (langCode(lang)) {
         FR -> "POSSÉDÉ : $count"
+        IT -> "POSSEDUTI: $count"
         ES -> "EN PROPIEDAD: $count"
         PT_BR -> "POSSUÍDO: $count"
         DE -> "BESITZ: $count"
@@ -2658,6 +2805,7 @@ object Localization {
 
     fun coinsAmount(amount: Int, lang: String): String = when (langCode(lang)) {
         FR -> "$amount PIÈCES"
+        IT -> "$amount MONETE"
         ES -> "$amount MONEDAS"
         PT_BR -> "$amount MOEDAS"
         DE -> "$amount MÜNZEN"
@@ -2676,6 +2824,7 @@ object Localization {
 
     fun watchAdLeft(count: Int, lang: String): String = when (langCode(lang)) {
         FR -> "REGARDER UNE PUB ($count RESTANTE${if (count > 1) "S" else ""})"
+        IT -> "GUARDA PUBBLICITÀ (RIMASTE: $count)"
         ES -> "VER ANUNCIO (QUEDAN $count)"
         PT_BR -> "VER ANÚNCIO (RESTAM $count)"
         DE -> "WERBUNG ANSEHEN ($count ÜBRIG)"
@@ -2694,6 +2843,7 @@ object Localization {
 
     fun availableIn(time: String, lang: String): String = when (langCode(lang)) {
         FR -> "DISPONIBLE DANS $time"
+        IT -> "DISPONIBILE TRA $time"
         ES -> "DISPONIBLE EN $time"
         PT_BR -> "DISPONÍVEL EM $time"
         DE -> "VERFÜGBAR IN $time"
@@ -2712,6 +2862,7 @@ object Localization {
 
     fun purchased(item: String, lang: String): String = when (langCode(lang)) {
         FR -> "$item acheté !"
+        IT -> "$item acquistato!"
         ES -> "¡$item comprado!"
         PT_BR -> "$item comprado!"
         DE -> "$item gekauft!"
@@ -2731,6 +2882,7 @@ object Localization {
     /** A paid coin pack went through (not the ad pack - that is [adWatchedCoins]). */
     fun coinsPurchased(coins: Int, lang: String): String = when (langCode(lang)) {
         FR -> "Achat réussi ! +$coins pièces"
+        IT -> "Acquisto completato! +$coins monete"
         ES -> "¡Compra completada! +$coins monedas"
         PT_BR -> "Compra concluída! +$coins moedas"
         DE -> "Kauf abgeschlossen! +$coins Münzen"
@@ -2749,6 +2901,7 @@ object Localization {
 
     fun adWatchedCoins(coins: Int, lang: String): String = when (langCode(lang)) {
         FR -> "Publicité visionnée ! +$coins pièces"
+        IT -> "Pubblicità guardata! +$coins monete"
         ES -> "¡Anuncio visto! +$coins monedas"
         PT_BR -> "Anúncio assistido! +$coins moedas"
         DE -> "Werbung angesehen! +$coins Münzen"
@@ -2767,6 +2920,7 @@ object Localization {
 
     fun adWatchedGadget(name: String, lang: String): String = when (langCode(lang)) {
         FR -> "Publicité visionnée ! $name reçu"
+        IT -> "Pubblicità guardata! Hai ricevuto $name"
         ES -> "¡Anuncio visto! Recibiste $name"
         PT_BR -> "Anúncio assistido! Você recebeu $name"
         DE -> "Werbung angesehen! $name erhalten"
@@ -2785,6 +2939,7 @@ object Localization {
 
     fun targetTime(time: String, lang: String): String = when (langCode(lang)) {
         FR -> "TEMPS CIBLE $time"
+        IT -> "TEMPO OBIETTIVO $time"
         ES -> "TIEMPO OBJETIVO $time"
         PT_BR -> "TEMPO ALVO $time"
         DE -> "ZIELZEIT $time"
@@ -2803,6 +2958,7 @@ object Localization {
 
     fun unableToOpenLink(lang: String): String = when (langCode(lang)) {
         FR -> "IMPOSSIBLE D'OUVRIR LE LIEN"
+        IT -> "IMPOSSIBILE APRIRE IL LINK"
         ES -> "NO SE PUEDE ABRIR EL ENLACE"
         PT_BR -> "NÃO FOI POSSÍVEL ABRIR O LINK"
         DE -> "LINK KANN NICHT GEÖFFNET WERDEN"
@@ -2823,6 +2979,7 @@ object Localization {
 
     fun coinsGranted(amount: Int, lang: String): String = when (langCode(lang)) {
         FR -> "+$amount PIÈCES ACCORDÉES"
+        IT -> "+$amount MONETE ACCREDITATE"
         ES -> "+$amount MONEDAS OTORGADAS"
         PT_BR -> "+$amount MOEDAS CONCEDIDAS"
         DE -> "+$amount MÜNZEN GEWÄHRT"

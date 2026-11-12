@@ -75,8 +75,7 @@ enum class SettingsTab {
 data class LanguageOption(val code: String, val nativeName: String)
 
 /**
- * Full shortlist of target languages, preserved for future rollout.
- * Temporarily restricted to English and French below for Google Play production approval.
+ * Every language `game.model.Localization` has a full set of strings for (16).
  */
 val ALL_SUPPORTED_LANGUAGES = listOf(
     LanguageOption("en", "English"),
@@ -85,6 +84,7 @@ val ALL_SUPPORTED_LANGUAGES = listOf(
     LanguageOption("ja", "日本語"),
     LanguageOption("de", "Deutsch"),
     LanguageOption("fr", "Français"),
+    LanguageOption("it", "Italiano"),
     LanguageOption("hi", "हिन्दी"),
     LanguageOption("id", "Bahasa Indonesia"),
     LanguageOption("vi", "Tiếng Việt"),
@@ -97,9 +97,8 @@ val ALL_SUPPORTED_LANGUAGES = listOf(
 )
 
 /**
- * Active languages available in the dropdown.
- * Temporarily restricted to English and French for Google Play production approval,
- * as only these two have full localization strings implemented.
+ * Active languages available in the dropdown - all of them. Narrow this (not the list above) if a
+ * store review ever needs fewer.
  */
 val SUPPORTED_LANGUAGES = ALL_SUPPORTED_LANGUAGES
 
