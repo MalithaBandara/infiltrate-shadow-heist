@@ -1073,6 +1073,31 @@ Mostly reasoned and measured on JVM/decompiled classes; on-device improvement un
   each frame; `maxCachedMemory` is 384MB so props scrolled off aren't re-sent.
 - **The player atlas is the biggest memory consumer** (16.8MB per 2048x2048 page), ~28.5M px now.
   Adding frames is not free - see the ATLAS BUDGET comment on `loadCore()`.
+- **Android OOM fix (2026-11-13).** Play's Android vitals for 1.1.0 (builds 26-30) showed every
+  reported crash (~2.4-2.7% user-perceived, threshold 1.09%) was `OutOfMemoryError`, all on ~3-4GB
+  budget devices (Unisoc UMS9230E/SC9863A, MediaTek MT6765X, Allwinner A523), thrown from wherever
+  the last allocation happened (Compose resources, AdMob, WebView, the audio mixer). Their ~192-256MB
+  Java heap limit was nearly filled by the atlas pages as heap Bitmap32s (up to 9-10 x 16.8MB) plus
+  decoded audio (music ~13MB, ~26MB while decoding; SFX ~7MB). Two fixes:
+  - `android:largeHeap="true"` in android-shell's manifest (~384-512MB on most phones; not
+    guaranteed - some builds set both limits equal).
+  - `atlasPagesOnHeap()` (`expect` in `src/AtlasMemory.kt`, `actual`s in `src@*/`; android-shell,
+    which compiles `src/game/scene` directly, has its own plain copy in
+    `android-shell/.../androidshell/AtlasMemory.kt` - that is the one that ships, keep both in
+    step): on Android with a heap limit under
+    384MB, `PackedAtlas` skips `.toBMP32()` and keeps the native `AndroidNativeImage` (pixels off
+    the Java heap; KorGE uploads it via `Bitmap.copyPixelsToBuffer` into a direct buffer, so no heap
+    spike). Everywhere else - every other platform, and Android phones largeHeap lifted - keeps the
+    Bitmap32 path unchanged. Logs `[AtlasMemory] heap limit NMB -> atlas pages on heap|native`.
+  - **Measured (2026-11-13, emulator API 34, level 1, `dumpsys meminfo`)**: heap path Java heap
+    **193MB** / native 99MB / PSS 426MB - over a 192MB limit on its own, which is the crash. Native
+    path Java heap **78MB** / native 172MB / PSS 386MB. Player sprite edges identical (pixel-compared
+    side by side; the only differences were the idle frame).
+  - **How to test the native path**: AVD `LowHeap192` (3GB RAM, `vm.heapSize=192` - that only sets
+    `heapgrowthlimit`; `largeHeap` still gets 576MB). Force it with
+    `adb root; adb shell setprop dalvik.vm.heapsize 192m; adb shell stop; adb shell start`, relaunch,
+    and look for `[AtlasMemory] heap limit 192MB -> atlas pages native` in logcat.
+  - Not fixed: the music is still decoded whole (streaming it is the next saving if OOMs remain).
 - **Atlases are packed ahead of time (2026-10-19).** The frames live in `art/frames/{player,guard}/`,
   which is tracked but not bundled. `tools/art/pack_sprite_atlases.py` packs them into
   `resources/atlas/<name>_<page>.png` plus `<name>.txt`, and `PackedAtlas` loads those.

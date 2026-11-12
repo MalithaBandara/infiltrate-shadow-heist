@@ -6,12 +6,19 @@
     <!-- Required for Google Play Billing in-app purchases and digital goods -->
     <uses-permission android:name="com.android.vending.BILLING" />
 
+    <!-- largeHeap: Play's Android vitals showed every crash in 1.1.0 (builds 26-30) was an
+         OutOfMemoryError on ~3-4GB budget phones (Unisoc/MediaTek/Allwinner), whose default
+         Java heap limit of ~192-256MB the sprite atlases and decoded audio nearly fill on their
+         own. largeHeap raises that to ~384-512MB on most of them. It is not guaranteed (some
+         builds set both limits the same), so PackedAtlas also keeps its pages off the Java heap
+         when the limit stays low - see AtlasMemory.android.kt. -->
     <application
         android:name=".InfiltrateApplication"
         android:label="Infiltrate: Shadow Heist"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="true"
+        android:largeHeap="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity

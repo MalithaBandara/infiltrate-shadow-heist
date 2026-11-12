@@ -16,8 +16,11 @@ import korlibs.math.geom.*
  * the old way from the source frames in art/frames.
  */
 class PackedAtlas private constructor(
-    /** The pages, as the heap bitmaps MutableAtlas used to build. */
-    val pages: List<Bitmap32>,
+    /**
+     * The pages: heap Bitmap32s like MutableAtlas used to build, or - on a low-heap Android phone,
+     * see [atlasPagesOnHeap] - the platform's native images, holding the same pixels off the heap.
+     */
+    val pages: List<Bitmap>,
     private val clips: Map<String, List<BmpSlice>>
 ) {
     /**
@@ -47,8 +50,14 @@ class PackedAtlas private constructor(
                 .toList()
             val pageCount = entries.maxOf { it.page } + 1
             // toBMP32: the page type and pixel format MutableAtlas built (premultiplied Bitmap32),
-            // whatever the platform decoder returns.
-            val pages = (0 until pageCount).map { resourcesVfs["atlas/${name}_$it.png"].readBitmap().toBMP32() }
+            // whatever the platform decoder returns. Skipped where that heap copy is what runs the
+            // game out of memory (atlasPagesOnHeap): the native image is premultiplied too, and is
+            // what every other piece of art in the game (SceneAssets.bitmap) is drawn from.
+            val onHeap = atlasPagesOnHeap()
+            val pages = (0 until pageCount).map {
+                val decoded = resourcesVfs["atlas/${name}_$it.png"].readBitmap()
+                if (onHeap) decoded.toBMP32() else decoded
+            }
             val clips = LinkedHashMap<String, MutableList<BmpSlice>>()
             for (e in entries) clips.getOrPut(e.clip) { ArrayList() } += pages[e.page].slice(e.rect)
             return PackedAtlas(pages, clips)
