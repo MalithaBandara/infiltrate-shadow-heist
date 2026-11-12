@@ -39,7 +39,7 @@ private const val APP_STORE_ID = "6815256409"
  * for the scene that owns a key window picks the one the player is actually looking at; it is the
  * same test `basic-ads` uses to find a view controller to present ads from.
  *
- * The automatic prompt after level 4 is a separate path (`:game`'s `InAppReviewBridge` ->
+ * The automatic prompt after level 3 is a separate path (`:game`'s `InAppReviewBridge` ->
  * `GameInAppReviewBridge` -> `AppDelegate.swift`'s `InAppReviewHelper`) and deliberately still
  * uses StoreKit - an unprompted moment of goodwill is exactly what that API is for.
  */

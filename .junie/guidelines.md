@@ -155,8 +155,10 @@ after adding setup code; move another block into a local `fun` (or a file, as `M
 - **Ads are on REAL units** (`USE_TEST_ADS = false`, both platforms) in build 26, a production
   build; build 25 (a test build) was on test units - see Ads.
 - All 12 levels are listed (`.take(12)` in `LevelSelectScreen.kt`, `MainMenuScreen.kt`,
-  `GameplayScene.kt`). From the Google Play approval gating (2026-09-25) what remains: "Coming Soon"
-  chapter placeholders removed (layout-preserving spacers). Settings now lists all 16 languages
+  `GameplayScene.kt`). Nothing of the Google Play approval gating (2026-09-25) remains: the three
+  locked "Coming Soon" chapter cards (chapters 2-4) are back on the Missions screen since 2026-11-12
+  (the 1.0 App Store audit below checked for "no Coming Soon" - re-weigh that before an iOS
+  submission). Settings now lists all 16 languages
   (`SUPPORTED_LANGUAGES = ALL_SUPPORTED_LANGUAGES` since `dbd09b8`; Italian added 2026-11-12) - narrow
   `SUPPORTED_LANGUAGES` if a review ever needs fewer. If a Play
   review ever needs the rain gone, `LevelData.DEFAULT_LEVEL_2.hasRain` is the whole switch.
@@ -417,7 +419,8 @@ view (bug #7).
   (PUBBLICITÀ) not checked for fit on a screen. Volume sliders are
   lifted into `NavigationRoot` as `mutableStateOf` (they had no live effect). Reset Progress has a
   confirmation and resets coins/inventory/unlocks/results, keeping `isPremium`.
-- **In-App Review**: automatic StoreKit/Play prompt after completing level 4. iOS's manual RATE US
+- **In-App Review**: automatic StoreKit/Play prompt after completing level 3
+  (`GameplayScene`'s `result.levelId == "level_3"`; level 4 until 2026-11-12). iOS's manual RATE US
   opens the App Store review page directly (`SKStoreReviewController` is automatic-only: never shown
   in TestFlight, capped 3/year, no callback) - `APP_STORE_ID = "6815256409"` at the top of
   `InAppReview.ios.kt`. Android's RATE US uses Play in-app review (reported working).
