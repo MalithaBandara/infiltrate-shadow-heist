@@ -234,7 +234,7 @@ class GameplaySceneTest : ViewsForTesting() {
         g.drawString("SAFE STANDBY", (l3x - 45).toInt(), 20)
 
         g.dispose()
-        val outDir = java.io.File("C:\\Users\\USER\\.gemini\\antigravity\\brain\\c2e16e03-8c52-4bfa-a592-66373946835e")
+        val outDir = java.io.File("build/previews")
         if (!outDir.exists()) outDir.mkdirs()
         javax.imageio.ImageIO.write(img, "PNG", java.io.File(outDir, "laser_visual_preview.png"))
     }
@@ -528,7 +528,7 @@ class GameplaySceneTest : ViewsForTesting() {
         g.drawString("Conveyor Speed: -45 px/s [<-]", 100, (floorY + 34).toInt())
 
         g.dispose()
-        val outDir = java.io.File("C:\\Users\\USER\\.gemini\\antigravity\\brain\\c2e16e03-8c52-4bfa-a592-66373946835e")
+        val outDir = java.io.File("build/previews")
         if (!outDir.exists()) outDir.mkdirs()
         javax.imageio.ImageIO.write(img, "PNG", java.io.File(outDir, "level4_interior_preview.png"))
     }
@@ -1015,7 +1015,7 @@ class GameplaySceneTest : ViewsForTesting() {
         g.drawString("• Hugs silhouette softly without chunky artifacts", 460, 106)
 
         g.dispose()
-        val outDir = java.io.File("C:\\Users\\USER\\.gemini\\antigravity\\brain\\c2e16e03-8c52-4bfa-a592-66373946835e")
+        val outDir = java.io.File("build/previews")
         if (!outDir.exists()) outDir.mkdirs()
         javax.imageio.ImageIO.write(img, "PNG", java.io.File(outDir, "shield_glow_comparison.png"))
     }
@@ -1264,7 +1264,7 @@ class GameplaySceneTest : ViewsForTesting() {
         g.drawString("giving players instant Retry / Menu options (no silent restarts).", rX + 14, p2Y + p2H - 24)
 
         g.dispose()
-        val outDir = java.io.File("C:\\Users\\USER\\.gemini\\antigravity\\brain\\c2e16e03-8c52-4bfa-a592-66373946835e")
+        val outDir = java.io.File("build/previews")
         if (!outDir.exists()) outDir.mkdirs()
         javax.imageio.ImageIO.write(img, "PNG", java.io.File(outDir, "level4_finale_l4end_preview.png"))
     }

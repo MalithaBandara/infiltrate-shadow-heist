@@ -4,6 +4,15 @@ options:
   deploymentTarget:
     iOS: "15.0"
 
+packages:
+  # Firebase Analytics - gameplay events (game.model.GameAnalytics, sent by
+  # Sources/FirebaseGameAnalyticsSink.swift) plus the SDK's own first_open / in_app_purchase /
+  # ad_impression, imported into Google Ads as conversions. 13.x needs iOS 15 (matches above) and
+  # Xcode 26 (its Package.swift is swift-tools-version 6.2).
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: "13.1.1"
+
 targets:
   ShellApp:
     type: application
@@ -39,10 +48,48 @@ targets:
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
           - "@executable_path/Frameworks"
+        # Firebase Analytics' own install instructions for Swift Package Manager: without it the
+        # linker drops ObjC categories the SDK relies on at runtime.
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-ObjC"
+      # App Store signing for the app target only. ios-testflight.yml used to pass these on the
+      # xcodebuild command line, which applies them to EVERY target - including the Swift
+      # packages' resource-bundle targets (Firebase, GoogleUtilities, nanopb, Promises), which
+      # cannot take a provisioning profile, so build 30's archive failed with "does not support
+      # provisioning profiles". Release only: ios-build.yml's simulator build is Debug and unsigned.
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          PROVISIONING_PROFILE_SPECIFIER: ShadowHeist_AppStore
     info:
       path: Generated/Info.plist
       properties:
         CFBundleDisplayName: Shadow Heist
+        # The game translates itself (game.model.Localization), so iOS can't see those languages
+        # unless they're listed here - without this the App Store's "Languages" row says English
+        # only and iOS Settings offers no per-app language. Keep in step with Localization.langCode.
+        # Arabic here makes iOS resolve right-to-left on Arabic devices; MainMenuComposeScreen pins
+        # the Compose UI to left-to-right to match Android (no supportsRtl).
+        CFBundleDevelopmentRegion: en
+        CFBundleLocalizations:
+          - en
+          - zh-Hant
+          - ja
+          - ko
+          - fr
+          - it
+          - es
+          - de
+          - pt-BR
+          - id
+          - tr
+          - vi
+          - ru
+          - hi
+          - ar
+          - th
         CFBundleShortVersionString: "1.1.4"
         CFBundleVersion: "31"
         ITSAppUsesNonExemptEncryption: false
@@ -157,6 +204,8 @@ targets:
         embed: true
         codeSign: true
       - sdk: StoreKit.framework
+      - package: Firebase
+        product: FirebaseAnalytics
     postbuildScripts:
       # Real bug found via the console diagnostic added to GameplayScene.kt's asset-loading
       # catch block + a CI screenshot proving the game reaches gameplay at all: korlibs threw
