@@ -438,7 +438,16 @@ data class LevelLayout(
 }
 
 enum class TutorialAction {
-    MOVE, JUMP_VAULT, CROUCH, CLIMB, REACH_OBJECTIVE, SWING, INTERACT
+    MOVE, JUMP_VAULT, CROUCH, CLIMB, REACH_OBJECTIVE, SWING, INTERACT,
+    /**
+     * A rule to read before setting off: stays up until the player first moves - any walk, jump or
+     * crouch input - or leaves the trigger window. Level 9's "Don't touch the ground!" is the case
+     * ("that tutorial should be there until he starts to move", 2026-11-13). It used JUMP_VAULT,
+     * whose "already high up" test is true from the first frame for a player who spawns on a
+     * hanging load, so it faded out the moment it opened; a timer instead ran down under the
+     * loading screen and was gone before a slow reader got to it.
+     */
+    FIRST_MOVE
 }
 
 enum class TutorialControlHighlight {
@@ -4363,10 +4372,25 @@ data class LevelData(
                     title = "STAY OFF THE GROUND",
                     instructionTouch = "Cross the yard on the hanging loads. Touching the floor or a platform fails the mission.",
                     instructionDesktop = "Cross the yard on the hanging loads. Touching the floor or a platform fails the mission.",
-                    targetAction = TutorialAction.JUMP_VAULT,
-                    autoDismissSeconds = 6.0,
-                    highlight = TutorialControlHighlight.JUMP,
-                    handwrittenCallout = "Load to load - never the floor!"
+                    // FIRST_MOVE, not JUMP_VAULT: JUMP_VAULT counts "already above the floor" as
+                    // done, which a player spawning on a hanging load is from frame one - the
+                    // prompt faded out as it opened. No timer either ("that tutorial should be
+                    // there until he starts to move"): it stays until the first walk/jump/crouch.
+                    targetAction = TutorialAction.FIRST_MOVE,
+                    // World-anchored at the floor itself, not the JUMP button: the rule is about the
+                    // ground, and the button's screen spot sat over the yard's step cart, so the
+                    // arrow read as "use the cart" ("point to ground and make the text say ...
+                    // dont touch the ground", 2026-11-13). Text and tip sit in the open floor left
+                    // of the long load the player spawns on (430..604, top 258) and clear of the
+                    // step cart (660..752) - LEVEL_8_LAYOUT, which LEVEL_9_LAYOUT copies.
+                    highlight = TutorialControlHighlight.NONE,
+                    handwrittenCallout = "Don't touch the ground!",
+                    // Right of the chain-link fence (its post sits at ~216), so the words are not
+                    // drawn over the mesh ("move that text more to right", 2026-11-13).
+                    worldTextX = 240.0,
+                    worldTextY = 300.0,
+                    worldAnchorX = 360.0,
+                    worldAnchorY = 434.0 // just above the floor line (groundY 440)
                 )
             ),
             guardSpeed = 95.0,
