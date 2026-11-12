@@ -25,10 +25,38 @@ object GameLevelExitBridge {
         returnToMenuRequested = false
         return true
     }
+
+    // NEXT MISSION / RETRY / RESTART: Swift consumes the request in the same poll loop, shows the interstitial if
+    // one is due, then always calls finishTransitionAd() - GameplayScene waits on that.
+    private var transitionAdRequested: Boolean = false
+    private var transitionAdFinished: Boolean = false
+
+    fun requestTransitionAd() {
+        transitionAdFinished = false
+        transitionAdRequested = true
+    }
+
+    fun consumeTransitionAdRequest(): Boolean {
+        if (!transitionAdRequested) return false
+        transitionAdRequested = false
+        return true
+    }
+
+    fun finishTransitionAd() {
+        transitionAdFinished = true
+    }
+
+    fun consumeTransitionAdFinished(): Boolean {
+        if (!transitionAdFinished) return false
+        transitionAdFinished = false
+        return true
+    }
 }
 
 private class IosLevelExitBridge : LevelExitBridge {
     override fun requestReturnToMenu() = GameLevelExitBridge.requestReturnToMenu()
+    override fun requestTransitionAd() = GameLevelExitBridge.requestTransitionAd()
+    override fun consumeTransitionAdFinished() = GameLevelExitBridge.consumeTransitionAdFinished()
 }
 
 actual fun getLevelExitBridge(): LevelExitBridge = IosLevelExitBridge()

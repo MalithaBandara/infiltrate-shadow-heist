@@ -46,3 +46,6 @@ tools/media_capture_tool.ps1
 
 blogs/
 
+# Google Ads campaign: source, copy and finished assets, kept local only.
+/marketing/google-ads/
+

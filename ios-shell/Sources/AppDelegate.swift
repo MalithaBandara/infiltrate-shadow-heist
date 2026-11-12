@@ -32,6 +32,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // below, once the window is laid out. See GameScreenMetricsBridge / game.model.ScreenLayout.
         publishScreenMetrics()
         configureAudioSession()
+        // Before any gameplay can start, so a level's first events aren't dropped.
+        FirebaseGameAnalyticsSink.configureIfAvailable()
 
         ShellAppDelegate.shared.applicationDidFinishLaunching(app: application)
         let window = ShellAppDelegate.shared.window
@@ -127,6 +129,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default, options: [])
         try? session.setActive(true)
+    }
+
+    // KorGE takes the category back: korlibs-audio-core's AppleInitAudio.ios.kt (6.0.0) sets
+    // .ambient, once per process, when gameplay creates its first audio output - and .ambient obeys
+    // the silent switch. A phone on silent then heard no gameplay audio at all, and no menu audio
+    // after the first level either (the category never came back). Called every tick of the
+    // gameplay observer timer and on every switch, so the override lasts at most one 50ms tick -
+    // during the level's loading, where the first output is the zero-volume priming.
+    private func ensurePlaybackCategory() {
+        let session = AVAudioSession.sharedInstance()
+        guard session.category != .playback else { return }
+        print("SHELL: Audio session category was \(session.category.rawValue) -> restoring playback")
+        configureAudioSession()
     }
 
     func applicationWillResignActive(_ application: UIApplication) {
@@ -291,6 +306,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         lockLandscape()
         // An ad may have taken the session; gameplay audio needs it back.
         try? AVAudioSession.sharedInstance().setActive(true)
+        ensurePlaybackCategory()
         startObservingLevelEnd()
     }
 
@@ -301,11 +317,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         window.makeKeyAndVisible()
         lockLandscape()
         stopObservingLevelEnd()
+        ensurePlaybackCategory()
     }
 
     private func startObservingLevelEnd() {
         levelObserverTimer?.invalidate()
         levelObserverTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] t in
+            self?.ensurePlaybackCategory()
             if GameContinueAdBridge.shared.consumeContinueAdRequest() {
                 print("SHELL: Continue-with-ad requested -> showing rewarded ad")
                 self?.showContinueAd()
@@ -324,6 +342,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 self?.switchToCompose()
                 self?.maybeShowLevelExitInterstitial()
             }
+            // NEXT MISSION / RETRY / RESTART in GameplayScene.kt, which waits for finishTransitionAd().
+            if GameLevelExitBridge.shared.consumeTransitionAdRequest() {
+                self?.showTransitionInterstitial()
+            }
         }
     }
 
@@ -338,7 +360,43 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             totalLevelsCompleted: totalLevelsCompleted,
             isPremium: isPremium
         )
-        print("SHELL: Level-exit interstitial \(requested ? "requested" : "skipped (limiter/premium)")")
+        print("SHELL: Level-exit interstitial \(requested ? "requested" : "skipped (limiter/premium/not ready)")")
+    }
+
+    private var interstitialPollTimer: Timer?
+
+    // Same gate and same ad as the menu return, and the same trip to the Compose scene as
+    // showContinueAd() below. Decided before leaving KorGE, so a level with no ad due never
+    // flashes the menu. Every path ends in finishTransitionAd(), or play never starts again.
+    private func showTransitionInterstitial() {
+        let canShow = InterstitialAdTrigger.shared.canRequestShow(
+            totalLevelsCompleted: DebugStorageBridge.shared.readTotalLevelsCompletedForDebug(),
+            isPremium: DebugStorageBridge.shared.readIsPremiumForDebug()
+        )
+        guard canShow else {
+            print("SHELL: Transition interstitial skipped (limiter/premium/not ready)")
+            GameLevelExitBridge.shared.finishTransitionAd()
+            return
+        }
+        print("SHELL: Transition interstitial requested")
+        stopObservingLevelEnd()
+        GameAppLifecycleBridge.shared.markBackground()
+        switchToCompose()
+        InterstitialAdTrigger.shared.requestShow()
+
+        // Only for the ad failing to appear: once it is up it stays up as long as the player wants.
+        let displayDeadline = Date().addingTimeInterval(10.0)
+        interstitialPollTimer?.invalidate()
+        interstitialPollTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] t in
+            if Date() >= displayDeadline {
+                InterstitialAdTrigger.shared.cancelIfNotDisplayed()
+            }
+            guard !InterstitialAdTrigger.shared.isAdFlowActive else { return }
+            t.invalidate()
+            GameLevelExitBridge.shared.finishTransitionAd()
+            GameAppLifecycleBridge.shared.markForeground()
+            self?.switchToKorGE()
+        }
     }
 
     private func stopObservingLevelEnd() {

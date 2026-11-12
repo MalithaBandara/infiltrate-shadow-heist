@@ -212,7 +212,9 @@ class InMemoryGameProfileStorage(
 class MapBackedGameProfileStorage(
     private val getRaw: (String) -> String?,
     private val setRaw: (String, String) -> Unit,
-    private val inMemoryFallback: InMemoryGameProfileStorage = InMemoryGameProfileStorage()
+    private val inMemoryFallback: InMemoryGameProfileStorage = InMemoryGameProfileStorage(),
+    // Device languages, most preferred first - only read when no language has been saved yet.
+    private val systemLanguageTags: () -> List<String> = { SystemLanguage.preferredTags() }
 ) : GameProfileStorage {
 
     init {
@@ -240,6 +242,18 @@ class MapBackedGameProfileStorage(
             totalLevelsCompletedStr?.toIntOrNull()?.let { current.totalLevelsCompleted = it }
             if (!languageStr.isNullOrBlank()) {
                 current.language = languageStr
+            } else {
+                // First launch: follow the device language if the game is translated into it.
+                // Saved right away, so later launches - and the KorGE game's own storage instance,
+                // which on iOS lives in a separate framework without this hook set - read it back
+                // as an ordinary saved choice. An unsupported device language saves nothing and
+                // stays English. Existing players already have user_language saved (every persist
+                // writes it), so this never overrides an earlier choice.
+                val detected = runCatching { Localization.firstSupportedLanguage(systemLanguageTags()) }.getOrNull()
+                if (detected != null) {
+                    current.language = detected
+                    setRaw("user_language", detected)
+                }
             }
             if (!unlockedStr.isNullOrBlank()) {
                 current.unlockedLevelIds.addAll(unlockedStr.split(";").filter { it.isNotBlank() })
