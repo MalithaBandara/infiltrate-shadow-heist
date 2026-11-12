@@ -3705,6 +3705,8 @@ class GameplayScene(
                             // early/late jump that misses the hook and falls short must not
                             // dismiss the prompt as if it had succeeded.
                             TutorialAction.SWING -> world.player.isSwinging || playerX > step.triggerMaxX
+                            // Up until the player first sets off, whichever control that is.
+                            TutorialAction.FIRST_MOVE -> moveInput != 0.0 || jumpPressed || crouchPressed || playerX > step.triggerMaxX
                             // On a level with switches the prompt is about them (level 10's end,
                             // where its bots are long since switched off): a thrown switch completes it.
                             TutorialAction.INTERACT -> if (world.doorSwitches.isNotEmpty()) world.switchThrowCount > 0 || playerX > step.triggerMaxX

@@ -879,7 +879,8 @@ with a person.
 - **No full-canvas red wash on a lethal hit, on any level** - it hid the frame showing what killed
   you (one subscription removed in `GameplayScene`; the model hooks remain and are tested).
 - **`TutorialStep.autoDismissSeconds`** (opt-in; 0.0 = wait, the default): level 7's deactivate-bot
-  prompt 5.0, level 9's `step_stay_off_the_ground` 6.0 - a test (`testTheDronePromptLetsGoOnItsOwn`)
+  prompt 5.0, level 8's push/pull 6.0 (level 9's ground note had 6.0 until 2026-11-13 - the timer ran
+  down behind the loading fade; it is now `TutorialAction.FIRST_MOVE`) - a test (`testTheDronePromptLetsGoOnItsOwn`)
   lists the allowed exceptions. A prompt's lifetime is checked with a `println` on
   activate/dismiss, not screenshots (the world runs behind the loading fade).
 - **End-of-run dossier sheets**: MISSION FAILED / HEIST COMPLETE are the main menu's briefing sheet -
@@ -1642,7 +1643,16 @@ crate; a test asserts it), so every level 8 retune carries over. `hasRain = true
   `GameWorld.checkStayOffTheGround` ends the run on the floor or a `LevelLayout.offLimitFootholds`
   platform (mid and high platforms, NOT the tables). **It checks `layout.platforms`, not
   `GameWorld.platforms`** (which includes `boxes` - the first crate counted as ground). Its one
-  tutorial step `step_stay_off_the_ground` auto-dismisses after 6s. Fixed footholds for checkpoints:
+  tutorial step `step_stay_off_the_ground` stays up until the player first moves. Its callout "Don't touch the
+  ground!" is world-anchored (highlight NONE) with the arrow tip on open floor at (360, 434), left
+  of the spawn load and clear of the step cart - it used to point at the JUMP button, whose screen
+  spot sat over the cart and read as "use the cart" (2026-11-13; `testLevel9GroundNotePointsAtTheFloor`).
+  Its `targetAction` is `TutorialAction.FIRST_MOVE` (any walk/jump/crouch input, or walking past
+  the window, ends it; no timer - "that tutorial should be there until he starts to move"):
+  JUMP_VAULT counted "player above the floor" as done, true on frame one for a spawn on a hanging
+  load, so the note faded out as it opened, and a 6s timer ran out behind the loading fade. Text
+  at world x 240, right of the chain-link fence (post ~216), arrow down to the floor at x 360.
+  Fixed footholds for checkpoints:
   the overhead crate, the long crate, the tables.
 - **The echo - level 8's completed run, replayed** (`src/game/model/RunRecording.kt`):
   - **Recording** (`LevelData.recordsRun`, level 8): `GameWorld.runRecorder` takes a `RunSample` every

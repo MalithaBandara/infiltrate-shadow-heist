@@ -6337,12 +6337,9 @@ class GameplayModelTest {
         val cartMove = LevelData.DEFAULT_LEVEL_8.tutorialSteps.first { it.id == "step_push_cart_move" }
         assertEquals(6.0, cartMove.autoDismissSeconds)
 
-        // Level 9's stay-off-the-ground note is the third: it is a rule, not an action to wait
-        // for, so there is nothing that could ever dismiss it.
-        val offTheGround = LevelData.DEFAULT_LEVEL_9.tutorialSteps.first { it.id == "step_stay_off_the_ground" }
-        assertEquals(6.0, offTheGround.autoDismissSeconds)
-
-        val exceptions = setOf("step_deactivate_bot", "step_push_cart_move", "step_stay_off_the_ground")
+        // Level 9's stay-off-the-ground note had a 6s timer until 2026-11-13; it now waits for the
+        // player's first move instead (TutorialAction.FIRST_MOVE), like every other open-ended step.
+        val exceptions = setOf("step_deactivate_bot", "step_push_cart_move")
         val everywhereElse = LevelData.DEFAULT_LEVELS
             .flatMap { it.tutorialSteps }
             .filter { it.id !in exceptions }
@@ -6351,6 +6348,27 @@ class GameplayModelTest {
             "no other tutorial step was given a timeout: " +
                 everywhereElse.filter { it.autoDismissSeconds != 0.0 }.map { it.id }
         )
+    }
+
+    @Test
+    fun testLevel9GroundNotePointsAtTheFloor() {
+        // "point to ground and make the text say ... dont touch the ground" (2026-11-13): the arrow
+        // used to aim at the JUMP button, whose spot on screen sat over the yard's step cart.
+        val step = LevelData.DEFAULT_LEVEL_9.tutorialSteps.first { it.id == "step_stay_off_the_ground" }
+        assertEquals(TutorialControlHighlight.NONE, step.highlight, "world-anchored, not at a button")
+        // The player spawns on a hanging load, so JUMP_VAULT's "already above the floor" check was
+        // true on frame one and the note faded out as it opened. It now stays, with no timer,
+        // until he first moves ("that tutorial should be there until he starts to move").
+        assertEquals(TutorialAction.FIRST_MOVE, step.targetAction)
+        assertEquals(0.0, step.autoDismissSeconds)
+        assertEquals("Don't touch the ground!", step.localizedCallout("en"))
+
+        val layout = LevelData.LEVEL_9_LAYOUT
+        val floorTop = layout.platforms.maxBy { it.width }.y // the full-width ground rect
+        assertTrue(step.worldAnchorY in (floorTop - 10.0)..floorTop, "tip sits on the floor line ($floorTop), was ${step.worldAnchorY}")
+        val blockers = layout.pushCarts.map { it.initialX..(it.initialX + it.width) } +
+            layout.hangingCrateVariant1.map { it.left..it.right }
+        assertTrue(blockers.none { step.worldAnchorX in it }, "tip is on open floor, not under a cart or load")
     }
 
     @Test
