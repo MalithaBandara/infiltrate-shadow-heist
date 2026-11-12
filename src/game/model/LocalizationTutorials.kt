@@ -2,7 +2,7 @@ package game.model
 
 /**
  * Localized tutorial step callouts, titles, and touch/desktop instructions
- * across all 15 supported languages. Pure Kotlin STDlib.
+ * across all 16 supported languages. Pure Kotlin STDlib.
  */
 internal object LocalizationTutorials {
 
@@ -11,6 +11,7 @@ internal object LocalizationTutorials {
         return when (stepId) {
             "step_move" -> when (code) {
                 "fr" -> "Utilisez les boutons pour vous déplacer !"
+                "it" -> "Usa i pulsanti per muoverti a sinistra o a destra!"
                 "es" -> "¡Usa los botones de dirección para moverte!"
                 "pt-BR" -> "Use os botões direcionais para se mover!"
                 "de" -> "Nutze die Richtungstasten zum Bewegen!"
@@ -28,6 +29,7 @@ internal object LocalizationTutorials {
             }
             "step_jump_vault" -> when (code) {
                 "fr" -> "Appuyez pour sauter les obstacles !"
+                "it" -> "Tocca per saltare gli ostacoli!"
                 "es" -> "¡Toca para saltar obstáculos!"
                 "pt-BR" -> "Toque para saltar obstáculos!"
                 "de" -> "Tippen zum Springen über Hindernisse!"
@@ -45,6 +47,7 @@ internal object LocalizationTutorials {
             }
             "step_crouch" -> when (code) {
                 "fr" -> "Maintenez pour vous accroupir !"
+                "it" -> "Tieni premuto per accovacciarti!"
                 "es" -> "¡Mantén para agacharte!"
                 "pt-BR" -> "Segure para agachar!"
                 "de" -> "Halten zum Ducken!"
@@ -62,6 +65,7 @@ internal object LocalizationTutorials {
             }
             "step_climb" -> when (code) {
                 "fr" -> "Appuyez sur sauter pour grimper !"
+                "it" -> "Tocca salta per arrampicarti!"
                 "es" -> "¡Toca saltar para escalar!"
                 "pt-BR" -> "Toque em pular para escalar!"
                 "de" -> "Tippe auf Springen zum Klettern!"
@@ -79,6 +83,7 @@ internal object LocalizationTutorials {
             }
             "step_reach_objective" -> when (code) {
                 "fr" -> "Atteignez l'objectif !"
+                "it" -> "Raggiungi l'obiettivo!"
                 "es" -> "¡Llega al objetivo!"
                 "pt-BR" -> "Alcance o objetivo!"
                 "de" -> "Erreiche das Missionsziel!"
@@ -96,6 +101,7 @@ internal object LocalizationTutorials {
             }
             "step_crouch_hide" -> when (code) {
                 "fr" -> "Accroupissez-vous derrière la caisse pour vous cacher !"
+                "it" -> "Accovacciati dietro la cassa per nasconderti!"
                 "es" -> "¡Agáchate detrás de la caja para ocultarte!"
                 "pt-BR" -> "Agache-se atrás da caixa para se esconder!"
                 "de" -> "Ducke dich hinter die Kiste zum Verstecken!"
@@ -113,6 +119,7 @@ internal object LocalizationTutorials {
             }
             "step_swing_hook" -> when (code) {
                 "fr" -> "Sautez en courant pour franchir le vide !"
+                "it" -> "Salta mentre corri per dondolare oltre il vuoto!"
                 "es" -> "¡Salta mientras corres para balancearte!"
                 "pt-BR" -> "Salte correndo para se balançar!"
                 "de" -> "Springe im Lauf, um dich hinüberzuschwingen!"
@@ -130,6 +137,7 @@ internal object LocalizationTutorials {
             }
             "step_activate_lever" -> when (code) {
                 "fr" -> "Appuyez sur interagir pour actionner le mécanisme"
+                "it" -> "Premi interagisci vicino alle leve per attivare i meccanismi"
                 "es" -> "Pulsa interactuar cerca de palancas para activar mecanismos"
                 "pt-BR" -> "Toque em interagir perto de alavancas para ativar mecanismos"
                 "de" -> "Tippe bei Hebeln auf Interagieren, um Mechanismen auszulösen"
@@ -147,6 +155,7 @@ internal object LocalizationTutorials {
             }
             "step_spam_fan" -> when (code) {
                 "fr" -> "Appuyez sans arrêt pour lutter contre le vent !"
+                "it" -> "Tocca senza sosta per lottare contro il vento!"
                 "es" -> "¡Toca repetidamente para resistir el viento!"
                 "pt-BR" -> "Toque repetidamente contra o vento!"
                 "de" -> "Hämmere auf die Taste gegen den Wind!"
@@ -164,6 +173,7 @@ internal object LocalizationTutorials {
             }
             "step_deactivate_bot" -> when (code) {
                 "fr" -> "Approchez par derrière pour désactiver !"
+                "it" -> "Avvicinati da dietro per disattivarlo!"
                 "es" -> "¡Acércate por detrás para desactivarlo!"
                 "pt-BR" -> "Aproxime-se por trás para desativar!"
                 "de" -> "Nähere dich von hinten zum Deaktivieren!"
@@ -181,6 +191,7 @@ internal object LocalizationTutorials {
             }
             "step_push_stance" -> when (code) {
                 "fr" -> "Prenez appui et avancez !"
+                "it" -> "Fai presa, poi spingilo avanti!"
                 "es" -> "¡Afirma la postura y empuja!"
                 "pt-BR" -> "Firme a postura e empurre!"
                 "de" -> "In Position gehen und losschieben!"
@@ -198,6 +209,7 @@ internal object LocalizationTutorials {
             }
             "step_push_cart_grab" -> when (code) {
                 "fr" -> "Appuyez pour prendre appui sur le chariot"
+                "it" -> "Tocca per interagire con il carrello"
                 "es" -> "Toca para sujetar el carro"
                 "pt-BR" -> "Toque para segurar o carrinho"
                 "de" -> "Tippen zum Festhalten der Lore"
@@ -215,6 +227,7 @@ internal object LocalizationTutorials {
             }
             "step_push_cart_move" -> when (code) {
                 "fr" -> "Utilisez les boutons pour pousser ou tirer"
+                "it" -> "Usa i pulsanti per spingere / tirare"
                 "es" -> "Usa las teclas de dirección para empujar o tirar"
                 "pt-BR" -> "Use os direcionais para empurrar ou puxar"
                 "de" -> "Nutze die Pfeiltasten zum Schieben / Ziehen"
@@ -232,6 +245,7 @@ internal object LocalizationTutorials {
             }
             "step_stay_off_the_ground" -> when (code) {
                 "fr" -> "De charge en charge — jamais le sol !"
+                "it" -> "Di carico in carico — mai il pavimento!"
                 "es" -> "¡De carga en carga, nunca el suelo!"
                 "pt-BR" -> "De carga em carga — nunca no chão!"
                 "de" -> "Von Ladung zu Ladung – niemals den Boden berühren!"
@@ -249,6 +263,7 @@ internal object LocalizationTutorials {
             }
             "step_use_switches" -> when (code) {
                 "fr" -> "Utilisez l'interrupteur pour actionner les mécanismes"
+                "it" -> "Usa l'interruttore per attivare i meccanismi"
                 "es" -> "Usa el interruptor para activar mecanismos"
                 "pt-BR" -> "Use o interruptor para ativar mecanismos"
                 "de" -> "Nutze den Schalter, um Mechanismen zu betätigen"
@@ -273,6 +288,7 @@ internal object LocalizationTutorials {
         return when (stepId) {
             "step_move" -> when (code) {
                 "fr" -> "DÉPLACEMENT TACTIQUE"
+                "it" -> "MOVIMENTO TATTICO"
                 "es" -> "MOVIMIENTO TÁCTICO"
                 "pt-BR" -> "MOVIMENTO TÁTICO"
                 "de" -> "TAKTIK-BEWEGUNG"
@@ -290,6 +306,7 @@ internal object LocalizationTutorials {
             }
             "step_jump_vault" -> when (code) {
                 "fr" -> "SAUTER ET FRANCHIR"
+                "it" -> "SALTA E SCAVALCA"
                 "es" -> "SALTAR Y SUPERAR"
                 "pt-BR" -> "PULO E SALTO"
                 "de" -> "SPRINGEN & ÜBERWINDEN"
@@ -307,6 +324,7 @@ internal object LocalizationTutorials {
             }
             "step_crouch" -> when (code) {
                 "fr" -> "ACCROUPISSEMENT FURTIF"
+                "it" -> "ACCOVACCIATA FURTIVA"
                 "es" -> "AGANCHARSE SIGILOSO"
                 "pt-BR" -> "AGACHAMENTO FURTIVO"
                 "de" -> "SCHLEICHDUCKEN"
@@ -324,6 +342,7 @@ internal object LocalizationTutorials {
             }
             "step_climb" -> when (code) {
                 "fr" -> "SE HISSER ET GRIMPER"
+                "it" -> "ISSATI E ARRAMPICATI"
                 "es" -> "TREPAR Y ESCALAR"
                 "pt-BR" -> "SUBIR E ESCALAR"
                 "de" -> "HOCHZIEHEN & KLETTERN"
@@ -341,6 +360,7 @@ internal object LocalizationTutorials {
             }
             "step_reach_objective" -> when (code) {
                 "fr" -> "ATTEINDRE L'OBJECTIF"
+                "it" -> "RAGGIUNGI L'OBIETTIVO"
                 "es" -> "ALCANZAR EL OBJETIVO"
                 "pt-BR" -> "ALCANCE O OBJETIVO"
                 "de" -> "ZIEL ERREICHEN"
@@ -358,6 +378,7 @@ internal object LocalizationTutorials {
             }
             "step_crouch_hide" -> when (code) {
                 "fr" -> "RESTER À COUVERT"
+                "it" -> "RESTA NASCOSTO"
                 "es" -> "MANTENTE OCULTO"
                 "pt-BR" -> "FIQUE OCULTO"
                 "de" -> "VERSTECKT BLEIBEN"
@@ -375,6 +396,7 @@ internal object LocalizationTutorials {
             }
             "step_swing_hook" -> when (code) {
                 "fr" -> "BALANCEMENT AU CROCHET"
+                "it" -> "DONDOLO AL GANCIO"
                 "es" -> "BALANCEO CON GANCHO"
                 "pt-BR" -> "BALANÇO NO GANCHO"
                 "de" -> "HAKENSCHWUNG"
@@ -392,6 +414,7 @@ internal object LocalizationTutorials {
             }
             "step_activate_lever" -> when (code) {
                 "fr" -> "ACTIONNER LE MÉCANISME"
+                "it" -> "ATTIVA IL MECCANISMO"
                 "es" -> "ACTIVAR MECANISMO"
                 "pt-BR" -> "ATIVAR MECANISMO"
                 "de" -> "MECHANISMUS AUSLÖSEN"
@@ -409,6 +432,7 @@ internal object LocalizationTutorials {
             }
             "step_spam_fan" -> when (code) {
                 "fr" -> "ÉCHAPPEMENT DE TURBINE"
+                "it" -> "SCARICO DELLA TURBINA"
                 "es" -> "ESCAPE DE TURBINA"
                 "pt-BR" -> "EXAUSTOR DA TURBINA"
                 "de" -> "TURBINENABLUFT"
@@ -426,6 +450,7 @@ internal object LocalizationTutorials {
             }
             "step_deactivate_bot" -> when (code) {
                 "fr" -> "DRONE DE PATROUILLE"
+                "it" -> "DRONE DI PATTUGLIA"
                 "es" -> "DRON DE PATRULLA"
                 "pt-BR" -> "DRONE DE PATRULHA"
                 "de" -> "PATROUILLEN-DROHNE"
@@ -443,6 +468,7 @@ internal object LocalizationTutorials {
             }
             "step_push_stance" -> when (code) {
                 "fr" -> "PRENDRE APPUI ET POUSSER"
+                "it" -> "FAI PRESA E SPINGI"
                 "es" -> "APOYAR Y EMPUJAR"
                 "pt-BR" -> "APOIAR E EMPURRAR"
                 "de" -> "STEMMEN & SCHIEBEN"
@@ -460,6 +486,7 @@ internal object LocalizationTutorials {
             }
             "step_push_cart_grab" -> when (code) {
                 "fr" -> "PRENDRE LE CHARIOT"
+                "it" -> "PRENDI IL CARRELLO"
                 "es" -> "SUJETAR EL CARRO"
                 "pt-BR" -> "PEGAR O CARRINHO"
                 "de" -> "LORE GREIFEN"
@@ -477,6 +504,7 @@ internal object LocalizationTutorials {
             }
             "step_push_cart_move" -> when (code) {
                 "fr" -> "POUSSER OU TIRER"
+                "it" -> "SPINGI O TIRA"
                 "es" -> "EMPUJAR O TIRAR"
                 "pt-BR" -> "EMPURRAR OU PUXAR"
                 "de" -> "SCHIEBEN ODER ZIEHEN"
@@ -494,6 +522,7 @@ internal object LocalizationTutorials {
             }
             "step_stay_off_the_ground" -> when (code) {
                 "fr" -> "NE PAS TOUCHER LE SOL"
+                "it" -> "NON TOCCARE TERRA"
                 "es" -> "NO TOQUES EL SUELO"
                 "pt-BR" -> "NÃO TOQUE O CHÃO"
                 "de" -> "NICHT DEN BODEN BERÜHREN"
@@ -511,6 +540,7 @@ internal object LocalizationTutorials {
             }
             "step_use_switches" -> when (code) {
                 "fr" -> "INTERRUPTEURS"
+                "it" -> "INTERRUTTORI"
                 "es" -> "INTERRUPTORES"
                 "pt-BR" -> "INTERRUPTORES"
                 "de" -> "SCHALTER"
@@ -535,6 +565,7 @@ internal object LocalizationTutorials {
         return when (stepId) {
             "step_move" -> when (code) {
                 "fr" -> "Utilisez les boutons de navigation pour aller à gauche ou à droite."
+                "it" -> "Usa i pulsanti di direzione per muoverti a sinistra o a destra."
                 "es" -> "Usa los botones de navegación para moverte a la izquierda o derecha."
                 "pt-BR" -> "Use os botões direcionais para mover para esquerda ou direita."
                 "de" -> "Bewege dich mit den Pfeiltasten nach links oder rechts."
@@ -552,6 +583,7 @@ internal object LocalizationTutorials {
             }
             "step_jump_vault" -> when (code) {
                 "fr" -> "Appuyez sur SAUTER pour monter sur les caisses et sauter par-dessus le camion."
+                "it" -> "Tocca SALTA per salire sulle casse e scavalcare il camion."
                 "es" -> "Toca SALTAR para subir a las cajas y superar el camión."
                 "pt-BR" -> "Toque em PULAR para subir nas caixas e saltar o caminhão."
                 "de" -> "Tippe auf SPRINGEN, um auf Kisten und über den Lkw zu gelangen."
@@ -569,6 +601,7 @@ internal object LocalizationTutorials {
             }
             "step_crouch" -> when (code) {
                 "fr" -> "Maintenez S'ACCROUPIR pour passer sous les obstacles bas."
+                "it" -> "Tieni premuto ACCOVACCIATI per passare sotto gli ostacoli bassi."
                 "es" -> "Mantén AGACHARSE para pasar bajo obstáculos bajos."
                 "pt-BR" -> "Segure AGACHAR para passar sob obstáculos baixos."
                 "de" -> "Halte DUCKEN gedrückt, um unter Hindernissen durchzuschlüpfen."
@@ -586,6 +619,7 @@ internal object LocalizationTutorials {
             }
             "step_climb" -> when (code) {
                 "fr" -> "Appuyez sur SAUTER près d'un rebord haut pour vous hisser et grimper."
+                "it" -> "Tocca SALTA vicino a una sporgenza alta per issarti e arrampicarti."
                 "es" -> "Toca SALTAR cerca de un saliente para trepar."
                 "pt-BR" -> "Toque em PULAR perto de uma beirada alta para escalar."
                 "de" -> "Tippe an einer Kante auf SPRINGEN, um dich hochzuziehen."
@@ -603,6 +637,7 @@ internal object LocalizationTutorials {
             }
             "step_reach_objective" -> when (code) {
                 "fr" -> "Atteignez l'objectif pour terminer la mission."
+                "it" -> "Raggiungi l'obiettivo per completare la missione."
                 "es" -> "Llega al objetivo para completar la misión."
                 "pt-BR" -> "Alcance o objetivo para concluir a missão."
                 "de" -> "Erreiche das Ziel, um den Einsatz abzuschließen."
@@ -620,6 +655,7 @@ internal object LocalizationTutorials {
             }
             "step_crouch_hide" -> when (code) {
                 "fr" -> "Maintenez S'ACCROUPIR derrière la caisse pour couper la ligne de vue du garde."
+                "it" -> "Tieni premuto ACCOVACCIATI dietro la cassa per interrompere la linea di vista della guardia."
                 "es" -> "Mantén AGACHARSE tras la caja para romper la visión del guardia."
                 "pt-BR" -> "Segure AGACHAR atrás da caixa para quebrar a linha de visão do guarda."
                 "de" -> "Halte DUCKEN hinter der Kiste gedrückt, um ungesehen zu bleiben."
@@ -637,6 +673,7 @@ internal object LocalizationTutorials {
             }
             "step_swing_hook" -> when (code) {
                 "fr" -> "Appuyez sur SAUTER en courant vers le crochet suspendu pour franchir le vide."
+                "it" -> "Premi SALTA correndo verso il gancio sospeso per dondolare oltre il vuoto."
                 "es" -> "Toca SALTAR mientras corres hacia el gancho para balancearte sobre el abismo."
                 "pt-BR" -> "Pressione PULAR correndo em direção ao gancho suspenso para cruzar o vão."
                 "de" -> "Drücke im Anlauf auf SPRINGEN beim Haken, um die Lücke zu überqueren."
@@ -654,6 +691,7 @@ internal object LocalizationTutorials {
             }
             "step_activate_lever" -> when (code) {
                 "fr" -> "Appuyez sur le bouton interagir près des leviers pour actionner les mécanismes."
+                "it" -> "Premi il pulsante interagisci vicino alle leve per attivare i meccanismi."
                 "es" -> "Toca el botón de interactuar cerca de las palancas para activar mecanismos."
                 "pt-BR" -> "Toque no botão de interagir perto das alavancas para ativar os mecanismos."
                 "de" -> "Tippe in der Nähe von Hebeln auf die Interaktionstaste."
@@ -671,6 +709,7 @@ internal object LocalizationTutorials {
             }
             "step_spam_fan" -> when (code) {
                 "fr" -> "Appuyez rapidement et sans arrêt sur DROITE pour lutter contre le vent de face !"
+                "it" -> "Tocca DESTRA rapidamente e senza sosta per avanzare contro il vento!"
                 "es" -> "¡Toca DERECHA repetidamente para abrirte paso contra el viento!"
                 "pt-BR" -> "Toque repetidamente em DIREITA para avançar contra o vento!"
                 "de" -> "Tippe wiederholt auf RECHTS, um gegen den Gegenwind voranzukommen!"
@@ -688,6 +727,7 @@ internal object LocalizationTutorials {
             }
             "step_deactivate_bot" -> when (code) {
                 "fr" -> "Approchez-vous du drone par derrière et appuyez sur INTERAGIR pour le désactiver."
+                "it" -> "Avvicinati al drone di pattuglia da dietro e tocca INTERAGISCI per disattivarlo."
                 "es" -> "Acércate al dron patrulla por detrás y toca INTERACTUAR para apagarlo."
                 "pt-BR" -> "Aproxime-se do drone por trás e toque em INTERAGIR para desativá-lo."
                 "de" -> "Nähere dich der Drohne von hinten und tippe auf INTERAGIEREN."
@@ -705,6 +745,7 @@ internal object LocalizationTutorials {
             }
             "step_push_stance" -> when (code) {
                 "fr" -> "Appuyez sur INTERAGIR pour prendre appui, puis avancez. Réappuyez pour vous relever."
+                "it" -> "Tocca INTERAGISCI per fare presa, poi cammina. Tocca di nuovo INTERAGISCI per rialzarti."
                 "es" -> "Toca INTERACTUAR para prepararte y camina. Toca de nuevo para soltar."
                 "pt-BR" -> "Toque em INTERAGIR para apoiar e caminhe. Toque novamente para soltar."
                 "de" -> "Tippe auf INTERAGIEREN zum Anstemmen. Erneut tippen zum Loslassen."
@@ -722,6 +763,7 @@ internal object LocalizationTutorials {
             }
             "step_push_cart_grab" -> when (code) {
                 "fr" -> "Appuyez sur INTERAGIR pour prendre appui contre le chariot. Réappuyez pour lâcher."
+                "it" -> "Tocca INTERAGISCI per fare presa sul carrello. Toccalo di nuovo per lasciarlo."
                 "es" -> "Toca INTERACTUAR para agarrar el carro. Vuelve a tocar para soltarlo."
                 "pt-BR" -> "Toque em INTERAGIR para apoiar no carrinho. Toque novamente para soltá-lo."
                 "de" -> "Tippe auf INTERAGIEREN zum Anpacken der Lore. Erneut tippen zum Loslassen."
@@ -739,6 +781,7 @@ internal object LocalizationTutorials {
             }
             "step_push_cart_move" -> when (code) {
                 "fr" -> "Maintenez GAUCHE ou DROITE pour déplacer le chariot."
+                "it" -> "Tieni premuto SINISTRA o DESTRA per spostare il carrello."
                 "es" -> "Mantén pulsado IZQUIERDA o DERECHA para mover el carro."
                 "pt-BR" -> "Segure ESQUERDA ou DIREITA para movimentar o carrinho."
                 "de" -> "Halte LINKS oder RECHTS gedrückt, um die Lore zu bewegen."
@@ -756,6 +799,7 @@ internal object LocalizationTutorials {
             }
             "step_stay_off_the_ground" -> when (code) {
                 "fr" -> "Traversez le dépôt sur les charges suspendues. Toucher le sol ou une plateforme fait échouer la mission."
+                "it" -> "Attraversa il deposito sui carichi sospesi. Toccare il pavimento o una piattaforma fa fallire la missione."
                 "es" -> "Cruza el patio sobre las cargas suspendidas. Tocar el suelo o una plataforma supondrá el fracaso de la misión."
                 "pt-BR" -> "Atravesse o pátio sobre as cargas suspensas. Tocar o chão ou plataformas resulta em falha da missão."
                 "de" -> "Überquere den Hof über hängende Lasten. Berühren von Boden oder Plattformen lässt die Mission scheitern."
@@ -773,6 +817,7 @@ internal object LocalizationTutorials {
             }
             "step_use_switches" -> when (code) {
                 "fr" -> "Utilisez l'interrupteur pour actionner les mécanismes."
+                "it" -> "Usa l'interruttore per attivare i meccanismi."
                 "es" -> "Usa el interruptor para activar los mecanismos."
                 "pt-BR" -> "Use o interruptor para acionar os mecanismos."
                 "de" -> "Betätige den Schalter, um Mechanismen auszulösen."
@@ -797,6 +842,7 @@ internal object LocalizationTutorials {
         return when (stepId) {
             "step_move" -> when (code) {
                 "fr" -> "Utilisez les touches [A / D] ou [GAUCHE / DROITE] pour vous déplacer."
+                "it" -> "Usa i tasti [A / D] o [SINISTRA / DESTRA] per muoverti."
                 "es" -> "Usa las teclas [A / D] o [FLECHAS] para moverte."
                 "pt-BR" -> "Use as teclas [A / D] ou [SETAS] para se mover."
                 "de" -> "Nutze [A / D] oder [LINKS / RECHTS] zum Bewegen."
@@ -814,6 +860,7 @@ internal object LocalizationTutorials {
             }
             "step_jump_vault" -> when (code) {
                 "fr" -> "Appuyez sur [W] ou [ESPACE] pour sauter sur les surfaces surélevées."
+                "it" -> "Premi [W] o [SPAZIO] per saltare sulle superfici rialzate."
                 "es" -> "Pulsa [W] o [ESPACIO] para subirte a superficies elevadas."
                 "pt-BR" -> "Pressione [W] ou [ESPAÇO] para subir em superfícies elevadas."
                 "de" -> "Drücke [W] oder [LEERTASTE], um auf erhöhte Flächen zu springen."
@@ -831,6 +878,7 @@ internal object LocalizationTutorials {
             }
             "step_crouch" -> when (code) {
                 "fr" -> "Maintenez [S], [C] ou [CTRL] pour vous accroupir sous les obstacles bas."
+                "it" -> "Tieni premuto [S], [C] o [CTRL] per accovacciarti sotto gli ostacoli bassi."
                 "es" -> "Mantén [S], [C] o [CTRL] para pasar bajo obstáculos bajos."
                 "pt-BR" -> "Segure [S], [C] ou [CTRL] para passar sob obstáculos baixos."
                 "de" -> "Halte [S], [C] oder [STRG] gedrückt, um dich zu ducken."
@@ -848,6 +896,7 @@ internal object LocalizationTutorials {
             }
             "step_climb" -> when (code) {
                 "fr" -> "Appuyez sur [W] ou [ESPACE] près d'un rebord haut pour vous hisser et grimper."
+                "it" -> "Premi [W] o [SPAZIO] vicino a una sporgenza alta per issarti e arrampicarti."
                 "es" -> "Pulsa [W] o [ESPACIO] cerca de un saliente para trepar."
                 "pt-BR" -> "Pressione [W] ou [ESPAÇO] perto de uma borda para escalar."
                 "de" -> "Drücke an einer Kante [W] oder [LEERTASTE], um hochzuklettern."
@@ -865,6 +914,7 @@ internal object LocalizationTutorials {
             }
             "step_reach_objective" -> when (code) {
                 "fr" -> "Infiltrez le bâtiment cible pour terminer la mission."
+                "it" -> "Infiltrati nell'edificio obiettivo per completare la missione."
                 "es" -> "Infiltra el edificio objetivo para completar la misión."
                 "pt-BR" -> "Infiltre-se no prédio alvo para completar a missão."
                 "de" -> "Infiltriere das Zielgebäude, um die Mission zu beenden."
@@ -882,6 +932,7 @@ internal object LocalizationTutorials {
             }
             "step_crouch_hide" -> when (code) {
                 "fr" -> "Maintenez [S], [C] ou [CTRL] derrière la caisse pour couper la ligne de vue du garde."
+                "it" -> "Tieni premuto [S], [C] o [CTRL] dietro la cassa per interrompere la linea di vista della guardia."
                 "es" -> "Mantén [S], [C] o [CTRL] tras la caja para evitar la vista del guardia."
                 "pt-BR" -> "Segure [S], [C] ou [CTRL] atrás da caixa para quebrar a visão do guarda."
                 "de" -> "Halte hinter der Kiste [S], [C] oder [STRG] gedrückt, um verborgen zu bleiben."
@@ -899,6 +950,7 @@ internal object LocalizationTutorials {
             }
             "step_swing_hook" -> when (code) {
                 "fr" -> "Appuyez sur [W] ou [ESPACE] en courant vers le crochet suspendu pour franchir le vide."
+                "it" -> "Premi [W] o [SPAZIO] correndo verso il gancio sospeso per dondolare oltre il vuoto."
                 "es" -> "Pulsa [W] o [ESPACIO] al correr hacia el gancho para cruzar la fosa."
                 "pt-BR" -> "Pressione [W] ou [ESPAÇO] correndo até o gancho para balançar sobre o vão."
                 "de" -> "Drücke beim Laufen zum Haken [W] oder [LEERTASTE], um hinüberzuschwingen."
@@ -916,6 +968,7 @@ internal object LocalizationTutorials {
             }
             "step_activate_lever" -> when (code) {
                 "fr" -> "Appuyez sur la touche d'interaction près des leviers pour actionner les mécanismes."
+                "it" -> "Premi il tasto di interazione vicino alle leve per attivare i meccanismi."
                 "es" -> "Pulsa la tecla de interactuar cerca de las palancas para activarlas."
                 "pt-BR" -> "Pressione a tecla de interação perto das alavancas para acioná-las."
                 "de" -> "Drücke die Interaktionstaste bei Hebeln, um Mechanismen zu schalten."
@@ -933,6 +986,7 @@ internal object LocalizationTutorials {
             }
             "step_spam_fan" -> when (code) {
                 "fr" -> "Appuyez rapidement et sans arrêt sur [D] ou [DROITE] pour avancer contre le vent !"
+                "it" -> "Premi [D] o [DESTRA] rapidamente e senza sosta per avanzare contro il vento!"
                 "es" -> "¡Pulsa repetidamente [D] o [FLECHA DERECHA] para avanzar contra el viento!"
                 "pt-BR" -> "Pressione repetidamente [D] ou [DIREITA] para vencer o vento contrário!"
                 "de" -> "Drücke schnell hintereinander [D] oder [RECHTS], um gegen den Wind zu laufen!"
@@ -950,6 +1004,7 @@ internal object LocalizationTutorials {
             }
             "step_deactivate_bot" -> when (code) {
                 "fr" -> "Approchez-vous du drone par derrière et appuyez sur [E] ou [F] pour le désactiver."
+                "it" -> "Avvicinati al drone di pattuglia da dietro e premi [E] o [F] per disattivarlo."
                 "es" -> "Acércate por detrás al robot patrulla y pulsa [E] o [F] para desactivarlo."
                 "pt-BR" -> "Aproxime-se do robô por trás e pressione [E] ou [F] para desativá-lo."
                 "de" -> "Nähere dich der Drohne von hinten und drücke [E] oder [F] zum Abschalten."
@@ -967,6 +1022,7 @@ internal object LocalizationTutorials {
             }
             "step_push_stance" -> when (code) {
                 "fr" -> "Appuyez sur [E] ou [F] pour prendre appui, puis avancez. Réappuyez pour vous relever."
+                "it" -> "Premi [E] o [F] per fare presa, poi cammina. Premilo di nuovo per rialzarti."
                 "es" -> "Pulsa [E] o [F] para apoyarte y luego camina. Púlsalo otra vez para soltar."
                 "pt-BR" -> "Pressione [E] ou [F] para firmar a postura e ande. Pressione de novo para levantar."
                 "de" -> "Drücke [E] oder [F] zum Anstemmen, dann gehe vorwärts. Erneut drücken zum Aufrichten."
@@ -984,6 +1040,7 @@ internal object LocalizationTutorials {
             }
             "step_push_cart_grab" -> when (code) {
                 "fr" -> "Appuyez sur [E] ou [F] pour prendre appui contre le chariot. Réappuyez pour lâcher."
+                "it" -> "Premi [E] o [F] per fare presa sul carrello. Premilo di nuovo per lasciarlo."
                 "es" -> "Pulsa [E] o [F] para agarrar el carro. Vuelve a pulsarlo para soltarlo."
                 "pt-BR" -> "Pressione [E] ou [F] para firmar no carrinho. Pressione de novo para soltar."
                 "de" -> "Drücke [E] oder [F] zum Festhalten der Lore. Erneut drücken zum Loslassen."
@@ -1001,6 +1058,7 @@ internal object LocalizationTutorials {
             }
             "step_push_cart_move" -> when (code) {
                 "fr" -> "Maintenez [A]/[D] ou les touches fléchées pour déplacer le chariot."
+                "it" -> "Tieni premuto [A]/[D] o i tasti freccia per spostare il carrello."
                 "es" -> "Mantén [A]/[D] o las flechas para mover el carro."
                 "pt-BR" -> "Segure [A]/[D] ou as setas para empurrar o carrinho."
                 "de" -> "Halte [A]/[D] oder die Pfeiltasten gedrückt, um die Lore zu schieben."
@@ -1018,6 +1076,7 @@ internal object LocalizationTutorials {
             }
             "step_stay_off_the_ground" -> when (code) {
                 "fr" -> "Traversez le dépôt sur les charges suspendues. Toucher le sol ou une plateforme fait échouer la mission."
+                "it" -> "Attraversa il deposito sui carichi sospesi. Toccare il pavimento o una piattaforma fa fallire la missione."
                 "es" -> "Cruza el patio sobre las cargas suspendidas. Tocar el suelo o una plataforma supondrá el fracaso de la misión."
                 "pt-BR" -> "Atravesse o pátio sobre as cargas suspensas. Tocar o chão ou plataformas resulta em falha da missão."
                 "de" -> "Überquere den Hof über hängende Lasten. Berühren von Boden oder Plattformen lässt die Mission scheitern."
@@ -1035,6 +1094,7 @@ internal object LocalizationTutorials {
             }
             "step_use_switches" -> when (code) {
                 "fr" -> "Utilisez l'interrupteur pour actionner les mécanismes."
+                "it" -> "Usa l'interruttore per attivare i meccanismi."
                 "es" -> "Usa el interruptor para activar los mecanismos."
                 "pt-BR" -> "Use o interruptor para acionar os mecanismos."
                 "de" -> "Betätige den Schalter, um Mechanismen auszulösen."

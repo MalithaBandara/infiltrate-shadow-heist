@@ -6,7 +6,7 @@ import kotlin.test.*
 class LocalizationTest {
 
     private val allLanguages = listOf(
-        "en", "fr", "es", "pt-BR", "de", "id", "tr",
+        "en", "fr", "it", "es", "pt-BR", "de", "id", "tr",
         "vi", "ru", "ja", "ko", "zh-TW", "hi", "ar", "th"
     )
 
@@ -188,6 +188,30 @@ class LocalizationTest {
         assertEquals("TIENDA", Localization.store("es"))
         assertEquals("AJUSTES", Localization.settings("es"))
         assertEquals("01: Llegada nocturna", Localization.levelName("level_1", "es"))
+    }
+
+    @Test
+    fun testSpecificItalianTranslations() {
+        assertEquals("it", Localization.langCode("it"))
+        assertEquals("it", Localization.langCode("it-IT"))
+        assertEquals("it", Localization.langCode("IT_ch"))
+        assertEquals("GIOCA", Localization.play("it"))
+        assertEquals("NEGOZIO", Localization.store("it"))
+        assertEquals("IMPOSTAZIONI", Localization.settings("it"))
+        assertEquals("01: Arrivo notturno", Localization.levelName("level_1", "it"))
+        assertEquals("+500 MONETE ACCREDITATE", Localization.coinsGranted(500, "it"))
+        assertEquals("ACQUISTA IL PASS A VITA — 2,99 $", Localization.purchaseLifetimePass("it"))
+    }
+
+    /** Every string with an Italian entry differs from English, so none fell through to `else`. */
+    @Test
+    fun testItalianIsNotEnglish() {
+        assertNotEquals(Localization.play("en"), Localization.play("it"))
+        assertNotEquals(Localization.powerupName(PowerupType.INVISIBILITY, "en"), Localization.powerupName(PowerupType.INVISIBILITY, "it"))
+        for (level in LevelData.DEFAULT_LEVELS) {
+            assertNotEquals(level.localizedDescription("en"), level.localizedDescription("it"), level.id)
+            assertNotEquals(level.localizedObjectiveHint("en"), level.localizedObjectiveHint("it"), level.id)
+        }
     }
 
     @Test
