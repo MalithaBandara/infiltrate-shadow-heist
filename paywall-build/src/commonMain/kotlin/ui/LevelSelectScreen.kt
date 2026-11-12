@@ -160,8 +160,8 @@ fun LevelSelectScreen(
             ) {
                 // Chapter Cards Row. This used to give height away on a short screen
                 // (`isShort -> 86 * scale` against 110 elsewhere), on the theory that three of
-                // its four cards were COMING SOON placeholders not worth the room. Both halves of
-                // that are gone: the placeholders were removed for the Play submission, and with
+                // its four cards were COMING SOON placeholders not worth the room (the placeholders
+                // are back, but that theory stays wrong - the real card needs the room), and with
                 // `scale` no longer floored at 0.75 the row came out at 56dp on a phone - the
                 // card's own star and star-count crushed into it ("increase the size of that
                 // section more even on small screen sizes. i liked how it looked in build 11").
@@ -184,10 +184,17 @@ fun LevelSelectScreen(
                         scale = chapterScale,
                         modifier = Modifier.weight(1f)
                     )
-                    // Temporarily hide coming soon chapter boxes (Chapters 2-4) for Google Play production approval.
-                    // Three spacers maintain the 4-column alignment with the mission grid below.
+                    // Chapters 2-4: locked COMING SOON placeholders (hidden for the 2026-09 Play
+                    // submission, back on request 2026-11-12).
                     repeat(3) {
-                        Spacer(modifier = Modifier.weight(1f))
+                        ChapterCard(
+                            title = Localization.comingSoon(language),
+                            isUnlocked = false,
+                            starsText = "",
+                            font = bebasFont,
+                            scale = chapterScale,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
 

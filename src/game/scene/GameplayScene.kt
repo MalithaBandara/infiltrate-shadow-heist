@@ -3299,8 +3299,8 @@ class GameplayScene(
             }
             refreshProfile()
 
-            // Prompt in-app review after completing level 4
-            if (result.levelId == "level_4") {
+            // Prompt in-app review after completing level 3
+            if (result.levelId == "level_3") {
                 getInAppReviewBridge().requestReview()
             }
 
