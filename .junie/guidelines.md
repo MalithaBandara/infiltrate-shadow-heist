@@ -132,8 +132,12 @@ after adding setup code; move another block into a local `fun` (or a file, as `M
 
 - **Build number lives in THREE places - bump together**: `ios-shell/project.yml`
   `CFBundleVersion`, `ios-testflight.yml`'s `build_number` default, `android-shell` `versionCode`.
-- **Currently**: Android `versionCode` 27 / `versionName` "1.1.0", iOS `CFBundleVersion` 27 /
-  "1.1.0" (2026-10-27: PRODUCTION build 27 = build 26 plus the iOS fix for tapping to skip the
+- **Currently**: Android `versionCode` 31 / `versionName` "1.1.4", iOS `CFBundleVersion` 31 /
+  "1.1.4" (2026-11-13: PRODUCTION build 31 = build 27 plus Italian, the Coming Soon cards back,
+  the review prompt after level 3, the Android OutOfMemoryError fix (largeHeap + native atlas pages
+  on low-heap phones) and level 9's ground tip. Jumped from 27 to 31 because Play Console already
+  showed builds 29 and 30 - a versionCode must beat every one ever uploaded.)
+  Before that (2026-10-27): PRODUCTION build 27 = build 26 plus the iOS fix for tapping to skip the
   launch intro - the intro's `UIKitView` is non-interactive so taps reach Compose). Build 26 was the
   production build adding the launch intro video, the laser hit fix and the coin-pack toast fix on
   top of build 25's retuned time targets, checkpoints, objectives moved left and no music under ads.
