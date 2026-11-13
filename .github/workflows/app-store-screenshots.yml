@@ -1,0 +1,63 @@
+name: "🖼️ App Store Screenshots"
+
+# Uploads localized screenshots to an App Store version via tools/app_store_screenshots.py.
+#
+# The images are too big for the repo, so they travel as screenshots.zip attached to a DRAFT
+# GitHub release named "app-store-screenshots" (drafts are only visible to people with write
+# access). The zip holds <lang>/app_store_iphone_2556x1179/N.png and
+# <lang>/app_store_ipad_2752x2064/N.png. Delete the draft once the upload is done.
+#
+#   Dry run:  git tag store-screenshots-check-1.1.4 && git push origin store-screenshots-check-1.1.4
+#   Upload:   git tag store-screenshots-1.1.4 && git push origin store-screenshots-1.1.4
+#
+# Uses the same APPSTORE_* secrets as app-store-metadata.yml (App Manager or Admin role).
+
+on:
+  push:
+    tags:
+      - "store-screenshots-*"
+
+permissions:
+  contents: write  # needed to see the draft release
+
+concurrency:
+  group: "app-store-metadata"
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyJWT
+        run: pip install "pyjwt[crypto]==2.10.1"
+
+      - name: Download screenshots from the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            -q '.[] | select(.draft and .name == "app-store-screenshots") | .assets[] | select(.name == "screenshots.zip") | .url' | head -1)
+          if [ -z "$asset" ]; then
+            echo "No draft release 'app-store-screenshots' with screenshots.zip"; exit 1
+          fi
+          curl -sSfL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" "$asset" -o "$RUNNER_TEMP/screenshots.zip"
+          mkdir -p "$RUNNER_TEMP/shots" && unzip -q "$RUNNER_TEMP/screenshots.zip" -d "$RUNNER_TEMP/shots"
+
+      - name: Upload screenshots
+        env:
+          ASC_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          KEY_BASE64: ${{ secrets.APPSTORE_PRIVATE_KEY_BASE64 }}
+        run: |
+          export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          echo "$KEY_BASE64" | base64 --decode > "$ASC_KEY_PATH"
+          tag="${GITHUB_REF_NAME#store-screenshots-}"
+          APPLY="--apply"
+          case "$tag" in check-*) tag="${tag#check-}"; APPLY="" ;; esac
+          python3 tools/app_store_screenshots.py --dir "$RUNNER_TEMP/shots" --version "$tag" $APPLY
