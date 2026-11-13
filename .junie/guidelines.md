@@ -161,7 +161,9 @@ carries `proguard.map` for crash deobfuscation.
   Settings toggle and a wider language dropdown. **The version name went back from 1.1.5 to 1.1.4
   on purpose** (owner: "i am aware that it is a lower one but its fine"); the build number still
   rises. If App Store Connect has already approved 1.1.4, its train is closed and an iOS upload as
-  1.1.4 is refused (error 90186, as 1.1.0 was) - check the raw upload log.)
+  1.1.4 is refused (error 90186, as 1.1.0 was) - check the raw upload log. Build 33's upload
+  was accepted ("UPLOAD SUCCEEDED with no errors", tag `v1.1.4-33`), so the 1.1.4 train was still
+  open; the signed AAB is CI run 43502746250's `android-release-aab` artifact.)
   Before that:
   Android `versionCode` 32 / `versionName` "1.1.5", iOS `CFBundleVersion` 32 /
   "1.1.5" (2026-11-14: build 32 = 31 plus level 9's rovers/camera/hook no longer freezing once the
