@@ -156,7 +156,12 @@ carries `proguard.map` for crash deobfuscation.
 
 - **Build number lives in THREE places - bump together**: `ios-shell/project.yml`
   `CFBundleVersion`, `ios-testflight.yml`'s `build_number` default, `android-shell` `versionCode`.
-- **Currently**: Android `versionCode` 31 / `versionName` "1.1.4", iOS `CFBundleVersion` 31 /
+- **Currently**: Android `versionCode` 32 / `versionName` "1.1.5", iOS `CFBundleVersion` 32 /
+  "1.1.5" (2026-11-14: build 32 = 31 plus level 9's rovers/camera/hook no longer freezing once the
+  figure's recording ends or after a Checkpoints respawn, a bolder failed-objective cross, and main
+  menu labels centred for long-word languages; ads on real units.)
+  Before that:
+  Android `versionCode` 31 / `versionName` "1.1.4", iOS `CFBundleVersion` 31 /
   "1.1.4" (2026-11-13: PRODUCTION build 31 = release branch `android-1.1.0-28` (builds 28-30, merged
   back into main for this build) plus Italian, the Coming Soon cards back, the review prompt after
   level 3, the Android OutOfMemoryError fix (largeHeap + native atlas pages on low-heap phones) and
@@ -470,6 +475,16 @@ view (bug #7).
   (PUBBLICITÀ) not checked for fit on a screen. Volume sliders are
   lifted into `NavigationRoot` as `mutableStateOf` (they had no live effect). Reset Progress has a
   confirmation and resets coins/inventory/unlocks/results, keeping `isPremium`.
+- **Main menu button labels** (2026-11-13, "some words are too long, so the text ... is shown too
+  much aligned to right"): the icon column ends at 42% of the button and the label starts after
+  it, which centres English; `mainMenuLabelShift` measures the longest of the four labels in the
+  current language (`rememberTextMeasurer`, button style) and moves every button's icon + label
+  left together until that group is centred - never right, so English/Spanish don't move
+  (German ~38dp, Portuguese ~39, Italian ~27, French/Indonesian ~20 at scale 1).
+  `ResponsiveTest` pins the rule. **`MainMenuRenderTest` (paywall-build jvmTest, opt-in) renders
+  the menu to PNGs with no app launch**: `RENDER_MAIN_MENU=<dir> RENDER_LANGS=fr,de ./gradlew
+  :paywall-build:jvmTest --rerun --tests '*MainMenuRenderTest'` (ImageComposeScene, 1560x720dp at
+  1.5x). German and French checked that way; not seen on a device. There is no Dutch.
 - **In-App Review**: automatic StoreKit/Play prompt after completing level 3
   (`GameplayScene`'s `result.levelId == "level_3"`; level 4 until 2026-11-12). iOS's manual RATE US
   opens the App Store review page directly (`SKStoreReviewController` is automatic-only: never shown
@@ -917,6 +932,10 @@ with a person.
   inset was then too far in - iOS reports the notch's inset on BOTH sides in landscape (~70 units),
   and the notch/island/punch-hole sits mid-edge, below the block. Only the screen's corner rounding
   matters up there. Not seen on a device.
+- **Objective marks** (ring + tick/cross, all white): the failed cross is a filled X outline
+  (`drawCrossIcon`: arms 0.62r, bar 0.54r, corners at 0.92r inside the ring) since 2026-11-13 - two
+  1.7-unit strokes were "too thin or transparent to be visible". The win card's red cross uses the
+  same shape. Not seen on a screen.
 - **Gadget tray**: idle slot icon `resources/gadget_bolt.png` drawn 16x22 (deliberately wider than
   the source), recoloured via `colorMul`; `drawPowerupIcon` is the fallback. Icon centred both axes,
   count text white; a running gadget shows a white curtain draining top-to-bottom (alpha `0.14`,
@@ -1760,6 +1779,13 @@ crate; a test asserts it), so every level 8 retune carries over. `hasRain = true
     leaves the recording only when THIS player gets involved (spotted by it, switches it off, swings
     from it); a level 9 respawn puts them back on it. Followed cameras run their own pause timers with
     the angle pinned. `testLevel9PlaysLevel8sYardBackExactlyInStepWithTheFigure`.
+    **Once the echo has FINISHED, everything still on the recording goes live from its last sample**
+    (`GameWorld.releaseRecordedWorld`, also on every respawn after that). Until 2026-11-13 they stayed
+    pinned to it: from 130s into the bundled run the top course's rovers, the pole camera and the hook
+    rig stood still, and a Checkpoints respawn (or RESTART, which is a respawn with it on) re-pinned the
+    ones the player had set loose ("the moving robots seem to stop"). `testLevel9sYardKeepsMovingOnceTheFigureHasFinished`;
+    `CheckpointRespawnRoversTest` checks every level's rovers patrol after a Checkpoints respawn at 20s
+    and 140s (only level 9 failed). Not seen on a screen.
   - **Edge cases**: a level 8 respawn/continue calls `RunRecorder.rewindToCheckpoint` (samples/events
     since `markCheckpoint` dropped, the gap filled with the body standing at the checkpoint, a RESET
     event added - level 9 ignores RESET, so an emptied hook stays empty; each sample's world is
