@@ -1518,7 +1518,12 @@ data class GameWorld(
     // level 9". Each camera, bot and rig here follows level 8's recording, so what the echo walked
     // past is where it was - UNTIL this level's player gets involved with it: a camera or bot that
     // spots him, a bot he switches off, a rig he swings from carries on live from where it is. A
-    // respawn puts every one back on the recording.
+    // respawn puts every one back on the recording - while there is any left: once the echo has
+    // FINISHED its last sample never changes, so everything still on it carries on live from
+    // there ([releaseRecordedWorld]). It used to stay pinned to that sample for good - the top
+    // course's rovers, the pole camera and the hook rig stood still from 130s into the bundled run,
+    // and a respawn after that pinned the ones the player had set loose ("when i use the checkpoint
+    // powerup and respawn, the moving robots seem to stop").
 
     private val followedCameras = BooleanArray(cameras.size)
     private val followedBots = BooleanArray(cameraBots.size)
@@ -1540,6 +1545,17 @@ data class GameWorld(
         for (i in cameraBots.indices) followedBots[i] = botTrack[i] >= 0
         for (i in hookCrates.indices) followedHooks[i] = hookTrack[i] >= 0
         applyRecordedWorld(echo!!.current)
+        if (echo!!.state == EchoState.FINISHED) releaseRecordedWorld()
+    }
+
+    /**
+     * The recording has run out: every camera, bot and rig still on it carries on live from where
+     * it last put it (a camera turning the way the recording was).
+     */
+    private fun releaseRecordedWorld() {
+        for (c in cameras) releaseCamera(c)
+        followedBots.fill(false)
+        followedHooks.fill(false)
     }
 
     /** Sets every followed camera, bot and rig to [sample]'s recorded state. */
@@ -2003,7 +2019,10 @@ data class GameWorld(
             if (bot in detectingCameraBots) continue
             bot.update(dt)
         }
-        echo?.let { applyRecordedWorld(it.current) }
+        echo?.let {
+            applyRecordedWorld(it.current)
+            if (it.state == EchoState.FINISHED) releaseRecordedWorld()
+        }
 
         val groundY = platforms.firstOrNull { it.y > 300.0 }?.y ?: 440.0
         updateHookCrates(dt, groundY)

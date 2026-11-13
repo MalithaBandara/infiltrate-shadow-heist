@@ -95,6 +95,50 @@ class Level9EchoAndCheckpointTest {
     }
 
     @Test
+    fun testLevel9sYardKeepsMovingOnceTheFigureHasFinished() {
+        // "In level 9, when i use the checkpoint powerup and respawn, the moving robots in that
+        // round seems to stop". The rovers, the pole camera and the hook rig follow level 8's
+        // recording; when it ran out (130s into the bundled run) they stood on its last sample for
+        // good, and a respawn put back on it the ones the player had set loose.
+        val world = GameWorld.createDefault(LevelData.DEFAULT_LEVEL_9).also { it.attachEcho(recording()) }
+        world.spawnGraceTimer = 1e9
+        assertTrue(world.activatePowerup(PowerupType.CHECKPOINTS))
+        while (world.echo!!.state == EchoState.PLAYING) world.update(dt, 0.0, false)
+
+        fun assertTheYardMoves(label: String) {
+            world.spawnGraceTimer = 1e9
+            val botXs = world.cameraBots.map { mutableListOf<Double>() }
+            val angles = world.cameras.map { mutableListOf<Double>() }
+            val rigClocks = world.hookCrates.map { it.sweepClock }
+            // 25s: the pole camera parks ~19s at each end of its 40s cycle.
+            repeat(1500) {
+                world.update(dt, 0.0, false)
+                world.cameraBots.forEachIndexed { i, b -> botXs[i].add(b.x) }
+                world.cameras.forEachIndexed { i, c -> angles[i].add(c.currentAngle) }
+            }
+            assertFalse(world.isGameOver, label)
+            val live = world.cameraBots.withIndex().filter { !it.value.isDeactivated }
+            assertTrue(live.isNotEmpty(), "$label: the top course's rovers are on")
+            for ((i, b) in live) {
+                val span = botXs[i].max() - botXs[i].min()
+                assertTrue(span > 20.0, "$label: ${b.id} patrols (covered $span)")
+            }
+            for ((i, a) in angles.withIndex()) {
+                assertTrue(a.max() - a.min() > 0.1, "$label: camera $i sweeps")
+            }
+            for ((i, hc) in world.hookCrates.withIndex()) {
+                assertTrue(hc.sweepClock - rigClocks[i] > 20.0, "$label: hook rig ${hc.id} travels")
+            }
+        }
+
+        assertTheYardMoves("once the figure has finished")
+        world.restartLevel() // with Checkpoints on, a restart is the checkpoint respawn
+        assertTheYardMoves("after a checkpoint respawn")
+        assertTrue(world.respawnAtCheckpoint())
+        assertTheYardMoves("after a second respawn")
+    }
+
+    @Test
     fun testALevel9RespawnPutsTheYardBackOnTheRecording() {
         val rec = recording()
         assertTrue(rec.hasWorld, "the bundled run carries the yard - re-run REGEN_LEVEL8_RUN")
