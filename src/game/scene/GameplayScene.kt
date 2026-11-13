@@ -5700,12 +5700,29 @@ class GameplayScene(
         }
     }
 
+    /**
+     * The failed-objective cross, as one filled X outline rather than two stroked lines: two
+     * 1.7-unit strokes 6 units long read as faint on a phone ("the cross ... is too thin or
+     * transparent to be visible"). Arms reach 0.62r along each diagonal with a 0.54r bar - the
+     * outer corners land at 0.92r, just inside the ring's inner edge at the size it is used at.
+     */
     private fun ShapeBuilder.drawCrossIcon(r: Double, color: RGBA) {
-        stroke(color, StrokeInfo(thickness = r * 0.40)) {
-            moveTo(Point(-r * 0.52, -r * 0.52))
-            lineTo(Point(r * 0.52, r * 0.52))
-            moveTo(Point(r * 0.52, -r * 0.52))
-            lineTo(Point(-r * 0.52, r * 0.52))
+        val a = r * 0.62
+        val d = r * 0.27 / kotlin.math.sqrt(2.0) // half the bar's thickness, per axis
+        fill(color) {
+            moveTo(Point(0.0, -2.0 * d))
+            lineTo(Point(a - d, -a - d))
+            lineTo(Point(a + d, -a + d))
+            lineTo(Point(2.0 * d, 0.0))
+            lineTo(Point(a + d, a - d))
+            lineTo(Point(a - d, a + d))
+            lineTo(Point(0.0, 2.0 * d))
+            lineTo(Point(-a + d, a + d))
+            lineTo(Point(-a - d, a - d))
+            lineTo(Point(-2.0 * d, 0.0))
+            lineTo(Point(-a - d, -a + d))
+            lineTo(Point(-a + d, -a - d))
+            close()
         }
     }
 

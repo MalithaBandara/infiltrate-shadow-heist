@@ -9,6 +9,7 @@ import com.infiltrate.ui.TOP_BAR_BACK_DP
 import com.infiltrate.ui.TOP_BAR_MIN_BACK_DP
 import com.infiltrate.ui.VOLUME_SLIDER_PERCENT_MIN_WIDTH
 import com.infiltrate.ui.dossierCardWidthFor
+import com.infiltrate.ui.mainMenuLabelShift
 import com.infiltrate.ui.menuAppliesSafeAreaInsets
 import com.infiltrate.ui.missionCardBriefingColumnsFor
 import com.infiltrate.ui.safeAreaPadding
@@ -326,5 +327,22 @@ class ResponsiveTest {
             VOLUME_SLIDER_PERCENT_MIN_WIDTH >= 48.dp,
             "VOLUME_SLIDER_PERCENT_MIN_WIDTH ($VOLUME_SLIDER_PERCENT_MIN_WIDTH) must be at least 48dp to prevent 100% wrapping"
         )
+    }
+
+    @Test
+    fun testMainMenuLabelsMoveLeftOnlyWhereTheLongestWordRunsRightOfCentre() {
+        // Reference button: 560 wide, 36 icon. Longest label widths in Bebas at 36sp + 2sp tracking.
+        val w = 560.dp
+        val icon = 36.dp
+        assertEquals(0.dp, mainMenuLabelShift(w, icon, 119.dp), "English (SETTINGS) stays where it was")
+        val german = mainMenuLabelShift(w, icon, 198.dp) // EINSTELLUNGEN
+        assertTrue(german > 30.dp, "German moves left ($german)")
+        // Moved, the group is centred: as much room left of the icon as right of the label.
+        val iconColumn = (w - 16.dp) * 0.42f
+        val left = iconColumn - icon - german
+        val right = w - (iconColumn + 16.dp + 198.dp - german)
+        assertEquals(left.value, right.value, 0.01f)
+        assertTrue(mainMenuLabelShift(w, icon, 164.dp) in 15.dp..25.dp, "French (PARAMÈTRES) moves a little")
+        assertTrue(mainMenuLabelShift(w, icon, 2000.dp) <= iconColumn - icon, "never past the button's left edge")
     }
 }

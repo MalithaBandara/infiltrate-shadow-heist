@@ -42,7 +42,10 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -164,6 +167,22 @@ fun MainMenuScreen(
         val buttonFontSize = if (isCompact) 24.sp else (36 * scale).sp
         val iconSize = if (isCompact) 24.dp else (36 * scale).dp
 
+        // The four labels share one icon/text column, so the longest decides how far left it
+        // all moves (mainMenuLabelShift) - measured in the button's own type, so it holds for
+        // every font fallback (Cyrillic, CJK, Devanagari...) as well as Bebas.
+        val buttonLabels = listOf(
+            Localization.play(language),
+            Localization.missions(language),
+            Localization.store(language),
+            Localization.settings(language)
+        )
+        val textMeasurer = rememberTextMeasurer()
+        val labelStyle = TextStyle(fontSize = buttonFontSize, fontFamily = bebasFont, letterSpacing = BUTTON_LETTER_SPACING)
+        val longestLabel = with(LocalDensity.current) {
+            buttonLabels.maxOf { textMeasurer.measure(it, labelStyle).size.width }.toDp()
+        }
+        val labelShift = mainMenuLabelShift(buttonWidth, iconSize, longestLabel)
+
         // Moved slightly to the right for better visual breathing room. Plus whatever the host
         // reports as a landscape notch on the leading edge - this column starts closer to the
         // screen edge than anything else in the app.
@@ -267,6 +286,7 @@ fun MainMenuScreen(
                     buttonHeight = buttonHeight,
                     fontSize = buttonFontSize,
                     iconSize = iconSize,
+                    labelShift = labelShift,
                     iconRenderer = { drawInkPlay() },
                     onClick = { onPlayClicked(currentMission.id) }
                 )
@@ -279,6 +299,7 @@ fun MainMenuScreen(
                     buttonHeight = buttonHeight,
                     fontSize = buttonFontSize,
                     iconSize = iconSize,
+                    labelShift = labelShift,
                     iconRenderer = { drawInkTarget() },
                     onClick = onMissionsClicked
                 )
@@ -291,6 +312,7 @@ fun MainMenuScreen(
                     buttonHeight = buttonHeight,
                     fontSize = buttonFontSize,
                     iconSize = iconSize,
+                    labelShift = labelShift,
                     iconRenderer = { drawInkCart() },
                     onClick = onStoreClicked
                 )
@@ -303,6 +325,7 @@ fun MainMenuScreen(
                     buttonHeight = buttonHeight,
                     fontSize = buttonFontSize,
                     iconSize = iconSize,
+                    labelShift = labelShift,
                     iconRenderer = { drawInkGear() },
                     onClick = onSettingsClicked
                 )
@@ -336,6 +359,7 @@ private fun HeistTexturedButton(
     buttonHeight: Dp,
     fontSize: androidx.compose.ui.unit.TextUnit,
     iconSize: Dp,
+    labelShift: Dp,
     iconRenderer: DrawScope.() -> Unit,
     onClick: () -> Unit
 ) {
@@ -366,22 +390,23 @@ private fun HeistTexturedButton(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Button Content: Icon + Typography
+        // Button Content: Icon + Typography, moved left as one by [labelShift] where the
+        // language's longest label would otherwise sit right of centre.
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize().offset(x = -labelShift)
         ) {
             Box(
-                modifier = Modifier.weight(0.42f),
+                modifier = Modifier.weight(BUTTON_ICON_COLUMN_FRACTION),
                 contentAlignment = Alignment.CenterEnd
             ) {
                 Canvas(modifier = Modifier.size(iconSize)) {
                     iconRenderer()
                 }
             }
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(BUTTON_ICON_GAP))
             Box(
-                modifier = Modifier.weight(0.58f),
+                modifier = Modifier.weight(1f - BUTTON_ICON_COLUMN_FRACTION),
                 contentAlignment = Alignment.CenterStart
             ) {
                 Text(
@@ -389,11 +414,34 @@ private fun HeistTexturedButton(
                     color = ShadowTheme.Ink,
                     fontSize = fontSize,
                     fontFamily = font,
-                    letterSpacing = 2.sp
+                    letterSpacing = BUTTON_LETTER_SPACING
                 )
             }
         }
     }
+}
+
+/** Share of a main menu button's row (less the gap) that holds the icon, right-aligned in it. */
+internal const val BUTTON_ICON_COLUMN_FRACTION = 0.42f
+internal val BUTTON_ICON_GAP = 16.dp
+internal val BUTTON_LETTER_SPACING = 2.sp
+
+/**
+ * How far left a main menu button's icon and label move together, from the longest of the four
+ * labels in the current language.
+ *
+ * The label column starts just past the button's middle, which centres the icon + label group
+ * for English ("SETTINGS") but pushes long words towards the right end ("in some languages, some
+ * words are too long, so the text in the main menu is shown too much aligned to right" -
+ * EINSTELLUNGEN, CONFIGURAÇÕES, IMPOSTAZIONI, PARAMÈTRES). Where the group (icon, gap, longest
+ * label) sits right of centre, it moves left until it is centred; where it is centred or left
+ * of it (English, Spanish), nothing moves. Never so far that the icon leaves the button.
+ */
+internal fun mainMenuLabelShift(buttonWidth: Dp, iconSize: Dp, longestLabel: Dp): Dp {
+    val iconColumn = (buttonWidth - BUTTON_ICON_GAP) * BUTTON_ICON_COLUMN_FRACTION
+    val leftMargin = iconColumn - iconSize
+    val rightMargin = buttonWidth - (iconColumn + BUTTON_ICON_GAP + longestLabel)
+    return ((leftMargin - rightMargin) / 2).coerceIn(0.dp, leftMargin.coerceAtLeast(0.dp))
 }
 
 /**
