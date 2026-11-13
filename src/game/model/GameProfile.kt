@@ -7,6 +7,10 @@ data class GameProfile(
     var sfxVolume: Float = 1.0f,
     var controlsSwapped: Boolean = false,
     var language: String = "en",
+    // The intro video's subtitles: null until the player picks in Settings, and then the
+    // language decides (IntroSubtitles.defaultOn - off for English, on for the rest). See
+    // subtitlesOn.
+    var subtitles: Boolean? = null,
     // Distinct levels completed at least once, ever - not a per-level replay counter. Used to
     // gate the level-exit interstitial (InterstitialAdLimiter.MIN_LEVELS_COMPLETED) so a brand
     // new player's first couple of levels stay ad-free.
@@ -71,6 +75,9 @@ data class GameProfile(
         }
     }
 
+    /** Whether the intro shows subtitles: the player's choice, or the language's default. */
+    fun subtitlesOn(): Boolean = subtitles ?: IntroSubtitles.defaultOn(language)
+
     fun grantDebugPowerups(amount: Int = 3) {
         for (type in PowerupType.entries) {
             powerupInventory[type.id] = (powerupInventory[type.id] ?: 0) + amount
@@ -87,6 +94,7 @@ interface GameProfileStorage {
     fun setSfxVolume(volume: Float)
     fun setControlsSwapped(swapped: Boolean)
     fun setLanguage(language: String)
+    fun setSubtitles(on: Boolean)
     fun unlockLevel(levelId: String)
     fun isLevelUnlocked(levelId: String, levelRegistry: List<LevelData>, levelStorage: LevelStorage): Boolean
     fun buyPowerup(powerupId: String, cost: Int): Boolean
@@ -115,6 +123,7 @@ class InMemoryGameProfileStorage(
         this.profile.sfxVolume = profile.sfxVolume
         this.profile.controlsSwapped = profile.controlsSwapped
         this.profile.language = profile.language
+        this.profile.subtitles = profile.subtitles
         this.profile.totalLevelsCompleted = profile.totalLevelsCompleted
         this.profile.unlockedLevelIds.clear()
         this.profile.unlockedLevelIds.addAll(profile.unlockedLevelIds)
@@ -149,6 +158,10 @@ class InMemoryGameProfileStorage(
 
     override fun setLanguage(language: String) {
         profile.language = language
+    }
+
+    override fun setSubtitles(on: Boolean) {
+        profile.subtitles = on
     }
 
     override fun unlockLevel(levelId: String) {
@@ -232,6 +245,7 @@ class MapBackedGameProfileStorage(
             val unlockedStr = getRaw("user_unlocked_levels")
             val powerupsStr = getRaw("user_powerups")
             val totalLevelsCompletedStr = getRaw("user_total_levels_completed")
+            val subtitlesStr = getRaw("user_subtitles")
 
             val current = inMemoryFallback.getProfile()
             coinsStr?.toIntOrNull()?.let { current.coins = it }
@@ -240,6 +254,8 @@ class MapBackedGameProfileStorage(
             sfxStr?.toFloatOrNull()?.let { current.sfxVolume = it }
             controlsSwappedStr?.toBooleanStrictOrNull()?.let { current.controlsSwapped = it }
             totalLevelsCompletedStr?.toIntOrNull()?.let { current.totalLevelsCompleted = it }
+            // Absent or blank = never chosen, so the language decides (GameProfile.subtitlesOn).
+            current.subtitles = subtitlesStr?.toBooleanStrictOrNull()
             if (!languageStr.isNullOrBlank()) {
                 current.language = languageStr
             } else {
@@ -283,6 +299,7 @@ class MapBackedGameProfileStorage(
             setRaw("user_controls_swapped", current.controlsSwapped.toString())
             setRaw("user_language", current.language)
             setRaw("user_total_levels_completed", current.totalLevelsCompleted.toString())
+            setRaw("user_subtitles", current.subtitles?.toString() ?: "")
             setRaw("user_unlocked_levels", current.unlockedLevelIds.joinToString(";"))
             setRaw("user_powerups", current.powerupInventory.map { "${it.key}:${it.value}" }.joinToString(";"))
         } catch (_: Throwable) {
@@ -325,6 +342,11 @@ class MapBackedGameProfileStorage(
 
     override fun setLanguage(language: String) {
         inMemoryFallback.setLanguage(language)
+        persist()
+    }
+
+    override fun setSubtitles(on: Boolean) {
+        inMemoryFallback.setSubtitles(on)
         persist()
     }
 

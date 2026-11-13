@@ -2037,6 +2037,82 @@ object Localization {
         else -> "Move D-Pad to the right, actions to the left"
     }
 
+    fun subtitlesSetting(lang: String): String = when (langCode(lang)) {
+        "fr" -> "SOUS-TITRES"
+        "it" -> "SOTTOTITOLI"
+        "es" -> "SUBTÍTULOS"
+        "pt-BR" -> "LEGENDAS"
+        "de" -> "UNTERTITEL"
+        "id" -> "SUBTITLE"
+        "tr" -> "ALTYAZILAR"
+        "vi" -> "PHỤ ĐỀ"
+        "ru" -> "СУБТИТРЫ"
+        "ja" -> "字幕"
+        "ko" -> "자막"
+        "zh-TW" -> "字幕"
+        "hi" -> "उपशीर्षक"
+        "ar" -> "الترجمة"
+        "th" -> "คำบรรยาย"
+        else -> "SUBTITLES"
+    }
+
+    fun subtitlesDesc(lang: String): String = when (langCode(lang)) {
+        "fr" -> "Sous-titres de la vidéo d'introduction"
+        "it" -> "Sottotitoli del video introduttivo"
+        "es" -> "Subtítulos del vídeo de introducción"
+        "pt-BR" -> "Legendas do vídeo de abertura"
+        "de" -> "Untertitel für das Intro-Video"
+        "id" -> "Subtitle untuk video pembuka"
+        "tr" -> "Açılış videosu için altyazılar"
+        "vi" -> "Phụ đề cho video mở đầu"
+        "ru" -> "Субтитры к вступительному видео"
+        "ja" -> "オープニング映像の字幕"
+        "ko" -> "오프닝 영상 자막"
+        "zh-TW" -> "開場影片字幕"
+        "hi" -> "शुरुआती वीडियो के उपशीर्षक"
+        "ar" -> "ترجمة فيديو المقدمة"
+        "th" -> "คำบรรยายสำหรับวิดีโอเปิดเกม"
+        else -> "Subtitles for the opening video"
+    }
+
+    fun settingOn(lang: String): String = when (langCode(lang)) {
+        "fr" -> "ACTIVÉ"
+        "it" -> "ATTIVO"
+        "es" -> "ACTIVADO"
+        "pt-BR" -> "LIGADO"
+        "de" -> "AN"
+        "id" -> "AKTIF"
+        "tr" -> "AÇIK"
+        "vi" -> "BẬT"
+        "ru" -> "ВКЛ"
+        "ja" -> "オン"
+        "ko" -> "켜기"
+        "zh-TW" -> "開啟"
+        "hi" -> "चालू"
+        "ar" -> "تشغيل"
+        "th" -> "เปิด"
+        else -> "ON"
+    }
+
+    fun settingOff(lang: String): String = when (langCode(lang)) {
+        "fr" -> "DÉSACTIVÉ"
+        "it" -> "DISATTIVO"
+        "es" -> "DESACTIVADO"
+        "pt-BR" -> "DESLIGADO"
+        "de" -> "AUS"
+        "id" -> "NONAKTIF"
+        "tr" -> "KAPALI"
+        "vi" -> "TẮT"
+        "ru" -> "ВЫКЛ"
+        "ja" -> "オフ"
+        "ko" -> "끄기"
+        "zh-TW" -> "關閉"
+        "hi" -> "बंद"
+        "ar" -> "إيقاف"
+        "th" -> "ปิด"
+        else -> "OFF"
+    }
+
     fun defaultControls(lang: String): String = when (langCode(lang)) {
         "fr" -> "PAR DÉFAUT"
         "it" -> "PREDEFINITO"

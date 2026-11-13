@@ -460,7 +460,7 @@ from KorGE's generated `build/platforms/ios`; no decision yet on how they conver
   `StorageKeyCompatibilityTest` (4/4) and a real on-device round trip in CI.
 - Keys: `user_coins`, `user_is_premium`, `user_music_vol`, `user_sfx_vol`, `user_controls_swapped`,
   `user_language`, `user_unlocked_levels`, `user_powerups`, `user_total_levels_completed`,
-  `level_result_<levelId>`, `level_results_ids`, `user_review_milestone` (game side only), plus the
+  `level_result_<levelId>`, `level_results_ids`, `user_review_milestone` (game side only), `user_subtitles`, plus the
   ad-limiter keys.
 
 ## Compose UI (non-gameplay)
@@ -473,7 +473,8 @@ view (bug #7).
   in-game overlays and tutorials (`Localization.kt`, `LocalizationLevels.kt`,
   `LocalizationTutorials.kt`, pure Kotlin; `when (code)` per string, `else` = English). **A new
   language** = a code constant + `langCode` prefix, an entry after every `"fr" ->`/`FR ->` line
-  (~251), a `LanguageOption` in `SettingsScreen.kt`, and the code in `LocalizationTest.allLanguages`.
+  (~251), a `LanguageOption` in `SettingsScreen.kt`, the code in `LocalizationTest.allLanguages`, and an
+  entry in `IntroSubtitles.LINES` (`IntroSubtitlesTest` fails without it).
   Italian (2026-11-12) is machine-drafted, not reviewed by a native speaker, and its longer words
   (PUBBLICITÀ) not checked for fit on a screen. Volume sliders are
   lifted into `NavigationRoot` as `mutableStateOf` (they had no live effect). Reset Progress has a
@@ -575,7 +576,22 @@ the ground has nothing below it, so filling a squarer screen means magnifying.)
     `ios-shell/Resources`), then a hard cut to `logo_main` for 2.2s, then the menu. A tap anywhere
     skips to the menu. Cold launch only (`IntroState.played` - `NavigationRoot` is rebuilt after
     every level); menu, menu video and `MenuMusic` aren't composed until it ends. Sound at the music
-    volume. **Per-shot crop**: `INTRO_SHOTS` holds a safe rect per shot (keep them <= ~0.75 wide,
+    volume. **Subtitles** (2026-11-14): `game.model.IntroSubtitles` (`LocalizationIntro.kt`) -
+    14 cues timed from the narration by a local Whisper transcription (word timestamps, 0.15s
+    lead-in, 0.5s hold), in all 16 languages (the 15 non-English ones machine-drafted, unreviewed).
+    `IntroSequence` draws them from the players' own `onProgress` (no platform code), placed on the
+    SCREEN's bottom 7%, not the video box; sentence case in the system font (Bebas is capitals-only
+    and Latin-only), `introSubtitleSizeFor` (4.2% of screen height, 13-22sp), white with a shadow,
+    180ms fades, `TextDirection.Content` (the LTR-forced menu put Arabic's full stop on the wrong
+    side). **Setting**: Settings > General > SUBTITLES (ON/OFF pills like CONTROLS);
+    `GameProfile.subtitles` is null until chosen (`user_subtitles`, blank = not chosen), and then
+    `subtitlesOn()` = off for English, on for every other language. Reset Progress clears the
+    choice. `IntroSubtitlesTest`; `IntroSubtitlesRenderTest` (paywall-build jvmTest, opt-in
+    `RENDER_INTRO_SUBS=<dir>` with `<dir>/frames/frame_<s>.png` stills) renders the overlay and
+    Settings - en/fr/de/ja/ar/hi and Settings en/fr checked that way. Not seen on a device, nor over
+    the real playing video (on Android a Compose layer over a TextureView, on iOS over a
+    UIKitView - both already done by the menu video). **Re-time the cues if the video is re-cut.**
+    **Per-shot crop**: `INTRO_SHOTS` holds a safe rect per shot (keep them <= ~0.75 wide,
     <= ~0.8 tall so 4:3 and 19.5:9 still fill), `introVideoBoxFor` covers the screen unless that
     cuts the safe rect, then black bars; crop changes only at cuts/black. Desktop plays it through
     JavaFX, reading the `android-shell/.../res/raw` copy - never put it in `resources/`, which both
