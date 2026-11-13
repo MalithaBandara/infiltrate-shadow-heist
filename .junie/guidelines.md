@@ -156,7 +156,14 @@ carries `proguard.map` for crash deobfuscation.
 
 - **Build number lives in THREE places - bump together**: `ios-shell/project.yml`
   `CFBundleVersion`, `ios-testflight.yml`'s `build_number` default, `android-shell` `versionCode`.
-- **Currently**: Android `versionCode` 32 / `versionName` "1.1.5", iOS `CFBundleVersion` 32 /
+- **Currently**: Android `versionCode` 33 / `versionName` "1.1.4", iOS `CFBundleVersion` 33 /
+  "1.1.4" (2026-11-14: build 33 = 32 plus the intro's subtitles in 16 languages with their
+  Settings toggle and a wider language dropdown. **The version name went back from 1.1.5 to 1.1.4
+  on purpose** (owner: "i am aware that it is a lower one but its fine"); the build number still
+  rises. If App Store Connect has already approved 1.1.4, its train is closed and an iOS upload as
+  1.1.4 is refused (error 90186, as 1.1.0 was) - check the raw upload log.)
+  Before that:
+  Android `versionCode` 32 / `versionName` "1.1.5", iOS `CFBundleVersion` 32 /
   "1.1.5" (2026-11-14: build 32 = 31 plus level 9's rovers/camera/hook no longer freezing once the
   figure's recording ends or after a Checkpoints respawn, a bolder failed-objective cross, and main
   menu labels centred for long-word languages, and the store-review prompt asked once per milestone
