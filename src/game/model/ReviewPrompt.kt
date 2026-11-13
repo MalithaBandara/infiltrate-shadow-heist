@@ -1,38 +1,45 @@
 package game.model
 
 /**
- * When the game asks for a store review on its own (the StoreKit / Play in-app prompt): once
- * ever, at the first completed level from the moment level 3 has been completed.
+ * When the game asks for a store review on its own (the StoreKit / Play in-app prompt): once per
+ * milestone - levels 3, 6, 9 and 12 - at the first completed level from the moment that
+ * milestone level has been completed.
  *
  * It used to ask on every completion of level 3 (level 4 before 2026-11-12), with no memory of
  * having asked. Moving the trigger from 4 to 3 left out every player who had finished level 3 on
- * an older build and not yet level 4: their level 3 came before the prompt existed there, and
- * level 4 no longer asked, so they were never asked unless they replayed level 3. Now:
- * - a new player is asked on finishing level 3, as before;
- * - a player who finished level 3 earlier is asked on the next level they finish, whichever;
- * - nobody is asked a second time by the game ([KEY_REQUESTED] is never cleared - not by Reset
- *   Progress either). Apple and Google still decide whether the prompt actually appears.
+ * an older build and not yet level 4: level 4 no longer asked, so they were never asked unless
+ * they replayed level 3. Now:
+ * - a new player is asked on finishing levels 3, 6, 9 and 12;
+ * - a player who finished a milestone level earlier (an older build, or premium skipping ahead)
+ *   is asked on the next level they finish, whichever;
+ * - one completion asks at most once: a player with several milestones done since the last ask
+ *   is asked once, for the highest of them ([KEY_LAST_MILESTONE] records it);
+ * - replays never ask again for a milestone already asked for, and Reset Progress keeps the
+ *   record.
  *
- * Players asked under the old rules have no flag yet, so they get one more request on their next
- * completed level - which the platforms' own quotas usually swallow.
+ * Neither platform says whether the prompt appeared or a review was written, so this cannot ask
+ * "only those who did not review". Apple shows it at most three times a year per device and
+ * Google applies its own quota, and neither shows it to someone who has already reviewed.
  */
 class ReviewPrompt(
     private val getRaw: (String) -> String?,
     private val setRaw: (String, String) -> Unit
 ) {
     /**
-     * Called after a completed level's result is saved. True exactly once: when level 3 is among
-     * the completed levels and no request has been made yet - and then marks it made.
+     * Called after a completed level's result is saved. True when a milestone level is completed
+     * past the last one asked for - and then records that milestone.
      */
     fun claimAfterLevelComplete(levelStorage: LevelStorage): Boolean {
-        if (getRaw(KEY_REQUESTED) == "true") return false
-        if (levelStorage.getBestResult(TRIGGER_LEVEL_ID)?.completed != true) return false
-        setRaw(KEY_REQUESTED, "true")
+        val lastAsked = getRaw(KEY_LAST_MILESTONE)?.toIntOrNull() ?: 0
+        val reached = MILESTONE_LEVELS.lastOrNull { levelStorage.getBestResult("level_$it")?.completed == true } ?: return false
+        if (reached <= lastAsked) return false
+        setRaw(KEY_LAST_MILESTONE, reached.toString())
         return true
     }
 
     companion object {
-        const val KEY_REQUESTED = "user_review_requested"
-        const val TRIGGER_LEVEL_ID = "level_3"
+        /** The highest milestone level a request has been made for (0 = none yet). */
+        const val KEY_LAST_MILESTONE = "user_review_milestone"
+        val MILESTONE_LEVELS = listOf(3, 6, 9, 12)
     }
 }
