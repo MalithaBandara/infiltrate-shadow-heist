@@ -159,8 +159,8 @@ carries `proguard.map` for crash deobfuscation.
 - **Currently**: Android `versionCode` 32 / `versionName` "1.1.5", iOS `CFBundleVersion` 32 /
   "1.1.5" (2026-11-14: build 32 = 31 plus level 9's rovers/camera/hook no longer freezing once the
   figure's recording ends or after a Checkpoints respawn, a bolder failed-objective cross, and main
-  menu labels centred for long-word languages, and the store-review prompt asked once ever from
-  level 3 on (ReviewPrompt); ads on real units. Its first CI run (tag `v1.1.5-32`) was cancelled
+  menu labels centred for long-word languages, and the store-review prompt asked once per milestone
+  level 3/6/9/12 (ReviewPrompt); ads on real units. Its first CI run (tag `v1.1.5-32`) was cancelled
   before anything built or uploaded, to add the review fix.)
   Before that:
   Android `versionCode` 31 / `versionName` "1.1.4", iOS `CFBundleVersion` 31 /
@@ -460,7 +460,7 @@ from KorGE's generated `build/platforms/ios`; no decision yet on how they conver
   `StorageKeyCompatibilityTest` (4/4) and a real on-device round trip in CI.
 - Keys: `user_coins`, `user_is_premium`, `user_music_vol`, `user_sfx_vol`, `user_controls_swapped`,
   `user_language`, `user_unlocked_levels`, `user_powerups`, `user_total_levels_completed`,
-  `level_result_<levelId>`, `level_results_ids`, `user_review_requested` (game side only), plus the
+  `level_result_<levelId>`, `level_results_ids`, `user_review_milestone` (game side only), plus the
   ad-limiter keys.
 
 ## Compose UI (non-gameplay)
@@ -488,12 +488,15 @@ view (bug #7).
   the menu to PNGs with no app launch**: `RENDER_MAIN_MENU=<dir> RENDER_LANGS=fr,de ./gradlew
   :paywall-build:jvmTest --rerun --tests '*MainMenuRenderTest'` (ImageComposeScene, 1560x720dp at
   1.5x). German and French checked that way; not seen on a device. There is no Dutch.
-- **In-App Review**: automatic StoreKit/Play prompt **once ever**, at the first completed level
-  once level 3 is completed (`game.model.ReviewPrompt`, flag `user_review_requested`, never
-  cleared - not by Reset Progress; `ReviewPromptTest`). Since 2026-11-14 (build 32): before that it
-  asked on every level 3 completion (level 4 until 2026-11-12, build 31), and players who had
-  finished level 3 on an older build were never asked unless they replayed it - they are now asked
-  on their next finished level. iOS's manual RATE US
+- **In-App Review**: automatic StoreKit/Play prompt **once per milestone - levels 3, 6, 9, 12**
+  (owner, 2026-11-14), at the first completed level once that milestone level is completed; one ask
+  per completion at most, for the highest milestone done (`game.model.ReviewPrompt`,
+  `user_review_milestone` = highest milestone asked for, never cleared - not by Reset Progress;
+  `ReviewPromptTest`). Neither platform reports whether the prompt showed or a review was written,
+  so "ask only non-reviewers" is impossible; their quotas (Apple 3/year) cap repeats. Since build
+  32: before that it asked on every level 3 completion (level 4 until 2026-11-12, build 31), and
+  players who had finished level 3 on an older build were never asked unless they replayed it -
+  they are now asked on their next finished level. iOS's manual RATE US
   opens the App Store review page directly (`SKStoreReviewController` is automatic-only: never shown
   in TestFlight, capped 3/year, no callback) - `APP_STORE_ID = "6815256409"` at the top of
   `InAppReview.ios.kt`. Android's RATE US uses Play in-app review (reported working).
