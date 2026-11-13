@@ -3,6 +3,7 @@
   "name": "Infiltrate: Shadow Heist",
   "locales": {
     "en-US": {
+      "whatsNew": "Minor bug fixes, new language support, and performance optimizations.",
       "promotionalText": "Hide in the shadows, time every jump, and never get seen. Stealth heists, one missing container, and a prisoner who shares your past.",
       "description": [
         "Infiltrate: Shadow Heist is a 2D stealth-action game about precision, movement, and getting in without being seen.",
@@ -21,7 +22,7 @@
       "subtitle": "計畫・潛行・跑酷・劫案",
       "keywords": "潛行,潛入,神偷,小偷,特工,間諜,跑酷,平台,動作,解謎,警衛,雷射,越獄,逃脫,劇情,2D,冒險,離線",
       "promotionalText": "躲進陰影，抓準每一次跳躍，絕不被發現。潛行劫案、一個失蹤的貨櫃，以及一名與你有著共同過去的囚犯。",
-      "whatsNew": "錯誤修正、效能改善，並新增多國語言支援",
+      "whatsNew": "修正小錯誤、新增語言支援，並優化效能。",
       "description": [
         "《Infiltrate: Shadow Heist》是一款 2D 潛行動作遊戲，講求精準、身手，以及神不知鬼不覺地潛入。",
         "趁著夜色，你潛入一座戒備森嚴的工業船廠，執行一場高風險的劫案。目標：找到 17 號貨櫃，取出裡面的東西。但就在你越過外圍防線時，任務生變——17 號貨櫃已被移走，警戒全面升級，一條神秘的線索將你引入禁區深處的地下隧道。",
@@ -39,7 +40,7 @@
       "subtitle": "計画・潜入・パルクール・強奪",
       "keywords": "ステルス,潜入,泥棒,怪盗,スパイ,パルクール,アクション,横スクロール,パズル,警備員,レーザー,脱出,脱獄,ストーリー,2D,オフライン",
       "promotionalText": "影に潜み、ジャンプのタイミングを見極め、決して見つかるな。潜入強奪ミッション、消えたコンテナ、そしてあなたと過去を共有する囚人。",
-      "whatsNew": "不具合の修正、パフォーマンスの改善、新しい言語への対応",
+      "whatsNew": "軽微な不具合の修正、新しい言語への対応、パフォーマンスの最適化。",
       "description": [
         "『Infiltrate: Shadow Heist』は、精密さと身のこなし、そして誰にも気づかれずに潜り込むことがすべての2Dステルスアクションゲームです。",
         "闇に紛れ、厳重に警備された工業造船所へ。危険な大仕事の目的は、コンテナ17を見つけ出し、その中身を持ち出すこと。だが外周を抜けたその時、任務は一変する――コンテナ17は移され、警備は厳戒態勢に。謎めいた痕跡が、あなたを立入禁止の地下トンネルの奥深くへと導いていく。",
@@ -57,7 +58,7 @@
       "subtitle": "계획. 잠입. 파쿠르. 강탈.",
       "keywords": "스텔스,잠입,도둑,괴도,스파이,파쿠르,액션,플랫포머,퍼즐,경비원,레이저,탈출,탈옥,스토리,2D,오프라인,횡스크롤",
       "promotionalText": "그림자 속에 숨고, 점프 타이밍을 맞추고, 절대 들키지 마세요. 잠입 강탈 작전, 사라진 컨테이너, 그리고 당신과 과거를 공유하는 죄수.",
-      "whatsNew": "버그 수정, 성능 개선 및 새로운 언어 지원",
+      "whatsNew": "사소한 버그 수정, 새로운 언어 지원 및 성능 최적화.",
       "description": [
         "Infiltrate: Shadow Heist는 정밀함과 움직임, 그리고 들키지 않고 잠입하는 것이 핵심인 2D 스텔스 액션 게임입니다.",
         "어둠을 틈타, 삼엄한 경비가 펼쳐진 산업 조선소로 위험천만한 작전을 위해 잠입합니다. 목표는 17번 컨테이너를 찾아 그 안에 있는 것을 빼내는 것. 하지만 외곽을 통과하는 순간 임무가 바뀝니다. 17번 컨테이너는 옮겨졌고, 경비는 최고 경계 태세에 들어갔으며, 수상한 흔적이 당신을 출입 금지 구역의 지하 터널 깊숙이 이끕니다.",
@@ -75,7 +76,7 @@
       "subtitle": "Infiltration, parkour et casse",
       "keywords": "furtivité,voleur,cambriolage,espion,plateforme,action,énigme,garde,laser,évasion,prison,histoire,2D",
       "promotionalText": "Cachez-vous dans l'ombre, calculez chaque saut et ne vous faites jamais repérer. Des casses furtifs, un conteneur disparu et un prisonnier qui partage votre passé.",
-      "whatsNew": "Corrections de bugs, améliorations des performances et prise en charge de nouvelles langues",
+      "whatsNew": "Corrections de bugs mineurs, prise en charge de nouvelles langues et optimisations des performances.",
       "description": [
         "Infiltrate: Shadow Heist est un jeu d'action-infiltration en 2D qui mise sur la précision, le mouvement et l'art d'entrer sans être vu.",
         "À la faveur de la nuit, vous infiltrez un chantier naval industriel sous haute surveillance pour un casse à hauts risques. L'objectif : trouver le conteneur 17 et récupérer ce qu'il renferme. Mais à peine le périmètre franchi, la mission change : le conteneur 17 a été déplacé, la sécurité est en alerte maximale, et une piste mystérieuse vous entraîne au cœur de tunnels souterrains interdits.",
@@ -93,7 +94,7 @@
       "subtitle": "Furtività, parkour e colpi",
       "keywords": "ladro,rapina,spia,stealth,platform,azione,enigmi,guardie,laser,fuga,evasione,prigione,storia,2D",
       "promotionalText": "Nasconditi nell'ombra, calcola ogni salto e non farti mai vedere. Colpi furtivi, un container scomparso e un prigioniero che condivide il tuo passato.",
-      "whatsNew": "Ora disponibile in italiano! Correzioni di bug e miglioramenti delle prestazioni.",
+      "whatsNew": "Correzioni di bug minori, supporto per nuove lingue e ottimizzazioni delle prestazioni.",
       "description": [
         "Infiltrate: Shadow Heist è un gioco d'azione stealth in 2D basato su precisione, movimento e sull'arte di entrare senza farsi vedere.",
         "Col favore del buio, ti infiltri in un cantiere navale industriale sorvegliatissimo per un colpo ad altissimo rischio. L'obiettivo: trovare il Container 17 e recuperarne il contenuto. Ma appena superi il perimetro, la missione cambia: il Container 17 è stato spostato, la sicurezza è in massima allerta e una pista oscura ti trascina nei tunnel sotterranei ad accesso riservato.",
@@ -111,21 +112,21 @@
       "subtitle": "Sigilo, parkour y gran golpe",
       "keywords": "sigilo,ladrón,robo,atraco,espía,plataformas,acción,puzle,guardias,láser,fuga,escape,prisión,2D",
       "promotionalText": "Escóndete en las sombras, calcula cada salto y que nunca te vean. Golpes sigilosos, un contenedor desaparecido y un prisionero que comparte tu pasado.",
-      "whatsNew": "Corrección de errores, mejoras de rendimiento y compatibilidad con nuevos idiomas",
+      "whatsNew": "Corrección de errores menores, compatibilidad con nuevos idiomas y optimizaciones de rendimiento.",
       "description": "@es"
     },
     "es-MX": {
       "subtitle": "Sigilo, parkour y gran golpe",
       "keywords": "sigilo,ladrón,robo,atraco,espía,plataformas,acción,puzle,guardias,láser,fuga,escape,prisión,2D",
       "promotionalText": "Escóndete en las sombras, calcula cada salto y que nunca te vean. Golpes sigilosos, un contenedor desaparecido y un prisionero que comparte tu pasado.",
-      "whatsNew": "Corrección de errores, mejoras de rendimiento y compatibilidad con nuevos idiomas",
+      "whatsNew": "Corrección de errores menores, compatibilidad con nuevos idiomas y optimizaciones de rendimiento.",
       "description": "@es"
     },
     "de-DE": {
       "subtitle": "Planen. Schleichen. Stehlen.",
       "keywords": "stealth,schleichen,dieb,einbruch,raub,spion,parkour,plattformer,action,rätsel,wachen,laser,flucht,2D",
       "promotionalText": "Versteck dich im Schatten, plane jeden Sprung und bleib unsichtbar. Lautlose Coups, ein verschwundener Container und ein Gefangener, der deine Vergangenheit teilt.",
-      "whatsNew": "Fehlerbehebungen, Leistungsverbesserungen und Unterstützung für neue Sprachen",
+      "whatsNew": "Kleinere Fehlerbehebungen, Unterstützung für neue Sprachen und Leistungsoptimierungen.",
       "description": [
         "Infiltrate: Shadow Heist ist ein 2D-Stealth-Actionspiel, bei dem es auf Präzision, Bewegung und ungesehenes Eindringen ankommt.",
         "Im Schutz der Dunkelheit schleichst du dich für einen riskanten Coup in eine streng bewachte Industriewerft. Das Ziel: Container 17 finden und seinen Inhalt herausholen. Doch kaum hast du den Außenbereich hinter dir gelassen, ändert sich die Mission – Container 17 wurde verlegt, die Sicherheit ist in höchster Alarmbereitschaft, und eine geheimnisvolle Spur führt dich tief in gesperrte unterirdische Tunnel.",
@@ -143,7 +144,7 @@
       "subtitle": "Planeje. Infiltre. Roube.",
       "keywords": "furtividade,ladrão,roubo,assalto,espião,parkour,plataforma,ação,quebra-cabeça,guardas,laser,fuga,2D",
       "promotionalText": "Esconda-se nas sombras, calcule cada salto e nunca seja visto. Assaltos furtivos, um contêiner desaparecido e um prisioneiro que compartilha o seu passado.",
-      "whatsNew": "Correções de bugs, melhorias de desempenho e suporte a novos idiomas",
+      "whatsNew": "Correções de pequenos bugs, suporte a novos idiomas e otimizações de desempenho.",
       "description": [
         "Infiltrate: Shadow Heist é um jogo de ação furtiva em 2D sobre precisão, movimento e entrar sem ser visto.",
         "Sob o manto da escuridão, você se infiltra em um estaleiro industrial fortemente vigiado para um assalto de alto risco. O objetivo: localizar o Contêiner 17 e retirar o que há dentro dele. Mas, assim que você passa do perímetro, a missão muda: o Contêiner 17 foi transferido, a segurança está em alerta máximo e uma pista misteriosa leva você às profundezas de túneis subterrâneos restritos.",
@@ -161,7 +162,7 @@
       "subtitle": "Rencanakan. Menyusup. Curi.",
       "keywords": "siluman,menyelinap,pencuri,perampokan,mata-mata,parkour,platformer,aksi,teka-teki,penjaga,laser,2D",
       "promotionalText": "Sembunyi dalam bayangan, atur waktu setiap lompatan, dan jangan sampai terlihat. Perampokan senyap, kontainer yang hilang, dan tahanan yang berbagi masa lalu denganmu.",
-      "whatsNew": "Perbaikan bug, peningkatan performa, dan dukungan bahasa baru",
+      "whatsNew": "Perbaikan bug kecil, dukungan bahasa baru, dan optimalisasi performa.",
       "description": [
         "Infiltrate: Shadow Heist adalah game aksi siluman 2D tentang ketelitian, gerakan, dan menyusup tanpa terlihat.",
         "Di bawah selubung kegelapan, kamu menyusup ke galangan kapal industri yang dijaga ketat untuk sebuah perampokan berisiko tinggi. Tujuannya: temukan Kontainer 17 dan ambil isinya. Namun begitu kamu melewati perimeter, misi berubah - Kontainer 17 telah dipindahkan, keamanan dalam siaga tinggi, dan jejak misterius menarikmu jauh ke dalam terowongan bawah tanah terlarang.",
@@ -179,7 +180,7 @@
       "subtitle": "Planla. Sız. Kaç. Soy.",
       "keywords": "gizlilik,sızma,hırsız,soygun,casus,parkur,platform,aksiyon,bulmaca,muhafız,lazer,kaçış,hapishane,2D",
       "promotionalText": "Gölgelerde saklan, her atlayışını iyi zamanla ve asla görünme. Sessiz soygunlar, kayıp bir konteyner ve seninle aynı geçmişi paylaşan bir mahkûm.",
-      "whatsNew": "Hata düzeltmeleri, performans iyileştirmeleri ve yeni dil desteği",
+      "whatsNew": "Küçük hata düzeltmeleri, yeni dil desteği ve performans optimizasyonları.",
       "description": [
         "Infiltrate: Shadow Heist; hassasiyet, hareket ve görünmeden içeri sızma üzerine kurulu bir 2D gizlilik-aksiyon oyunudur.",
         "Karanlığın örtüsü altında, yüksek riskli bir soygun için sıkı korunan bir endüstriyel tersaneye sızıyorsun. Hedef: 17 numaralı konteyneri bulmak ve içindekini çıkarmak. Ancak çevre hattını geçtiğin anda görev değişiyor: 17 numaralı konteyner taşınmış, güvenlik en üst alarm seviyesinde ve gizemli bir iz seni yasak bölgedeki yeraltı tünellerinin derinliklerine çekiyor.",
@@ -197,7 +198,7 @@
       "subtitle": "Lên kế hoạch. Lẻn vào. Cướp.",
       "keywords": "lén lút,ẩn nấp,trộm,đột nhập,điệp viên,parkour,đi cảnh,hành động,giải đố,bảo vệ,laser,vượt ngục,2D",
       "promotionalText": "Ẩn mình trong bóng tối, canh chuẩn từng cú nhảy và đừng bao giờ bị phát hiện. Những phi vụ lén lút, một container mất tích và một tù nhân có chung quá khứ với bạn.",
-      "whatsNew": "Sửa lỗi, cải thiện hiệu suất và hỗ trợ ngôn ngữ mới",
+      "whatsNew": "Sửa một số lỗi nhỏ, hỗ trợ ngôn ngữ mới và tối ưu hóa hiệu suất.",
       "description": [
         "Infiltrate: Shadow Heist là trò chơi hành động lén lút 2D đề cao sự chính xác, chuyển động và nghệ thuật đột nhập mà không bị phát hiện.",
         "Dưới màn đêm, bạn đột nhập vào một xưởng đóng tàu công nghiệp được canh gác nghiêm ngặt để thực hiện một phi vụ đầy rủi ro. Mục tiêu: tìm Container 17 và lấy thứ bên trong. Nhưng ngay khi bạn vượt qua vòng ngoài, nhiệm vụ thay đổi - Container 17 đã bị chuyển đi, an ninh được đặt trong tình trạng báo động cao, và một dấu vết bí ẩn kéo bạn vào sâu trong những đường hầm ngầm cấm vào.",
@@ -215,7 +216,7 @@
       "subtitle": "План. Скрытность. Паркур.",
       "keywords": "стелс,проникновение,вор,ограбление,шпион,паркур,платформер,экшен,головоломка,охрана,лазер,побег,2D",
       "promotionalText": "Прячьтесь в тенях, рассчитывайте каждый прыжок и не попадайтесь на глаза. Бесшумные ограбления, пропавший контейнер и пленник, связанный с вашим прошлым.",
-      "whatsNew": "Исправления ошибок, улучшение производительности и поддержка новых языков",
+      "whatsNew": "Исправление мелких ошибок, поддержка новых языков и оптимизация производительности.",
       "description": [
         "Infiltrate: Shadow Heist — это 2D стелс-экшен о точности, движении и умении проникнуть незамеченным.",
         "Под покровом темноты вы проникаете на строго охраняемую промышленную верфь, чтобы провернуть рискованное ограбление. Цель: найти контейнер 17 и забрать то, что внутри. Но едва вы минуете периметр, задание меняется: контейнер 17 перевезли, охрана поднята по тревоге, а таинственный след уводит вас глубоко в закрытые подземные туннели.",
@@ -233,7 +234,7 @@
       "subtitle": "योजना, घुसपैठ और पार्कौर",
       "keywords": "स्टेल्थ,घुसपैठ,चोर,चोरी,डकैती,जासूस,पार्कौर,एक्शन,पहेली,गार्ड,लेज़र,भागना,2D",
       "promotionalText": "परछाइयों में छिपें, हर छलांग का सही समय चुनें और कभी नज़र में न आएं। चुपके से की गई डकैतियां, एक गायब कंटेनर और एक कैदी जो आपके अतीत से जुड़ा है।",
-      "whatsNew": "बग फ़िक्स, परफ़ॉर्मेंस में सुधार और नई भाषाओं का सपोर्ट",
+      "whatsNew": "छोटे बग सुधार, नई भाषाओं का समर्थन और प्रदर्शन अनुकूलन।",
       "description": [
         "Infiltrate: Shadow Heist एक 2D स्टेल्थ-एक्शन गेम है, जो सटीकता, फुर्ती और बिना दिखे अंदर घुसने के बारे में है।",
         "अंधेरे की आड़ में, आप एक बड़े दांव वाली डकैती के लिए कड़ी सुरक्षा वाले एक औद्योगिक शिपयार्ड में घुसपैठ करते हैं। लक्ष्य: कंटेनर 17 को ढूंढना और उसके अंदर रखी चीज़ को बाहर निकालना। लेकिन जैसे ही आप बाहरी घेरा पार करते हैं, मिशन बदल जाता है - कंटेनर 17 को हटा दिया गया है, सुरक्षा हाई अलर्ट पर है, और एक रहस्यमय सुराग आपको प्रतिबंधित भूमिगत सुरंगों की गहराई में ले जाता है।",
@@ -251,7 +252,7 @@
       "subtitle": "خطّط. تسلّل. انطلق. اسرق.",
       "keywords": "تسلل,خفاء,لص,سرقة,جاسوس,باركور,منصات,أكشن,ألغاز,حراس,ليزر,هروب,سجن,2D",
       "promotionalText": "اختبئ في الظلال، وأتقن توقيت كل قفزة، ولا تدع أحدًا يراك. عمليات سرقة خفية، وحاوية مفقودة، وسجين يشاركك ماضيك.",
-      "whatsNew": "إصلاحات للأخطاء، وتحسينات في الأداء، ودعم لغات جديدة",
+      "whatsNew": "إصلاحات لأخطاء بسيطة، ودعم لغات جديدة، وتحسينات في الأداء.",
       "description": [
         "Infiltrate: Shadow Heist لعبة أكشن وتخفٍّ ثنائية الأبعاد تعتمد على الدقة والحركة والتسلل دون أن يراك أحد.",
         "تحت جنح الظلام، تتسلل إلى حوض بناء سفن صناعي شديد الحراسة لتنفيذ عملية سرقة عالية المخاطر. الهدف: العثور على الحاوية 17 واستخراج ما بداخلها. لكن ما إن تتجاوز السياج الخارجي حتى تتغير المهمة - فقد نُقلت الحاوية 17، والأمن في حالة تأهب قصوى، وأثرٌ غامض يقودك إلى أعماق أنفاق محظورة تحت الأرض.",
@@ -269,7 +270,7 @@
       "subtitle": "วางแผน ลอบเร้น ปาร์กัวร์ ปล้น",
       "keywords": "ลอบเร้น,แทรกซึม,ขโมย,จอมโจร,ปล้น,สายลับ,ปาร์กัวร์,แอ็คชัน,ปริศนา,ยาม,เลเซอร์,หลบหนี,แหกคุก,2D",
       "promotionalText": "ซ่อนตัวในเงามืด จับจังหวะทุกการกระโดดให้แม่น และอย่าให้ใครเห็น ภารกิจปล้นแบบลอบเร้น ตู้คอนเทนเนอร์ที่หายไป และนักโทษที่มีอดีตร่วมกับคุณ",
-      "whatsNew": "แก้ไขข้อบกพร่อง ปรับปรุงประสิทธิภาพ และรองรับภาษาใหม่",
+      "whatsNew": "แก้ไขข้อบกพร่องเล็กน้อย รองรับภาษาใหม่ และเพิ่มประสิทธิภาพการทำงาน",
       "description": [
         "Infiltrate: Shadow Heist คือเกมแอ็คชันลอบเร้นแบบ 2D ที่เน้นความแม่นยำ การเคลื่อนไหว และการแทรกซึมเข้าไปโดยไม่ให้ใครเห็น",
         "ภายใต้ความมืดมิด คุณแทรกซึมเข้าสู่อู่ต่อเรืออุตสาหกรรมที่มีการรักษาความปลอดภัยแน่นหนาเพื่อปฏิบัติการปล้นที่มีเดิมพันสูง เป้าหมาย: ค้นหาตู้คอนเทนเนอร์หมายเลข 17 และนำสิ่งที่อยู่ข้างในออกมา แต่ทันทีที่คุณผ่านแนวป้องกันชั้นนอก ภารกิจก็เปลี่ยนไป ตู้คอนเทนเนอร์หมายเลข 17 ถูกย้ายไปแล้ว การรักษาความปลอดภัยอยู่ในระดับเตรียมพร้อมสูงสุด และร่องรอยลึกลับได้ดึงคุณลึกเข้าไปในอุโมงค์ใต้ดินเขตหวงห้าม",
