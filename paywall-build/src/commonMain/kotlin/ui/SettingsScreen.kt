@@ -44,6 +44,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,6 +57,7 @@ import com.infiltrate.storage.PlatformStorage
 import game.model.GameProfile
 import game.model.GameProfileStorage
 import game.model.LevelStorage
+import game.model.IntroSubtitles
 import game.model.Localization
 import game.model.MapBackedGameProfileStorage
 import game.model.MapBackedLevelStorage
@@ -135,6 +137,8 @@ fun SettingsScreen(
     var profile by remember { mutableStateOf(profileStorage.getProfile()) }
     var currentTab by remember { mutableStateOf(initialTab) }
     var controlsSwapped by remember { mutableStateOf(profile.controlsSwapped) }
+    // The player's own pick, or null to follow the language (GameProfile.subtitlesOn).
+    var subtitlesChoice by remember { mutableStateOf(profile.subtitles) }
     var currentLanguage by remember { mutableStateOf(language) }
     var showResetConfirmDialog by remember { mutableStateOf(false) }
     val bebasFont = FontFamily(Font(Res.font.bebas_neue_regular))
@@ -184,6 +188,7 @@ fun SettingsScreen(
 
         // Reset local UI states
         controlsSwapped = false
+        subtitlesChoice = null
         currentLanguage = "en"
         onLanguageChange("en")
         profile = profileStorage.getProfile()
@@ -269,6 +274,7 @@ fun SettingsScreen(
                                 musicVolume = musicVolume,
                                 sfxVolume = sfxVolume,
                                 controlsSwapped = controlsSwapped,
+                                subtitlesOn = subtitlesChoice ?: IntroSubtitles.defaultOn(currentLanguage),
                                 font = bebasFont,
                                 scale = scale,
                                 onLanguageChange = { lang ->
@@ -281,6 +287,10 @@ fun SettingsScreen(
                                 onControlsSwapChange = { swapped ->
                                     controlsSwapped = swapped
                                     profileStorage.setControlsSwapped(swapped)
+                                },
+                                onSubtitlesChange = { on ->
+                                    subtitlesChoice = on
+                                    profileStorage.setSubtitles(on)
                                 },
                                 onResetProgress = {
                                     showResetConfirmDialog = true
@@ -465,12 +475,14 @@ private fun GeneralSettingsPanel(
     musicVolume: Float,
     sfxVolume: Float,
     controlsSwapped: Boolean,
+    subtitlesOn: Boolean,
     font: FontFamily,
     scale: Float,
     onLanguageChange: (String) -> Unit,
     onMusicChange: (Float) -> Unit,
     onSfxChange: (Float) -> Unit,
     onControlsSwapChange: (Boolean) -> Unit,
+    onSubtitlesChange: (Boolean) -> Unit,
     onResetProgress: () -> Unit
 ) {
     val click = LocalUiClick.current
@@ -579,7 +591,9 @@ private fun GeneralSettingsPanel(
                         Box {
                             Column(
                                 modifier = Modifier
-                                    .width((190 * scale).dp)
+                                    // 250, was 190: "Español (Latinoamérica)" and "Bahasa
+                                    // Indonesia" wrapped on a phone (scale ~0.62-0.81).
+                                    .width((250 * scale).dp)
                                     .background(Color(0xFF141416), RoundedCornerShape(8.dp))
                                     .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
                                     .heightIn(max = 320.dp)
@@ -608,7 +622,10 @@ private fun GeneralSettingsPanel(
                                             text = option.nativeName,
                                             color = if (isSelected) Color.White else Color.White.copy(alpha = 0.75f),
                                             fontSize = (13 * scale).sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
@@ -795,12 +812,73 @@ private fun GeneralSettingsPanel(
             }
         }
 
+        // 5. Intro subtitles - ON / OFF pills, styled like the controls row above. The intro plays on
+        // a cold launch, so a change shows from the next one.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF141416), RoundedCornerShape(8.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                .padding((14 * scale).dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = (16 * scale).dp)) {
+                Text(
+                    text = Localization.subtitlesSetting(selectedLanguage),
+                    color = Color.White,
+                    fontSize = (15 * scale).sp,
+                    fontFamily = font,
+                    letterSpacing = 1.sp
+                )
+                Text(
+                    text = Localization.subtitlesDesc(selectedLanguage),
+                    color = Color(0xFF9A9A9E),
+                    fontSize = (12 * scale).sp
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy((10 * scale).dp)) {
+                for (on in listOf(true, false)) {
+                    val selected = subtitlesOn == on
+                    val pillInteractionSource = remember(on) { MutableInteractionSource() }
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                if (selected) Color.White.copy(alpha = 0.15f) else Color(0xFF1C1C20),
+                                RoundedCornerShape(6.dp)
+                            )
+                            .border(
+                                1.dp,
+                                if (selected) Color.White else Color.White.copy(alpha = 0.12f),
+                                RoundedCornerShape(6.dp)
+                            )
+                            .clickable(
+                                interactionSource = pillInteractionSource,
+                                indication = null,
+                                onClick = { click(); onSubtitlesChange(on) }
+                            )
+                            .padding(horizontal = (14 * scale).dp, vertical = (8 * scale).dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (on) Localization.settingOn(selectedLanguage) else Localization.settingOff(selectedLanguage),
+                            color = if (selected) Color.White else Color.White.copy(alpha = 0.7f),
+                            fontSize = (12 * scale).sp,
+                            fontFamily = font,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                }
+            }
+        }
+
         // weight(1f) doesn't work here now that the panel scrolls (no bounded height to
         // distribute) - a fixed gap keeps Reset Progress visually separated from the options
         // above it instead of jammed directly underneath.
         Spacer(modifier = Modifier.height((28 * scale).dp))
 
-        // 5. Reset Progress (Danger Zone)
+        // 6. Reset Progress (Danger Zone)
         val interactionSource = remember { MutableInteractionSource() }
         Box(
             modifier = Modifier

@@ -7,6 +7,21 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.Text
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineBreak
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.unit.sp
+import game.model.IntroSubtitles
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.requiredWidth
@@ -172,14 +187,57 @@ fun introVideoBoxFor(
 private const val INTRO_LOGO_HOLD_MS = 2200L
 
 /**
- * The intro on black: the video, cropped per shot, then the logo, then [onDone]. A tap anywhere
- * calls [onDone] at once.
+ * Subtitle size as a share of the screen's short side, clamped: ~16sp on a landscape phone
+ * (~390dp tall), 22sp at most on a tablet. Sentence case in the system font - the game's Bebas
+ * Neue has capitals only and no Cyrillic, CJK, Devanagari, Arabic or Thai.
+ */
+internal fun introSubtitleSizeFor(screenHeight: Dp): Float =
+    (screenHeight.value * 0.042f).coerceIn(13f, 22f)
+
+/**
+ * The narration's subtitles over the intro (IntroSubtitles): placed on the SCREEN, not the video
+ * box, which may run off the screen's edges for a shot's crop. White with a soft dark shadow,
+ * fading 180ms in and out; the last line is held while it fades.
  */
 @Composable
-fun IntroSequence(volume: Float, onDone: () -> Unit) {
+internal fun IntroSubtitleLine(seconds: Double, language: String, screenWidth: Dp, screenHeight: Dp, modifier: Modifier) {
+    val cue = IntroSubtitles.cueAt(seconds)
+    var lastCue by remember { mutableStateOf(0) }
+    if (cue != null) lastCue = cue
+    val alpha by animateFloatAsState(if (cue != null) 1f else 0f, tween(180), label = "subtitle")
+    if (alpha <= 0.001f) return
+    Text(
+        text = IntroSubtitles.text(lastCue, language),
+        modifier = modifier
+            .padding(bottom = (screenHeight.value * 0.07f).dp)
+            .widthIn(max = (screenWidth.value * 0.8f).dp)
+            .alpha(alpha),
+        style = TextStyle(
+            color = Color.White,
+            fontSize = introSubtitleSizeFor(screenHeight).sp,
+            lineHeight = (introSubtitleSizeFor(screenHeight) * 1.3f).sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            lineBreak = LineBreak.Heading,
+            // From the text itself: the menus are laid out left to right everywhere (iOS forces
+            // it), which put an Arabic line's full stop on the wrong side and left its quote
+            // marks unmirrored.
+            textDirection = TextDirection.Content,
+            shadow = Shadow(color = Color.Black, offset = Offset(0f, 1.5f), blurRadius = 7f)
+        )
+    )
+}
+
+/**
+ * The intro on black: the video, cropped per shot, with the narration's subtitles in [language]
+ * when [subtitles] is on, then the logo, then [onDone]. A tap anywhere calls [onDone] at once.
+ */
+@Composable
+fun IntroSequence(volume: Float, language: String = "en", subtitles: Boolean = false, onDone: () -> Unit) {
     val done by rememberUpdatedState(onDone)
     var showLogo by remember { mutableStateOf(false) }
     var shotIndex by remember { mutableStateOf(0) }
+    var videoSeconds by remember { mutableStateOf(0.0) }
 
     BoxWithConstraints(
         modifier = Modifier
@@ -194,6 +252,8 @@ fun IntroSequence(volume: Float, onDone: () -> Unit) {
     ) {
         if (!showLogo) {
             val box = introVideoBoxFor(maxWidth, maxHeight, INTRO_SHOTS[shotIndex])
+            val screenWidth = maxWidth
+            val screenHeight = maxHeight
             // Placement on the child, not this box - see videoBoxFor's notes on why a Box cannot
             // align a child larger than itself.
             Box(modifier = Modifier.fillMaxSize()) {
@@ -209,9 +269,19 @@ fun IntroSequence(volume: Float, onDone: () -> Unit) {
                     onProgress = { seconds ->
                         val i = introShotAt(seconds)
                         if (i != shotIndex) shotIndex = i
+                        if (subtitles) videoSeconds = seconds
                     },
                     onFinished = { showLogo = true }
                 )
+                if (subtitles) {
+                    IntroSubtitleLine(
+                        seconds = videoSeconds,
+                        language = language,
+                        screenWidth = screenWidth,
+                        screenHeight = screenHeight,
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    )
+                }
             }
         } else {
             // A hard cut to the logo, as asked, then a hard cut to the menu.

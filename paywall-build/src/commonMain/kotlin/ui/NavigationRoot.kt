@@ -70,10 +70,15 @@ fun NavigationRoot(
     // its music are not composed at all until then, so nothing plays under the intro's own sound.
     var introDone by remember { mutableStateOf(IntroState.played) }
     if (!introDone) {
-        IntroSequence(volume = musicVolume, onDone = {
-            IntroState.played = true
-            introDone = true
-        })
+        IntroSequence(
+            volume = musicVolume,
+            language = currentLanguage,
+            subtitles = profileStorage.getProfile().subtitlesOn(),
+            onDone = {
+                IntroState.played = true
+                introDone = true
+            }
+        )
         return
     }
 
