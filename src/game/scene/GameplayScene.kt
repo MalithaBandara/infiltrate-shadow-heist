@@ -3329,8 +3329,11 @@ class GameplayScene(
             }
             refreshProfile()
 
-            // Prompt in-app review after completing level 3
-            if (result.levelId == "level_3") {
+            // Store review: once ever, at the first completed level once level 3 is done - see
+            // ReviewPrompt (it used to ask on every level 3 completion, and never at all for
+            // players who had finished level 3 before the trigger moved there).
+            val reviewPrompt = ReviewPrompt(getRaw = { views.storage[it] }, setRaw = { k, v -> views.storage[k] = v })
+            if (reviewPrompt.claimAfterLevelComplete(levelStorage)) {
                 getInAppReviewBridge().requestReview()
             }
 
