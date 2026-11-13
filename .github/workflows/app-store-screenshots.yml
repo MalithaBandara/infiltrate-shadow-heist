@@ -2,10 +2,11 @@ name: "🖼️ App Store Screenshots"
 
 # Uploads localized screenshots to an App Store version via tools/app_store_screenshots.py.
 #
-# The images are too big for the repo, so they travel as screenshots.zip attached to a DRAFT
+# The images are too big for the repo, so they travel as zips attached to a DRAFT
 # GitHub release named "app-store-screenshots" (drafts are only visible to people with write
-# access). The zip holds <lang>/app_store_iphone_2556x1179/N.png and
-# <lang>/app_store_ipad_2752x2064/N.png. Delete the draft once the upload is done.
+# access). Every .zip on it (e.g. one per language) is unpacked into one folder holding
+# <lang>/app_store_iphone_2556x1179/N.png and <lang>/app_store_ipad_2752x2064/N.png.
+# Delete the draft once the upload is done.
 #
 #   Dry run:  git tag store-screenshots-check-1.1.4 && git push origin store-screenshots-check-1.1.4
 #   Upload:   git tag store-screenshots-1.1.4 && git push origin store-screenshots-1.1.4
@@ -41,13 +42,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          asset=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
-            -q '.[] | select(.draft and .name == "app-store-screenshots") | .assets[] | select(.name == "screenshots.zip") | .url' | head -1)
-          if [ -z "$asset" ]; then
-            echo "No draft release 'app-store-screenshots' with screenshots.zip"; exit 1
+          urls=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            -q '.[] | select(.draft and .name == "app-store-screenshots") | .assets[] | select(.name | endswith(".zip")) | .url')
+          if [ -z "$urls" ]; then
+            echo "No draft release 'app-store-screenshots' with .zip assets"; exit 1
           fi
-          curl -sSfL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" "$asset" -o "$RUNNER_TEMP/screenshots.zip"
-          mkdir -p "$RUNNER_TEMP/shots" && unzip -q "$RUNNER_TEMP/screenshots.zip" -d "$RUNNER_TEMP/shots"
+          mkdir -p "$RUNNER_TEMP/shots"
+          for url in $urls; do
+            curl -sSfL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" "$url" -o "$RUNNER_TEMP/part.zip"
+            unzip -q -o "$RUNNER_TEMP/part.zip" -d "$RUNNER_TEMP/shots"
+          done
 
       - name: Upload screenshots
         env:
