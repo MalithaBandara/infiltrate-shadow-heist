@@ -1,4 +1,5 @@
 import game.model.LevelData
+import game.model.Level4CheckpointGift
 import game.scene.GameAudio
 import game.scene.GamePreload
 import game.scene.GameplayScene
@@ -13,6 +14,7 @@ import korlibs.korge.*
 import korlibs.korge.internal.*
 import korlibs.korge.render.*
 import korlibs.korge.scene.*
+import korlibs.korge.service.storage.*
 import korlibs.korge.time.delayFrame
 import korlibs.korge.view.*
 import korlibs.math.geom.*
@@ -180,6 +182,13 @@ class GameplaySceneArtTest {
     @Test
     fun everyLevelDrawsTheSameWithLevelScopedArt() = Harness().run {
         GameAudio.silentForTesting = true
+        // Level 4's first start hands out a free Checkpoints and shows a tip for it
+        // (Level4CheckpointGift) - a second start does neither, so the two builds compared below
+        // would differ by the tip and the gadget icon, not by any art. Recorded as already given
+        // for the whole comparison. views.storage persists between runs, so this passed wherever
+        // a previous run had claimed the gift and failed on a clean CI machine (build 36).
+        val giftBefore = views.storage.getOrNull(Level4CheckpointGift.KEY)
+        views.storage[Level4CheckpointGift.KEY] = "1"
         try {
             val textures = views.renderContext.agBitmapTextureManager
             val container = views.stage.sceneContainer(views)
@@ -221,6 +230,7 @@ class GameplaySceneArtTest {
             }
             println("[LevelArt] textures uploaded at the end: ${textures.getBitmapsWithTextureInfoCopy().size}")
         } finally {
+            if (giftBefore == null) views.storage.remove(Level4CheckpointGift.KEY) else views.storage[Level4CheckpointGift.KEY] = giftBefore
             SceneAssets.loadAllLevelArt = false
             GameAudio.silentForTesting = false
         }
