@@ -232,7 +232,7 @@ class LocalizationTest {
     @Test
     fun testFirstClearOfLevel1SendsTutorialComplete() {
         val events = GameAnalytics.levelCompleteEvents("level_1", stars = 3, distinctLevelsCleared = 1)
-        assertEquals(listOf("level_complete", "tutorial_complete"), events.map { it.name })
+        assertEquals(listOf("level_complete", "tutorial_complete", "levels_cleared_1"), events.map { it.name })
         assertEquals(
             mapOf("level_id" to "level_1", "level_number" to 1L, "stars" to 3L, "first_clear" to 1L),
             events[0].params
@@ -242,7 +242,7 @@ class LocalizationTest {
     }
 
     @Test
-    fun testClearMilestonesFireOnlyOnTheirFirstClear() {
+    fun testEveryNewDistinctClearSendsItsCount() {
         assertEquals(
             listOf("level_complete", "levels_cleared_3"),
             GameAnalytics.levelCompleteEvents("level_3", 1, distinctLevelsCleared = 3).map { it.name }
@@ -251,7 +251,15 @@ class LocalizationTest {
             listOf("level_complete", "levels_cleared_5"),
             GameAnalytics.levelCompleteEvents("level_6", 1, distinctLevelsCleared = 5).map { it.name }
         )
-        assertEquals(listOf("level_complete"), GameAnalytics.levelCompleteEvents("level_4", 1, 4).map { it.name })
+        assertEquals(
+            listOf("level_complete", "levels_cleared_4"),
+            GameAnalytics.levelCompleteEvents("level_4", 1, distinctLevelsCleared = 4).map { it.name }
+        )
+        assertEquals(
+            listOf("level_complete", "levels_cleared_12"),
+            GameAnalytics.levelCompleteEvents("level_12", 3, distinctLevelsCleared = 12).map { it.name }
+        )
+        // A replay - the count did not change - sends no count.
         assertEquals(listOf("level_complete"), GameAnalytics.levelCompleteEvents("level_3", 1, null).map { it.name })
     }
 
