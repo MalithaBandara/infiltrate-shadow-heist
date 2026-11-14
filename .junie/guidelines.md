@@ -156,7 +156,15 @@ carries `proguard.map` for crash deobfuscation.
 
 - **Build number lives in THREE places - bump together**: `ios-shell/project.yml`
   `CFBundleVersion`, `ios-testflight.yml`'s `build_number` default, `android-shell` `versionCode`.
-- **Currently**: Android `versionCode` 34 / `versionName` "1.1.5", iOS `CFBundleVersion` 34 /
+- **Currently**: Android `versionCode` 35 / `versionName` "1.1.4", iOS `CFBundleVersion` 35 /
+  "1.1.4" (2026-11-14: build 35 = 34 plus level 4's one-time free Checkpoints power-up and its
+  tip, `levels_cleared_N` for every distinct clear, and Persian (fa) as the 17th language. The
+  version name is 1.1.4 again on the owner's instruction ("keep the version code as 1.1.4"); if
+  App Store Connect has approved 1.1.4, the iOS upload is refused with error 90186 - check the
+  upload log. Build 34 (tag `v1.1.5-34`) was pushed but never built: its CI runs were cancelled
+  on request ("dont build it yet").)
+  Before that:
+  Android `versionCode` 34 / `versionName` "1.1.5", iOS `CFBundleVersion` 34 /
   "1.1.5" (2026-11-14: build 34 = 33 plus the save fixes - build 33's Play rollout was HALTED
   because it wrote a default profile over real saves and skipped the MISSION SUCCESS card (see
   "Read KorGE storage with getOrNull" above); every profile instance re-reading the save before a
