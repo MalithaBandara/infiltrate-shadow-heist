@@ -421,6 +421,20 @@ class GameplayScene(
             getRaw = { views.storage.getOrNull(it) },
             setRaw = { k, v -> views.storage[k] = v }
         )
+        // Level 4's one free Checkpoints, before anything reads the profile for the HUD - see
+        // Level4CheckpointGift (once per install, never for a player who has cleared it).
+        try {
+            if (Level4CheckpointGift.claimOnLevelStart(
+                    levelData.id,
+                    getRaw = { views.storage.getOrNull(it) },
+                    setRaw = { k, v -> views.storage[k] = v },
+                    profiles = profileStorage,
+                    levels = levelStorage
+                )
+            ) println("[Level4CheckpointGift] granted one Checkpoints")
+        } catch (e: Throwable) {
+            println("[Level4CheckpointGift] skipped: $e")
+        }
 
         isPaused = false
 
@@ -3684,7 +3698,11 @@ class GameplayScene(
                             playerX <= step.triggerMaxX &&
                             // See TutorialStep.requiresPushCartGrip - an X window cannot say
                             // "now that you are holding it".
-                            (!step.requiresPushCartGrip || world.grippedCart != null)
+                            (!step.requiresPushCartGrip || world.grippedCart != null) &&
+                            // See TutorialStep.requiresPowerup - never recommend what isn't owned.
+                            step.requiresPowerup.let { p ->
+                                p == null || (cachedProfile.getPowerupCount(p) > 0 && !world.activePowerups.isActive(p))
+                            }
                     }
                     if (candidate != null) {
                         currentTutorialStep = candidate
@@ -3755,7 +3773,9 @@ class GameplayScene(
                             TutorialAction.INTERACT -> if (world.doorSwitches.isNotEmpty()) world.switchThrowCount > 0 || playerX > step.triggerMaxX
                                 else interactPressed || world.levers.any { it.isActivated } || world.cameraBots.any { it.isDeactivated } || playerX > step.triggerMaxX
                         }
-                        if (actionDone) {
+                        // Turning the step's power-up on answers it too (step_use_checkpoint).
+                        val powerupUsed = step.requiresPowerup?.let { world.activePowerups.isActive(it) } == true
+                        if (actionDone || powerupUsed) {
                             stepActionCompleted = true
                             stepActionTimer = 0.0
                         }
@@ -3793,7 +3813,10 @@ class GameplayScene(
 
                     // Render dark overlay dimming the rest of the screen (disabled for world-anchored objective)
                     val highlight = step.highlight
-                    val darkAlpha = if (highlight == TutorialControlHighlight.NONE) 0.0 else (0.58 * tutorialAlpha).coerceIn(0.0, 0.70)
+                    // No scrim for a world-anchored note, nor for the gadget corner (nothing draws
+                    // the bolt bright above it).
+                    val darkAlpha = if (highlight == TutorialControlHighlight.NONE || highlight == TutorialControlHighlight.GADGETS) 0.0
+                        else (0.58 * tutorialAlpha).coerceIn(0.0, 0.70)
                     tutorialDarkOverlay.visible = darkAlpha > 0.001
                     if (tutorialDarkOverlay.visible) tutorialDarkOverlay.color = Colors.BLACK.withAd(darkAlpha)
 
@@ -3829,6 +3852,12 @@ class GameplayScene(
                         // checkpoint building, a crate to hide behind, ...) - see step.worldTextX/Y.
                         textX = step.worldTextX * worldZoom + worldView.x
                         textY = (step.worldTextY * worldZoom + worldView.y).coerceAtLeast(15.0)
+                    } else if (highlight == TutorialControlHighlight.GADGETS) {
+                        // Below and left of the corner, so the arrow climbs up and right into it.
+                        textX = ((canvasW - tutorialHandwrittenText.width) / 2.0)
+                            .coerceAtMost(slotX - tutorialHandwrittenText.width * 0.35)
+                            .coerceAtLeast(12.0)
+                        textY = slotY + slotSize + 78.0
                     } else {
                         textX = (canvasW - tutorialHandwrittenText.width) / 2.0
                         textY = 185.0
@@ -4035,6 +4064,26 @@ class GameplayScene(
                                             headLength = 16.0
                                         )
                                     }
+                                }
+                                TutorialControlHighlight.GADGETS -> {
+                                    // The bolt until the tray is open, then the gadget itself in
+                                    // the row (laid out right-to-left from the bolt's square).
+                                    val entry = trayEntries.firstOrNull { it.type == step.requiresPowerup && it.box.visible }
+                                    val targetX = (if (gadgetsShown && entry != null) entry.restX else slotX) + slotSize / 2.0
+                                    val targetY = slotY + slotSize + 4.0
+                                    val startX = textX + tutorialHandwrittenText.width * 0.80
+                                    val startY = textY - 4.0
+                                    drawCurvedArrow(
+                                        startX = startX,
+                                        startY = startY,
+                                        ctrlX = (startX + targetX) / 2.0 + 10.0,
+                                        ctrlY = (startY + targetY) / 2.0 + 18.0,
+                                        endX = targetX,
+                                        endY = targetY,
+                                        arrowColor = Colors.WHITE.withAd(tutorialAlpha),
+                                        thickness = 2.6,
+                                        headLength = 16.0
+                                    )
                                 }
                                 TutorialControlHighlight.NONE -> {
                                     val targetScreenX = step.worldAnchorX * worldZoom + worldView.x

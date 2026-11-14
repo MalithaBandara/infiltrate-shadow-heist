@@ -294,6 +294,25 @@ internal object LocalizationTutorials {
                 "th" -> "ใช้สวิตช์เพื่อเปิดใช้งานกลไก"
                 else -> "Use the switch to activate mechanisms"
             }
+            "step_use_checkpoint" -> when (code) {
+                "fr" -> "(Recommandé) Utilisez votre gadget Point de contrôle gratuit !"
+                "it" -> "(Consigliato) Usa il tuo gadget Checkpoint gratuito!"
+                "es" -> "(Recomendado) ¡Usa tu potenciador Punto de control gratis!"
+                "pt-BR" -> "(Recomendado) Use seu equipamento Ponto de controle grátis!"
+                "de" -> "(Empfohlen) Nutze dein Gratis-Kontrollpunkt-Power-up!"
+                "id" -> "(Disarankan) Pakai gadget Titik Pemeriksaan gratismu!"
+                "tr" -> "(Önerilir) Ücretsiz Kontrol Noktası güçlendiricini kullan!"
+                "vi" -> "(Khuyên dùng) Dùng trang bị Điểm lưu miễn phí của bạn!"
+                "ru" -> "(Рекомендуем) Используйте бесплатный гаджет «Точка возрождения»!"
+                "ja" -> "(おすすめ) 無料のチェックポイントガジェットを使おう！"
+                "ko" -> "(추천) 무료 체크포인트 가젯을 사용하세요!"
+                "zh-TW" -> "(推薦) 使用你的免費存檔點道具！"
+                "hi" -> "(अनुशंसित) अपना मुफ़्त चेकपॉइंट गैजेट इस्तेमाल करें!"
+                "ar" -> "(مُوصى به) استخدم أداة نقطة التفتيش المجانية!"
+                "fa" -> "(پیشنهادی) از پاورآپ چک‌پوینت رایگانت استفاده کن!"
+                "th" -> "(แนะนำ) ใช้ไอเทมจุดตรวจฟรีของคุณ!"
+                else -> "(Recommended) Use your free Checkpoint power-up!"
+            }
             else -> null
         }
     }
@@ -585,6 +604,25 @@ internal object LocalizationTutorials {
                 "fa" -> "کلیدها"
                 "th" -> "สวิตช์กลไก"
                 else -> "SWITCHES"
+            }
+            "step_use_checkpoint" -> when (code) {
+                "fr" -> "GADGET POINT DE CONTRÔLE GRATUIT"
+                "it" -> "GADGET CHECKPOINT GRATUITO"
+                "es" -> "POTENCIADOR PUNTO DE CONTROL GRATIS"
+                "pt-BR" -> "EQUIPAMENTO PONTO DE CONTROLE GRÁTIS"
+                "de" -> "GRATIS-KONTROLLPUNKT-POWER-UP"
+                "id" -> "GADGET TITIK PEMERIKSAAN GRATIS"
+                "tr" -> "ÜCRETSİZ KONTROL NOKTASI GÜÇLENDİRİCİSİ"
+                "vi" -> "TRANG BỊ ĐIỂM LƯU MIỄN PHÍ"
+                "ru" -> "БЕСПЛАТНЫЙ ГАДЖЕТ «ТОЧКА ВОЗРОЖДЕНИЯ»"
+                "ja" -> "無料チェックポイントガジェット"
+                "ko" -> "무료 체크포인트 가젯"
+                "zh-TW" -> "免費存檔點道具"
+                "hi" -> "मुफ़्त चेकपॉइंट गैजेट"
+                "ar" -> "أداة نقطة تفتيش مجانية"
+                "fa" -> "پاورآپ چک‌پوینت رایگان"
+                "th" -> "ไอเทมจุดตรวจฟรี"
+                else -> "FREE CHECKPOINT POWER-UP"
             }
             else -> null
         }
@@ -878,6 +916,25 @@ internal object LocalizationTutorials {
                 "th" -> "กดสวิตช์เพื่อเปิดใช้งานระบบกลไกต่างๆ"
                 else -> "Use the switch to activate mechanisms."
             }
+            "step_use_checkpoint" -> when (code) {
+                "fr" -> "Touchez l'éclair, puis le gadget Point de contrôle. Si vous êtes capturé, vous reprenez au dernier point de contrôle au lieu du début."
+                "it" -> "Tocca il fulmine, poi il gadget Checkpoint. Se vieni catturato, riparti dall'ultimo checkpoint invece che dall'inizio."
+                "es" -> "Toca el rayo y luego el potenciador Punto de control. Si te atrapan, vuelves al último punto de control en vez de al inicio."
+                "pt-BR" -> "Toque no raio e depois no equipamento Ponto de controle. Se for pego, você volta ao último ponto de controle em vez do início."
+                "de" -> "Tippe auf den Blitz und dann auf das Kontrollpunkt-Power-up. Wirst du erwischt, geht es am letzten Kontrollpunkt weiter statt am Anfang."
+                "id" -> "Ketuk petir, lalu gadget Titik Pemeriksaan. Jika tertangkap, kamu mulai lagi dari titik pemeriksaan terakhir, bukan dari awal."
+                "tr" -> "Şimşeğe, sonra Kontrol Noktası güçlendiricisine dokun. Yakalanırsan baştan değil, son kontrol noktasından devam edersin."
+                "vi" -> "Chạm vào tia sét, rồi chạm trang bị Điểm lưu. Nếu bị bắt, bạn chơi lại từ điểm lưu gần nhất thay vì từ đầu."
+                "ru" -> "Нажмите на молнию, затем на гаджет «Точка возрождения». Если вас поймают, вы продолжите с последней точки, а не с начала."
+                "ja" -> "稲妻をタップし、次にチェックポイントガジェットをタップ。見つかっても最初からではなく、最後のチェックポイントから再開できます。"
+                "ko" -> "번개를 탭한 다음 체크포인트 가젯을 탭하세요. 발각되면 처음이 아닌 마지막 체크포인트에서 다시 시작합니다."
+                "zh-TW" -> "點擊閃電，再點擊存檔點道具。被抓到時，會從最後的存檔點重新開始，而不是從頭開始。"
+                "hi" -> "बिजली पर टैप करें, फिर चेकपॉइंट गैजेट पर। पकड़े जाने पर आप शुरू से नहीं, आख़िरी चेकपॉइंट से दोबारा शुरू करेंगे।"
+                "ar" -> "انقر على البرق ثم على أداة نقطة التفتيش. إذا أُمسك بك، تبدأ من آخر نقطة تفتيش بدلاً من البداية."
+                "fa" -> "روی صاعقه ضربه بزن، بعد روی پاورآپ چک‌پوینت. اگر گیر بیفتی، به‌جای شروع، از آخرین چک‌پوینت ادامه می‌دهی."
+                "th" -> "แตะสายฟ้า แล้วแตะไอเทมจุดตรวจ ถ้าถูกจับ คุณจะเริ่มใหม่ที่จุดตรวจล่าสุดแทนจุดเริ่มต้น"
+                else -> "Tap the bolt, then the Checkpoint power-up. If you are caught, you restart at the last checkpoint instead of the start."
+            }
             else -> null
         }
     }
@@ -1169,6 +1226,25 @@ internal object LocalizationTutorials {
                 "fa" -> "از کلید برای فعال کردن سازوکارها استفاده کن."
                 "th" -> "กดสวิตช์เพื่อเปิดใช้งานระบบกลไกต่างๆ"
                 else -> "Use the switch to activate mechanisms."
+            }
+            "step_use_checkpoint" -> when (code) {
+                "fr" -> "Appuyez sur [1] pour utiliser le gadget Point de contrôle. Si vous êtes capturé, vous reprenez au dernier point de contrôle au lieu du début."
+                "it" -> "Premi [1] per usare il gadget Checkpoint. Se vieni catturato, riparti dall'ultimo checkpoint invece che dall'inizio."
+                "es" -> "Pulsa [1] para usar el potenciador Punto de control. Si te atrapan, vuelves al último punto de control en vez de al inicio."
+                "pt-BR" -> "Pressione [1] para usar o equipamento Ponto de controle. Se for pego, você volta ao último ponto de controle em vez do início."
+                "de" -> "Drücke [1], um das Kontrollpunkt-Power-up zu nutzen. Wirst du erwischt, geht es am letzten Kontrollpunkt weiter statt am Anfang."
+                "id" -> "Tekan [1] untuk memakai gadget Titik Pemeriksaan. Jika tertangkap, kamu mulai lagi dari titik pemeriksaan terakhir, bukan dari awal."
+                "tr" -> "Kontrol Noktası güçlendiricisini kullanmak için [1]'e bas. Yakalanırsan baştan değil, son kontrol noktasından devam edersin."
+                "vi" -> "Nhấn [1] để dùng trang bị Điểm lưu. Nếu bị bắt, bạn chơi lại từ điểm lưu gần nhất thay vì từ đầu."
+                "ru" -> "Нажмите [1], чтобы использовать гаджет «Точка возрождения». Если вас поймают, вы продолжите с последней точки, а не с начала."
+                "ja" -> "[1]キーでチェックポイントガジェットを使用。見つかっても最初からではなく、最後のチェックポイントから再開できます。"
+                "ko" -> "[1]을 눌러 체크포인트 가젯을 사용하세요. 발각되면 처음이 아닌 마지막 체크포인트에서 다시 시작합니다."
+                "zh-TW" -> "按 [1] 使用存檔點道具。被抓到時，會從最後的存檔點重新開始，而不是從頭開始。"
+                "hi" -> "चेकपॉइंट गैजेट इस्तेमाल करने के लिए [1] दबाएँ। पकड़े जाने पर आप शुरू से नहीं, आख़िरी चेकपॉइंट से दोबारा शुरू करेंगे।"
+                "ar" -> "اضغط [1] لاستخدام أداة نقطة التفتيش. إذا أُمسك بك، تبدأ من آخر نقطة تفتيش بدلاً من البداية."
+                "fa" -> "[1] را بزن تا از پاورآپ چک‌پوینت استفاده کنی. اگر گیر بیفتی، به‌جای شروع، از آخرین چک‌پوینت ادامه می‌دهی."
+                "th" -> "กด [1] เพื่อใช้ไอเทมจุดตรวจ ถ้าถูกจับ คุณจะเริ่มใหม่ที่จุดตรวจล่าสุดแทนจุดเริ่มต้น"
+                else -> "Press [1] to use the Checkpoint power-up. If you are caught, you restart at the last checkpoint instead of the start."
             }
             else -> null
         }
