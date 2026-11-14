@@ -1540,6 +1540,21 @@ gauntlet, then the exit.
 Ground `y = 440`, `worldWidth = 8600`, exit `x = 7680`, `backgroundImage = "metalbg.png"`,
 `hasDarknessVignette = true` (centred on the player, between world and HUD), `canClimb = false`,
 `restartOnConveyorFallOff = true`, `conveyorsStartOnMove = true`.
+- **Where players stop** (Firebase, 2026-11-14): of 127 players with 3 levels cleared, 116 failed
+  a level right after, 60 three times or more, 31 cleared another. Clean run 117s vs level 3's 46s,
+  and a hit restarted the whole run.
+- **Free Checkpoints power-up on the first start** (`Level4CheckpointGift`, owner 2026-11-14): one,
+  once per install - `user_l4_checkpoint_gift` is written BEFORE the grant, so re-opening/restarting
+  never hands out another ("otherwise they can get unlimited powerups by just opening the level").
+  Not for a player who has completed level 4; Reset Progress keeps the record.
+- **`step_use_checkpoint`**: "(Recommended) Use your free Checkpoint power-up!" ("Checkpoint
+  powerup! not just checkpoint"), 17 languages, using each language's Store word for power-up.
+  `TutorialStep.requiresPowerup` = CHECKPOINTS - shown on any attempt while one is owned and not
+  live, completed by the first move (FIRST_MOVE) or by turning it on. `TutorialControlHighlight
+  .GADGETS`: no scrim, arrow to the bolt while the tray is closed, then to that power-up's square in
+  the row. Seen on the Android emulator (LowHeap192, 2280x1080): arrow on the bolt; one tap on the
+  bolt with only the Checkpoints owned opened the tray AND turned it on (the single entry lands
+  under the finger) and the tip went.
 - Belt `speed = -45` against the player (net walk 87 px/s, crouch crawl 20). Floor crates (68x48)
   ride it; four hanging crates (`isHanging`, some bobbing) force crouch-slides under two (crate top
   366 vs hanging bottom 340 = 26 of air; a crouching head clears by 18).

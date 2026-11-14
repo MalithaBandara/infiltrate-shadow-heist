@@ -451,7 +451,13 @@ enum class TutorialAction {
 }
 
 enum class TutorialControlHighlight {
-    NONE, MOVE, MOVE_RIGHT, JUMP, CROUCH, INTERACT
+    NONE, MOVE, MOVE_RIGHT, JUMP, CROUCH, INTERACT,
+    /**
+     * The gadget corner (top right): the bolt while the tray is closed, then the step's
+     * [TutorialStep.requiresPowerup] in the opened row. No scrim - the corner is not one of the
+     * control buttons drawn bright above it.
+     */
+    GADGETS
 }
 
 data class TutorialStep(
@@ -486,6 +492,12 @@ data class TutorialStep(
      * happened before pointing at the arrows.
      */
     val requiresPushCartGrip: Boolean = false,
+    /**
+     * Extra gate: the step only opens while the player owns at least one of this power-up and it is
+     * not already live - a prompt to use something the player does not have would be a lie. Turning
+     * it on also completes the step, whatever [targetAction] is. Level 4's `step_use_checkpoint`.
+     */
+    val requiresPowerup: PowerupType? = null,
     val highlight: TutorialControlHighlight = TutorialControlHighlight.NONE,
     val handwrittenCallout: String? = null,
     // Only read when highlight == NONE: a world-anchored callout (text position and arrow tip,
@@ -1970,7 +1982,25 @@ data class LevelData(
             layout = LEVEL_4_LAYOUT,
             backgroundImage = "metalbg.png",
             hasDarknessVignette = true,
-            playerCrouchForwardSpeedMultiplier = 1.45
+            playerCrouchForwardSpeedMultiplier = 1.45,
+            tutorialSteps = listOf(
+                // Where players stopped (Level4CheckpointGift): the first start of level 4 hands
+                // out a free Checkpoints, and this says to use it before setting off. Shown on
+                // any attempt while one is owned and not live; gone at the first move or once it
+                // is on ("show it until he starts to move or activates the powerup", 2026-11-14).
+                TutorialStep(
+                    id = "step_use_checkpoint",
+                    triggerMinX = LEVEL_4_LAYOUT.playerStartX,
+                    triggerMaxX = LEVEL_4_LAYOUT.playerStartX + 300.0,
+                    title = "FREE CHECKPOINT POWER-UP",
+                    instructionTouch = "Tap the bolt, then the Checkpoint power-up. If you are caught, you restart at the last checkpoint instead of the start.",
+                    instructionDesktop = "Press [1] to use the Checkpoint power-up. If you are caught, you restart at the last checkpoint instead of the start.",
+                    targetAction = TutorialAction.FIRST_MOVE,
+                    requiresPowerup = PowerupType.CHECKPOINTS,
+                    highlight = TutorialControlHighlight.GADGETS,
+                    handwrittenCallout = "(Recommended) Use your free Checkpoint power-up!"
+                )
+            )
         )
 
         /**
