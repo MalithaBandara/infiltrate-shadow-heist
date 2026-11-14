@@ -24,6 +24,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "使用方向按鈕向左或向右移動！"
                 "hi" -> "बाएं या दाएं जाने के लिए नेविगेशन बटन का उपयोग करें!"
                 "ar" -> "استخدم أزرار الاتجاهات للتحرك يميناً أو يساراً!"
+                "fa" -> "با دکمه‌های جهت به چپ یا راست حرکت کن!"
                 "th" -> "ใช้ปุ่มทิศทางเพื่อเคลื่อนที่ไปทางซ้ายหรือขวา!"
                 else -> "Use navigation buttons to move left or right!"
             }
@@ -42,6 +43,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "點擊跳過障礙物！"
                 "hi" -> "बाधाओं को कूदने के लिए टैप करें!"
                 "ar" -> "انقر للقفز فوق العقبات!"
+                "fa" -> "برای پریدن از روی موانع ضربه بزن!"
                 "th" -> "แตะเพื่อกระโดดข้ามสิ่งกีดขวาง!"
                 else -> "Tap to jump over obstacles!"
             }
@@ -60,6 +62,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "按住蹲下！"
                 "hi" -> "झुकने के लिए दबाए रखें!"
                 "ar" -> "اضغط باستمرار للانحناء!"
+                "fa" -> "برای خم شدن نگه دار!"
                 "th" -> "กดค้างเพื่อย่อตัว!"
                 else -> "Hold to crouch!"
             }
@@ -78,6 +81,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "點擊跳躍以攀爬！"
                 "hi" -> "चढ़ने के लिए जंप टैप करें!"
                 "ar" -> "انقر على قفز للتسلق!"
+                "fa" -> "برای بالا رفتن، پرش را بزن!"
                 "th" -> "แตะกระโดดเพื่อปีนขึ้น!"
                 else -> "Tap jump to climb!"
             }
@@ -96,6 +100,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "抵達任務目標！"
                 "hi" -> "उद्देश्य तक पहुंचें!"
                 "ar" -> "صل إلى الهدف!"
+                "fa" -> "به هدف برس!"
                 "th" -> "ไปให้ถึงเป้าหมาย!"
                 else -> "Reach the objective!"
             }
@@ -114,6 +119,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "蹲在箱子後面以藏身！"
                 "hi" -> "छिपने के लिए बक्से के पीछे झुकें!"
                 "ar" -> "انحنِ خلف الصندوق للاختباء!"
+                "fa" -> "پشت جعبه خم شو تا پنهان بمانی!"
                 "th" -> "ย่อตัวอยู่หลังลังไม้เพื่อซ่อนตัว!"
                 else -> "Crouch behind the crate to hide!"
             }
@@ -132,6 +138,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "助跑跳躍抓穩吊鉤盪過去！"
                 "hi" -> "पार झूलने के लिए दौड़ते समय कूदें!"
                 "ar" -> "اقفز أثناء الركض للتأرجح عبر الفجوة!"
+                "fa" -> "در حال دویدن پرش را بزن تا تاب بخوری و رد شوی!"
                 "th" -> "กดกระโดดขณะวิ่งเพื่อโหนข้ามไป!"
                 else -> "Press jump while running to swing across!"
             }
@@ -150,6 +157,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "在拉桿附近點擊互動按鈕以啟動機關"
                 "hi" -> "तंत्र को सक्रिय करने के लिए लीवर के पास बातचीत बटन पर क्लिक करें"
                 "ar" -> "انقر على زر التفاعل بالقرب من الروافع لتشغيل الآليات"
+                "fa" -> "نزدیک اهرم‌ها دکمه تعامل را بزن تا سازوکارها فعال شوند"
                 "th" -> "กดปุ่มโต้ตอบใกล้คันโยกเพื่อเปิดใช้งานกลไก"
                 else -> "Click interact button near levers to activate mechanisms"
             }
@@ -168,6 +176,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "連續點擊以抵抗強風！"
                 "hi" -> "हवा से लड़ने के लिए लगातार टैप करें!"
                 "ar" -> "انقر باستمرار لمقاومة الرياح الشديدة!"
+                "fa" -> "پشت سر هم ضربه بزن تا با باد مقابله کنی!"
                 "th" -> "แตะรัวๆ เพื่อฝ่าแรงลมไปข้างหน้า!"
                 else -> "Continuously tap to fight the wind!"
             }
@@ -186,6 +195,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "從後方接近以關閉無人機！"
                 "hi" -> "अक्षम करने के लिए पीछे से संपर्क करें!"
                 "ar" -> "اقترب من الخلف لتعطيل الطائرة المسيرة!"
+                "fa" -> "از پشت نزدیک شو تا از کار بیندازی!"
                 "th" -> "เข้าข้างหลังเพื่อปิดการทำงาน!"
                 else -> "Approach from behind to disable!"
             }
@@ -204,6 +214,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "站穩架勢，推動前進！"
                 "hi" -> "संभलें, और आगे बढ़ें!"
                 "ar" -> "استعد، ثم ادفعه وتحرك معه!"
+                "fa" -> "تکیه بده، بعد آن را با خودت ببر!"
                 "th" -> "ตั้งท่า แล้วดันไปข้างหน้า!"
                 else -> "Brace, then walk it along!"
             }
@@ -222,6 +233,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "點擊以抓住台車"
                 "hi" -> "गाड़ी को पकड़ने के लिए टैप करें"
                 "ar" -> "انقر للتفاعل مع العربة"
+                "fa" -> "برای تعامل با گاری ضربه بزن"
                 "th" -> "แตะเพื่อจับรถเข็น"
                 else -> "Tap to interact with the cart"
             }
@@ -240,6 +252,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "使用方向按鈕推動或拉動"
                 "hi" -> "धकेलने या खींचने के लिए नेविगेशन बटन का उपयोग करें"
                 "ar" -> "استخدم أزرار الاتجاهات للدفع أو السحب"
+                "fa" -> "با دکمه‌های جهت هل بده / بکش"
                 "th" -> "ใช้ปุ่มทิศทางเพื่อเข็นหรือลาก"
                 else -> "Use navigation buttons to push / pull"
             }
@@ -258,6 +271,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "不要碰到地面！"
                 "hi" -> "ज़मीन को मत छुएं!"
                 "ar" -> "لا تلمس الأرض!"
+                "fa" -> "به زمین دست نزن!"
                 "th" -> "ห้ามแตะพื้น!"
                 else -> "Don't touch the ground!"
             }
@@ -276,6 +290,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "使用開關來啟動機關"
                 "hi" -> "तंत्र को सक्रिय करने के लिए स्विच का उपयोग करें"
                 "ar" -> "استخدم المفتاح لتشغيل الآليات"
+                "fa" -> "از کلید برای فعال کردن سازوکارها استفاده کن"
                 "th" -> "ใช้สวิตช์เพื่อเปิดใช้งานกลไก"
                 else -> "Use the switch to activate mechanisms"
             }
@@ -301,6 +316,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "戰術移動"
                 "hi" -> "सामरिक गति"
                 "ar" -> "حركة تكتيكية"
+                "fa" -> "حرکت تاکتیکی"
                 "th" -> "การเคลื่อนที่ทางยุทธวิธี"
                 else -> "TACTICAL MOVEMENT"
             }
@@ -319,6 +335,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "跳躍與翻越"
                 "hi" -> "कूदें और पार करें"
                 "ar" -> "قفز وتخطي"
+                "fa" -> "پرش و جهش"
                 "th" -> "กระโดดและปีนข้าม"
                 else -> "JUMP & VAULT"
             }
@@ -337,6 +354,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "匿蹤蹲伏"
                 "hi" -> "गुप्त रूप से झुकना"
                 "ar" -> "انحناء التسلل"
+                "fa" -> "خم شدن مخفیانه"
                 "th" -> "ย่อตัวลอบเร้น"
                 else -> "STEALTH CROUCH"
             }
@@ -355,6 +373,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "攀爬與翻上"
                 "hi" -> "चढ़ना और ऊपर उठना"
                 "ar" -> "التسلق والارتقاء"
+                "fa" -> "بالا کشیدن و صعود"
                 "th" -> "การเหนี่ยวตัวปีน"
                 else -> "MANTLE & CLIMB"
             }
@@ -373,6 +392,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "達成目標"
                 "hi" -> "उद्देश्य हासिल करें"
                 "ar" -> "بلوغ الهدف"
+                "fa" -> "رسیدن به هدف"
                 "th" -> "บรรลุเป้าหมาย"
                 else -> "REACH THE OBJECTIVE"
             }
@@ -391,6 +411,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "保持隱蔽"
                 "hi" -> "छिपे रहें"
                 "ar" -> "ابقَ مختبئاً"
+                "fa" -> "پنهان بمان"
                 "th" -> "หลบซ่อนตัว"
                 else -> "STAY HIDDEN"
             }
@@ -409,6 +430,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "吊鉤擺盪"
                 "hi" -> "हुक स्विंग"
                 "ar" -> "التأرجح بالخطاف"
+                "fa" -> "تاب با قلاب"
                 "th" -> "โหนตะขอข้ามฝั่ง"
                 else -> "HOOK SWING"
             }
@@ -427,6 +449,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "啟動機關"
                 "hi" -> "तंत्र सक्रिय करें"
                 "ar" -> "تشغيل الآلية"
+                "fa" -> "فعال کردن سازوکار"
                 "th" -> "เปิดใช้งานกลไก"
                 else -> "ACTIVATE MECHANISM"
             }
@@ -445,6 +468,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "渦輪排風"
                 "hi" -> "टरबाइन निकास"
                 "ar" -> "عادم التوربين"
+                "fa" -> "خروجی توربین"
                 "th" -> "ลมเป่าจากกังหัน"
                 else -> "TURBINE EXHAUST"
             }
@@ -463,6 +487,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "巡邏無人機"
                 "hi" -> "गश्ती ड्रोन"
                 "ar" -> "طائرة دورية مسيرة"
+                "fa" -> "ربات گشت"
                 "th" -> "โดรนลาดตระเวน"
                 else -> "PATROL DRONE"
             }
@@ -481,6 +506,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "支撐與推行"
                 "hi" -> "पकड़ें और धकेलें"
                 "ar" -> "الاستناد والدفع"
+                "fa" -> "تکیه بده و هل بده"
                 "th" -> "ตั้งหลักแล้วดัน"
                 else -> "BRACE AND PUSH"
             }
@@ -499,6 +525,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "握住台車"
                 "hi" -> "गाड़ी पकड़ें"
                 "ar" -> "الإمساك بالعربة"
+                "fa" -> "گاری را بگیر"
                 "th" -> "จับรถเข็น"
                 else -> "TAKE THE CART"
             }
@@ -517,6 +544,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "推拉動作"
                 "hi" -> "धकेलें या खींचें"
                 "ar" -> "دفع أو سحب"
+                "fa" -> "هل بده یا بکش"
                 "th" -> "เข็นหรือลาก"
                 else -> "PUSH OR PULL"
             }
@@ -535,6 +563,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "禁足地面"
                 "hi" -> "जमीन से दूर रहें"
                 "ar" -> "عدم لمس الأرض"
+                "fa" -> "از زمین دور بمان"
                 "th" -> "ห้ามสัมผัสพื้น"
                 else -> "STAY OFF THE GROUND"
             }
@@ -553,6 +582,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "機關開關"
                 "hi" -> "स्विच"
                 "ar" -> "المفاتيح"
+                "fa" -> "کلیدها"
                 "th" -> "สวิตช์กลไก"
                 else -> "SWITCHES"
             }
@@ -578,6 +608,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "使用方向按鈕向左或向右移動。"
                 "hi" -> "बाएं या दाएं जाने के लिए नेविगेशन बटन दबाएं।"
                 "ar" -> "استخدم أزرار الاتجاهات للتحرك يساراً أو يميناً."
+                "fa" -> "با دکمه‌های جهت به چپ یا راست حرکت کن."
                 "th" -> "ใช้ปุ่มนำทางเพื่อเดินไปทางซ้ายหรือขวา"
                 else -> "Use navigation buttons to move left or right."
             }
@@ -596,6 +627,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "點擊跳躍跳上箱子並翻越卡車。"
                 "hi" -> "बक्सों पर चढ़ने और ट्रक के ऊपर से कूदने के लिए जंप टैप करें।"
                 "ar" -> "انقر على قفز للصعود فوق الصناديق والقفز فوق الشاحنة."
+                "fa" -> "«پرش» را بزن تا روی جعبه‌ها بپری و از روی کامیون رد شوی."
                 "th" -> "แตะปุ่ม กระโดด เพื่อกระโดดขึ้นลังไม้และข้ามรถบรรทุก"
                 else -> "Tap JUMP to hop onto crates and vault over the truck."
             }
@@ -614,6 +646,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "按住蹲下以穿過低矮障礙物下方。"
                 "hi" -> "कम ऊंचाई वाली बाधाओं के नीचे जाने के लिए झुकने का बटन दबाए रखें।"
                 "ar" -> "اضغط باستمرار على انحناء للمرور من تحت العقبات المنخفضة."
+                "fa" -> "«خم شدن» را نگه دار تا از زیر موانع کوتاه رد شوی."
                 "th" -> "กดปุ่ม ย่อตัว ค้างไว้เพื่อลอดใต้สิ่งกีดขวางระดับต่ำ"
                 else -> "Hold CROUCH to duck under low obstacles."
             }
@@ -632,6 +665,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "在高台邊緣附近點擊跳躍以攀爬上去。"
                 "hi" -> "ऊंचे किनारे के पास चढ़ने के लिए जंप पर टैप करें।"
                 "ar" -> "انقر على قفز بالقرب من حافة مرتفعة للتسلق والارتقاء."
+                "fa" -> "نزدیک لبه‌ای بلند «پرش» را بزن تا خودت را بالا بکشی."
                 "th" -> "แตะปุ่ม กระโดด ใกล้ขอบที่สูงเพื่อเหนี่ยวตัวปีนขึ้นไป"
                 else -> "Tap JUMP near a high ledge to mantle and climb."
             }
@@ -650,6 +684,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "抵達目標位置即可完成任務。"
                 "hi" -> "मिशन पूरा करने के लिए उद्देश्य तक पहुंचें।"
                 "ar" -> "صل إلى الهدف لإكمال المهمة."
+                "fa" -> "به هدف برس تا مأموریت تمام شود."
                 "th" -> "ไปให้ถึงเป้าหมายเพื่อเสร็จสิ้นภารกิจ"
                 else -> "Reach the objective to complete the mission."
             }
@@ -668,6 +703,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "在箱子後面按住蹲下以避開警衛視線。"
                 "hi" -> "गार्ड की दृष्टि से बचने के लिए बक्से के पीछे झुककर रखें।"
                 "ar" -> "اضغط باستمرار على انحناء خلف الصندوق لقطع خط رؤية الحارس."
+                "fa" -> "پشت جعبه «خم شدن» را نگه دار تا از دید نگهبان بیرون بروی."
                 "th" -> "กดปุ่ม ย่อตัว ค้างไว้หลังลังไม้เพื่อหลบพ้นสายตาของยาม"
                 else -> "Hold CROUCH behind the crate to break the guard's line of sight."
             }
@@ -686,6 +722,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "朝懸掛的吊鉤奔跑並點擊跳躍，擺盪越過深淵。"
                 "hi" -> "अंतर को पार करने के लिए लटके हुक की ओर दौड़ते समय जंप दबाएं।"
                 "ar" -> "انقر على قفز أثناء الركض باتجاه الخطاف المعلق للتأرجح عبر الفجوة."
+                "fa" -> "در حال دویدن به سمت قلاب آویزان «پرش» را بزن تا از روی شکاف تاب بخوری."
                 "th" -> "แตะปุ่ม กระโดด ขณะวิ่งไปที่ตะขอแขวนเพื่อโหนตัวข้ามช่องว่าง"
                 else -> "Press JUMP while running into the hanging hook to swing across the gap."
             }
@@ -704,6 +741,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "在拉桿旁點擊互動鍵啟動機關。"
                 "hi" -> "तंत्र सक्रिय करने के लिए लीवर के पास इंटरैक्ट बटन दबाएं।"
                 "ar" -> "انقر على زر التفاعل بجوار الروافع لتشغيل الآليات."
+                "fa" -> "نزدیک اهرم‌ها دکمه تعامل را بزن تا سازوکارها فعال شوند"
                 "th" -> "แตะปุ่มโต้ตอบเมื่ออยู่ใกล้คันโยกเพื่อเปิดใช้งานระบบกลไก"
                 else -> "Click interact button near levers to activate mechanisms"
             }
@@ -722,6 +760,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "連續點擊 [向右] 以迎風突破！"
                 "hi" -> "हवा के विपरीत आगे बढ़ने के लिए लगातार RIGHT टैप करें!"
                 "ar" -> "انقر باستمرار على زر اليمين للمضي قدماً في مواجهة الرياح!"
+                "fa" -> "پشت سر هم «راست» را بزن تا در برابر باد مخالف جلو بروی!"
                 "th" -> "แตะปุ่ม ขวา รัวๆ เพื่อดันตัวฝ่ากระแสลมต้าน!"
                 else -> "Continuously tap RIGHT to push through the headwind!"
             }
@@ -740,6 +779,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "從背後靠近巡邏無人機並點擊互動將其癱瘓。"
                 "hi" -> "गश्ती बॉट के पीछे से संपर्क करें और उसे अक्षम करने के लिए इंटरैक्ट दबाएं।"
                 "ar" -> "اقترب من طائرة الدورية من الخلف وانقر على تفاعل لتعطيلها."
+                "fa" -> "از پشت به ربات گشت نزدیک شو و «تعامل» را بزن تا از کار بیفتد."
                 "th" -> "เข้าหาหุ่นลาดตระเวนจากด้านหลังแล้วแตะปุ่ม โต้ตอบ เพื่อปิดการทำงาน"
                 else -> "Approach the patrol bot from behind and tap INTERACT to disable it."
             }
@@ -758,6 +798,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "點擊互動擺好架勢推行。再次點擊即可放開站立。"
                 "hi" -> "पकड़ बनाने के लिए इंटरैक्ट दबाएं, फिर चलें। उठने के लिए फिर से दबाएं।"
                 "ar" -> "انقر على تفاعل للاستناد، ثم تحرك. انقر مجدداً للوقوف."
+                "fa" -> "«تعامل» را بزن تا تکیه بدهی، بعد راه برو. برای ایستادن دوباره «تعامل» را بزن."
                 "th" -> "แตะปุ่ม โต้ตอบ เพื่อตั้งท่า แล้วเดินไปข้างหน้า แตะอีกครั้งเพื่อปล่อย"
                 else -> "Tap INTERACT to brace, then walk. Tap INTERACT again to stand up."
             }
@@ -776,6 +817,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "點擊互動按鈕靠住台車。再次點擊即可鬆手。"
                 "hi" -> "गाड़ी से टिकने के लिए इंटरैक्ट दबाएं। छोड़ने के लिए फिर से टैप करें।"
                 "ar" -> "انقر على تفاعل للإمساك بالعربة. انقر مجدداً لتركها."
+                "fa" -> "«تعامل» را بزن تا به گاری تکیه بدهی. برای رها کردن، دوباره آن را بزن."
                 "th" -> "แตะปุ่ม โต้ตอบ เพื่อจับรถเข็น แตะอีกครั้งเพื่อปล่อยมือ"
                 else -> "Tap INTERACT to brace against the cart. Tap it again to let go."
             }
@@ -794,6 +836,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "按住 [向左] 或 [向右] 以推拉台車前進。"
                 "hi" -> "गाड़ी को आगे बढ़ाने के लिए LEFT या RIGHT दबाकर रखें।"
                 "ar" -> "اضغط باستمرار على اليسار أو اليمين لتحريك العربة."
+                "fa" -> "«چپ» یا «راست» را نگه دار تا گاری را با خودت ببری."
                 "th" -> "กดปุ่ม ซ้าย หรือ ขวา ค้างไว้เพื่อดันรถเข็นไปตามทาง"
                 else -> "Hold LEFT or RIGHT to walk the cart along."
             }
@@ -812,6 +855,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "踩著懸吊貨物穿過堆場。觸碰到地面或固定平台將直接導致任務失敗。"
                 "hi" -> "लटके हुए भारों पर चलकर यार्ड पार करें। फर्श या प्लेटफॉर्म को छूने से मिशन विफल हो जाएगा।"
                 "ar" -> "اعبر الساحة فوق الحمولات المعلقة. يؤدي لمس الأرض أو المنصات إلى فشل المهمة فوراً."
+                "fa" -> "روی بارهای آویزان از محوطه بگذر. لمس زمین یا سکو یعنی شکست مأموریت."
                 "th" -> "ข้ามลานสินค้าบนสัมภาระที่แขวนอยู่ การสัมผัสพื้นหรือแท่นวางจะทำให้ภารกิจล้มเหลว"
                 else -> "Cross the yard on the hanging loads. Touching the floor or a platform fails the mission."
             }
@@ -830,6 +874,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "使用開關以啟動各項機關。"
                 "hi" -> "तंत्र को सक्रिय करने के लिए स्विच का उपयोग करें।"
                 "ar" -> "استخدم المفتاح لتشغيل الآليات الميكانيكية."
+                "fa" -> "از کلید برای فعال کردن سازوکارها استفاده کن."
                 "th" -> "กดสวิตช์เพื่อเปิดใช้งานระบบกลไกต่างๆ"
                 else -> "Use the switch to activate mechanisms."
             }
@@ -855,6 +900,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "使用 [A / D] 或 [方向鍵] 移動。"
                 "hi" -> "स्थानांतरित करने के लिए [A / D] या तीर कुंजियों का उपयोग करें।"
                 "ar" -> "استخدم المفاتيح [A / D] أو [الأسهم] للتحرك."
+                "fa" -> "با کلیدهای [A / D] یا [چپ / راست] حرکت کن."
                 "th" -> "ใช้ปุ่ม [A / D] หรือ [ลูกศร ซ้าย / ขวา] เพื่อเคลื่อนที่"
                 else -> "Use navigation keys [A / D] or [LEFT / RIGHT] to move."
             }
@@ -873,6 +919,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "按下 [W] 或 [空白鍵] 跳上高處平台。"
                 "hi" -> "ऊंची सतहों पर कूदने के लिए [W] या [SPACE] दबाएं।"
                 "ar" -> "اضغط [W] أو [مسافة] للقفز فوق الأسطح المرتفعة."
+                "fa" -> "[W] یا [Space] را بزن تا روی سطوح بلند بپری."
                 "th" -> "กด [W] หรือ [Spacebar] เพื่อกระโดดขึ้นที่สูง"
                 else -> "Press [W] or [SPACE] to hop and vault onto elevated surfaces."
             }
@@ -891,6 +938,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "按住 [S]、[C] 或 [Ctrl] 蹲下穿過縫隙。"
                 "hi" -> "बाधाओं के नीचे जाने के लिए [S], [C] या [CTRL] दबाए रखें।"
                 "ar" -> "اضغط باستمرار على [S] أو [C] أو [CTRL] للعبور من تحت العوائق."
+                "fa" -> "[S]، [C] یا [CTRL] را نگه دار تا از زیر موانع کوتاه رد شوی."
                 "th" -> "กด [S], [C] หรือ [Ctrl] ค้างไว้เพื่อย่อตัวลอดสิ่งกีดขวาง"
                 else -> "Hold [S], [C] or [CTRL] to duck under low obstacles."
             }
@@ -909,6 +957,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "在高台邊緣附近按下 [W] 或 [空白鍵] 攀爬。"
                 "hi" -> "ऊंचे किनारे के पास चढ़ने के लिए [W] या [SPACE] दबाएं।"
                 "ar" -> "اضغط [W] أو [مسافة] بالقرب من حافة مرتفعة للارتقاء والتسلق."
+                "fa" -> "نزدیک لبه‌ای بلند [W] یا [Space] را بزن تا خودت را بالا بکشی."
                 "th" -> "กด [W] หรือ [Spacebar] ใกล้ขอบสูงเพื่อปีนขึ้น"
                 else -> "Press [W] or [SPACE] near a high ledge to mantle and climb."
             }
@@ -927,6 +976,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "潛入目標建築物以完成任務。"
                 "hi" -> "मिशन पूरा करने के लिए लक्ष्य भवन में घुसपैठ करें।"
                 "ar" -> "تسلل إلى مبنى الهدف لإكمال المهمة."
+                "fa" -> "به ساختمان هدف نفوذ کن تا مأموریت تمام شود."
                 "th" -> "แทรกซึมเข้าไปในอาคารเป้าหมายเพื่อเสร็จสิ้นภารกิจ"
                 else -> "Infiltrate the objective building to complete the mission."
             }
@@ -945,6 +995,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "在箱子後面按住 [S]、[C] 或 [Ctrl] 避開警衛的視線。"
                 "hi" -> "गार्ड की नज़र से बचने के लिए बक्से के पीछे [S], [C] या [CTRL] दबाकर रखें।"
                 "ar" -> "اضغط باستمرار على [S] أو [C] أو [CTRL] خلف الصندوق لتفادي رؤية الحارس."
+                "fa" -> "پشت جعبه [S]، [C] یا [CTRL] را نگه دار تا از دید نگهبان بیرون بروی."
                 "th" -> "กด [S], [C] หรือ [Ctrl] ค้างไว้หลังลังไม้เพื่อตัดสายตาการมองเห็นของยาม"
                 else -> "Hold [S], [C] or [CTRL] behind the crate to break the guard's line of sight."
             }
@@ -963,6 +1014,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "向吊鉤助跑時按下 [W] 或 [空白鍵] 以盪過間隙。"
                 "hi" -> "फासले को पार करने के लिए हुक की ओर दौड़ते समय [W] या [SPACE] दबाएं।"
                 "ar" -> "اضغط [W] أو [مسافة] أثناء الركض نحو الخطاف المعلق للتأرجح."
+                "fa" -> "در حال دویدن به سمت قلاب آویزان [W] یا [Space] را بزن تا از روی شکاف تاب بخوری."
                 "th" -> "กด [W] หรือ [Spacebar] ขณะวิ่งเข้าหาตะขอเพื่อโหนข้ามเหว"
                 else -> "Press [W] or [SPACE] while running into the hanging hook to swing across the gap."
             }
@@ -981,6 +1033,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "在拉桿附近按下互動鍵以啟動機構。"
                 "hi" -> "लीवर के पास तंत्र को सक्रिय करने के लिए इंटरैक्ट कुंजी दबाएं।"
                 "ar" -> "اضغط على مفتاح التفاعل بالقرب من الروافع لتشغيل الآليات."
+                "fa" -> "نزدیک اهرم‌ها دکمه تعامل را بزن تا سازوکارها فعال شوند"
                 "th" -> "กดปุ่มโต้ตอบใกล้คันโยกเพื่อเปิดใช้งานระบบ"
                 else -> "Click interact button near levers to activate mechanisms"
             }
@@ -999,6 +1052,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "狂按 [D] 或 [右箭頭] 破風前行！"
                 "hi" -> "हवा के दबाव को पार करने के लिए [D] या [RIGHT] को लगातार दबाएं!"
                 "ar" -> "اضغط مراراً وتكراراً على [D] أو [السهم الأيمن] للتقدم عكس الرياح!"
+                "fa" -> "پشت سر هم [D] یا [راست] را بزن تا در برابر باد مخالف جلو بروی!"
                 "th" -> "กดปุ่ม [D] หรือ [ลูกศรขวา] ย้ำๆ เพื่อดันตัวต้านแรงลม!"
                 else -> "Continuously tap [D] or [RIGHT] to push through the headwind!"
             }
@@ -1017,6 +1071,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "從背後靠近巡邏機器人，按下 [E] 或 [F] 鍵將其關閉。"
                 "hi" -> "बॉट के पीछे जाएं और अक्षम करने के लिए [E] या [F] दबाएं।"
                 "ar" -> "اقترب من الروبوت من الخلف واضغط على [E] أو [F] لتعطيله."
+                "fa" -> "از پشت به ربات گشت نزدیک شو و [E] یا [F] را بزن تا از کار بیفتد."
                 "th" -> "เข้าใกล้หุ่นยนต์ลาดตระเวนจากด้านหลังแล้วกด [E] หรือ [F] เพื่อปิดเครื่อง"
                 else -> "Approach the patrol bot from behind and press [E] or [F] to disable it."
             }
@@ -1035,6 +1090,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "按下 [E] 或 [F] 擺出推力姿勢並走動。再次按下則放開身位。"
                 "hi" -> "स्थिति संभालने के लिए [E] या [F] दबाएं, फिर चलें। खड़े होने के लिए फिर से दबाएं।"
                 "ar" -> "اضغط [E] أو [F] للاستناد، ثم تحرك. اضغط مجدداً للوقوف بشكل مستقيم."
+                "fa" -> "[E] یا [F] را بزن تا تکیه بدهی، بعد راه برو. برای ایستادن دوباره آن را بزن."
                 "th" -> "กด [E] หรือ [F] เพื่อตั้งหลัก แล้วเดินหน้า กดซ้ำเพื่อกลับสู่ท่ายืน"
                 else -> "Press [E] or [F] to brace, then walk. Press it again to stand up."
             }
@@ -1053,6 +1109,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "按下 [E] 或 [F] 鍵握住台車。再次按下即可放開。"
                 "hi" -> "गाड़ी पकड़ने के लिए [E] या [F] दबाएं। छोड़ने के लिए इसे फिर से दबाएं।"
                 "ar" -> "اضغط على [E] أو [F] للإمساك بالعربة. اضغط مجدداً للإفلات."
+                "fa" -> "[E] یا [F] را بزن تا به گاری تکیه بدهی. برای رها کردن، دوباره آن را بزن."
                 "th" -> "กด [E] หรือ [F] เพื่อจับรถเข็น กดอีกครั้งเพื่อปล่อย"
                 else -> "Press [E] or [F] to brace against the cart. Press it again to let go."
             }
@@ -1071,6 +1128,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "按住 [A]/[D] 或方向鍵推移台車。"
                 "hi" -> "गाड़ी को साथ ले जाने के लिए [A]/[D] या तीर कुंजियों को दबाकर रखें।"
                 "ar" -> "اضغط باستمرار على [A]/[D] أو مفاتيح الأسهم لتحريك العربة."
+                "fa" -> "[A]/[D] یا کلیدهای جهت‌نما را نگه دار تا گاری را با خودت ببری."
                 "th" -> "กดปุ่ม [A]/[D] หรือปุ่มลูกศรค้างไว้เพื่อเข็นรถไปข้างหน้า"
                 else -> "Hold [A]/[D] or the arrow keys to walk the cart along."
             }
@@ -1089,6 +1147,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "踩著懸吊貨物穿過堆場。觸碰到地面或固定平台將直接導致任務失敗。"
                 "hi" -> "लटके हुए भारों पर चलकर यार्ड पार करें। फर्श या प्लेटफॉर्म को छूने से मिशन विफल हो जाएगा।"
                 "ar" -> "اعبر الساحة فوق الحمولات المعلقة. يؤدي لمس الأرض أو المنصات إلى فشل المهمة فوراً."
+                "fa" -> "روی بارهای آویزان از محوطه بگذر. لمس زمین یا سکو یعنی شکست مأموریت."
                 "th" -> "ข้ามลานสินค้าบนสัมภาระที่แขวนอยู่ การสัมผัสพื้นหรือแท่นวางจะทำให้ภารกิจล้มเหลว"
                 else -> "Cross the yard on the hanging loads. Touching the floor or a platform fails the mission."
             }
@@ -1107,6 +1166,7 @@ internal object LocalizationTutorials {
                 "zh-TW" -> "使用開關以啟動各項機關。"
                 "hi" -> "तंत्र को सक्रिय करने के लिए स्विच का उपयोग करें।"
                 "ar" -> "استخدم المفتاح لتشغيل الآليات الميكانيكية."
+                "fa" -> "از کلید برای فعال کردن سازوکارها استفاده کن."
                 "th" -> "กดสวิตช์เพื่อเปิดใช้งานระบบกลไกต่างๆ"
                 else -> "Use the switch to activate mechanisms."
             }

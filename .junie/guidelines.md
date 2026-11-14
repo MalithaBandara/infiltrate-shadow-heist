@@ -218,8 +218,9 @@ carries `proguard.map` for crash deobfuscation.
   `GameplayScene.kt`). Nothing of the Google Play approval gating (2026-09-25) remains: the three
   locked "Coming Soon" chapter cards (chapters 2-4) are back on the Missions screen since 2026-11-12
   (the 1.0 App Store audit below checked for "no Coming Soon" - re-weigh that before an iOS
-  submission). Settings now lists all 16 languages
-  (`SUPPORTED_LANGUAGES = ALL_SUPPORTED_LANGUAGES` since `dbd09b8`; Italian added 2026-11-12) - narrow
+  submission). Settings now lists all 17 languages
+  (`SUPPORTED_LANGUAGES = ALL_SUPPORTED_LANGUAGES` since `dbd09b8`; Italian added 2026-11-12,
+  Persian 2026-11-14) - narrow
   `SUPPORTED_LANGUAGES` if a review ever needs fewer. If a Play
   review ever needs the rain gone, `LevelData.DEFAULT_LEVEL_2.hasRain` is the whole switch.
 
@@ -511,12 +512,29 @@ MainMenu, LevelSelect, Store and Settings are Compose screens in `paywall-build`
 `rootViewController` swap; on Android the Compose menu draws opaquely over an always-visible KorGE
 view (bug #7).
 
-- **Settings**: language list (see Release state) - 16 languages, each fully localized across menus,
+- **Settings**: language list (see Release state) - 17 languages, each fully localized across menus,
   in-game overlays and tutorials (`Localization.kt`, `LocalizationLevels.kt`,
   `LocalizationTutorials.kt`, pure Kotlin; `when (code)` per string, `else` = English). **A new
   language** = a code constant + `langCode` prefix, an entry after every `"fr" ->`/`FR ->` line
   (~251), a `LanguageOption` in `SettingsScreen.kt`, the code in `LocalizationTest.allLanguages`, and an
-  entry in `IntroSubtitles.LINES` (`IntroSubtitlesTest` fails without it).
+  entry in `IntroSubtitles.LINES` (`IntroSubtitlesTest` fails without it), plus
+  `supportedLanguageFor` (device tags) and iOS `CFBundleLocalizations` in `ios-shell/project.yml`.
+  An Arabic-script language goes in after each `"ar"`/`AR` line.
+  **Persian** (`fa`, فارسی, 2026-11-14, owner: many Iranian players in Firebase) is machine-drafted,
+  not reviewed by a native speaker. Right to left like Arabic and handled exactly as Arabic is (no
+  special code: LTR-forced Compose menus, `TextDirection.Content` subtitles, the system font as
+  Bebas has no Arabic script). Written with the Persian yeh/keheh (U+06CC ی, U+06A9 ک), never the
+  Arabic ي/ك (`LocalizationTest.testPersianUsesPersianLettersNotArabicOnes`), with zero-width
+  non-joiners (U+200C) as in می‌کند. Terms: power-up = پاورآپ (Store tab پاورآپ‌ها, also in
+  `step_use_checkpoint`), checkpoint = چک‌پوینت, gadget = ابزار; Latin digits like the game's own
+  numbers. `fa`/`fa-IR`/`fa_IR` map to `fa`. Seen only in `IntroSubtitlesRenderTest` (subtitles with
+  پ چ گ ی ک and «», Settings) and `MainMenuRenderTest` - not on a device, not in KorGE's in-game
+  text (nor is Arabic). Google Play and AdMob do not officially serve Iran: these players likely
+  come through VPNs or third-party stores and may bring no ad revenue.
+  **RTL trailing punctuation in the menus** (seen in the renders): in the LTR-forced Compose text a
+  closing bracket or full stop at the end of Arabic/Persian goes to the wrong end - Arabic's
+  controls pills read "(يسار" with a stray bracket. Persian's pills use a dash instead
+  (پیش‌فرض – چپ); the real fix (`TextDirection.Content` on menu text) is not done.
   Italian (2026-11-12) is machine-drafted, not reviewed by a native speaker, and its longer words
   (PUBBLICITÀ) not checked for fit on a screen. Volume sliders are
   lifted into `NavigationRoot` as `mutableStateOf` (they had no live effect). Reset Progress has a
@@ -632,7 +650,7 @@ the ground has nothing below it, so filling a squarer screen means magnifying.)
     every level); menu, menu video and `MenuMusic` aren't composed until it ends. Sound at the music
     volume. **Subtitles** (2026-11-14): `game.model.IntroSubtitles` (`LocalizationIntro.kt`) -
     14 cues timed from the narration by a local Whisper transcription (word timestamps, 0.15s
-    lead-in, 0.5s hold), in all 16 languages (the 15 non-English ones machine-drafted, unreviewed).
+    lead-in, 0.5s hold), in all 17 languages (the 16 non-English ones machine-drafted, unreviewed).
     `IntroSequence` draws them from the players' own `onProgress` (no platform code), placed on the
     SCREEN's bottom 7%, not the video box; sentence case in the system font (Bebas is capitals-only
     and Latin-only), `introSubtitleSizeFor` (4.2% of screen height, 13-22sp), white with a shadow,
@@ -642,7 +660,7 @@ the ground has nothing below it, so filling a squarer screen means magnifying.)
     `subtitlesOn()` = off for English, on for every other language. Reset Progress clears the
     choice. `IntroSubtitlesTest`; `IntroSubtitlesRenderTest` (paywall-build jvmTest, opt-in
     `RENDER_INTRO_SUBS=<dir>` with `<dir>/frames/frame_<s>.png` stills) renders the overlay and
-    Settings - en/fr/de/ja/ar/hi and Settings en/fr checked that way. Not seen on a device, nor over
+    Settings - en/fr/de/ja/ar/hi/fa and Settings en/fr/fa checked that way. Not seen on a device, nor over
     the real playing video (on Android a Compose layer over a TextureView, on iOS over a
     UIKitView - both already done by the menu video). **Re-time the cues if the video is re-cut.**
     **Per-shot crop**: `INTRO_SHOTS` holds a safe rect per shot (keep them <= ~0.75 wide,
