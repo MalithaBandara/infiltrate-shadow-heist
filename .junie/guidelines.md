@@ -544,7 +544,19 @@ view (bug #7).
   in TestFlight, capped 3/year, no callback) - `APP_STORE_ID = "6815256409"` at the top of
   `InAppReview.ios.kt`. Android's RATE US uses Play in-app review (reported working).
 - App icon: a 1254x1254 source in Android/iOS/KorGE icon slots (not verified on device).
-- Layers Events SDK removed 2026-09-12 - zero third-party analytics SDKs remain.
+- Layers Events SDK removed 2026-09-12; Firebase Analytics (build 30) is the only analytics SDK.
+- **Firebase events** (`game.model.GameAnalytics`): `level_start`, `level_complete`, `level_fail`,
+  `tutorial_complete`, and `levels_cleared_N` for a player's Nth distinct level cleared - every N
+  from the first release after build 33 (added 2026-11-14, owner: "i need to know how many they
+  did"), only 3 and 5 before.
+  The count is in the event NAME, not a parameter: the GA4 property has NO custom dimensions
+  registered, so `level_complete`'s `level_number` / `stars` / `first_clear` params cannot be
+  reported, and registering one is not retroactive. Keep `levels_cleared_3` / `_5` as named -
+  Google Ads imports them as conversions. Report: `python tools/firebase_events.py <key.json>
+  [days]` (needs `pyjwt[crypto]`) prints events per platform and the levels-cleared funnel. The
+  owner's read-only service-account key lives OUTSIDE the repo (`C:\Users\USER\Documents\sec`) -
+  never copy it in, the repo is public. Run the tool as a script: importing it as a module writes
+  `tools/__pycache__`.
 - The level exit goes through the real `LevelExitBridge` (a `nav_target` storage flag was written
   but read nowhere).
 

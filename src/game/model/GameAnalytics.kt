@@ -20,8 +20,13 @@ data class AnalyticsEvent(val name: String, val params: Map<String, Any> = empty
  *  - `level_complete`    every completed level, first clears and replays alike
  *  - `level_fail`        caught with no checkpoint to fall back on
  *  - `tutorial_complete` first ever clear of level 1, the level that teaches the controls
- *  - `levels_cleared_3`, `levels_cleared_5`  a player's 3rd / 5th distinct level cleared -
- *                        the "engaged player" signals to optimize a campaign toward
+ *  - `levels_cleared_N` a player's Nth distinct level cleared, for every N (1, 2, 3 ... 12): how
+ *                        many levels each player got through, as a funnel - users with
+ *                        levels_cleared_N minus users with levels_cleared_N+1 stopped at N. Up to
+ *                        build 33 only 3 and 5 were sent, the "engaged player" conversions
+ *                        Google Ads imports; those two names are unchanged. A count
+ *                        in the event NAME, not a parameter, because GA4 only reports a parameter
+ *                        once it is registered as a custom dimension, and not retroactively.
  *
  * Installs (`first_open`), sessions, in-app purchases and - once AdMob is linked to the Firebase
  * project - `ad_impression` with ad revenue are collected by the Firebase SDK itself.
@@ -33,9 +38,6 @@ data class AnalyticsEvent(val name: String, val params: Map<String, Any> = empty
  */
 object GameAnalytics {
     var sink: GameAnalyticsSink? = null
-
-    /** Clears that send a `levels_cleared_N` milestone. */
-    val CLEAR_MILESTONES = listOf(3, 5)
 
     fun levelStart(levelId: String) = send(levelStartEvents(levelId))
 
@@ -57,7 +59,7 @@ object GameAnalytics {
             )
         )
         if (firstClear && levelId == "level_1") events += AnalyticsEvent("tutorial_complete")
-        if (distinctLevelsCleared != null && distinctLevelsCleared in CLEAR_MILESTONES) {
+        if (distinctLevelsCleared != null && distinctLevelsCleared >= 1) {
             events += AnalyticsEvent("levels_cleared_$distinctLevelsCleared")
         }
         return events

@@ -19,8 +19,12 @@ import urllib.request
 # API enabled in that Cloud project).
 PROPERTY = "properties/563203740"
 SCOPE ="https://www.googleapis.com/auth/analytics.readonly"
+# levels_cleared_N: the Nth distinct level a player cleared (every N from the release after build
+# 33; only 3 and 5
+# before that).
+CLEARED = [f"levels_cleared_{n}" for n in range(1, 13)]
 EVENTS = ["first_open", "session_start", "level_start", "level_complete", "level_fail",
-          "tutorial_complete", "levels_cleared_3", "levels_cleared_5", "ad_impression"]
+          "tutorial_complete", *CLEARED, "ad_impression"]
 
 
 def token(key_path):
@@ -69,6 +73,21 @@ def main():
         print(f"  {'event':<20}{'platform':<10}{'events':>8}{'users':>8}")
         for name, platform, count, users in rows:
             print(f"  {name:<20}{platform:<10}{count:>8}{users:>8}")
+
+        # How far players got: users who cleared at least N distinct levels, and how many of them
+        # stopped there. Builds up to 33 only send 3 and 5.
+        users = {}
+        for name, _platform, _count, n_users in rows:
+            if name in CLEARED:
+                users[name] = users.get(name, 0) + n_users
+        if users:
+            print(f"\n  {'levels cleared':<16}{'users':>8}{'stopped':>9}")
+            for i, name in enumerate(CLEARED):
+                if name not in users:
+                    continue
+                nxt = users.get(CLEARED[i + 1]) if i + 1 < len(CLEARED) else 0
+                stopped = "" if nxt is None else f"{users[name] - nxt:>9}"
+                print(f"  {name.removeprefix('levels_cleared_'):<16}{users[name]:>8}{stopped}")
 
         daily = call(f"https://analyticsdata.googleapis.com/v1beta/{prop['property']}:runReport", tok, {
             "dateRanges": [{"startDate": f"{days}daysAgo", "endDate": "today"}],
