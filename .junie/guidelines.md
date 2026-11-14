@@ -156,7 +156,16 @@ carries `proguard.map` for crash deobfuscation.
 
 - **Build number lives in THREE places - bump together**: `ios-shell/project.yml`
   `CFBundleVersion`, `ios-testflight.yml`'s `build_number` default, `android-shell` `versionCode`.
-- **Currently**: Android `versionCode` 33 / `versionName` "1.1.4", iOS `CFBundleVersion` 33 /
+- **Currently**: Android `versionCode` 34 / `versionName` "1.1.5", iOS `CFBundleVersion` 34 /
+  "1.1.5" (2026-11-14: build 34 = 33 plus the save fixes - build 33's Play rollout was HALTED
+  because it wrote a default profile over real saves and skipped the MISSION SUCCESS card (see
+  "Read KorGE storage with getOrNull" above); every profile instance re-reading the save before a
+  change; ProgressRepair restoring unlocks and the completed-level count from level results on
+  each menu start; the iOS first-tap level fix (GameLevelStartBridge.pendingLevelId). 1.1.5, not
+  1.1.4: an iOS upload under 1.1.4 is refused once 1.1.4 is approved, and 1.1.5's train (build 32,
+  TestFlight only) is open. Premium is not auto-restored - nobody had bought Remove Ads.)
+  Before that:
+  Android `versionCode` 33 / `versionName` "1.1.4", iOS `CFBundleVersion` 33 /
   "1.1.4" (2026-11-14: build 33 = 32 plus the intro's subtitles in 16 languages with their
   Settings toggle and a wider language dropdown. **The version name went back from 1.1.5 to 1.1.4
   on purpose** (owner: "i am aware that it is a lower one but its fine"); the build number still
@@ -446,7 +455,11 @@ from KorGE's generated `build/platforms/ios`; no decision yet on how they conver
   `UIStatusBarHidden: true` + `UIViewControllerBasedStatusBarAppearance: false`. The black shape at
   the top is the Dynamic Island - not removable.
 - **Entry point**: `GameEntry.ios.kt`'s `gameMain()`. `GameLevelStartBridge.startLevel(levelId:)`,
-  since iOS never sets `Environment["startLevel"]`.
+  since iOS never sets `Environment["startLevel"]`. KorGE's loop does not run until its view is in
+  the window, so on the FIRST tap after launch `startLevel` runs before `gameMain()`'s block has
+  bound the SceneContainer: it stores the id (`pendingLevelId`) and the block's first scene takes
+  it (`takeInitialLevel()`). Before 2026-11-14 that tap was dropped and level 1 opened whatever
+  level was picked (reported on build 33 with level 4).
 - **`resources/` bundling (fixed `bc9e494`)**: `GameMain.framework` never embeds `resources/`; a
   `postbuildScripts` rsync copies its contents flat into `ShellApp.app/` (where `resourcesVfs`
   resolves against `NSBundle.mainBundle` on iOS). Missing, gameplay audio/art load silently as `null`.
@@ -471,6 +484,26 @@ from KorGE's generated `build/platforms/ios`; no decision yet on how they conver
   `user_language`, `user_unlocked_levels`, `user_powerups`, `user_total_levels_completed`,
   `level_result_<levelId>`, `level_results_ids`, `user_review_milestone` (game side only), `user_subtitles`, plus the
   ad-limiter keys.
+- **Read KorGE storage with `views.storage.getOrNull(key)`, never `views.storage[key]`**: the get
+  operator THROWS `KeyNotFoundException` for a key never written (korge-core 6.0.0 `IStorage.get`).
+  Builds 32-33 shipped two bugs from it (fixed 2026-11-14): `ReviewPrompt` read the unwritten
+  `user_review_milestone` and threw out of `onLevelComplete` before the win card (no MISSION
+  SUCCESS screen on any completion, both platforms); and `MapBackedGameProfileStorage` reads every
+  key in one `try`, so build 33's new `user_subtitles` made the game side load a DEFAULT profile
+  and the next `persist()` (a coin award) wrote it over the real save - coins, premium, unlocks,
+  power-ups. `MapBackedGameProfileStorage` and `ReviewPrompt` now treat a throwing read as absent;
+  `ThrowingStorageTest` uses a KorGE-like store that throws (the HashMap stores elsewhere never
+  would). A new storage key must be read null-safely on the game side. The same throw also
+  reset a fresh install's detected device language to English at its first level completion
+  (since language detection, eb4e22c).
+- **Every `MapBackedGameProfileStorage` re-reads the save before each read and change** (`reload()`,
+  2026-11-14). Each screen, the game scene and Android's MainActivity hold their own instance, and
+  `persist()` writes the WHOLE profile, so an instance acting on what it loaded earlier wrote back
+  stale values: a Settings slider (NavigationRoot's instance) undid coins/Remove Ads just bought in
+  the Store, on iOS (menu built once per run) also every coin/unlock/gadget earned since launch, and
+  MainActivity's instance kept showing level-exit interstitials to a player who had just bought
+  Remove Ads. Unlocks and gadgets are now REPLACED from the save on load (not merged), so a Reset
+  Progress made through one instance holds. `ThrowingStorageTest` covers both.
 
 ## Compose UI (non-gameplay)
 

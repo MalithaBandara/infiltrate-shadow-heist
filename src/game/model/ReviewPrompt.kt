@@ -30,7 +30,9 @@ class ReviewPrompt(
      * past the last one asked for - and then records that milestone.
      */
     fun claimAfterLevelComplete(levelStorage: LevelStorage): Boolean {
-        val lastAsked = getRaw(KEY_LAST_MILESTONE)?.toIntOrNull() ?: 0
+        // Unwritten until the first ask - and a store that throws for a missing key (KorGE's
+        // storage[key]) must read as "never asked", not abort the level's completion.
+        val lastAsked = runCatching { getRaw(KEY_LAST_MILESTONE) }.getOrNull()?.toIntOrNull() ?: 0
         val reached = MILESTONE_LEVELS.lastOrNull { levelStorage.getBestResult("level_$it")?.completed == true } ?: return false
         if (reached <= lastAsked) return false
         setRaw(KEY_LAST_MILESTONE, reached.toString())

@@ -28,14 +28,37 @@ import kotlin.native.ObjCName
 object GameLevelStartBridge {
     private var activeSceneContainer: SceneContainer? = null
 
+    /**
+     * A level tapped before gameMain()'s Korge block has run. KorGE's loop does not run while the
+     * menu is in the window instead of its view (see ShellAppDelegate), so on the first tap after
+     * launch the block - and [bind] - only runs once Swift has swapped the KorGE view in, i.e.
+     * AFTER [startLevel]. Dropping the tap there is what opened level 1 whatever level the player
+     * picked; the block takes this instead.
+     */
+    private var pendingLevelId: String? = null
+
     internal fun bind(sc: SceneContainer) {
         activeSceneContainer = sc
     }
 
+    /** The level gameMain()'s first scene shows: the one tapped before the engine was up, if any. */
+    internal fun takeInitialLevel(): LevelData {
+        val id = pendingLevelId
+        pendingLevelId = null
+        return levelFor(id)
+    }
+
+    private fun levelFor(levelId: String?): LevelData =
+        LevelData.DEFAULT_LEVELS.firstOrNull { it.id == levelId } ?: LevelData.DEFAULT_LEVEL_1
+
     /** Called from Swift right before switching the rootViewController to the KorGE view. */
     fun startLevel(levelId: String) {
-        val sc = activeSceneContainer ?: return
-        val levelData = LevelData.DEFAULT_LEVELS.firstOrNull { it.id == levelId } ?: LevelData.DEFAULT_LEVEL_1
+        val sc = activeSceneContainer
+        if (sc == null) {
+            pendingLevelId = levelId
+            return
+        }
+        val levelData = levelFor(levelId)
         sc.stage?.launchImmediately {
             // iOS is the platform that cannot know its screen at Korge() time (see
             // DeviceViewport's doc comment), so this is where the real canvas lands: Swift has
@@ -65,5 +88,6 @@ suspend fun gameMain() = Korge(
     val sc = sceneContainer()
     GameLevelStartBridge.bind(sc)
     DeviceViewport.apply(views, sc)
-    sc.changeTo { GameplayScene(LevelData.DEFAULT_LEVEL_1) }
+    val firstLevel = GameLevelStartBridge.takeInitialLevel()
+    sc.changeTo { GameplayScene(firstLevel) }
 }
