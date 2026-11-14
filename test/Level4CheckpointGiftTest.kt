@@ -60,6 +60,11 @@ class Level4CheckpointGiftTest {
     fun level4RecommendsTheCheckpointUntilTheFirstMove() {
         val step = LevelData.DEFAULT_LEVEL_4.tutorialSteps.single { it.id == "step_use_checkpoint" }
         assertEquals(PowerupType.CHECKPOINTS, step.requiresPowerup, "only while one is owned; turning it on ends the step")
+        // "show it only the first time. after that never show it again" - only on the visit that
+        // granted the gift, so a player who bought Checkpoints is never told one is "free".
+        assertTrue(step.firstVisitOnly)
+        assertTrue(LevelData.DEFAULT_LEVELS.flatMap { it.tutorialSteps }.filter { it.firstVisitOnly }.all { it.id == "step_use_checkpoint" },
+            "firstVisitOnly hangs on Level4CheckpointGift, so only level 4's step may use it")
         assertEquals(TutorialAction.FIRST_MOVE, step.targetAction)
         assertEquals(TutorialControlHighlight.GADGETS, step.highlight)
         assertEquals(0.0, step.autoDismissSeconds, "no timer - it waits for a move or the power-up")
