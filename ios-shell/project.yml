@@ -92,7 +92,7 @@ targets:
           - fa
           - th
         CFBundleShortVersionString: "1.1.4"
-        CFBundleVersion: "35"
+        CFBundleVersion: "36"
         ITSAppUsesNonExemptEncryption: false
         UIRequiresFullScreen: true
         UILaunchScreen: {}
