@@ -414,11 +414,11 @@ class GameplayScene(
         markLoadProgress()
         val sfxContext = coroutineContext
         val levelStorage: LevelStorage = MapBackedLevelStorage(
-            getRaw = { views.storage[it] },
+            getRaw = { views.storage.getOrNull(it) },
             setRaw = { k, v -> views.storage[k] = v }
         )
         val profileStorage: GameProfileStorage = MapBackedGameProfileStorage(
-            getRaw = { views.storage[it] },
+            getRaw = { views.storage.getOrNull(it) },
             setRaw = { k, v -> views.storage[k] = v }
         )
 
@@ -3333,9 +3333,17 @@ class GameplayScene(
             // once that milestone is done - see ReviewPrompt (it used to ask on every level 3
             // completion, and never at all for players who had finished level 3 before the
             // trigger moved there).
-            val reviewPrompt = ReviewPrompt(getRaw = { views.storage[it] }, setRaw = { k, v -> views.storage[k] = v })
-            if (reviewPrompt.claimAfterLevelComplete(levelStorage)) {
-                getInAppReviewBridge().requestReview()
+            // getOrNull, not storage[key]: KorGE's get operator throws for a key never written, and
+            // user_review_milestone is unwritten until the first ask - builds 32 and 33 threw here
+            // on every completion, before the win card below. Nothing about a review request may
+            // keep the player from their result, hence the catch.
+            try {
+                val reviewPrompt = ReviewPrompt(getRaw = { views.storage.getOrNull(it) }, setRaw = { k, v -> views.storage[k] = v })
+                if (reviewPrompt.claimAfterLevelComplete(levelStorage)) {
+                    getInAppReviewBridge().requestReview()
+                }
+            } catch (e: Throwable) {
+                println("[ReviewPrompt] skipped: $e")
             }
 
             // The primary resolves at the same instant the level does, by definition; an optional

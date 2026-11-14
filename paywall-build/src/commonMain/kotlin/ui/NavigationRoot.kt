@@ -22,6 +22,8 @@ import com.infiltrate.storage.PlatformStorage
 import game.model.GameProfileStorage
 import game.model.LevelData
 import game.model.MapBackedGameProfileStorage
+import game.model.MapBackedLevelStorage
+import game.model.ProgressRepair
 import kotlinx.coroutines.delay
 
 /** How long a level start waits for a ready ad to reach the screen. Not a limit on the ad itself. */
@@ -62,6 +64,19 @@ fun NavigationRoot(
     // menu again - see MainActivity.kt's `if (!gameplayVisible)`), and from here on both are
     // updated directly by SettingsScreen's callbacks, so a slider drag recomposes MenuMusic/
     // rememberUiClick on the same frame instead of waiting for a screen change.
+    // Recovery from build 33's overwritten saves (see ProgressRepair): unlocks and the
+    // completed-level count from the untouched level results. Only ever adds, so it runs on every
+    // menu start.
+    LaunchedEffect(Unit) {
+        runCatching {
+            val levels = MapBackedLevelStorage(
+                getRaw = { PlatformStorage.getRaw(it) },
+                setRaw = { k, v -> PlatformStorage.setRaw(k, v) },
+                removeRaw = { PlatformStorage.removeRaw(it) }
+            )
+            if (ProgressRepair.repair(profileStorage, levels)) println("[ProgressRepair] restored unlocks / level count from level results")
+        }
+    }
     var musicVolume by remember { mutableStateOf(profileStorage.getProfile().musicVolume) }
     var sfxVolume by remember { mutableStateOf(profileStorage.getProfile().sfxVolume) }
     var currentLanguage by remember { mutableStateOf(profileStorage.getProfile().language) }

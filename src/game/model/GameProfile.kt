@@ -223,12 +223,20 @@ class InMemoryGameProfileStorage(
 }
 
 class MapBackedGameProfileStorage(
-    private val getRaw: (String) -> String?,
+    getRaw: (String) -> String?,
     private val setRaw: (String, String) -> Unit,
     private val inMemoryFallback: InMemoryGameProfileStorage = InMemoryGameProfileStorage(),
     // Device languages, most preferred first - only read when no language has been saved yet.
     private val systemLanguageTags: () -> List<String> = { SystemLanguage.preferredTags() }
 ) : GameProfileStorage {
+
+    /**
+     * A key that cannot be read is an absent key. KorGE's `storage[key]` throws for a key never
+     * written, and every key here is read inside one try: before this, one missing key (build 33's
+     * new user_subtitles, for everyone who had not touched the toggle) dropped the whole saved
+     * profile for defaults, which the next persist() then wrote over the real save.
+     */
+    private val getRaw: (String) -> String? = { key -> try { getRaw(key) } catch (_: Throwable) { null } }
 
     init {
         loadFromStorage()
@@ -271,10 +279,16 @@ class MapBackedGameProfileStorage(
                     setRaw("user_language", detected)
                 }
             }
+            // Replaced, not merged, now that this runs before every change (see [reload]): a Reset
+            // Progress saved by another screen's instance has to take levels and gadgets away here
+            // too. level_1 is always open.
             if (!unlockedStr.isNullOrBlank()) {
+                current.unlockedLevelIds.clear()
+                current.unlockedLevelIds.add("level_1")
                 current.unlockedLevelIds.addAll(unlockedStr.split(";").filter { it.isNotBlank() })
             }
             if (!powerupsStr.isNullOrBlank()) {
+                current.powerupInventory.clear()
                 powerupsStr.split(";").filter { it.isNotBlank() }.forEach { entry ->
                     val parts = entry.split(":")
                     if (parts.size == 2) {
@@ -288,6 +302,17 @@ class MapBackedGameProfileStorage(
         } catch (_: Throwable) {
         }
     }
+
+    /**
+     * Re-reads the saved profile. Every screen, the game scene and the Android activity each hold
+     * their own instance, and persist() writes the WHOLE profile - so an instance acting on what it
+     * loaded earlier wrote back everything that had changed since through another one. Moving a
+     * Settings slider (NavigationRoot's instance, loaded when the menu opened) undid coins and Remove
+     * Ads just bought in the Store; on iOS, where the menu is built once per app run, it also undid
+     * every coin, unlock and gadget earned in levels since launch. Called before every read and
+     * every change, so each change lands on the latest save.
+     */
+    private fun reload() = loadFromStorage()
 
     private fun persist() {
         try {
@@ -306,7 +331,10 @@ class MapBackedGameProfileStorage(
         }
     }
 
-    override fun getProfile(): GameProfile = inMemoryFallback.getProfile()
+    override fun getProfile(): GameProfile {
+        reload()
+        return inMemoryFallback.getProfile()
+    }
 
     override fun saveProfile(profile: GameProfile) {
         inMemoryFallback.saveProfile(profile)
@@ -314,91 +342,108 @@ class MapBackedGameProfileStorage(
     }
 
     override fun addCoins(amount: Int): Int {
+        reload()
         val res = inMemoryFallback.addCoins(amount)
         persist()
         return res
     }
 
     override fun spendCoins(amount: Int): Boolean {
+        reload()
         val res = inMemoryFallback.spendCoins(amount)
         if (res) persist()
         return res
     }
 
     override fun setMusicVolume(volume: Float) {
+        reload()
         inMemoryFallback.setMusicVolume(volume)
         persist()
     }
 
     override fun setSfxVolume(volume: Float) {
+        reload()
         inMemoryFallback.setSfxVolume(volume)
         persist()
     }
 
     override fun setControlsSwapped(swapped: Boolean) {
+        reload()
         inMemoryFallback.setControlsSwapped(swapped)
         persist()
     }
 
     override fun setLanguage(language: String) {
+        reload()
         inMemoryFallback.setLanguage(language)
         persist()
     }
 
     override fun setSubtitles(on: Boolean) {
+        reload()
         inMemoryFallback.setSubtitles(on)
         persist()
     }
 
     override fun unlockLevel(levelId: String) {
+        reload()
         inMemoryFallback.unlockLevel(levelId)
         persist()
     }
 
     override fun isLevelUnlocked(levelId: String, levelRegistry: List<LevelData>, levelStorage: LevelStorage): Boolean {
+        reload()
         return inMemoryFallback.isLevelUnlocked(levelId, levelRegistry, levelStorage)
     }
 
     override fun buyPowerup(powerupId: String, cost: Int): Boolean {
+        reload()
         val res = inMemoryFallback.buyPowerup(powerupId, cost)
         if (res) persist()
         return res
     }
 
     override fun consumePowerup(type: PowerupType): Boolean {
+        reload()
         val res = inMemoryFallback.consumePowerup(type)
         if (res) persist()
         return res
     }
 
     override fun consumePowerup(powerupId: String): Boolean {
+        reload()
         val res = inMemoryFallback.consumePowerup(powerupId)
         if (res) persist()
         return res
     }
 
     override fun grantDebugPowerups(amount: Int) {
+        reload()
         inMemoryFallback.grantDebugPowerups(amount)
         persist()
     }
 
     override fun activatePremium() {
+        reload()
         inMemoryFallback.activatePremium()
         persist()
     }
 
     override fun deactivatePremium() {
+        reload()
         inMemoryFallback.deactivatePremium()
         persist()
     }
 
     override fun incrementLevelsCompleted(): Int {
+        reload()
         val res = inMemoryFallback.incrementLevelsCompleted()
         persist()
         return res
     }
 
     override fun resetProgress(preservePremium: Boolean) {
+        reload()
         inMemoryFallback.resetProgress(preservePremium)
         persist()
     }
