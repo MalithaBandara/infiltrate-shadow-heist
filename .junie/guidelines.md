@@ -1560,8 +1560,12 @@ Ground `y = 440`, `worldWidth = 8600`, exit `x = 7680`, `backgroundImage = "meta
   Not for a player who has completed level 4; Reset Progress keeps the record.
 - **`step_use_checkpoint`**: "(Recommended) Use your free Checkpoint power-up!" ("Checkpoint
   powerup! not just checkpoint"), 17 languages, using each language's Store word for power-up.
-  `TutorialStep.requiresPowerup` = CHECKPOINTS - shown on any attempt while one is owned and not
-  live, completed by the first move (FIRST_MOVE) or by turning it on. `TutorialControlHighlight
+  **Only on the visit that granted the gift** (`TutorialStep.firstVisitOnly`, scene flag
+  `giftGrantedThisVisit`; owner 2026-11-14: "show it only the first time. after that never show it
+  again") - build 35 showed it on EVERY attempt while a Checkpoints was owned, telling players who
+  had bought one that it was "free", even after clearing level 4. Also gated by
+  `TutorialStep.requiresPowerup` = CHECKPOINTS (owned and not live); completed by the first move
+  (FIRST_MOVE) or by turning it on. `TutorialControlHighlight
   .GADGETS`: no scrim, arrow to the bolt while the tray is closed, then to that power-up's square in
   the row. Seen on the Android emulator (LowHeap192, 2280x1080): arrow on the bolt; one tap on the
   bolt with only the Checkpoints owned opened the tray AND turned it on (the single entry lands

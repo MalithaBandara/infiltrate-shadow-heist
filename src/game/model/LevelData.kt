@@ -498,6 +498,13 @@ data class TutorialStep(
      * it on also completes the step, whatever [targetAction] is. Level 4's `step_use_checkpoint`.
      */
     val requiresPowerup: PowerupType? = null,
+    /**
+     * Only on the visit that handed out [Level4CheckpointGift] - the player's first start of the
+     * level - and never on any later attempt, retry or replay ("show it only the first time. after
+     * that never show it again", 2026-11-14). It had shown on every attempt while a Checkpoints was
+     * owned, which told players who had BOUGHT one that it was "free", even after clearing the level.
+     */
+    val firstVisitOnly: Boolean = false,
     val highlight: TutorialControlHighlight = TutorialControlHighlight.NONE,
     val handwrittenCallout: String? = null,
     // Only read when highlight == NONE: a world-anchored callout (text position and arrow tip,
@@ -1985,9 +1992,9 @@ data class LevelData(
             playerCrouchForwardSpeedMultiplier = 1.45,
             tutorialSteps = listOf(
                 // Where players stopped (Level4CheckpointGift): the first start of level 4 hands
-                // out a free Checkpoints, and this says to use it before setting off. Shown on
-                // any attempt while one is owned and not live; gone at the first move or once it
-                // is on ("show it until he starts to move or activates the powerup", 2026-11-14).
+                // out a free Checkpoints, and this says to use it before setting off. Only on that
+                // first start (firstVisitOnly); gone at the first move or once it is on ("show it
+                // until he starts to move or activates the powerup", 2026-11-14).
                 TutorialStep(
                     id = "step_use_checkpoint",
                     triggerMinX = LEVEL_4_LAYOUT.playerStartX,
@@ -1997,6 +2004,7 @@ data class LevelData(
                     instructionDesktop = "Press [1] to use the Checkpoint power-up. If you are caught, you restart at the last checkpoint instead of the start.",
                     targetAction = TutorialAction.FIRST_MOVE,
                     requiresPowerup = PowerupType.CHECKPOINTS,
+                    firstVisitOnly = true,
                     highlight = TutorialControlHighlight.GADGETS,
                     handwrittenCallout = "(Recommended) Use your free Checkpoint power-up!"
                 )

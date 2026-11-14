@@ -177,6 +177,8 @@ class GameplayScene(
     private var shieldFlareTimer: Double = 0.0
     private var bgMusicAppliedVolume: Double = -1.0
     private var cachedProfile: GameProfile = GameProfile()
+    /** See TutorialStep.firstVisitOnly: true only on the visit that granted Level4CheckpointGift. */
+    private var giftGrantedThisVisit: Boolean = false
 
     // Tutorial state
     private var currentTutorialStep: TutorialStep? = null
@@ -422,16 +424,17 @@ class GameplayScene(
             setRaw = { k, v -> views.storage[k] = v }
         )
         // Level 4's one free Checkpoints, before anything reads the profile for the HUD - see
-        // Level4CheckpointGift (once per install, never for a player who has cleared it).
+        // Level4CheckpointGift (once per install, never for a player who has cleared it). Whether
+        // it was handed out on THIS visit is what lets a TutorialStep.firstVisitOnly step show.
         try {
-            if (Level4CheckpointGift.claimOnLevelStart(
-                    levelData.id,
-                    getRaw = { views.storage.getOrNull(it) },
-                    setRaw = { k, v -> views.storage[k] = v },
-                    profiles = profileStorage,
-                    levels = levelStorage
-                )
-            ) println("[Level4CheckpointGift] granted one Checkpoints")
+            giftGrantedThisVisit = Level4CheckpointGift.claimOnLevelStart(
+                levelData.id,
+                getRaw = { views.storage.getOrNull(it) },
+                setRaw = { k, v -> views.storage[k] = v },
+                profiles = profileStorage,
+                levels = levelStorage
+            )
+            if (giftGrantedThisVisit) println("[Level4CheckpointGift] granted one Checkpoints")
         } catch (e: Throwable) {
             println("[Level4CheckpointGift] skipped: $e")
         }
@@ -3699,6 +3702,7 @@ class GameplayScene(
                             // See TutorialStep.requiresPushCartGrip - an X window cannot say
                             // "now that you are holding it".
                             (!step.requiresPushCartGrip || world.grippedCart != null) &&
+                            (!step.firstVisitOnly || giftGrantedThisVisit) &&
                             // See TutorialStep.requiresPowerup - never recommend what isn't owned.
                             step.requiresPowerup.let { p ->
                                 p == null || (cachedProfile.getPowerupCount(p) > 0 && !world.activePowerups.isActive(p))
