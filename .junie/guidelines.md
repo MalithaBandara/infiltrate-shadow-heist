@@ -161,8 +161,11 @@ carries `proguard.map` for crash deobfuscation.
   tip, `levels_cleared_N` for every distinct clear, and Persian (fa) as the 17th language. The
   version name is 1.1.4 again on the owner's instruction ("keep the version code as 1.1.4"); if
   App Store Connect has approved 1.1.4, the iOS upload is refused with error 90186 - check the
-  upload log. Build 34 (tag `v1.1.5-34`) was pushed but never built: its CI runs were cancelled
-  on request ("dont build it yet").)
+  upload log. Build 35's upload was accepted ("UPLOAD SUCCEEDED with no errors", tag
+  `v1.1.4-35`, Delivery UUID 4ecc0a63-9f9b-4d16-8e2e-53bbda1bdbad), so the 1.1.4 train was still
+  open; the signed AAB is CI run 43590709457's `android-release-aab` artifact. Build 34 (tag
+  `v1.1.5-34`) was pushed but never built: its CI runs were cancelled on request ("dont build it
+  yet").)
   Before that:
   Android `versionCode` 34 / `versionName` "1.1.5", iOS `CFBundleVersion` 34 /
   "1.1.5" (2026-11-14: build 34 = 33 plus the save fixes - build 33's Play rollout was HALTED
