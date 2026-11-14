@@ -7,7 +7,7 @@ class LocalizationTest {
 
     private val allLanguages = listOf(
         "en", "fr", "it", "es", "pt-BR", "de", "id", "tr",
-        "vi", "ru", "ja", "ko", "zh-TW", "hi", "ar", "th"
+        "vi", "ru", "ja", "ko", "zh-TW", "hi", "ar", "fa", "th"
     )
 
     @Test
@@ -81,6 +81,9 @@ class LocalizationTest {
         assertEquals("vi", Localization.langCode("vi"))
         assertEquals("hi", Localization.langCode("hi"))
         assertEquals("ar", Localization.langCode("ar"))
+        assertEquals("fa", Localization.langCode("fa"))
+        assertEquals("fa", Localization.langCode("fa-IR"))
+        assertEquals("fa", Localization.langCode("fa_IR"))
         assertEquals("th", Localization.langCode("th"))
 
         assertEquals("en", Localization.langCode("en"))
@@ -179,11 +182,39 @@ class LocalizationTest {
         assertEquals("id", Localization.supportedLanguageFor("in-ID"))
         assertEquals("en", Localization.supportedLanguageFor("en-CA"))
         assertEquals("it", Localization.supportedLanguageFor("it-IT"))
+        assertEquals("fa", Localization.supportedLanguageFor("fa"))
+        assertEquals("fa", Localization.supportedLanguageFor("fa-IR"))
+        assertEquals("fa", Localization.supportedLanguageFor("fa_IR"))
+        assertEquals("fa", Localization.firstSupportedLanguage(listOf("fa-IR", "en-US")))
         assertEquals(null, Localization.supportedLanguageFor("hr-HR"))
         assertEquals(null, Localization.supportedLanguageFor(""))
         // Falls through unsupported preferences to the next one the game has.
         assertEquals("de", Localization.firstSupportedLanguage(listOf("nl-NL", "de-DE", "en-US")))
         assertEquals(null, Localization.firstSupportedLanguage(listOf("nl-NL", "sv-SE")))
+    }
+
+    /**
+     * Persian is written with its own yeh (U+06CC) and keheh (U+06A9), not the Arabic ones
+     * (U+064A, U+0643) that look alike in the middle of a word but not at its end.
+     */
+    @Test
+    fun testPersianUsesPersianLettersNotArabicOnes() {
+        val steps = LevelData.DEFAULT_LEVELS.flatMap { it.tutorialSteps }
+        val strings = LevelData.DEFAULT_LEVELS.flatMap {
+            listOf(it.localizedName("fa"), it.localizedDescription("fa"), it.localizedObjectiveHint("fa"))
+        } + steps.flatMap {
+            listOf(it.localizedCallout("fa"), it.localizedTitle("fa"), it.localizedInstructionTouch("fa"), it.localizedInstructionDesktop("fa"))
+        } + IntroSubtitles.LINES.getValue("fa") + PowerupType.entries.flatMap {
+            listOf(Localization.powerupName(it, "fa"), Localization.powerupDescription(it, "fa"))
+        } + listOf(
+            Localization.play("fa"), Localization.store("fa"), Localization.settings("fa"),
+            Localization.powerupsTab("fa"), Localization.confirmResetDesc("fa"), Localization.loading("fa")
+        )
+        for (s in strings) {
+            assertFalse(s.contains('\u064A') || s.contains('\u0643'), "Arabic yeh/kaf in Persian: $s")
+        }
+        assertTrue(strings.any { it.contains('\u06CC') } && strings.any { it.contains('\u06A9') })
+        assertTrue(Localization.store("fa") != Localization.store("ar"))
     }
 
     @Test

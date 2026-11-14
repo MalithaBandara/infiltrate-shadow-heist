@@ -8,7 +8,7 @@ class IntroSubtitlesTest {
 
     private val allLanguages = listOf(
         "en", "fr", "it", "es", "pt-BR", "de", "id", "tr",
-        "vi", "ru", "ja", "ko", "zh-TW", "hi", "ar", "th"
+        "vi", "ru", "ja", "ko", "zh-TW", "hi", "ar", "fa", "th"
     )
 
     @Test

@@ -89,6 +89,7 @@ targets:
           - ru
           - hi
           - ar
+          - fa
           - th
         CFBundleShortVersionString: "1.1.5"
         CFBundleVersion: "34"

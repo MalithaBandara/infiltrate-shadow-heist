@@ -77,7 +77,7 @@ enum class SettingsTab {
 data class LanguageOption(val code: String, val nativeName: String)
 
 /**
- * Every language `game.model.Localization` has a full set of strings for (16).
+ * Every language `game.model.Localization` has a full set of strings for (17).
  */
 val ALL_SUPPORTED_LANGUAGES = listOf(
     LanguageOption("en", "English"),
@@ -92,6 +92,7 @@ val ALL_SUPPORTED_LANGUAGES = listOf(
     LanguageOption("vi", "Tiếng Việt"),
     LanguageOption("tr", "Türkçe"),
     LanguageOption("ar", "العربية"),
+    LanguageOption("fa", "فارسی"),
     LanguageOption("th", "ไทย"),
     LanguageOption("ko", "한국어"),
     LanguageOption("ru", "Русский"),

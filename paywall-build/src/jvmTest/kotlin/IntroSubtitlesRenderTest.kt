@@ -48,7 +48,9 @@ class IntroSubtitlesRenderTest {
     @Test
     fun renderIntroSubtitles() {
         val dir = System.getenv("RENDER_INTRO_SUBS") ?: return
-        val cases = listOf("en" to 5.0, "fr" to 18.5, "de" to 50.0, "ja" to 5.0, "ar" to 18.5, "hi" to 50.0)
+        val cases = listOf("en" to 5.0, "fr" to 18.5, "de" to 50.0, "ja" to 5.0, "ar" to 18.5, "hi" to 50.0,
+            // Persian: پ ی ک, the «» quotes, چ, گ
+            "fa" to 5.0, "fa" to 18.5, "fa" to 50.0, "fa" to 46.5)
         for ((lang, t) in cases) {
             val bytes = File(dir, "frames/frame_$t.png").readBytes()
             val bitmap = org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap()
@@ -79,7 +81,7 @@ class IntroSubtitlesRenderTest {
     @Test
     fun renderSettingsWithSubtitlesRow() {
         val dir = System.getenv("RENDER_INTRO_SUBS") ?: return
-        for (lang in listOf("en", "fr")) {
+        for (lang in listOf("en", "fr", "fa")) {
             val scene = ImageComposeScene(width = 2340, height = 1080, density = Density(1.5f)) {
                 CompositionLocalProvider(LocalAppLanguage provides lang) {
                     SettingsScreen(

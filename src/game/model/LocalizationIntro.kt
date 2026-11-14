@@ -10,7 +10,7 @@ data class IntroSubtitleCue(val start: Double, val end: Double)
  * word timestamps, each cue shown 0.15s before its words and held 0.5s after, never into the next
  * cue. A sentence longer than ~42 characters that holds two sentences is split at its full stop.
  * Re-time if the video is re-cut. The English is the narration word for word ("the Copier"
- * capitalised as the machine's name); the other 15 languages are machine-drafted translations,
+ * capitalised as the machine's name); the other 16 languages are machine-drafted translations,
  * not reviewed by native speakers.
  *
  * Off by default for English and on for every other language - see [defaultOn] and
@@ -290,6 +290,22 @@ object IntroSubtitles {
             "إلى أن عثر عليه شيءٌ من تلك الليلة من جديد.",
             "كان الماضي يخفي سرًّا أخيرًا.",
             "كان حوض بناء السفن يحمل الدليل التالي."
+        ),
+        Localization.FA to listOf(
+            "پنج سال پیش، دو دزد برای یک کار غیرممکن استخدام شدند.",
+            "هدفشان دستگاهی بود که قرار نبود کسی از وجودش باخبر شود.",
+            "اسمش را «نسخه‌بردار» گذاشته بودند.",
+            "هیچ‌کس نمی‌دانست واقعاً از پس چه کاری برمی‌آید.",
+            "پیش از آنکه بتوانند آن را ببرند، دستگاه جان گرفت.",
+            "وقتی نور فرو نشست، یکی از آن‌ها ناپدید شده بود.",
+            "دستگاه خاموش شد.",
+            "شریکش رفته بود.",
+            "و پنج سال تمام، تلاش کرد فراموش کند.",
+            "پنج سال گذشته بود.",
+            "او گذشته را پشت سر گذاشته بود.",
+            "تا اینکه چیزی از آن شب دوباره پیدایش کرد.",
+            "گذشته یک راز آخر داشت.",
+            "سرنخ بعدی در کشتی‌سازی بود."
         ),
         Localization.TH to listOf(
             "ห้าปีก่อน หัวขโมยสองคนถูกจ้างให้ทำงานที่เป็นไปไม่ได้",
