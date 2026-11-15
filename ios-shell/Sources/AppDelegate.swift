@@ -34,6 +34,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         configureAudioSession()
         // Before any gameplay can start, so a level's first events aren't dropped.
         FirebaseGameAnalyticsSink.configureIfAvailable()
+        // Before KorGE boots, so the first loading screen can already draw non-Latin text.
+        SystemTextRasterizer.register()
 
         ShellAppDelegate.shared.applicationDidFinishLaunching(app: application)
         let window = ShellAppDelegate.shared.window
