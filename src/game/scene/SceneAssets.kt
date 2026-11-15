@@ -239,6 +239,9 @@ object SceneAssets {
         )
     }
 
+    /** Whether [font] is the tutorials' handwritten face - GameText draws its platform stand-in lighter. */
+    internal fun isHandwritten(font: Any?): Boolean = font != null && fonts["handwritten.ttf"] === font
+
     /** Cached [readTtfFont], falling back to [fallback] (default [DefaultTtfFont]) on failure. */
     suspend fun font(name: String, fallback: TtfFont = DefaultTtfFont): TtfFont {
         fonts[name]?.let {

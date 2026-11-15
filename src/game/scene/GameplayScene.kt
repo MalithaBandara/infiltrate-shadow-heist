@@ -327,6 +327,8 @@ class GameplayScene(
         // ScreenLayout.gameplayTopInset for the full reasoning and for the portrait exception.
         val safeTopInset = ScreenLayout.gameplayTopInset(safeInsets, canvasW, canvasH)
         val currentLanguage = (try { views.storage["user_language"] } catch (_: Throwable) { null }) ?: "en"
+        // For text the game's own fonts cannot draw - see GameText.
+        PlatformText.languageTag = currentLanguage
 
         // --- Loading screen -------------------------------------------------------------
         // From here on, what this scene asks SceneAssets for is what it keeps - see

@@ -1190,6 +1190,24 @@ Confirmed on the S25 Ultra; other OEMs unknown (looks Samsung-specific).
     edges as bright as the core. Write `RGBA(r*a/255, g*a/255, b*a/255, a)`
     (`VentFxAssets.premul`). korim's PNG decoder already premultiplies; only hand-built bitmaps.
 
+12. **In-game text in non-Latin languages was blank** (owner, 2026-11-15, Japanese and Hindi on a
+    phone; menus fine because Compose falls back to system fonts). `BebasNeue-Regular.ttf` and
+    `handwritten.ttf` are Latin only (Bebas also lacks Cyrillic, both lack some Vietnamese letters)
+    and KorGE draws a missing glyph as nothing - 8 of 17 languages. Fix: every `text(...)` in
+    `game.scene` now resolves to `GameText.kt`'s package-level `Container.text` (it shadows the
+    star-imported KorGE one, so no call site changed) and builds a `GameText : Text`. A string its
+    font covers takes KorGE's path unchanged; any other is drawn WHOLE by the platform's text
+    engine (`renderPlatformText`: `expect` in `src/PlatformText.kt`, actuals in `src@*/`,
+    android-shell's plain copy in `androidshell/PlatformText.kt` - Android `Paint`; iOS through
+    Swift's `SystemTextRasterizer` registered on `GameTextBridge`; JVM Java2D; JS/wasm `null` =
+    old path) and shown as a tinted image, at 0.8 of the text size, in the font's own line box.
+    A bundled font would not do: KorGE places one glyph per character and cannot shape Arabic,
+    Hindi or Thai. `GameTextTest` (`RENDER_GAME_TEXT=<dir>` dumps PNGs). **Checked**: jvmTest,
+    android-shell `compileReleaseKotlin`, desktop PNGs of ja/ko/zh-TW/ar/fa/ru/vi (this Windows
+    JVM has no Hindi/Thai fallback - boxes there, desktop only). **Not seen on a phone; the iOS
+    Kotlin and Swift have never been compiled** - check the iOS workflow's raw log. Long
+    translations may now overflow layouts that were only ever seen in Latin.
+
 **Lesson**: the grey screen had two unrelated causes (#5, #6) after three wrong audio theories;
 on-screen exception diagnostics in `sceneMain()` broke the loop - reach for that first on any "blank
 screen, no error" report.
