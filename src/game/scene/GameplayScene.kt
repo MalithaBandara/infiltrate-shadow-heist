@@ -345,6 +345,9 @@ class GameplayScene(
 
         // One full frame so the loading screen is actually painted before the loads below
         delayFrame()
+        // It is on screen now: a host that covered the empty view while KorGE got this far (Android's
+        // loading cover) can take its cover away.
+        LoadingScreenSignal.shown()
 
         val totalLoadSteps = 36
         var loadStepsDone = 0
@@ -6446,59 +6449,24 @@ class GameplayScene(
             loadingRoot.solidRect(canvasW, canvasH, Colors.BLACK)
         }
 
-        // The splash is sized off the canvas HEIGHT, unlike everything else on this screen.
-        //
-        // The gameplay rule (game.model.ScreenLayout) keeps the authored 1040x480 rect and grows
-        // the canvas around it, so a squarer screen gets extra sky rather than a bigger world.
-        // That is right for a level and wrong for a title card: sized as a share of width, the
-        // logo holds 34% of the width everywhere but falls from a quarter of the reference
-        // phone's height to a seventh of a 4:3 iPad's, with the difference left as dead margin -
-        // which is the "logo too small, bar too short on iPad" report. Scaling by
-        // canvasH / DESIGN_HEIGHT instead holds the share of HEIGHT constant, which is what the
-        // eye is actually measuring against.
-        //
-        // The ceiling guards a canvas squarer than any real device (ScreenLayout clamps at 1:1,
-        // where this would otherwise reach 2.17). A 4:3 iPad lands at 1.625 and gives up 1.5%.
-        //
-        // Written as an aspect ratio rather than as canvasH / DESIGN_HEIGHT, which is the same
-        // number only while the canvas is exactly the design rect grown to fit. ScreenLayout's
-        // zoom cap broke that identity - a 4:3 canvas is now 800x600, not 1040x780 - and the
-        // height-only form silently shrank the logo back to 43% of the screen on a tablet, undoing
-        // the fix above. This form holds the share of height constant whatever canvas it is handed.
-        val splashScale =
-            (ScreenLayout.DESIGN_ASPECT * canvasH / canvasW).coerceIn(1.0, 1.6)
-
-        val loadingLogoWidth = canvasW * 0.34 * splashScale
-        val loadingLogoHeight = if (loadingLogoBitmap != null) {
-            loadingLogoWidth * loadingLogoBitmap.height / loadingLogoBitmap.width
-        } else {
-            0.0
-        }
-        val loadingBarWidth = canvasW * 0.30 * splashScale
-        // The bar's width drives its height so it keeps the flat sliver proportion it was drawn
-        // with instead of thickening on a taller canvas. 14.4 is the reference 312 x 21.6.
-        val loadingBarHeight = loadingBarWidth / 14.4
-        val loadingLogoGap = 35.0 * splashScale
-        val loadingLabelGap = 17.0 * splashScale
-        val loadingLabelHeight = loadingBarHeight * 0.62
-
-        // Centre the stack as one block instead of pinning each piece to its own fraction of the
-        // height - fractions push the pieces apart as the canvas grows, which is the other half
-        // of why this read as small and scattered on an iPad. 0.474 is where the reference
-        // stack's centre already sat, so a 1040x480 canvas still renders what it always did
-        // (logo top 125.0 vs 124.8, bar top 277.9 vs 278.4).
-        val loadingBlockHeight = loadingLogoHeight + loadingLogoGap + loadingBarHeight +
-            loadingLabelGap + loadingLabelHeight
-        val loadingBlockTop = canvasH * 0.474 - loadingBlockHeight / 2.0
+        // Every position below comes from LoadingScreenLayout, which Android's loading cover draws
+        // from too (android-shell's LoadingCover.kt) - the reasoning behind each number lives there.
+        val layout = LoadingScreenLayout(
+            canvasW, canvasH, loadingLogoBitmap?.width ?: 0, loadingLogoBitmap?.height ?: 0
+        )
+        val loadingLogoWidth = layout.logoWidth
+        val loadingBarWidth = layout.barWidth
+        val loadingBarHeight = layout.barHeight
+        val loadingLabelHeight = layout.labelHeight
 
         if (loadingLogoBitmap != null) {
             val logoScale = loadingLogoWidth / loadingLogoBitmap.width
             loadingRoot.image(loadingLogoBitmap) { scale(logoScale) }
-                .xy((canvasW - loadingLogoWidth) / 2.0, loadingBlockTop)
+                .xy(layout.logoX, layout.logoY)
         }
 
-        val loadingBarX = (canvasW - loadingBarWidth) / 2.0
-        val loadingBarY = loadingBlockTop + loadingLogoHeight + loadingLogoGap
+        val loadingBarX = layout.barX
+        val loadingBarY = layout.barY
 
         val loadingBarFillContainer = loadingRoot.container().xy(loadingBarX, loadingBarY)
         var loadingBarFillView: View? = null
@@ -6515,7 +6483,7 @@ class GameplayScene(
         }
         setProgress(0.0)
         loadingRoot.uiGraphics().xy(loadingBarX, loadingBarY).updateShape {
-            stroke(Colors.WHITE.withAd(0.85), StrokeInfo(thickness = 1.5)) {
+            stroke(Colors.WHITE.withAd(LoadingScreenLayout.BAR_STROKE_ALPHA), StrokeInfo(thickness = LoadingScreenLayout.BAR_STROKE)) {
                 rect(0.0, 0.0, loadingBarWidth, loadingBarHeight)
             }
         }
@@ -6528,7 +6496,7 @@ class GameplayScene(
         )
         loadingLabel.graphicsRenderer = GraphicsRenderer.GPU
         val labelW = try { loadingLabel.width } catch (_: Throwable) { 120.0 }
-        loadingLabel.xy((canvasW - labelW) / 2.0, loadingBarY + loadingBarHeight + loadingLabelGap)
+        loadingLabel.xy((canvasW - labelW) / 2.0, layout.labelY)
 
         val blinkPeriodSeconds = 2.2
         val blinkVisibleFraction = 0.88

@@ -5,6 +5,10 @@ import android.os.Bundle
 import android.os.LocaleList
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
@@ -38,6 +42,7 @@ import com.sample.demo.review.AndroidInAppReviewBridgeState
 import game.model.DeviceScreen
 import game.model.GameProfileStorage
 import game.model.LevelData
+import game.model.LoadingScreenSignal
 import game.model.MapBackedGameProfileStorage
 import game.model.SystemLanguage
 import game.scene.DeviceViewport
@@ -73,6 +78,15 @@ private val windowSize = Size(1560, 720)
 /** The display refresh asked for while gameplay is showing - see MainActivity.applyGameplayFrameRate. */
 private const val GAMEPLAY_REFRESH_HZ = 60f
 
+/** The longest the loading cover stays up waiting for KorGE's loading screen - see LoadingCover. */
+private const val LOADING_COVER_TIMEOUT_MS = 20_000L
+
+/** How long the cover stays after KorGE says its loading screen is drawn, for that frame to reach the display. */
+private const val LOADING_COVER_HOLD_MS = 150L
+
+/** How long the loading cover takes to fade off KorGE's own loading screen. */
+private const val LOADING_COVER_FADE_MS = 150
+
 /** How long a transition waits for a ready ad to reach the screen. Not a limit on the ad itself. */
 private const val INTERSTITIAL_DISPLAY_TIMEOUT_MS = 10_000L
 
@@ -100,6 +114,10 @@ private const val INTERSTITIAL_DISPLAY_TIMEOUT_MS = 10_000L
 class MainActivity : ComponentActivity() {
     private var korgeView: KorgeAndroidView? = null
     private val showingGameplay = mutableStateOf(false)
+    /** The loading cover is over KorGE's view: from a level start until KorGE's loading screen is up - see LoadingCover. */
+    private val showingLoadingCover = mutableStateOf(false)
+    /** The language the cover's label is in: the profile's, read when a level is started. */
+    private val coverLanguage = mutableStateOf("en")
     private var activeSceneContainer: SceneContainer? = null
     private val profileStorage: GameProfileStorage by lazy {
         MapBackedGameProfileStorage(
@@ -127,6 +145,17 @@ class MainActivity : ComponentActivity() {
         // own art left to load - see GamePreload. Its resourcesVfs reads need the Context from the
         // coroutine (the KorGE view's own coroutines carry it; this one would not otherwise).
         GamePreload.start(AndroidCoroutineContext(applicationContext))
+        // The loading cover's own copies of the loading screen's art, decoded in the background too.
+        LoadingCoverArt.load(this)
+        // GameplayScene raises this on KorGE's thread once its loading screen has been drawn. Drawn
+        // is not yet displayed: the frame still has to be swapped and composited, a few frames on
+        // (a recording showed the cover fading onto the empty view for three frames without this
+        // hold), so the cover stays a moment longer before it starts to fade.
+        LoadingScreenSignal.onShown = {
+            runOnUiThread {
+                window.decorView.postDelayed({ showingLoadingCover.value = false }, LOADING_COVER_HOLD_MS)
+            }
+        }
         StoreBilling.setApplication(application)
         StoreBilling.initialize(BuildConfig.REVENUECAT_GOOGLE_KEY)
         InAppReview.init(this)
@@ -187,6 +216,14 @@ class MainActivity : ComponentActivity() {
             val gameplayVisible by showingGameplay
             // The one place every switch between menu and gameplay passes through.
             LaunchedEffect(gameplayVisible) { applyGameplayFrameRate(gameplayVisible) }
+            val loadingCoverVisible by showingLoadingCover
+            // A level that never reaches its loading screen must not leave the cover up for good.
+            LaunchedEffect(loadingCoverVisible) {
+                if (loadingCoverVisible) {
+                    delay(LOADING_COVER_TIMEOUT_MS)
+                    showingLoadingCover.value = false
+                }
+            }
             Box(Modifier.fillMaxSize()) {
                 // Always attached and rendering - see the class doc comment above for why this
                 // is never set to View.GONE. The Compose menu below draws opaquely over it
@@ -197,6 +234,16 @@ class MainActivity : ComponentActivity() {
                 )
                 if (!gameplayVisible) {
                     NavigationRoot(onStartLevel = { levelId -> startLevel(levelId) })
+                }
+                // Up in the same frame the menu goes, so KorGE's empty view is never what shows;
+                // faded out over a few frames once the real loading screen is underneath it, so the
+                // two renderers' sub-pixel differences are never swapped in one frame.
+                AnimatedVisibility(
+                    visible = gameplayVisible && loadingCoverVisible,
+                    enter = EnterTransition.None,
+                    exit = fadeOut(tween(LOADING_COVER_FADE_MS))
+                ) {
+                    LoadingCover(language = coverLanguage.value)
                 }
                 // Inert until Swift-equivalent (showContinueAd, below) sets
                 // ContinueAdTrigger.requestShow() - see paywall-build/src/androidMain/kotlin/ContinueAdBridge.android.kt.
@@ -236,6 +283,8 @@ class MainActivity : ComponentActivity() {
     private fun startLevel(levelId: String) {
         val view = korgeView ?: return
         val levelData = LevelData.DEFAULT_LEVELS.firstOrNull { it.id == levelId } ?: LevelData.DEFAULT_LEVEL_1
+        coverLanguage.value = profileStorage.getProfile().language
+        showingLoadingCover.value = true
         showingGameplay.value = true
         if (view.moduleLoaded) {
             val sc = activeSceneContainer
