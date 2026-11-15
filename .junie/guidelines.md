@@ -1213,6 +1213,24 @@ Confirmed on the S25 Ultra; other OEMs unknown (looks Samsung-specific).
     Kotlin and Swift have never been compiled** - check the iOS workflow's raw log. Long
     translations may now overflow layouts that were only ever seen in Latin.
 
+13. **Grey screen between PLAY and the loading screen (Android)** (owner, 2026-11-15). The menu goes
+    the instant a level is started, but KorGE has nothing drawn yet: on the first level of a
+    session `startLevel` boots the engine (`view.loadModule`), then the loading screen waits for
+    its art, so KorGE's empty #16161d view showed - seconds on a slow phone. Fix: `LoadingCover`
+    (android-shell), the same loading screen drawn by the host over KorGE's view from `startLevel`
+    until `game.model.LoadingScreenSignal.shown()` (GameplayScene, a frame after its loading screen
+    is built), then held 150ms (drawn is not yet displayed) and faded over 150ms. Both sides take
+    every position from `game.model.LoadingScreenLayout`; the cover maps the canvas with KorGE's
+    own `setBoundsInfo`, draws the label by GameText's rule, and the bar outline as strips of
+    0.57/scale px of ink - what KorGE's GPU stroke measured at 1.5, 2.25 and 3 px per unit, not the
+    nominal 1.5 units. **Change the loading screen and the cover together.** Measured on the API 31
+    emulator (1080p and 720p, ja/en/hi): 34-64 of 2.5M pixels differ by 48+ levels; a frame-by-frame
+    recording shows menu -> cover in one frame and <= 0.25/255 change across the hand-over. At a
+    forced 1440p the logo sat half a pixel off. Not seen on a phone; iOS has no cover (KorGE is
+    warm there). The same work found GameText rasterising at 1 px per unit (globalMatrix has no
+    canvas-to-window scale; now multiplied by `ctx.bp.globalToWindowScaleAvg`) - build 37 shipped
+    with that soft non-Latin text.
+
 **Lesson**: the grey screen had two unrelated causes (#5, #6) after three wrong audio theories;
 on-screen exception diagnostics in `sceneMain()` broke the loop - reach for that first on any "blank
 screen, no error" report.

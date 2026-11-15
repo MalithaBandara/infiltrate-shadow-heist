@@ -36,7 +36,7 @@ object PlatformText {
     var languageTag: String = ""
 
     /** The scale the last [GameText] was drawn at: the first guess for one not yet drawn. */
-    internal var lastScale: Double = 3.0
+    var lastScale: Double = 3.0
 }
 
 /**
@@ -156,11 +156,12 @@ class GameText(
             view?.visible = false
             return super.renderInternal(ctx)
         }
+        // Device pixels per unit: this view's own scale times the canvas-to-window scale, which
+        // KorGE applies outside the view tree (so globalMatrix alone says 1 for a HUD label on any
+        // phone - and the text was being rasterised at one pixel per unit and stretched, soft).
         val m = globalMatrix
-        val wanted = (ceil(hypot(m.a, m.b) * 2.0) / 2.0).coerceIn(MIN_SCALE, MAX_SCALE)
-        // Sharper when it is drawn bigger than it was rasterised for; not redrawn for every step
-        // of a shrink, which a text tweening in or out would otherwise pay for frame by frame.
-        if (wanted > rasterScale || wanted < rasterScale * 0.5) {
+        val wanted = rasterScaleFor(rasterScale, hypot(m.a, m.b) * ctx.bp.globalToWindowScaleAvg)
+        if (wanted != rasterScale) {
             rasterScale = wanted
             PlatformText.lastScale = wanted
         }
@@ -187,6 +188,18 @@ class GameText(
         private const val BASELINE_RATIO = 0.8
         private const val MIN_SCALE = 1.0
         private const val MAX_SCALE = 6.0
+
+        /**
+         * The scale a text rasterised at [current] should be rasterised at when it is drawn at
+         * [drawnScale] device pixels per unit: sharper when it is drawn bigger than it was
+         * rasterised for, but not redrawn for every step of a shrink, which a text tweening in or
+         * out would otherwise pay for frame by frame. Android's loading cover asks the same
+         * question, to draw its label exactly as this does.
+         */
+        fun rasterScaleFor(current: Double, drawnScale: Double): Double {
+            val wanted = (ceil(drawnScale * 2.0) / 2.0).coerceIn(MIN_SCALE, MAX_SCALE)
+            return if (wanted > current || wanted < current * 0.5) wanted else current
+        }
     }
 }
 
