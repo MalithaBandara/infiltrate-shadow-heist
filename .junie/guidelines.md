@@ -156,7 +156,12 @@ carries `proguard.map` for crash deobfuscation.
 
 - **Build number lives in THREE places - bump together**: `ios-shell/project.yml`
   `CFBundleVersion`, `ios-testflight.yml`'s `build_number` default, `android-shell` `versionCode`.
-- **Currently**: Android `versionCode` 36 / `versionName` "1.1.4", iOS `CFBundleVersion` 36 /
+- **Currently**: Android `versionCode` 37 / `versionName` "1.1.6", iOS `CFBundleVersion` 37 /
+  "1.1.6" (2026-11-15: build 37 = 36 plus in-game text for non-Latin languages - GameText, see
+  Real device bugs #12. 1.1.6 on the owner's instruction. First build whose iOS Kotlin and Swift
+  for platform text get compiled - read the iOS workflows' raw logs.)
+  Before that:
+  Android `versionCode` 36 / `versionName` "1.1.4", iOS `CFBundleVersion` 36 /
   "1.1.4" (2026-11-14: build 36 = 35 plus level 4's free-Checkpoint tip limited to the first visit
   (`TutorialStep.firstVisitOnly`) - build 35 showed it on every attempt while one was owned.)
   Before that:
