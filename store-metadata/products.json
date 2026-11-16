@@ -1,0 +1,622 @@
+{
+  "_comment": "In-app product titles and descriptions for App Store Connect and Google Play, per game language, uploaded by tools/store_products.py (pull reads what the stores have, push writes this). appStore / play are the product IDs in each store. Each store language takes its game language (es-ES, es-MX, es-419, es-US -> es; zh-Hant, zh-TW, zh-HK -> zh-TW; pt-PT -> pt-BR). Limits: appStoreName 2-30, appStoreDescription 45, playTitle 55, playDescription 200.",
+  "products": {
+    "coins_tier_1": {
+      "appStore": "coins_tier_1",
+      "play": "coins_tier_1",
+      "coins": 1000,
+      "text": {
+        "en": {
+          "appStoreName": "Smuggler's Pouch",
+          "appStoreDescription": "1,000 coins to spend on stealth gadgets.",
+          "playTitle": "Smuggler's Pouch (1,000 Coins)",
+          "playDescription": "A smuggler's pouch of 1,000 coins - a quick top-up between heists. Spend them on gadgets like the Invisibility Cloak and Silent Boots."
+        },
+        "fr": {
+          "appStoreName": "Bourse du Contrebandier",
+          "appStoreDescription": "1 000 pièces à dépenser en gadgets",
+          "playTitle": "Bourse du Contrebandier (1 000 pièces)",
+          "playDescription": "Une bourse de contrebandier remplie de 1 000 pièces pour vous renflouer entre deux braquages. Dépensez-les en gadgets comme la Cape d'invisibilité ou les Bottes silencieuses."
+        },
+        "it": {
+          "appStoreName": "Borsello del Contrabbandiere",
+          "appStoreDescription": "1.000 monete da spendere in gadget",
+          "playTitle": "Borsello del Contrabbandiere (1.000 monete)",
+          "playDescription": "Un borsello da contrabbandiere con 1.000 monete: una ricarica veloce tra un colpo e l'altro. Spendile in gadget come il Mantello dell'invisibilità e gli Stivali silenziosi."
+        },
+        "es": {
+          "appStoreName": "Bolsa de Contrabandista",
+          "appStoreDescription": "1.000 monedas para gastar en artilugios",
+          "playTitle": "Bolsa de Contrabandista (1.000 monedas)",
+          "playDescription": "Una bolsa de contrabandista con 1.000 monedas: una recarga rápida entre golpe y golpe. Gástalas en artilugios como la Capa de invisibilidad y las Botas silenciosas."
+        },
+        "pt-BR": {
+          "appStoreName": "Bolsa do Contrabandista",
+          "appStoreDescription": "1.000 moedas para gastar em dispositivos",
+          "playTitle": "Bolsa do Contrabandista (1.000 moedas)",
+          "playDescription": "Uma bolsa de contrabandista com 1.000 moedas: uma recarga rápida entre um golpe e outro. Gaste em dispositivos como a Capa de invisibilidade e as Botas silenciosas."
+        },
+        "de": {
+          "appStoreName": "Schmugglerbeutel",
+          "appStoreDescription": "1.000 Münzen für Stealth-Gadgets",
+          "playTitle": "Schmugglerbeutel (1.000 Münzen)",
+          "playDescription": "Ein Schmugglerbeutel mit 1.000 Münzen – die schnelle Aufstockung zwischen zwei Coups. Gib sie für Gadgets wie den Tarnumhang und die Leisen Stiefel aus."
+        },
+        "id": {
+          "appStoreName": "Kantung Penyelundup",
+          "appStoreDescription": "1.000 koin untuk membeli gadget",
+          "playTitle": "Kantung Penyelundup (1.000 Koin)",
+          "playDescription": "Kantung penyelundup berisi 1.000 koin, tambahan cepat di antara misi pencurian. Belanjakan untuk gadget seperti Jubah Tembus Pandang dan Sepatu Senyap."
+        },
+        "tr": {
+          "appStoreName": "Kaçakçı Kesesi",
+          "appStoreDescription": "Gizlilik aletleri için 1.000 jeton",
+          "playTitle": "Kaçakçı Kesesi (1.000 Jeton)",
+          "playDescription": "1.000 jetonla dolu bir kaçakçı kesesi: soygunlar arasında hızlı bir takviye. Bunları Görünmezlik Pelerini ve Sessiz Botlar gibi aletlere harca."
+        },
+        "vi": {
+          "appStoreName": "Túi Kẻ Buôn Lậu",
+          "appStoreDescription": "1.000 xu để mua tiện ích hỗ trợ ẩn nấp",
+          "playTitle": "Túi Kẻ Buôn Lậu (1.000 Xu)",
+          "playDescription": "Túi của kẻ buôn lậu chứa 1.000 xu – nguồn tiếp tế nhanh giữa các phi vụ. Dùng xu để mua tiện ích như Áo Choàng Tàng Hình và Giày Êm Ái."
+        },
+        "ru": {
+          "appStoreName": "Мешок контрабандиста",
+          "appStoreDescription": "1000 монет на шпионские гаджеты",
+          "playTitle": "Мешок контрабандиста (1000 монет)",
+          "playDescription": "Мешок контрабандиста на 1000 монет — быстрое пополнение между ограблениями. Тратьте их на гаджеты вроде плаща-невидимки и бесшумных ботинок."
+        },
+        "ja": {
+          "appStoreName": "密輸人の巾着",
+          "appStoreDescription": "潜入ガジェットに使える1,000コイン",
+          "playTitle": "密輸人の巾着（1,000コイン）",
+          "playDescription": "密輸人の巾着に入った1,000コイン。強奪の合間の手軽な補充に。光学迷彩マントや消音ブーツなどのガジェットに使えます。"
+        },
+        "ko": {
+          "appStoreName": "밀수꾼의 주머니",
+          "appStoreDescription": "잠입 가젯 구매에 쓸 수 있는 1,000 코인",
+          "playTitle": "밀수꾼의 주머니 (1,000 코인)",
+          "playDescription": "1,000 코인이 든 밀수꾼의 주머니. 작전 사이에 빠르게 보충하세요. 투명 망토, 저소음 부츠 같은 가젯 구매에 사용하세요."
+        },
+        "zh-TW": {
+          "appStoreName": "走私客金袋",
+          "appStoreDescription": "1,000 枚金幣，用於購買潛入道具",
+          "playTitle": "走私客金袋（1,000 金幣）",
+          "playDescription": "裝有 1,000 枚金幣的走私客金袋，任務之間快速補給。可用來購買隱形斗篷、靜音靴等道具。"
+        },
+        "hi": {
+          "appStoreName": "तस्कर की थैली",
+          "appStoreDescription": "स्टेल्थ गैजेट्स के लिए 1,000 सिक्के",
+          "playTitle": "तस्कर की थैली (1,000 सिक्के)",
+          "playDescription": "1,000 सिक्कों से भरी तस्कर की थैली - डकैतियों के बीच झटपट भरपाई। इन्हें अदृश्यता चोगा और शांत जूते जैसे गैजेट्स पर खर्च करें।"
+        },
+        "ar": {
+          "appStoreName": "كيس المهرب",
+          "appStoreDescription": "1,000 عملة لشراء أدوات التسلل",
+          "playTitle": "كيس المهرب (1,000 عملة)",
+          "playDescription": "كيس مهرب يحوي 1,000 عملة، دفعة سريعة بين عملية وأخرى. أنفقها على أدوات مثل عباءة الإخفاء والأحذية الصامتة."
+        },
+        "th": {
+          "appStoreName": "ถุงเงินคนลักลอบ",
+          "appStoreDescription": "1,000 เหรียญสำหรับซื้อแกดเจ็ตลอบเร้น",
+          "playTitle": "ถุงเงินคนลักลอบ (1,000 เหรียญ)",
+          "playDescription": "ถุงเงินของคนลักลอบที่มี 1,000 เหรียญ เติมเงินด่วนระหว่างภารกิจ ใช้ซื้อแกดเจ็ตอย่างผ้าคลุมล่องหนและรองเท้าไร้เสียง"
+        }
+      }
+    },
+    "coins_tier_2": {
+      "appStore": "coins_tier_2",
+      "play": "coins_tier_2",
+      "coins": 2500,
+      "text": {
+        "en": {
+          "appStoreName": "Tactical Briefcase",
+          "appStoreDescription": "2,500 coins to spend on stealth gadgets.",
+          "playTitle": "Tactical Briefcase (2,500 Coins)",
+          "playDescription": "A tactical briefcase packed with 2,500 coins to gear up for the next job. Spend them on gadgets like the Invisibility Cloak and Silent Boots."
+        },
+        "fr": {
+          "appStoreName": "Mallette Tactique",
+          "appStoreDescription": "2 500 pièces à dépenser en gadgets",
+          "playTitle": "Mallette Tactique (2 500 pièces)",
+          "playDescription": "Une mallette tactique contenant 2 500 pièces pour vous équiper avant la prochaine mission. Dépensez-les en gadgets comme la Cape d'invisibilité ou les Bottes silencieuses."
+        },
+        "it": {
+          "appStoreName": "Valigetta Tattica",
+          "appStoreDescription": "2.500 monete da spendere in gadget",
+          "playTitle": "Valigetta Tattica (2.500 monete)",
+          "playDescription": "Una valigetta tattica con 2.500 monete per equipaggiarti prima del prossimo colpo. Spendile in gadget come il Mantello dell'invisibilità e gli Stivali silenziosi."
+        },
+        "es": {
+          "appStoreName": "Maletín Táctico",
+          "appStoreDescription": "2.500 monedas para gastar en artilugios",
+          "playTitle": "Maletín Táctico (2.500 monedas)",
+          "playDescription": "Un maletín táctico con 2.500 monedas para equiparte antes del próximo golpe. Gástalas en artilugios como la Capa de invisibilidad y las Botas silenciosas."
+        },
+        "pt-BR": {
+          "appStoreName": "Maleta Tática",
+          "appStoreDescription": "2.500 moedas para gastar em dispositivos",
+          "playTitle": "Maleta Tática (2.500 moedas)",
+          "playDescription": "Uma maleta tática com 2.500 moedas para se equipar antes do próximo golpe. Gaste em dispositivos como a Capa de invisibilidade e as Botas silenciosas."
+        },
+        "de": {
+          "appStoreName": "Taktik-Koffer",
+          "appStoreDescription": "2.500 Münzen für Stealth-Gadgets",
+          "playTitle": "Taktik-Koffer (2.500 Münzen)",
+          "playDescription": "Ein Taktik-Koffer voller 2.500 Münzen, damit du für den nächsten Coup gerüstet bist. Gib sie für Gadgets wie den Tarnumhang und die Leisen Stiefel aus."
+        },
+        "id": {
+          "appStoreName": "Koper Taktis",
+          "appStoreDescription": "2.500 koin untuk membeli gadget",
+          "playTitle": "Koper Taktis (2.500 Koin)",
+          "playDescription": "Koper taktis berisi 2.500 koin untuk bersiap sebelum misi berikutnya. Belanjakan untuk gadget seperti Jubah Tembus Pandang dan Sepatu Senyap."
+        },
+        "tr": {
+          "appStoreName": "Taktik Çanta",
+          "appStoreDescription": "Gizlilik aletleri için 2.500 jeton",
+          "playTitle": "Taktik Çanta (2.500 Jeton)",
+          "playDescription": "2.500 jeton taşıyan taktik bir çanta; bir sonraki soygun için hazırlan. Bunları Görünmezlik Pelerini ve Sessiz Botlar gibi aletlere harca."
+        },
+        "vi": {
+          "appStoreName": "Vali Chiến Thuật",
+          "appStoreDescription": "2.500 xu để mua tiện ích hỗ trợ ẩn nấp",
+          "playTitle": "Vali Chiến Thuật (2.500 Xu)",
+          "playDescription": "Vali chiến thuật chứa 2.500 xu để bạn trang bị cho phi vụ tiếp theo. Dùng xu để mua tiện ích như Áo Choàng Tàng Hình và Giày Êm Ái."
+        },
+        "ru": {
+          "appStoreName": "Тактический кейс",
+          "appStoreDescription": "2500 монет на шпионские гаджеты",
+          "playTitle": "Тактический кейс (2500 монет)",
+          "playDescription": "Тактический кейс на 2500 монет, чтобы подготовиться к следующему делу. Тратьте их на гаджеты вроде плаща-невидимки и бесшумных ботинок."
+        },
+        "ja": {
+          "appStoreName": "戦術アタッシュケース",
+          "appStoreDescription": "潜入ガジェットに使える2,500コイン",
+          "playTitle": "戦術アタッシュケース（2,500コイン）",
+          "playDescription": "2,500コインが詰まった戦術アタッシュケース。次のミッションに備えよう。光学迷彩マントや消音ブーツなどのガジェットに使えます。"
+        },
+        "ko": {
+          "appStoreName": "전술 가방",
+          "appStoreDescription": "잠입 가젯 구매에 쓸 수 있는 2,500 코인",
+          "playTitle": "전술 가방 (2,500 코인)",
+          "playDescription": "2,500 코인이 담긴 전술 가방. 다음 작전을 위해 장비를 갖추세요. 투명 망토, 저소음 부츠 같은 가젯 구매에 사용하세요."
+        },
+        "zh-TW": {
+          "appStoreName": "特務公事包",
+          "appStoreDescription": "2,500 枚金幣，用於購買潛入道具",
+          "playTitle": "特務公事包（2,500 金幣）",
+          "playDescription": "裝滿 2,500 枚金幣的特務公事包，為下一次行動做好準備。可用來購買隱形斗篷、靜音靴等道具。"
+        },
+        "hi": {
+          "appStoreName": "सामरिक ब्रीफकेस",
+          "appStoreDescription": "स्टेल्थ गैजेट्स के लिए 2,500 सिक्के",
+          "playTitle": "सामरिक ब्रीफकेस (2,500 सिक्के)",
+          "playDescription": "2,500 सिक्कों वाला सामरिक ब्रीफकेस, अगली डकैती की तैयारी के लिए। इन्हें अदृश्यता चोगा और शांत जूते जैसे गैजेट्स पर खर्च करें।"
+        },
+        "ar": {
+          "appStoreName": "حقيبة تكتيكية",
+          "appStoreDescription": "2,500 عملة لشراء أدوات التسلل",
+          "playTitle": "حقيبة تكتيكية (2,500 عملة)",
+          "playDescription": "حقيبة تكتيكية تحوي 2,500 عملة لتستعد للعملية التالية. أنفقها على أدوات مثل عباءة الإخفاء والأحذية الصامتة."
+        },
+        "th": {
+          "appStoreName": "กระเป๋าเอกสารทางยุทธวิธี",
+          "appStoreDescription": "2,500 เหรียญสำหรับซื้อแกดเจ็ตลอบเร้น",
+          "playTitle": "กระเป๋าเอกสารทางยุทธวิธี (2,500 เหรียญ)",
+          "playDescription": "กระเป๋าเอกสารทางยุทธวิธีบรรจุ 2,500 เหรียญ เตรียมพร้อมสำหรับภารกิจถัดไป ใช้ซื้อแกดเจ็ตอย่างผ้าคลุมล่องหนและรองเท้าไร้เสียง"
+        }
+      }
+    },
+    "coins_tier_3": {
+      "appStore": "coins_tier_3",
+      "play": "coins_tier_3",
+      "coins": 4000,
+      "text": {
+        "en": {
+          "appStoreName": "Operative Stash",
+          "appStoreDescription": "4,000 coins to spend on stealth gadgets.",
+          "playTitle": "Operative Stash (4,000 Coins)",
+          "playDescription": "An operative's hidden stash of 4,000 coins to keep your kit stocked. Spend them on gadgets like the Invisibility Cloak and Silent Boots."
+        },
+        "fr": {
+          "appStoreName": "Réserve d'Agent",
+          "appStoreDescription": "4 000 pièces à dépenser en gadgets",
+          "playTitle": "Réserve d'Agent (4 000 pièces)",
+          "playDescription": "La réserve secrète d'un agent : 4 000 pièces pour garder votre équipement au complet. Dépensez-les en gadgets comme la Cape d'invisibilité ou les Bottes silencieuses."
+        },
+        "it": {
+          "appStoreName": "Scorta dell'Agente",
+          "appStoreDescription": "4.000 monete da spendere in gadget",
+          "playTitle": "Scorta dell'Agente (4.000 monete)",
+          "playDescription": "La scorta segreta di un agente: 4.000 monete per avere sempre l'equipaggiamento pronto. Spendile in gadget come il Mantello dell'invisibilità e gli Stivali silenziosi."
+        },
+        "es": {
+          "appStoreName": "Alijo de Operativo",
+          "appStoreDescription": "4.000 monedas para gastar en artilugios",
+          "playTitle": "Alijo de Operativo (4.000 monedas)",
+          "playDescription": "El alijo secreto de un operativo: 4.000 monedas para tener tu equipo siempre listo. Gástalas en artilugios como la Capa de invisibilidad y las Botas silenciosas."
+        },
+        "pt-BR": {
+          "appStoreName": "Reserva do Operativo",
+          "appStoreDescription": "4.000 moedas para gastar em dispositivos",
+          "playTitle": "Reserva do Operativo (4.000 moedas)",
+          "playDescription": "A reserva secreta de um operativo: 4.000 moedas para manter seu equipamento sempre pronto. Gaste em dispositivos como a Capa de invisibilidade e as Botas silenciosas."
+        },
+        "de": {
+          "appStoreName": "Agentenversteck",
+          "appStoreDescription": "4.000 Münzen für Stealth-Gadgets",
+          "playTitle": "Agentenversteck (4.000 Münzen)",
+          "playDescription": "Das geheime Versteck eines Agenten: 4.000 Münzen, damit dir die Ausrüstung nie ausgeht. Gib sie für Gadgets wie den Tarnumhang und die Leisen Stiefel aus."
+        },
+        "id": {
+          "appStoreName": "Simpanan Operatif",
+          "appStoreDescription": "4.000 koin untuk membeli gadget",
+          "playTitle": "Simpanan Operatif (4.000 Koin)",
+          "playDescription": "Simpanan rahasia seorang operatif: 4.000 koin agar perlengkapan Anda selalu siap. Belanjakan untuk gadget seperti Jubah Tembus Pandang dan Sepatu Senyap."
+        },
+        "tr": {
+          "appStoreName": "Ajan Zulası",
+          "appStoreDescription": "Gizlilik aletleri için 4.000 jeton",
+          "playTitle": "Ajan Zulası (4.000 Jeton)",
+          "playDescription": "Bir ajanın gizli zulası: ekipmanını hep hazır tutman için 4.000 jeton. Bunları Görünmezlik Pelerini ve Sessiz Botlar gibi aletlere harca."
+        },
+        "vi": {
+          "appStoreName": "Kho Báu Điệp Viên",
+          "appStoreDescription": "4.000 xu để mua tiện ích hỗ trợ ẩn nấp",
+          "playTitle": "Kho Báu Điệp Viên (4.000 Xu)",
+          "playDescription": "Kho báu bí mật của điệp viên: 4.000 xu để trang bị luôn sẵn sàng. Dùng xu để mua tiện ích như Áo Choàng Tàng Hình và Giày Êm Ái."
+        },
+        "ru": {
+          "appStoreName": "Тайник агента",
+          "appStoreDescription": "4000 монет на шпионские гаджеты",
+          "playTitle": "Тайник агента (4000 монет)",
+          "playDescription": "Тайник агента: 4000 монет, чтобы снаряжение всегда было под рукой. Тратьте их на гаджеты вроде плаща-невидимки и бесшумных ботинок."
+        },
+        "ja": {
+          "appStoreName": "工作員の隠し財産",
+          "appStoreDescription": "潜入ガジェットに使える4,000コイン",
+          "playTitle": "工作員の隠し財産（4,000コイン）",
+          "playDescription": "工作員が隠し持つ4,000コイン。装備をいつでも万全に。光学迷彩マントや消音ブーツなどのガジェットに使えます。"
+        },
+        "ko": {
+          "appStoreName": "요원의 비상금",
+          "appStoreDescription": "잠입 가젯 구매에 쓸 수 있는 4,000 코인",
+          "playTitle": "요원의 비상금 (4,000 코인)",
+          "playDescription": "요원이 숨겨 둔 비상금 4,000 코인. 장비를 언제나 든든하게 유지하세요. 투명 망토, 저소음 부츠 같은 가젯 구매에 사용하세요."
+        },
+        "zh-TW": {
+          "appStoreName": "特務私藏金庫",
+          "appStoreDescription": "4,000 枚金幣，用於購買潛入道具",
+          "playTitle": "特務私藏金庫（4,000 金幣）",
+          "playDescription": "特務暗藏的 4,000 枚金幣，讓你的裝備隨時齊全。可用來購買隱形斗篷、靜音靴等道具。"
+        },
+        "hi": {
+          "appStoreName": "ऑपरेटिव खजाना",
+          "appStoreDescription": "स्टेल्थ गैजेट्स के लिए 4,000 सिक्के",
+          "playTitle": "ऑपरेटिव खजाना (4,000 सिक्के)",
+          "playDescription": "एक ऑपरेटिव का गुप्त खजाना: 4,000 सिक्के, ताकि आपका साज़ो-सामान हमेशा तैयार रहे। इन्हें अदृश्यता चोगा और शांत जूते जैसे गैजेट्स पर खर्च करें।"
+        },
+        "ar": {
+          "appStoreName": "مخبأ العميل",
+          "appStoreDescription": "4,000 عملة لشراء أدوات التسلل",
+          "playTitle": "مخبأ العميل (4,000 عملة)",
+          "playDescription": "مخبأ العميل السري: 4,000 عملة لتبقى معداتك جاهزة دائماً. أنفقها على أدوات مثل عباءة الإخفاء والأحذية الصامتة."
+        },
+        "th": {
+          "appStoreName": "คลังเก็บของเจ้าหน้าที่",
+          "appStoreDescription": "4,000 เหรียญสำหรับซื้อแกดเจ็ตลอบเร้น",
+          "playTitle": "คลังเก็บของเจ้าหน้าที่ (4,000 เหรียญ)",
+          "playDescription": "คลังลับของเจ้าหน้าที่ 4,000 เหรียญ ให้อุปกรณ์ของคุณพร้อมเสมอ ใช้ซื้อแกดเจ็ตอย่างผ้าคลุมล่องหนและรองเท้าไร้เสียง"
+        }
+      }
+    },
+    "coins_tier_4": {
+      "appStore": "coins_tier_4",
+      "play": "coins_tier_4",
+      "coins": 7500,
+      "text": {
+        "en": {
+          "appStoreName": "Heist Duffle Bag",
+          "appStoreDescription": "7,500 coins to spend on stealth gadgets.",
+          "playTitle": "Heist Duffle Bag (7,500 Coins)",
+          "playDescription": "A heist duffle bag stuffed with 7,500 coins for the toughest missions. Spend them on gadgets like the Invisibility Cloak and Silent Boots."
+        },
+        "fr": {
+          "appStoreName": "Sac de Braquage",
+          "appStoreDescription": "7 500 pièces à dépenser en gadgets",
+          "playTitle": "Sac de Braquage (7 500 pièces)",
+          "playDescription": "Un sac de braquage bourré de 7 500 pièces pour les missions les plus difficiles. Dépensez-les en gadgets comme la Cape d'invisibilité ou les Bottes silencieuses."
+        },
+        "it": {
+          "appStoreName": "Borsone da Rapina",
+          "appStoreDescription": "7.500 monete da spendere in gadget",
+          "playTitle": "Borsone da Rapina (7.500 monete)",
+          "playDescription": "Un borsone da rapina pieno di 7.500 monete per le missioni più difficili. Spendile in gadget come il Mantello dell'invisibilità e gli Stivali silenziosi."
+        },
+        "es": {
+          "appStoreName": "Bolsa de Robo",
+          "appStoreDescription": "7.500 monedas para gastar en artilugios",
+          "playTitle": "Bolsa de Robo (7.500 monedas)",
+          "playDescription": "Una bolsa de robo repleta de 7.500 monedas para las misiones más difíciles. Gástalas en artilugios como la Capa de invisibilidad y las Botas silenciosas."
+        },
+        "pt-BR": {
+          "appStoreName": "Bolsa do Golpe",
+          "appStoreDescription": "7.500 moedas para gastar em dispositivos",
+          "playTitle": "Bolsa do Golpe (7.500 moedas)",
+          "playDescription": "Uma bolsa do golpe recheada com 7.500 moedas para as missões mais difíceis. Gaste em dispositivos como a Capa de invisibilidade e as Botas silenciosas."
+        },
+        "de": {
+          "appStoreName": "Beute-Sporttasche",
+          "appStoreDescription": "7.500 Münzen für Stealth-Gadgets",
+          "playTitle": "Beute-Sporttasche (7.500 Münzen)",
+          "playDescription": "Eine Beute-Sporttasche mit 7.500 Münzen für die härtesten Missionen. Gib sie für Gadgets wie den Tarnumhang und die Leisen Stiefel aus."
+        },
+        "id": {
+          "appStoreName": "Tas Duffel Heist",
+          "appStoreDescription": "7.500 koin untuk membeli gadget",
+          "playTitle": "Tas Duffel Heist (7.500 Koin)",
+          "playDescription": "Tas duffel penuh 7.500 koin untuk misi-misi tersulit. Belanjakan untuk gadget seperti Jubah Tembus Pandang dan Sepatu Senyap."
+        },
+        "tr": {
+          "appStoreName": "Soygun Çantası",
+          "appStoreDescription": "Gizlilik aletleri için 7.500 jeton",
+          "playTitle": "Soygun Çantası (7.500 Jeton)",
+          "playDescription": "En zorlu görevler için 7.500 jetonla tıka basa dolu bir soygun çantası. Bunları Görünmezlik Pelerini ve Sessiz Botlar gibi aletlere harca."
+        },
+        "vi": {
+          "appStoreName": "Túi Duffle Cướp Được",
+          "appStoreDescription": "7.500 xu để mua tiện ích hỗ trợ ẩn nấp",
+          "playTitle": "Túi Duffle Cướp Được (7.500 Xu)",
+          "playDescription": "Túi duffle chứa đầy 7.500 xu cho những nhiệm vụ khó nhất. Dùng xu để mua tiện ích như Áo Choàng Tàng Hình và Giày Êm Ái."
+        },
+        "ru": {
+          "appStoreName": "Сумка с добычей",
+          "appStoreDescription": "7500 монет на шпионские гаджеты",
+          "playTitle": "Сумка с добычей (7500 монет)",
+          "playDescription": "Сумка с добычей: 7500 монет для самых сложных миссий. Тратьте их на гаджеты вроде плаща-невидимки и бесшумных ботинок."
+        },
+        "ja": {
+          "appStoreName": "強奪ダッフルバッグ",
+          "appStoreDescription": "潜入ガジェットに使える7,500コイン",
+          "playTitle": "強奪ダッフルバッグ（7,500コイン）",
+          "playDescription": "7,500コインがぎっしり詰まった強奪ダッフルバッグ。最難関のミッションに。光学迷彩マントや消音ブーツなどのガジェットに使えます。"
+        },
+        "ko": {
+          "appStoreName": "강탈 더플백",
+          "appStoreDescription": "잠입 가젯 구매에 쓸 수 있는 7,500 코인",
+          "playTitle": "강탈 더플백 (7,500 코인)",
+          "playDescription": "7,500 코인이 가득 든 강탈 더플백. 가장 어려운 임무에 대비하세요. 투명 망토, 저소음 부츠 같은 가젯 구매에 사용하세요."
+        },
+        "zh-TW": {
+          "appStoreName": "巨額搶劫行李袋",
+          "appStoreDescription": "7,500 枚金幣，用於購買潛入道具",
+          "playTitle": "巨額搶劫行李袋（7,500 金幣）",
+          "playDescription": "塞滿 7,500 枚金幣的搶劫行李袋，挑戰最艱難的任務。可用來購買隱形斗篷、靜音靴等道具。"
+        },
+        "hi": {
+          "appStoreName": "डकैती डफल बैग",
+          "appStoreDescription": "स्टेल्थ गैजेट्स के लिए 7,500 सिक्के",
+          "playTitle": "डकैती डफल बैग (7,500 सिक्के)",
+          "playDescription": "7,500 सिक्कों से भरा डकैती डफल बैग, सबसे कठिन मिशनों के लिए। इन्हें अदृश्यता चोगा और शांत जूते जैसे गैजेट्स पर खर्च करें।"
+        },
+        "ar": {
+          "appStoreName": "حقيبة السرقة",
+          "appStoreDescription": "7,500 عملة لشراء أدوات التسلل",
+          "playTitle": "حقيبة السرقة (7,500 عملة)",
+          "playDescription": "حقيبة سرقة محشوة بـ 7,500 عملة لأصعب المهمات. أنفقها على أدوات مثل عباءة الإخفاء والأحذية الصامتة."
+        },
+        "th": {
+          "appStoreName": "กระเป๋าดัฟเฟิลโจรกรรม",
+          "appStoreDescription": "7,500 เหรียญสำหรับซื้อแกดเจ็ตลอบเร้น",
+          "playTitle": "กระเป๋าดัฟเฟิลโจรกรรม (7,500 เหรียญ)",
+          "playDescription": "กระเป๋าดัฟเฟิลอัดแน่นด้วย 7,500 เหรียญ สำหรับภารกิจที่ยากที่สุด ใช้ซื้อแกดเจ็ตอย่างผ้าคลุมล่องหนและรองเท้าไร้เสียง"
+        }
+      }
+    },
+    "coins_tier_5": {
+      "appStore": "coins_tier_5",
+      "play": "coins_tier_5",
+      "coins": 20000,
+      "text": {
+        "en": {
+          "appStoreName": "Black Market Vault",
+          "appStoreDescription": "20,000 coins to spend on stealth gadgets.",
+          "playTitle": "Black Market Vault (20,000 Coins)",
+          "playDescription": "The biggest haul in the Store: a black market vault holding 20,000 coins. Spend them on gadgets like the Invisibility Cloak and Silent Boots."
+        },
+        "fr": {
+          "appStoreName": "Coffre du Marché Noir",
+          "appStoreDescription": "20 000 pièces à dépenser en gadgets",
+          "playTitle": "Coffre du Marché Noir (20 000 pièces)",
+          "playDescription": "Le plus gros butin de la boutique : un coffre du marché noir contenant 20 000 pièces. Dépensez-les en gadgets comme la Cape d'invisibilité ou les Bottes silencieuses."
+        },
+        "it": {
+          "appStoreName": "Caveau del Mercato Nero",
+          "appStoreDescription": "20.000 monete da spendere in gadget",
+          "playTitle": "Caveau del Mercato Nero (20.000 monete)",
+          "playDescription": "Il bottino più grande del negozio: un caveau del mercato nero con 20.000 monete. Spendile in gadget come il Mantello dell'invisibilità e gli Stivali silenziosi."
+        },
+        "es": {
+          "appStoreName": "Bóveda del Mercado Negro",
+          "appStoreDescription": "20.000 monedas para gastar en artilugios",
+          "playTitle": "Bóveda del Mercado Negro (20.000 monedas)",
+          "playDescription": "El mayor botín de la tienda: una bóveda del mercado negro con 20.000 monedas. Gástalas en artilugios como la Capa de invisibilidad y las Botas silenciosas."
+        },
+        "pt-BR": {
+          "appStoreName": "Cofre do Mercado Negro",
+          "appStoreDescription": "20.000 moedas para gastar em dispositivos",
+          "playTitle": "Cofre do Mercado Negro (20.000 moedas)",
+          "playDescription": "O maior saque da loja: um cofre do mercado negro com 20.000 moedas. Gaste em dispositivos como a Capa de invisibilidade e as Botas silenciosas."
+        },
+        "de": {
+          "appStoreName": "Schwarzmarkt-Tresor",
+          "appStoreDescription": "20.000 Münzen für Stealth-Gadgets",
+          "playTitle": "Schwarzmarkt-Tresor (20.000 Münzen)",
+          "playDescription": "Der größte Fang im Shop: ein Schwarzmarkt-Tresor mit 20.000 Münzen. Gib sie für Gadgets wie den Tarnumhang und die Leisen Stiefel aus."
+        },
+        "id": {
+          "appStoreName": "Brankas Pasar Gelap",
+          "appStoreDescription": "20.000 koin untuk membeli gadget",
+          "playTitle": "Brankas Pasar Gelap (20.000 Koin)",
+          "playDescription": "Jarahan terbesar di Toko: brankas pasar gelap berisi 20.000 koin. Belanjakan untuk gadget seperti Jubah Tembus Pandang dan Sepatu Senyap."
+        },
+        "tr": {
+          "appStoreName": "Karaborsa Kasası",
+          "appStoreDescription": "Gizlilik aletleri için 20.000 jeton",
+          "playTitle": "Karaborsa Kasası (20.000 Jeton)",
+          "playDescription": "Mağazadaki en büyük vurgun: 20.000 jeton dolu bir karaborsa kasası. Bunları Görünmezlik Pelerini ve Sessiz Botlar gibi aletlere harca."
+        },
+        "vi": {
+          "appStoreName": "Kho Chợ Đen",
+          "appStoreDescription": "20.000 xu để mua tiện ích hỗ trợ ẩn nấp",
+          "playTitle": "Kho Chợ Đen (20.000 Xu)",
+          "playDescription": "Chiến lợi phẩm lớn nhất cửa hàng: kho chợ đen chứa 20.000 xu. Dùng xu để mua tiện ích như Áo Choàng Tàng Hình và Giày Êm Ái."
+        },
+        "ru": {
+          "appStoreName": "Сейф чёрного рынка",
+          "appStoreDescription": "20 000 монет на шпионские гаджеты",
+          "playTitle": "Сейф чёрного рынка (20 000 монет)",
+          "playDescription": "Самый крупный куш в магазине: сейф чёрного рынка на 20 000 монет. Тратьте их на гаджеты вроде плаща-невидимки и бесшумных ботинок."
+        },
+        "ja": {
+          "appStoreName": "ブラックマーケット金庫",
+          "appStoreDescription": "潜入ガジェットに使える20,000コイン",
+          "playTitle": "ブラックマーケット金庫（20,000コイン）",
+          "playDescription": "ショップ最大の獲物：20,000コインが眠るブラックマーケット金庫。光学迷彩マントや消音ブーツなどのガジェットに使えます。"
+        },
+        "ko": {
+          "appStoreName": "암시장 금고",
+          "appStoreDescription": "잠입 가젯 구매에 쓸 수 있는 20,000 코인",
+          "playTitle": "암시장 금고 (20,000 코인)",
+          "playDescription": "상점 최대의 전리품: 20,000 코인이 든 암시장 금고. 투명 망토, 저소음 부츠 같은 가젯 구매에 사용하세요."
+        },
+        "zh-TW": {
+          "appStoreName": "黑市巨型金庫",
+          "appStoreDescription": "20,000 枚金幣，用於購買潛入道具",
+          "playTitle": "黑市巨型金庫（20,000 金幣）",
+          "playDescription": "商店最大的戰利品：藏有 20,000 枚金幣的黑市金庫。可用來購買隱形斗篷、靜音靴等道具。"
+        },
+        "hi": {
+          "appStoreName": "ब्लैक मार्केट वॉल्ट",
+          "appStoreDescription": "स्टेल्थ गैजेट्स के लिए 20,000 सिक्के",
+          "playTitle": "ब्लैक मार्केट वॉल्ट (20,000 सिक्के)",
+          "playDescription": "स्टोर की सबसे बड़ी लूट: 20,000 सिक्कों वाला ब्लैक मार्केट वॉल्ट। इन्हें अदृश्यता चोगा और शांत जूते जैसे गैजेट्स पर खर्च करें।"
+        },
+        "ar": {
+          "appStoreName": "خزينة السوق السوداء",
+          "appStoreDescription": "20,000 عملة لشراء أدوات التسلل",
+          "playTitle": "خزينة السوق السوداء (20,000 عملة)",
+          "playDescription": "أكبر غنيمة في المتجر: خزينة السوق السوداء وفيها 20,000 عملة. أنفقها على أدوات مثل عباءة الإخفاء والأحذية الصامتة."
+        },
+        "th": {
+          "appStoreName": "ตู้เซฟตลาดมืด",
+          "appStoreDescription": "20,000 เหรียญสำหรับซื้อแกดเจ็ตลอบเร้น",
+          "playTitle": "ตู้เซฟตลาดมืด (20,000 เหรียญ)",
+          "playDescription": "ของปล้นก้อนใหญ่ที่สุดในร้านค้า: ตู้เซฟตลาดมืดที่มี 20,000 เหรียญ ใช้ซื้อแกดเจ็ตอย่างผ้าคลุมล่องหนและรองเท้าไร้เสียง"
+        }
+      }
+    },
+    "remove_ads": {
+      "appStore": "remove_ads",
+      "play": "remove_ads",
+      "text": {
+        "en": {
+          "appStoreName": "Remove Ads",
+          "appStoreDescription": "No full-screen ads, 2x coins, +2,000 coins",
+          "playTitle": "Remove Ads + 2x Coins",
+          "playDescription": "Removes full-screen ads for good, doubles the coins you earn for every level clear and adds 2,000 bonus coins right away. Optional reward videos stay available."
+        },
+        "fr": {
+          "appStoreName": "Supprimer les pubs",
+          "appStoreDescription": "Zéro pub plein écran, gains x2, +2 000 pièces",
+          "playTitle": "Supprimer les pubs + pièces x2",
+          "playDescription": "Supprime définitivement les pubs plein écran, double les pièces gagnées à chaque niveau terminé et ajoute aussitôt 2 000 pièces bonus. Les vidéos récompensées facultatives restent disponibles."
+        },
+        "it": {
+          "appStoreName": "Rimuovi pubblicità",
+          "appStoreDescription": "Annunci a schermo intero rimossi, monete x2",
+          "playTitle": "Rimuovi pubblicità + monete x2",
+          "playDescription": "Rimuove per sempre gli annunci a schermo intero, raddoppia le monete guadagnate a ogni livello completato e aggiunge subito 2.000 monete bonus. I video con ricompensa facoltativi restano disponibili."
+        },
+        "es": {
+          "appStoreName": "Quitar anuncios",
+          "appStoreDescription": "Sin anuncios a pantalla completa, monedas x2",
+          "playTitle": "Quitar anuncios + monedas x2",
+          "playDescription": "Elimina para siempre los anuncios a pantalla completa, duplica las monedas de cada nivel superado y añade al instante 2.000 monedas extra. Los anuncios opcionales con recompensa siguen disponibles."
+        },
+        "pt-BR": {
+          "appStoreName": "Remover anúncios",
+          "appStoreDescription": "Sem anúncios em tela cheia, moedas x2",
+          "playTitle": "Remover anúncios + moedas x2",
+          "playDescription": "Remove para sempre os anúncios em tela cheia, dobra as moedas ganhas a cada fase concluída e adiciona na hora 2.000 moedas bônus. Os vídeos opcionais com recompensa continuam disponíveis."
+        },
+        "de": {
+          "appStoreName": "Werbung entfernen",
+          "appStoreDescription": "Keine Vollbildwerbung, doppelte Münzen",
+          "playTitle": "Werbung entfernen + 2x Münzen",
+          "playDescription": "Entfernt Vollbildwerbung dauerhaft, verdoppelt die Münzen für jedes abgeschlossene Level und schreibt dir sofort 2.000 Bonusmünzen gut. Optionale Belohnungsvideos bleiben verfügbar."
+        },
+        "id": {
+          "appStoreName": "Hapus Iklan",
+          "appStoreDescription": "Tanpa iklan layar penuh dan koin 2x",
+          "playTitle": "Hapus Iklan + Koin 2x",
+          "playDescription": "Menghapus iklan layar penuh selamanya, menggandakan koin dari setiap level yang diselesaikan, dan langsung menambahkan 2.000 koin bonus. Video berhadiah opsional tetap tersedia."
+        },
+        "tr": {
+          "appStoreName": "Reklamları Kaldır",
+          "appStoreDescription": "Tam ekran reklam yok, 2x jeton, +2.000 jeton",
+          "playTitle": "Reklamları Kaldır + 2x Jeton",
+          "playDescription": "Tam ekran reklamları kalıcı olarak kaldırır, tamamlanan her bölümden kazanılan jetonları ikiye katlar ve anında 2.000 bonus jeton ekler. İsteğe bağlı ödüllü videolar kullanılmaya devam eder."
+        },
+        "vi": {
+          "appStoreName": "Xóa Quảng Cáo",
+          "appStoreDescription": "Không quảng cáo toàn màn hình, nhân đôi xu",
+          "playTitle": "Xóa Quảng Cáo + Nhân Đôi Xu",
+          "playDescription": "Xóa vĩnh viễn quảng cáo toàn màn hình, nhân đôi số xu nhận được sau mỗi màn hoàn thành và tặng ngay 2.000 xu thưởng. Video nhận thưởng tùy chọn vẫn có sẵn."
+        },
+        "ru": {
+          "appStoreName": "Без рекламы",
+          "appStoreDescription": "Без полноэкранной рекламы, монеты x2, +2000",
+          "playTitle": "Без рекламы + монеты x2",
+          "playDescription": "Навсегда отключает полноэкранную рекламу, удваивает монеты за каждый пройденный уровень и сразу начисляет 2000 бонусных монет. Необязательные видео с наградой остаются доступными."
+        },
+        "ja": {
+          "appStoreName": "広告削除",
+          "appStoreDescription": "全画面広告なし・コイン2倍・+2,000コイン",
+          "playTitle": "広告削除＋コイン2倍",
+          "playDescription": "全画面広告を永久に削除し、レベルクリアごとの獲得コインが2倍に。さらに2,000ボーナスコインを即時付与。任意のリワード動画は引き続き利用できます。"
+        },
+        "ko": {
+          "appStoreName": "광고 제거",
+          "appStoreDescription": "전면 광고 제거, 코인 2배, 보너스 2,000 코인",
+          "playTitle": "광고 제거 + 코인 2배",
+          "playDescription": "전면 광고를 영구적으로 제거하고, 레벨을 클리어할 때마다 받는 코인을 2배로 늘리며, 보너스 코인 2,000개를 즉시 지급합니다. 선택형 보상형 동영상은 계속 이용할 수 있습니다."
+        },
+        "zh-TW": {
+          "appStoreName": "去除廣告",
+          "appStoreDescription": "移除全螢幕廣告、金幣 2 倍、再送 2,000 金幣",
+          "playTitle": "去除廣告＋金幣 2 倍",
+          "playDescription": "永久移除全螢幕廣告，每次通關獲得的金幣加倍，並立即贈送 2,000 枚獎勵金幣。自選觀看的獎勵影片仍可使用。"
+        },
+        "hi": {
+          "appStoreName": "विज्ञापन हटाएं",
+          "appStoreDescription": "फ़ुल-स्क्रीन विज्ञापन नहीं, 2x सिक्के",
+          "playTitle": "विज्ञापन हटाएं + 2x सिक्के",
+          "playDescription": "फ़ुल-स्क्रीन विज्ञापन हमेशा के लिए हटाता है, हर लेवल पूरा करने पर मिलने वाले सिक्के दोगुने करता है और तुरंत 2,000 बोनस सिक्के देता है। वैकल्पिक इनाम वाले वीडियो उपलब्ध रहते हैं।"
+        },
+        "ar": {
+          "appStoreName": "إزالة الإعلانات",
+          "appStoreDescription": "بلا إعلانات ملء الشاشة، عملات ×2، +2,000 عملة",
+          "playTitle": "إزالة الإعلانات + عملات ×2",
+          "playDescription": "يزيل إعلانات ملء الشاشة نهائياً، ويضاعف العملات التي تكسبها عند إنهاء كل مستوى، ويمنحك فوراً 2,000 عملة إضافية. تبقى فيديوهات المكافآت الاختيارية متاحة."
+        },
+        "th": {
+          "appStoreName": "ลบโฆษณา",
+          "appStoreDescription": "ไม่มีโฆษณาเต็มจอ เหรียญ x2 +2,000 เหรียญ",
+          "playTitle": "ลบโฆษณา + เหรียญ x2",
+          "playDescription": "ลบโฆษณาเต็มจอถาวร เพิ่มเหรียญที่ได้จากการผ่านทุกด่านเป็นสองเท่า และรับโบนัส 2,000 เหรียญทันที วิดีโอรับรางวัลแบบเลือกดูได้ยังคงใช้งานได้"
+        }
+      }
+    }
+  }
+}
