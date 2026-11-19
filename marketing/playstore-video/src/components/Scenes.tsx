@@ -1,6 +1,6 @@
 import React from 'react';
 import {AbsoluteFill, Easing, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
-import {ShotId} from '../shots';
+import {ShotDef, ShotId} from '../shots';
 import {C, DISPLAY, TEXT_SHADOW} from '../theme';
 import {Kinetic} from './Kinetic';
 import {Shot} from './Shot';
@@ -187,8 +187,21 @@ export const GadgetBurst: React.FC<{bg: ShotId; dur: number}> = ({bg, dur}) => {
 };
 
 /** Logo lit by a sweeping torch, then the tagline and the call to action. */
-export const EndCard: React.FC<{bg: ShotId; dur: number}> = ({bg, dur}) => {
-	const frame = useCurrentFrame();
+export const EndCard: React.FC<{
+	bg?: ShotId;
+	bgDef?: ShotDef;
+	dur: number;
+	/** Line under the logo. */
+	tag?: string;
+	/** Boxed line under the tag. */
+	cta?: string;
+	ctaSize?: number;
+	/** Official Google Play and App Store badges in place of the boxed line (the shorts). */
+	badges?: boolean;
+	/** Frames the reveal is squeezed into (the shorts' end card is shorter than the promo's). */
+	speed?: number;
+}> = ({bg, bgDef, dur, tag = 'STAY IN THE SHADOWS.', cta = 'A SILHOUETTE STEALTH HEIST', ctaSize = 40, badges = false, speed = 1}) => {
+	const frame = useCurrentFrame() * speed;
 	const {fps, width: W, height: H} = useVideoConfig();
 	const portrait = H > W;
 	const logoW = portrait ? 920 : 1150;
@@ -200,13 +213,13 @@ export const EndCard: React.FC<{bg: ShotId; dur: number}> = ({bg, dur}) => {
 	const mask = open >= 1 ? undefined : `radial-gradient(circle ${r}px at ${sweep}% 50%, #000 55%, transparent 100%)`;
 	const glare = interpolate(frame, [0, 10, 34, 50], [0, 0.55, 0.4, 0], clamp);
 	const bgIn = interpolate(frame, [0, 40], [0, 1], clamp);
-	const cta = spring({frame: frame - 66, fps, config: {damping: 18, stiffness: 140}});
-	const logoScale = interpolate(frame, [0, dur], [1.04, 1]);
+	const ctaIn = spring({frame: frame - 66, fps, config: {damping: 18, stiffness: 140}});
+	const logoScale = interpolate(frame, [0, dur * speed], [1.04, 1]);
 	const tagTop = logoTop + logoH + (portrait ? 70 : 52);
 	return (
 		<AbsoluteFill style={{background: '#000'}}>
 			<AbsoluteFill style={{opacity: bgIn}}>
-				<Shot id={bg} dur={dur} filter="blur(7px) brightness(0.3) saturate(0.8)" />
+				<Shot id={bg} def={bgDef} dur={dur} filter="blur(7px) brightness(0.3) saturate(0.8)" />
 			</AbsoluteFill>
 			<div
 				style={{
@@ -235,8 +248,8 @@ export const EndCard: React.FC<{bg: ShotId; dur: number}> = ({bg, dur}) => {
 				}}
 			/>
 			<Kinetic
-				lines={[{text: 'STAY IN THE SHADOWS.', size: portrait ? 84 : 92, color: C.paper}]}
-				at={44}
+				lines={[{text: tag, size: portrait ? 84 : 92, color: C.paper}]}
+				at={Math.round(44 / speed)}
 				stagger={3}
 				align="center"
 				style={{left: 0, right: 0, top: tagTop}}
@@ -249,25 +262,33 @@ export const EndCard: React.FC<{bg: ShotId; dur: number}> = ({bg, dur}) => {
 					top: tagTop + (portrait ? 150 : 150),
 					display: 'flex',
 					justifyContent: 'center',
-					opacity: cta,
-					transform: `translateY(${(1 - cta) * 24}px)`,
+					opacity: ctaIn,
+					transform: `translateY(${(1 - ctaIn) * 24}px)`,
 				}}
 			>
-				{/* A descriptor, not a button: Play's preview-asset rules bar price text ("free") and
-				    calls to action in the video as well as the screenshots. */}
-				<div
-					style={{
-						fontFamily: DISPLAY,
-						fontSize: 40,
-						letterSpacing: '0.22em',
-						color: C.torch,
-						border: `2px solid ${C.torch}88`,
-						padding: '12px 26px 6px 34px',
-						borderRadius: 4,
-					}}
-				>
-					A SILHOUETTE STEALTH HEIST
-				</div>
+				{badges ? (
+					// Official artwork, unaltered, same height, side by side with clear space between.
+					<div style={{display: 'flex', gap: 36, alignItems: 'center', filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.6))'}}>
+						<Img src={staticFile('img/badge_googleplay.png')} style={{height: 112}} />
+						<Img src={staticFile('img/badge_appstore.svg')} style={{height: 112}} />
+					</div>
+				) : (
+					// A descriptor, not a button: Play's preview-asset rules bar price text ("free") and
+					// calls to action in the video as well as the screenshots.
+					<div
+						style={{
+							fontFamily: DISPLAY,
+							fontSize: ctaSize,
+							letterSpacing: '0.22em',
+							color: C.torch,
+							border: `2px solid ${C.torch}88`,
+							padding: '12px 26px 6px 34px',
+							borderRadius: 4,
+						}}
+					>
+						{cta}
+					</div>
+				)}
 			</div>
 		</AbsoluteFill>
 	);

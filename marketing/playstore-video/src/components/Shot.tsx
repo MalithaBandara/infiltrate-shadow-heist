@@ -27,7 +27,9 @@ function cropCentreAt(pf: ShotDef['pfocus'], t: number): number {
  * follows the shot's `pfocus` keyframes where it needs to show something else.
  */
 export const Shot: React.FC<{
-	id: ShotId;
+	id?: ShotId;
+	/** A shot defined inline (the shorts) instead of by id from SHOTS. */
+	def?: ShotDef;
 	dur: number;
 	offset?: number;
 	style?: React.CSSProperties;
@@ -36,8 +38,8 @@ export const Shot: React.FC<{
 	zoom?: [number, number];
 	/** The box this shot fills, when it isn't the whole video frame (grid tiles). */
 	box?: {w: number; h: number};
-}> = ({id, dur, offset = 0, style, filter, zoom, box}) => {
-	const def: ShotDef = SHOTS[id];
+}> = ({id, def: inline, dur, offset = 0, style, filter, zoom, box}) => {
+	const def: ShotDef = inline ?? SHOTS[id!];
 	const frame = useCurrentFrame();
 	const {fps, width, height} = useVideoConfig();
 	const bw = box?.w ?? width;
